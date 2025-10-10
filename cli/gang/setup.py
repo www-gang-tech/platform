@@ -1,9 +1,9 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
 setup(
     name='gang-cli',
     version='1.0.0',
-    packages=find_packages(),
+    py_modules=['cli'],
     install_requires=[
         'click>=8.0.0',
         'pyyaml>=6.0',

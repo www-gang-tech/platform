@@ -154,13 +154,23 @@ This is a minimal working build system. Future enhancements planned:
 
 **Modified:**
 - `cli/gang/cli.py` - Implemented full build system
-- `cli/gang/setup.py` - Added markdown dependency
+- `cli/gang/setup.py` - Fixed module packaging (changed from `packages` to `py_modules`)
 
 **Created:**
 - `requirements.txt` - Python dependencies
 - `build.sh` - Cloudflare Pages build script
 - `CLOUDFLARE_SETUP.md` - Detailed setup guide
 - `DEPLOYMENT.md` - This file
+
+## Fixed Issues
+
+### Issue 1: Missing dist directory
+**Error:** `Output directory "dist" not found`  
+**Fix:** Implemented the `gang build` command to actually generate the dist folder
+
+### Issue 2: Module import error
+**Error:** `ModuleNotFoundError: No module named 'cli'`  
+**Fix:** Changed `setup.py` from `packages=find_packages()` to `py_modules=['cli']` for single-module packaging
 
 **Note:** The `.env.example` file that was deleted is not required for deployment.
 
