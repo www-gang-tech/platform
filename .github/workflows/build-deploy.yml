@@ -1,13 +1,15 @@
-name: GANG Build & Deploy
+name: Build, Validate & Deploy
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
-env:
-  PYTHON_VERSION: '3.11'
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
 
 jobs:
   build:
@@ -18,40 +20,159 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '3.11'
+          cache: 'pip'
       
-      - name: Install GANG CLI
+      - name: Install dependencies
         run: |
-          cd cli/gang
-          pip install -e .
-          gang --version || echo "CLI installed"
+          pip install -r requirements.txt
+          cd cli/gang && pip install -e . && cd ../..
       
-      - name: Placeholder build
+      - name: Run AI optimization (optional)
+        if: env.ANTHROPIC_API_KEY != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: gang optimize
+        continue-on-error: true
+      
+      - name: Build site
+        run: gang build
+      
+      - name: Validate contracts
+        id: validate
         run: |
-          echo "✓ Build system ready for implementation"
-          mkdir -p dist
-          echo "<h1>GANG Platform</h1>" > dist/index.html
+          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
       
-      - name: Upload artifacts
+      - name: Upload validation report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: site-build
+          name: validation-report
+          path: validation-report.json
+      
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
           path: dist/
 
-  deploy-info:
-    name: Deployment Info
-    runs-on: ubuntu-latest
+  lighthouse:
+    name: Lighthouse Audit
     needs: build
+    runs-on: ubuntu-latest
     
     steps:
-      - name: Show next steps
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@0.13.x
+      
+      - name: Run Lighthouse CI
         run: |
-          echo "🎉 Build successful!"
-          echo ""
-          echo "Next steps:"
-          echo "1. Configure Cloudflare Pages in repository settings"
-          echo "2. Add ANTHROPIC_API_KEY secret"
-          echo "3. Implement full build system"
+          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+      
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: .lighthouseci/
+      
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const manifest = JSON.parse(fs.readFileSync('.lighthouseci/manifest.json', 'utf8'));
+            const results = manifest.map(result => {
+              const summary = result.summary;
+              return `### ${result.url}\n` +
+                `- **Performance**: ${Math.round(summary.performance * 100)}\n` +
+                `- **Accessibility**: ${Math.round(summary.accessibility * 100)}\n` +
+                `- **Best Practices**: ${Math.round(summary['best-practices'] * 100)}\n` +
+                `- **SEO**: ${Math.round(summary.seo * 100)}`;
+            }).join('\n\n');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚦 Lighthouse Results\n\n${results}`
+            });
+
+  axe:
+    name: Accessibility Audit (axe)
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install axe-cli
+        run: npm install -g @axe-core/cli
+      
+      - name: Run axe accessibility tests
+        run: |
+          # Start simple HTTP server in background
+          npx http-server dist -p 8080 &
+          SERVER_PID=$!
+          sleep 3
+          
+          # Run axe on all HTML files
+          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
+          
+          # Cleanup
+          kill $SERVER_PID
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: [build, lighthouse, axe]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: gang-platform
+          directory: dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

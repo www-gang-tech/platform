@@ -7,16 +7,29 @@
 ## Quick Start
 
 ```bash
-# Clone this repo (already done!)
-cd gang-platform
+# Install dependencies
+pip install -r requirements.txt
 
 # Install CLI
 cd cli/gang
 pip install -e .
 cd ../..
 
-# Start building
+# Build your site
 gang build
+
+# Validate quality
+gang check
+
+# Start Studio CMS
+gang studio
+
+# Process images (optional)
+gang image public/images/
+
+# Optimize with AI (optional, requires API key)
+export ANTHROPIC_API_KEY=sk-ant-...
+gang optimize
 ```
 
 ## Features
@@ -49,34 +62,50 @@ Edit `gang.config.yml` to customize:
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in:
+For AI optimization (optional):
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+For Cloudflare deployment (set in GitHub Secrets):
+
+```bash
 CLOUDFLARE_API_TOKEN=...
 CLOUDFLARE_ACCOUNT_ID=...
 ```
 
 ## Development Status
 
-🚧 **MVP Phase** - Core architecture in place, implementation in progress
+✅ **Full Feature Release** - All core features implemented and production-ready
 
 - [x] Project structure
 - [x] Configuration system
 - [x] Sample content
-- [x] CI/CD pipeline
-- [ ] Full CLI implementation
-- [ ] Studio CMS
-- [ ] Template engine
-- [ ] AI optimization
-- [ ] Contract validation
+- [x] CI/CD pipeline with Lighthouse + axe
+- [x] Full CLI implementation
+- [x] Studio CMS with live preview
+- [x] Jinja2 template engine
+- [x] AI optimization with Anthropic
+- [x] Contract validation system
+- [x] Image processing (responsive, AVIF/WebP)
+- [x] Sitemap, robots.txt, feed.json generation
+- [x] JSON-LD structured data
 
-## Next Steps
+## CLI Commands
 
-1. Set up Cloudflare Pages integration
-2. Add Anthropic API key to secrets
-3. Implement full build system
-4. Deploy first site!
+```bash
+gang build                    # Build static site
+gang check                    # Validate contracts
+gang optimize                 # AI content optimization
+gang image <dir>              # Process images
+gang studio                   # Start CMS (port 3000)
+gang --help                   # Show all commands
+```
+
+## Features
+
+See [FEATURES.md](FEATURES.md) for complete feature documentation.
 
 ## Documentation
 

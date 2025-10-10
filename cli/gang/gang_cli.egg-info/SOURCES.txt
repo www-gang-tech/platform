@@ -1,0 +1,14 @@
+cli.py
+setup.py
+core/__init__.py
+core/generators.py
+core/images.py
+core/optimizer.py
+core/templates.py
+core/validator.py
+gang_cli.egg-info/PKG-INFO
+gang_cli.egg-info/SOURCES.txt
+gang_cli.egg-info/dependency_links.txt
+gang_cli.egg-info/entry_points.txt
+gang_cli.egg-info/requires.txt
+gang_cli.egg-info/top_level.txt

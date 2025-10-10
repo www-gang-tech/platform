@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>{{ page_title }}</h1>
+
+{% if items %}
+<ul style="list-style: none; padding: 0;">
+    {% for item in items %}
+    <li style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--color-border);">
+        <h2 style="margin-top: 0;">
+            <a href="{{ item.url }}">{{ item.title }}</a>
+        </h2>
+        {% if item.summary %}
+        <p>{{ item.summary }}</p>
+        {% endif %}
+        {% if item.date %}
+        <p style="font-size: 0.9rem; color: #666;">
+            <time datetime="{{ item.date }}">{{ item.date_formatted }}</time>
+        </p>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No {{ content_type }} found.</p>
+{% endif %}
+{% endblock %}
+

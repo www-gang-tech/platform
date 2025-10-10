@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article itemscope itemtype="https://schema.org/Article">
+    <header>
+        <h1 itemprop="headline">{{ title }}</h1>
+        {% if date %}
+        <p>
+            <time datetime="{{ date }}" itemprop="datePublished">{{ date_formatted }}</time>
+            {% if tags %}
+            <span aria-label="Tags">
+                {% for tag in tags %}
+                <a href="/tags/{{ tag }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </span>
+            {% endif %}
+        </p>
+        {% endif %}
+    </header>
+    
+    <div itemprop="articleBody">
+        {{ content | safe }}
+    </div>
+    
+    {% if related %}
+    <aside aria-label="Related articles">
+        <h2>Related Posts</h2>
+        <ul>
+            {% for post in related %}
+            <li><a href="{{ post.url }}">{{ post.title }}</a></li>
+            {% endfor %}
+        </ul>
+    </aside>
+    {% endif %}
+</article>
+{% endblock %}
+
