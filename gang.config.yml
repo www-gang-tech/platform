@@ -1,0 +1,177 @@
+# GANG Platform Configuration
+version: "1.0"
+
+# Site metadata
+site:
+  title: "GANG Publishing"
+  url: "https://example.com"
+  description: "AI-first static publishing platform"
+  language: "en"
+  
+# Build settings
+build:
+  output: "./dist"
+  content: "./content"
+  templates: "./templates"
+  public: "./public"
+  
+# Performance budgets (per page)
+budgets:
+  html: 30720  # 30KB
+  css: 10240   # 10KB
+  js: 0        # No JS on content pages
+  images: 512000  # 500KB per page total
+  
+# Lighthouse thresholds
+lighthouse:
+  performance: 95
+  accessibility: 98
+  bestPractices: 100
+  seo: 100
+  
+# Core Web Vitals targets
+vitals:
+  lcp: 2500      # ms
+  cls: 0.05
+  inp: 200       # ms
+  
+# Template contracts enforcement
+contracts:
+  semantic:
+    - single_h1
+    - no_heading_skips
+    - required_landmarks: ["header", "main", "footer"]
+  accessibility:
+    - alt_coverage: 100
+    - color_contrast: "AA"
+    - keyboard_nav: true
+  seo:
+    - valid_jsonld: true
+    - meta_description: true
+    - canonical_url: true
+    
+# Content types and their schemas
+types:
+  page:
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: summary
+        type: text
+        required: false
+      - name: date
+        type: date
+        required: true
+      - name: status
+        type: enum
+        values: [draft, ready, published]
+        default: draft
+      - name: seo
+        type: object
+        ai_fillable: true
+      - name: jsonld
+        type: object
+        ai_fillable: true
+        
+  post:
+    extends: page
+    fields:
+      - name: tags
+        type: array
+        required: false
+      - name: images
+        type: array
+        required: false
+      - name: related
+        type: array
+        computed: true
+        
+  project:
+    extends: page
+    fields:
+      - name: tags
+        type: array
+      - name: featured
+        type: boolean
+        default: false
+      - name: year
+        type: number
+        
+  product:
+    extends: page
+    fields:
+      - name: price
+        type: number
+      - name: sku
+        type: string
+      - name: inventory
+        type: number
+        
+# Navigation structure
+nav:
+  main:
+    - label: "Home"
+      path: "/"
+    - label: "Posts"
+      path: "/posts"
+    - label: "Projects"
+      path: "/projects"
+    - label: "About"
+      path: "/about"
+      
+# Image derivatives
+images:
+  formats: ["avif", "webp"]
+  widths: [640, 1024, 1600]
+  quality:
+    avif: 85
+    webp: 85
+  placeholder: "blurhash"  # or "ascii" or "none"
+  
+# AI optimization settings
+ai:
+  provider: "anthropic"  # or "openai"
+  model: "claude-sonnet-4.5"
+  cache_by: "content_hash"
+  fill_missing:
+    - seo.title
+    - seo.description
+    - images[].alt
+    - jsonld
+  never_overwrite_human: true
+  
+# Syndication (optional)
+syndication:
+  enabled: false
+  platforms: ["x", "linkedin", "medium"]
+  
+# Shopify sync (optional)
+shopify:
+  enabled: false
+  webhook_secret: "${SHOPIFY_WEBHOOK_SECRET}"
+  sync_path: "./content/shop"
+  
+# Hosting
+hosting:
+  provider: "cloudflare"
+  pages_project: "gang-platform"
+  r2_bucket: "gang-media"
+  
+# Security headers
+security:
+  csp: "default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'"
+  hsts: "max-age=31536000; includeSubDomains; preload"
+  referrer_policy: "strict-origin-when-cross-origin"
+  
+# Outputs
+outputs:
+  - sitemap.xml
+  - robots.txt
+  - feed.json
+  - agentmap.json
+  
+# Localization (future)
+locales:
+  default: "en"
+  available: ["en"]
