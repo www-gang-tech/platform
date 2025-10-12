@@ -1,0 +1,12 @@
+{
+  "redirects": [
+    {
+      "from": "/posts/qi2-launch/",
+      "to": "/posts/qi2-announcement/",
+      "status": 301,
+      "reason": "slug_rename",
+      "created": "2025-10-12T00:32:00.538482"
+    }
+  ],
+  "version": "1.0"
+}
