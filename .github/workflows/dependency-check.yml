@@ -1,0 +1,70 @@
+name: Weekly Dependency Check
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Check Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install pip-audit
+        run: pip install pip-audit
+      
+      - name: Check for security vulnerabilities
+        id: audit
+        run: |
+          pip-audit -r requirements.txt --format=json > audit-report.json || echo "VULNERABILITIES_FOUND=true" >> $GITHUB_ENV
+      
+      - name: Create issue if vulnerabilities found
+        if: env.VULNERABILITIES_FOUND == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
+            const vulnerabilities = report.dependencies;
+            
+            let body = '## 🚨 Security Vulnerabilities Detected\n\n';
+            body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
+            
+            for (const vuln of vulnerabilities) {
+              body += `### ${vuln.name} ${vuln.version}\n`;
+              body += `- **Severity**: ${vuln.severity}\n`;
+              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
+              body += `- **Details**: ${vuln.description}\n\n`;
+            }
+            
+            body += '**Action Required**: Run `gang update-deps --security-only` to fix these issues.\n';
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Security vulnerabilities detected in dependencies',
+              body: body,
+              labels: ['security', 'dependencies']
+            });
+      
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: audit-report.json
+

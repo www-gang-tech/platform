@@ -5,10 +5,13 @@ GANG CLI - Single binary for all build operations
 
 import click
 import yaml
+import os
 import hashlib
 import json
 import shutil
 import markdown
+import time
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -254,13 +257,23 @@ def process_markdown_fallback(md_file: Path, content_type: str, config: Dict) ->
     return process_markdown(md_file, content_type, config)
 
 
+def format_bytes(bytes_size: int) -> str:
+    """Format bytes to human readable string"""
+    if bytes_size < 1024:
+        return f"{bytes_size}B"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f}KB"
+    else:
+        return f"{bytes_size / (1024 * 1024):.2f}MB"
+
+
 def create_index_simple(config: Dict, recent_posts: List) -> str:
     """Create simple index page"""
     posts_html = ""
     for post in recent_posts:
         posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
     
-    return f"""<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
 <head>
     <meta charset="UTF-8">
@@ -343,6 +356,7 @@ def create_index_simple(config: Dict, recent_posts: List) -> str:
             <a href="/">Home</a>
             <a href="/posts/">Posts</a>
             <a href="/projects/">Projects</a>
+            <a href="/pages/manifesto/">Manifesto</a>
             <a href="/pages/about/">About</a>
         </nav>
     </header>
@@ -357,10 +371,12 @@ def create_index_simple(config: Dict, recent_posts: List) -> str:
         <p><a href="/posts/">View all posts →</a></p>
     </main>
     <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG.</p>
+        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
     </footer>
 </body>
 </html>"""
+    
+    return html
 
 
 def create_list_page_simple(config: Dict, items: List, title: str) -> str:
@@ -372,7 +388,7 @@ def create_list_page_simple(config: Dict, items: List, title: str) -> str:
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
     
-    return f"""<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
 <head>
     <meta charset="UTF-8">
@@ -452,6 +468,7 @@ def create_list_page_simple(config: Dict, items: List, title: str) -> str:
             <a href="/">Home</a>
             <a href="/posts/">Posts</a>
             <a href="/projects/">Projects</a>
+            <a href="/pages/manifesto/">Manifesto</a>
             <a href="/pages/about/">About</a>
         </nav>
     </header>
@@ -462,10 +479,12 @@ def create_list_page_simple(config: Dict, items: List, title: str) -> str:
         </ul>
     </main>
     <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG.</p>
+        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
     </footer>
 </body>
 </html>"""
+    
+    return html
 
 
 def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
@@ -489,7 +508,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     description = frontmatter.get('summary', config['site']['description'])
     
     # Build HTML page
-    html = f"""<!DOCTYPE html>
+    page_html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
 <head>
     <meta charset="UTF-8">
@@ -588,6 +607,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
             <a href="/">Home</a>
             <a href="/posts/">Posts</a>
             <a href="/projects/">Projects</a>
+            <a href="/pages/manifesto/">Manifesto</a>
             <a href="/pages/about/">About</a>
         </nav>
     </header>
@@ -597,12 +617,12 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
         </article>
     </main>
     <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG.</p>
+        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
     </footer>
 </body>
 </html>"""
     
-    return html
+    return page_html
 
 
 def create_index(config: Dict, posts: List, projects: List) -> str:
@@ -693,6 +713,7 @@ def create_index(config: Dict, posts: List, projects: List) -> str:
             <a href="/">Home</a>
             <a href="/posts/">Posts</a>
             <a href="/projects/">Projects</a>
+            <a href="/pages/manifesto/">Manifesto</a>
             <a href="/pages/about/">About</a>
         </nav>
     </header>
@@ -800,6 +821,7 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
             <a href="/">Home</a>
             <a href="/posts/">Posts</a>
             <a href="/projects/">Projects</a>
+            <a href="/pages/manifesto/">Manifesto</a>
             <a href="/pages/about/">About</a>
         </nav>
     </header>
@@ -820,7 +842,7 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
-def check(ctx):
+def check(ctx, output):
     """Validate Template Contracts and WCAG compliance"""
     try:
         from core.validator import ContractValidator
@@ -863,8 +885,8 @@ def check(ctx):
                     click.echo(f"   {icon} [{issue['rule']}] {issue['message']}")
     
     # Save JSON report if requested
-    if ctx.params.get('output'):
-        output_path = Path(ctx.params['output'])
+    if output:
+        output_path = Path(output)
         with open(output_path, 'w') as f:
             json.dump(results, f, indent=2)
         click.echo(f"\n📄 Report saved to {output_path}")
@@ -874,11 +896,152 @@ def check(ctx):
         ctx.exit(1)
 
 @cli.command()
+@click.option('--port', default=8080, help='Port for local server')
+@click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
-def audit(ctx):
+def audit(ctx, port, output):
     """Run Lighthouse + axe audits"""
+    import subprocess
+    import socket
+    import time
+    from pathlib import Path
+    
+    config = ctx.obj
+    dist_path = Path(config['build']['output'])
+    
+    if not dist_path.exists():
+        click.echo("❌ Error: dist/ directory not found. Run 'gang build' first.", err=True)
+        ctx.exit(1)
+    
+    # Check if Lighthouse CI is available
+    try:
+        subprocess.run(['npx', '--version'], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        click.echo("❌ Error: npx not found. Install Node.js to run Lighthouse audits.", err=True)
+        ctx.exit(1)
+    
     click.echo("📊 Running audits...")
-    click.echo("✓ Audit system coming soon!")
+    
+    # Start a simple HTTP server
+    import http.server
+    import socketserver
+    import threading
+    
+    os.chdir(dist_path)
+    handler = http.server.SimpleHTTPRequestHandler
+    
+    # Find available port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(('localhost', port)) == 0:
+            click.echo(f"⚠️  Port {port} is busy, trying {port + 1}...")
+            port += 1
+    
+    httpd = socketserver.TCPServer(("", port), handler)
+    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    server_thread.start()
+    
+    click.echo(f"🌐 Started local server on http://localhost:{port}")
+    time.sleep(1)  # Give server time to start
+    
+    try:
+        # Run Lighthouse CI
+        click.echo("🔦 Running Lighthouse audits (3 runs, median)...")
+        
+        result = subprocess.run(
+            ['npx', '--yes', '@lhci/cli@0.13.x', 'autorun'],
+            capture_output=True,
+            text=True,
+            cwd=Path.cwd().parent
+        )
+        
+        # Parse output
+        output_lines = result.stdout + result.stderr
+        click.echo(output_lines)
+        
+        # Check thresholds from config
+        thresholds = config.get('lighthouse', {})
+        if result.returncode != 0:
+            click.echo("\n❌ Lighthouse audits failed!")
+            click.echo(f"   Expected: Performance ≥{thresholds.get('performance', 95)}, "
+                      f"Accessibility ≥{thresholds.get('accessibility', 98)}, "
+                      f"Best Practices ≥{thresholds.get('bestPractices', 100)}, "
+                      f"SEO ≥{thresholds.get('seo', 100)}")
+            httpd.shutdown()
+            ctx.exit(1)
+        
+        click.echo("\n✅ All audits passed!")
+        
+        # Save report if requested
+        if output:
+            click.echo(f"📄 Detailed report: {output}")
+        
+    except KeyboardInterrupt:
+        click.echo("\n⚠️  Audit interrupted")
+        httpd.shutdown()
+        ctx.exit(1)
+    finally:
+        httpd.shutdown()
+
+@cli.command('update-deps')
+@click.option('--check-only', is_flag=True, help='Only check for updates, do not install')
+@click.option('--security-only', is_flag=True, help='Only update packages with security issues')
+@click.pass_context
+def update_deps(ctx, check_only, security_only):
+    """Check and update third-party dependencies"""
+    import subprocess
+    
+    click.echo("🔍 Checking for dependency updates...\n")
+    
+    # Check if pip-audit is available for security checks
+    has_pip_audit = False
+    if security_only:
+        try:
+            subprocess.run(['pip-audit', '--version'], capture_output=True, check=True)
+            has_pip_audit = True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            click.echo("⚠️  pip-audit not found. Install with: pip install pip-audit")
+            click.echo("    Falling back to regular update check.\n")
+    
+    # Security audit
+    if security_only and has_pip_audit:
+        click.echo("🔒 Running security audit...")
+        result = subprocess.run(
+            ['pip-audit', '-r', 'requirements.txt'],
+            capture_output=True,
+            text=True
+        )
+        click.echo(result.stdout)
+        if result.returncode != 0:
+            click.echo("❌ Security vulnerabilities found!")
+            ctx.exit(1)
+        else:
+            click.echo("✅ No security vulnerabilities found.")
+        return
+    
+    # Check for outdated packages
+    click.echo("📦 Checking Python packages...")
+    result = subprocess.run(
+        ['pip', 'list', '--outdated', '--format=columns'],
+        capture_output=True,
+        text=True
+    )
+    
+    if result.stdout.strip():
+        click.echo(result.stdout)
+        
+        if not check_only:
+            if click.confirm('\n📥 Update all dependencies in requirements.txt?'):
+                # Update requirements.txt with latest versions
+                click.echo("\n⬆️  Updating dependencies...")
+                subprocess.run(['pip', 'install', '--upgrade', '-r', 'requirements.txt'])
+                click.echo("\n✅ Dependencies updated! Run 'gang check && gang audit' to verify.")
+            else:
+                click.echo("⏭️  Skipped updates.")
+    else:
+        click.echo("✅ All dependencies are up to date!")
+    
+    # Reminder
+    click.echo("\n💡 Tip: Enable Dependabot in .github/dependabot.yml for automated PRs")
 
 @cli.command()
 @click.argument('source_dir', type=click.Path(exists=True))
@@ -928,43 +1091,96 @@ def studio(ctx, port, host):
         config = ctx.obj
         
         class StudioHandler(SimpleHTTPRequestHandler):
+            def log_message(self, format, *args):
+                # Suppress HTTP request logs
+                pass
+            
             def do_GET(self):
                 if self.path == '/api/content':
-                    # List all content files
-                    content_path = Path(config['build']['content'])
-                    files = []
-                    for md_file in content_path.rglob('*.md'):
-                        files.append({
-                            'path': str(md_file.relative_to(content_path)),
-                            'type': md_file.parent.name,
-                            'name': md_file.stem
-                        })
-                    
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', '*')
-                    self.end_headers()
-                    self.wfile.write(json.dumps(files).encode())
-                
-                elif self.path.startswith('/api/content/'):
-                    # Get specific content file
-                    file_path = self.path.replace('/api/content/', '')
-                    content_path = Path(config['build']['content']) / file_path
-                    
-                    if content_path.exists():
-                        content = content_path.read_text()
+                    try:
+                        # List all content files
+                        content_path = Path(config['build']['content']).resolve()
+                        files = []
+                        
+                        click.echo(f"🔍 Looking for content in: {content_path}")
+                        
+                        if not content_path.exists():
+                            click.echo(f"⚠️  Content directory not found: {content_path}")
+                            self.send_response(200)
+                            self.send_header('Content-type', 'application/json')
+                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self.end_headers()
+                            self.wfile.write(json.dumps([]).encode())
+                            return
+                        
+                        for md_file in content_path.rglob('*.md'):
+                            files.append({
+                                'path': str(md_file.relative_to(content_path)),
+                                'type': md_file.parent.name,
+                                'name': md_file.stem
+                            })
+                        
+                        click.echo(f"📂 Found {len(files)} content files: {[f['name'] for f in files]}")
+                        
                         self.send_response(200)
-                        self.send_header('Content-type', 'text/plain')
+                        self.send_header('Content-type', 'application/json')
                         self.send_header('Access-Control-Allow-Origin', '*')
                         self.end_headers()
-                        self.wfile.write(content.encode())
-                    else:
-                        self.send_error(404)
+                        self.wfile.write(json.dumps(files).encode())
+                    except Exception as e:
+                        import traceback
+                        click.echo(f"❌ Error listing files: {e}")
+                        click.echo(traceback.format_exc())
+                        self.send_error(500)
+                
+                elif self.path.startswith('/api/content/'):
+                    try:
+                        # Get specific content file
+                        file_path = self.path.replace('/api/content/', '')
+                        content_base = Path(config['build']['content']).resolve()
+                        content_path = content_base / file_path
+                        
+                        click.echo(f"📖 Reading file: {content_path}")
+                        
+                        if content_path.exists():
+                            content = content_path.read_text()
+                            self.send_response(200)
+                            self.send_header('Content-type', 'text/plain')
+                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self.end_headers()
+                            self.wfile.write(content.encode())
+                        else:
+                            click.echo(f"❌ File not found: {content_path}")
+                            self.send_error(404)
+                    except Exception as e:
+                        import traceback
+                        click.echo(f"❌ Error reading file: {e}")
+                        click.echo(traceback.format_exc())
+                        self.send_error(500)
+                
+                elif self.path == '/' or self.path == '/studio.html':
+                    # Serve studio UI
+                    try:
+                        studio_html_path = Path('studio.html').resolve()
+                        click.echo(f"🎨 Serving studio from: {studio_html_path}")
+                        if studio_html_path.exists():
+                            with open(studio_html_path, 'r') as f:
+                                content = f.read()
+                            self.send_response(200)
+                            self.send_header('Content-type', 'text/html')
+                            self.end_headers()
+                            self.wfile.write(content.encode())
+                        else:
+                            click.echo(f"❌ studio.html not found at: {studio_html_path}")
+                            self.send_error(404, "studio.html not found")
+                    except Exception as e:
+                        import traceback
+                        click.echo(f"❌ Error serving studio: {e}")
+                        click.echo(traceback.format_exc())
+                        self.send_error(500)
                 
                 else:
-                    # Serve studio UI
-                    self.path = '/studio.html' if self.path == '/' else self.path
-                    return SimpleHTTPRequestHandler.do_GET(self)
+                    self.send_error(404)
         
         # Create studio HTML file
         studio_html_path = Path('studio.html')
@@ -988,9 +1204,364 @@ def studio(ctx, port, host):
         click.echo("Studio requires additional dependencies")
 
 
+@cli.command()
+@click.option('--port', default=8000, help='Port for dev server')
+@click.option('--host', default='127.0.0.1', help='Host to bind to')
+@click.pass_context
+def serve(ctx, port, host):
+    """Start dev server with live reload"""
+    click.echo("🚀 Starting dev server with live reload...")
+    
+    try:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        import os
+        
+        config = ctx.obj
+        content_path = Path(config['build']['content']).resolve()
+        templates_path = Path(config['build'].get('templates', './templates')).resolve()
+        public_path = Path(config['build']['public']).resolve()
+        dist_path = Path(config['build']['output']).resolve()
+        
+        # Track clients for live reload
+        reload_clients = []
+        rebuild_pending = False
+        last_rebuild = 0
+        
+        class ChangeHandler(FileSystemEventHandler):
+            def on_any_event(self, event):
+                nonlocal rebuild_pending, last_rebuild
+                
+                if event.is_directory:
+                    return
+                
+                # Ignore dist folder changes and hidden files
+                if str(dist_path) in event.src_path or '/__pycache__/' in event.src_path:
+                    return
+                
+                if event.src_path.startswith('.') or '/.git/' in event.src_path:
+                    return
+                
+                # Debounce rebuilds (wait 0.5 seconds)
+                current_time = time.time()
+                if current_time - last_rebuild < 0.5:
+                    rebuild_pending = True
+                    return
+                
+                click.echo(f"\n📝 Change detected: {Path(event.src_path).name}")
+                rebuild_site(ctx)
+                # Small delay to ensure files are fully written
+                time.sleep(0.1)
+                notify_reload()
+                last_rebuild = time.time()
+                rebuild_pending = False
+        
+        # Live reload script to inject during build
+        live_reload_script = '''
+<script>
+(function() {
+    console.log('🔌 Connecting to live reload...');
+    const source = new EventSource('/__livereload');
+    
+    source.onmessage = function(e) {
+        if (e.data === 'reload') {
+            console.log('🔄 Reloading page...');
+            location.reload();
+        }
+    };
+    
+    source.onerror = function(e) {
+        console.warn('Live reload disconnected');
+        source.close();
+    };
+    
+    source.onopen = function(e) {
+        console.log('✅ Live reload connected');
+    };
+    
+    // IMPORTANT: Close connection when navigating away
+    window.addEventListener('beforeunload', function() {
+        console.log('Closing live reload connection...');
+        source.close();
+    });
+    
+    // Also close on pagehide (for back/forward navigation)
+    window.addEventListener('pagehide', function() {
+        source.close();
+    });
+})();
+</script>
+'''
+        
+        def rebuild_site(ctx):
+            """Rebuild the site"""
+            click.echo("🔨 Rebuilding site...")
+            try:
+                # Import here to use fresh code
+                from core.templates import TemplateEngine
+                from core.generators import OutputGenerators
+                from core.optimizer import AIOptimizer
+                
+                # Clear dist
+                if dist_path.exists():
+                    shutil.rmtree(dist_path)
+                dist_path.mkdir(parents=True, exist_ok=True)
+                
+                # Initialize systems
+                template_engine = TemplateEngine(templates_path)
+                generators = OutputGenerators(config)
+                optimizer = AIOptimizer(config)
+                
+                # Copy public assets
+                if public_path.exists():
+                    shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+                
+                # Build content
+                all_pages = []
+                all_posts = []
+                all_projects = []
+                
+                for md_file in content_path.rglob('*.md'):
+                    content_type = md_file.parent.name
+                    
+                    # Parse markdown with frontmatter
+                    content = md_file.read_text()
+                    if content.startswith('---'):
+                        parts = content.split('---', 2)
+                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        body = parts[2] if len(parts) > 2 else ''
+                    else:
+                        frontmatter = {}
+                        body = content
+                    
+                    # Convert markdown to HTML
+                    md_converter = markdown.Markdown(extensions=['extra', 'meta'])
+                    content_html = md_converter.convert(body)
+                    
+                    # Prepare context
+                    slug = md_file.stem
+                    if content_type == 'posts':
+                        url = f"/posts/{slug}/"
+                        template_name = 'post.html'
+                    elif content_type == 'projects':
+                        url = f"/projects/{slug}/"
+                        template_name = 'post.html'
+                    elif content_type == 'pages':
+                        url = f"/pages/{slug}/"
+                        template_name = 'page.html'
+                    else:
+                        url = f"/{content_type}/{slug}/"
+                        template_name = 'page.html'
+                    
+                    context = {
+                        'site_title': config['site']['title'],
+                        'lang': config['site']['language'],
+                        'title': frontmatter.get('title', slug.replace('-', ' ').title()),
+                        'description': frontmatter.get('summary', config['site']['description']),
+                        'content': content_html,
+                        'year': datetime.now().year,
+                        'navigation': config.get('nav', {}).get('main', []),
+                        'date': frontmatter.get('date'),
+                        'date_formatted': str(frontmatter.get('date', '')),
+                        'tags': frontmatter.get('tags', []),
+                        'jsonld': frontmatter.get('jsonld'),
+                        'canonical_url': f"{config['site']['url']}{url}",
+                    }
+                    
+                    # Render HTML
+                    try:
+                        html = template_engine.render(template_name, context)
+                    except Exception as e:
+                        html = process_markdown_fallback(md_file, content_type, config)
+                    
+                    # Inject live reload script
+                    if '</body>' in html:
+                        html = html.replace('</body>', live_reload_script + '</body>')
+                    else:
+                        html += live_reload_script
+                    
+                    # Calculate and inject page size
+                    page_size_bytes = len(html.encode('utf-8'))
+                    page_size_str = format_bytes(page_size_bytes)
+                    html = html.replace('__PAGE_SIZE__', page_size_str)
+                    
+                    # Write output
+                    output_file = dist_path / content_type / slug / 'index.html'
+                    output_file.parent.mkdir(parents=True, exist_ok=True)
+                    output_file.write_text(html)
+                    
+                    # Collect metadata
+                    page_data = {
+                        'url': url,
+                        'title': context['title'],
+                        'summary': context['description'],
+                        'date': context['date'],
+                        'type': content_type,
+                        'content_html': content_html,
+                        'tags': context['tags'],
+                    }
+                    
+                    if content_type == 'posts':
+                        all_posts.append(page_data)
+                    elif content_type == 'projects':
+                        all_projects.append(page_data)
+                    else:
+                        all_pages.append(page_data)
+                
+                # Create index page
+                index_html = create_index_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5])
+                # Inject live reload script
+                if '</body>' in index_html:
+                    index_html = index_html.replace('</body>', live_reload_script + '</body>')
+                else:
+                    index_html += live_reload_script
+                # Recalculate page size after injecting live reload
+                page_size_bytes = len(index_html.encode('utf-8'))
+                index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+                (dist_path / 'index.html').write_text(index_html)
+                
+                # Create list pages
+                if all_posts:
+                    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts')
+                    # Inject live reload script
+                    if '</body>' in posts_html:
+                        posts_html = posts_html.replace('</body>', live_reload_script + '</body>')
+                    # Recalculate page size after injecting live reload
+                    page_size_bytes = len(posts_html.encode('utf-8'))
+                    posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+                    (dist_path / 'posts' / 'index.html').write_text(posts_html)
+                
+                if all_projects:
+                    projects_html = create_list_page_simple(config, all_projects, 'Projects')
+                    # Inject live reload script
+                    if '</body>' in projects_html:
+                        projects_html = projects_html.replace('</body>', live_reload_script + '</body>')
+                    # Recalculate page size after injecting live reload
+                    page_size_bytes = len(projects_html.encode('utf-8'))
+                    projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+                    (dist_path / 'projects' / 'index.html').write_text(projects_html)
+                
+                # Generate outputs
+                all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
+                if all_posts:
+                    all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
+                if all_projects:
+                    all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+                
+                generators.generate_all(dist_path, all_pages, all_posts)
+                
+                click.echo("✅ Build complete!")
+                
+            except Exception as e:
+                click.echo(f"❌ Build error: {e}", err=True)
+                import traceback
+                traceback.print_exc()
+        
+        def notify_reload():
+            """Notify all connected clients to reload"""
+            click.echo(f"📡 Notifying {len(reload_clients)} connected clients")
+            for client in reload_clients[:]:
+                try:
+                    client.wfile.write(b"data: reload\n\n")
+                    client.wfile.flush()
+                except Exception as e:
+                    if client in reload_clients:
+                        reload_clients.remove(client)
+        
+        class LiveReloadHandler(SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=str(dist_path), **kwargs)
+            
+            def log_message(self, format, *args):
+                # Log requests for debugging
+                if len(args) > 0:
+                    click.echo(f"[REQUEST] {args[0]}")
+            
+            def do_GET(self):
+                try:
+                    if self.path == '/__livereload':
+                        # SSE endpoint for live reload
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/event-stream')
+                        self.send_header('Cache-Control', 'no-cache')
+                        self.send_header('Connection', 'keep-alive')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        
+                        reload_clients.append(self)
+                        
+                        # Keep connection alive - just wait, no pings needed
+                        try:
+                            # Block until client disconnects or we send reload
+                            while True:
+                                time.sleep(60)
+                        except:
+                            pass
+                        finally:
+                            if self in reload_clients:
+                                reload_clients.remove(self)
+                    else:
+                        # Let parent handle all other requests (HTML and assets)
+                        super().do_GET()
+                except BrokenPipeError:
+                    # Client disconnected, ignore
+                    pass
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    try:
+                        self.send_error(500)
+                    except:
+                        pass
+        
+        # Initial build
+        click.echo("🔨 Initial build...")
+        rebuild_site(ctx)
+        
+        # Start file watcher
+        observer = Observer()
+        handler = ChangeHandler()
+        
+        # Watch content, templates, and public directories
+        if content_path.exists():
+            observer.schedule(handler, str(content_path), recursive=True)
+            click.echo(f"👀 Watching: {content_path}")
+        
+        if templates_path.exists():
+            observer.schedule(handler, str(templates_path), recursive=True)
+            click.echo(f"👀 Watching: {templates_path}")
+        
+        if public_path.exists():
+            observer.schedule(handler, str(public_path), recursive=True)
+            click.echo(f"👀 Watching: {public_path}")
+        
+        observer.start()
+        
+        # Start HTTP server (threading to handle multiple connections)
+        server = ThreadingHTTPServer((host, port), LiveReloadHandler)
+        
+        click.echo(f"\n✅ Dev server running at http://{host}:{port}")
+        click.echo("📝 Live reload enabled - changes will auto-refresh the browser")
+        click.echo("Press Ctrl+C to stop\n")
+        
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            click.echo("\n👋 Shutting down...")
+            observer.stop()
+            observer.join()
+            server.shutdown()
+    
+    except ImportError as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        click.echo("Install watchdog: pip install watchdog>=3.0.0")
+        ctx.abort()
+
+
 def create_studio_html(output_path: Path):
     """Create the Studio CMS HTML interface"""
-    html = """<!DOCTYPE html>
+    html = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1170,12 +1741,25 @@ def create_studio_html(output_path: Path):
         
         // Load content list
         async function loadContentList() {
+            const listEl = document.getElementById('contentList');
             try {
+                console.log('Fetching content from /api/content...');
                 const response = await fetch('/api/content');
-                const files = await response.json();
+                console.log('Response status:', response.status);
                 
-                const listEl = document.getElementById('contentList');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const files = await response.json();
+                console.log('Received files:', files);
+                
                 listEl.innerHTML = '';
+                
+                if (files.length === 0) {
+                    listEl.innerHTML = '<div class="loading">No content files found</div>';
+                    return;
+                }
                 
                 files.forEach(file => {
                     const item = document.createElement('div');
@@ -1189,6 +1773,7 @@ def create_studio_html(output_path: Path):
                 });
             } catch (e) {
                 console.error('Failed to load content list:', e);
+                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
             }
         }
         
