@@ -107,6 +107,11 @@ types:
         type: string
       - name: inventory
         type: number
+
+# Unified Feed Content Types
+content:
+  types: [note, shot, drop, product, update, link, sheet]
+  path: "./content/feed"
         
 # Navigation structure
 nav:
