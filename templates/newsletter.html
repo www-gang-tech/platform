@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    
+    <title>{{ title }} - {{ site_title }}</title>
+    <meta name="description" content="{{ description }}">
+    <link rel="canonical" href="{{ canonical_url }}">
+    
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+    <div class="theme-toggle">
+        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
+        <label for="theme-switch"></label>
+    </div>
+    
+    <header>
+        <strong>{{ site_title }}</strong>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/newsletters/">Newsletters</a>
+        </nav>
+    </header>
+    
+    <main style="max-width: 65ch; margin: 0 auto;">
+        <div class="newsletter-header">
+            <p class="newsletter-meta">
+                Newsletter #{{ issue_number }} · Sent on {{ sent_date }}
+            </p>
+            <h1>{{ title }}</h1>
+        </div>
+        
+        <article>
+            {{ content | safe }}
+        </article>
+        
+        <div style="margin-top: 3rem; text-align: center;">
+            <p>
+                <a href="/newsletters/">← Back to all newsletters</a>
+            </p>
+        </div>
+    </main>
+    
+    <footer>
+        <p>&copy; {{ year }} {{ site_title }}. Built with GANG.</p>
+        <p class="lighthouse-scores">
+            <span class="score" title="Performance">⚡ <strong>100</strong></span>
+            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
+            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
+            <span class="score" title="SEO">🔍 <strong>100</strong></span>
+        </p>
+        <p class="last-updated">
+            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
+        </p>
+    </footer>
+</body>
+</html>

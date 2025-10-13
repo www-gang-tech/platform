@@ -16,21 +16,31 @@ I've built the complete GANG platform as described in your master prompt. Here's
 6. **CI/CD Pipeline** - Lighthouse + axe audits
 7. **Output Generators** - Sitemap, robots.txt, feed.json
 8. **Build System** - Complete static site generator
+9. **Live Reload** - Dev server with auto-refresh on file changes
 
 ## Try It Right Now
 
-### 1. Test Locally
+### 1. Test Locally with Live Reload ⚡️
 
 ```bash
 cd /Users/danielhirunrusme/Documents/gang-platform
 
-# Build your site
+# Start dev server with live reload (recommended for development)
+gang serve
+
+# The server will:
+# - Build your site automatically
+# - Watch for file changes in content/, templates/, and public/
+# - Auto-refresh your browser when you save files
+# - Serve at http://localhost:8000
+
+# Or build once without live reload
 gang build
 
 # Check the output
 ls -la dist/
 
-# View it in browser
+# View static build in browser
 python -m http.server 8000 --directory dist
 # Open http://localhost:8000
 ```

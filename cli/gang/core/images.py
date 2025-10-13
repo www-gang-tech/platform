@@ -135,12 +135,93 @@ class ImageProcessor:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         image_map = {}
+        stats = {
+            'total_images': 0,
+            'total_variants': 0,
+            'original_size': 0,
+            'optimized_size': 0,
+            'savings_bytes': 0,
+            'savings_percent': 0
+        }
         
         image_extensions = ['.jpg', '.jpeg', '.png', '.webp']
         for ext in image_extensions:
             for image_path in source_dir.rglob(f'*{ext}'):
+                original_size = image_path.stat().st_size
+                stats['total_images'] += 1
+                stats['original_size'] += original_size
+                
                 variants = self.generate_responsive_images(image_path, output_dir)
                 image_map[str(image_path.relative_to(source_dir))] = variants
+                
+                # Calculate optimized sizes
+                for variant in variants:
+                    stats['total_variants'] += 1
+                    stats['optimized_size'] += variant['size']
         
-        return image_map
+        if stats['original_size'] > 0:
+            stats['savings_bytes'] = stats['original_size'] - stats['optimized_size']
+            stats['savings_percent'] = (stats['savings_bytes'] / stats['original_size']) * 100
+        
+        return {'images': image_map, 'stats': stats}
+    
+    def analyze_markdown_images(self, md_content: str) -> Dict[str, Any]:
+        """Analyze images in markdown content"""
+        import re
+        
+        # Find all markdown images: ![alt](url)
+        pattern = r'!\[([^\]]*)\]\(([^\)]+)\)'
+        images = re.findall(pattern, md_content)
+        
+        analysis = {
+            'total_images': len(images),
+            'missing_alt': 0,
+            'external_images': 0,
+            'images': []
+        }
+        
+        for alt_text, url in images:
+            image_info = {
+                'alt': alt_text,
+                'url': url,
+                'has_alt': bool(alt_text.strip()),
+                'is_external': url.startswith('http://') or url.startswith('https://')
+            }
+            
+            if not image_info['has_alt']:
+                analysis['missing_alt'] += 1
+            
+            if image_info['is_external']:
+                analysis['external_images'] += 1
+            
+            analysis['images'].append(image_info)
+        
+        return analysis
+    
+    def replace_images_in_markdown(self, md_content: str, image_map: Dict[str, List[Dict]]) -> str:
+        """Replace markdown images with optimized <picture> elements"""
+        import re
+        
+        # Find all markdown images
+        pattern = r'!\[([^\]]*)\]\(([^\)]+)\)'
+        
+        def replace_image(match):
+            alt_text = match.group(1)
+            url = match.group(2)
+            
+            # Skip external images
+            if url.startswith('http://') or url.startswith('https://'):
+                return match.group(0)
+            
+            # Check if we have variants for this image
+            # Extract filename from URL
+            filename = url.split('/')[-1]
+            
+            if filename in image_map:
+                # Generate <picture> element
+                return self.generate_picture_element(url, alt_text, image_map[filename])
+            
+            return match.group(0)
+        
+        return re.sub(pattern, replace_image, md_content)
 

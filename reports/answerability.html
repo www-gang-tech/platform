@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Answerability Report - https://example.com</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: system-ui, sans-serif; 
+            line-height: 1.6; 
+            padding: 2rem; 
+            max-width: 1200px; 
+            margin: 0 auto;
+        }
+        h1 { margin-bottom: 1rem; }
+        h2 { margin-top: 2rem; margin-bottom: 1rem; }
+        .status { 
+            display: inline-block; 
+            padding: 0.5rem 1rem; 
+            border-radius: 4px; 
+            font-weight: bold;
+            margin-bottom: 2rem;
+        }
+        .status.pass { background: #10b981; color: white; }
+        .status.fail { background: #ef4444; color: white; }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-bottom: 2rem;
+        }
+        th, td { 
+            text-align: left; 
+            padding: 0.75rem; 
+            border-bottom: 1px solid #e5e7eb;
+        }
+        th { background: #f9fafb; font-weight: 600; }
+        .metric { 
+            display: inline-block; 
+            margin-right: 2rem; 
+            margin-bottom: 1rem;
+        }
+        .metric-label { 
+            display: block; 
+            color: #6b7280; 
+            font-size: 0.875rem;
+        }
+        .metric-value { 
+            display: block; 
+            font-size: 2rem; 
+            font-weight: bold;
+        }
+        code { 
+            background: #f3f4f6; 
+            padding: 0.2rem 0.4rem; 
+            border-radius: 3px;
+        }
+        ul { margin-left: 2rem; }
+        li { margin-bottom: 0.5rem; }
+    </style>
+</head>
+<body>
+    <h1>Answerability Report</h1>
+    <p>Generated: 2025-10-13T11:32:56.896938</p>
+    <div class="status fail">
+        ✗ FAILED - 
+        Coverage: 37.5% (Threshold: 95%)
+    </div>
+    
+    <h2>Coverage Summary</h2>
+    <div>
+        <div class="metric">
+            <span class="metric-label">Total Pages</span>
+            <span class="metric-value">16</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">With JSON-LD</span>
+            <span class="metric-value">6</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Without JSON-LD</span>
+            <span class="metric-value">10</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Coverage</span>
+            <span class="metric-value">37.5%</span>
+        </div>
+    </div>
+    
+    <h2>Schema Coverage by Type</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>JSON-LD Type</th>
+                <th>Count</th>
+                <th>Extractable Facts</th>
+                <th>Extractability</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td>WebSite</td>
+                <td>1</td>
+                <td>1</td>
+                <td>100.0%</td>
+            </tr>
+            
+            <tr>
+                <td>CollectionPage</td>
+                <td>4</td>
+                <td>3</td>
+                <td>75.0%</td>
+            </tr>
+            
+            <tr>
+                <td>None</td>
+                <td>10</td>
+                <td>0</td>
+                <td>0.0%</td>
+            </tr>
+            
+            <tr>
+                <td>Product</td>
+                <td>1</td>
+                <td>1</td>
+                <td>100.0%</td>
+            </tr>
+            
+        </tbody>
+    </table>
+    
+    <h2>Pages Without JSON-LD</h2><ul><li><code>/sitemap/</code>: Missing JSON-LD structured data</li><li><code>/cart/</code>: Missing JSON-LD structured data</li><li><code>/pages/contact/</code>: Missing JSON-LD structured data</li><li><code>/pages/faq/</code>: Missing JSON-LD structured data</li><li><code>/pages/about/</code>: Missing JSON-LD structured data</li><li><code>/pages/wcag-conformance/</code>: Missing JSON-LD structured data</li><li><code>/pages/manifesto/</code>: Missing JSON-LD structured data</li><li><code>/projects/design-system-rebuild/</code>: Missing JSON-LD structured data</li><li><code>/newsletters/qi2-launch-newsletter/</code>: Missing JSON-LD structured data</li><li><code>/posts/qi2-launch/</code>: Missing JSON-LD structured data</li></ul>
+</body>
+</html>

@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GANG Studio</title>
+    
+    <!-- Toast UI Editor CSS - Preconnect for faster loading -->
+    <link rel="preconnect" href="https://uicdn.toast.com" crossorigin>
+    <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background: #fff;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #fff;
+            color: #000;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #e0e0e0;
+        }
+        
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .sidebar-header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #000;
+        }
+        
+        .content-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+        
+        .content-item {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .content-item:hover {
+            background: #f5f5f5;
+            border-color: #0066cc;
+        }
+        
+        .content-item.active {
+            background: #e6f2ff;
+            border-color: #0066cc;
+        }
+        
+        .content-item-name {
+            font-weight: 500;
+            color: #000;
+        }
+        
+        .content-item-type {
+            font-size: 0.875rem;
+            color: #666;
+            margin-top: 0.25rem;
+        }
+        
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .toolbar {
+            padding: 1rem 1.5rem;
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .toolbar button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            background: #0066cc;
+            color: #fff;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .toolbar button:hover {
+            background: #0052a3;
+        }
+        
+        .toolbar .mode-toggle {
+            margin-left: auto;
+            background: #fff;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .toolbar .mode-toggle:hover {
+            background: #f5f5f5;
+            border-color: #ccc;
+        }
+        
+        .toolbar .status {
+            margin-left: auto;
+            color: #999;
+            font-size: 0.875rem;
+        }
+        
+        .editor-container {
+            flex: 1;
+            padding: 2rem;
+            background: #fff;
+            overflow: hidden;
+        }
+        
+        #editor {
+            height: 100%;
+        }
+        
+        .loading {
+            padding: 2rem;
+            text-align: center;
+            color: #999;
+        }
+        
+        /* Toast UI Editor customizations */
+        .toastui-editor-defaultUI {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            height: 100%;
+            background: #fff;
+        }
+        
+        .toastui-editor-toolbar {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .toastui-editor-contents {
+            font-size: 16px;
+            line-height: 1.6;
+            background: #fff;
+            color: #000;
+        }
+        
+        .toastui-editor-contents h1 {
+            font-size: 2em;
+            margin: 1em 0 0.5em;
+            color: #000;
+        }
+        
+        .toastui-editor-contents h2 {
+            font-size: 1.5em;
+            margin: 1em 0 0.5em;
+            color: #000;
+        }
+        
+        .toastui-editor-contents h3 {
+            font-size: 1.25em;
+            margin: 1em 0 0.5em;
+            color: #000;
+        }
+        
+        .toastui-editor-contents p {
+            margin: 0.5em 0;
+            color: #000;
+        }
+        
+        .toastui-editor-contents code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #000;
+        }
+        
+        .toastui-editor-contents pre {
+            background: #f5f5f5;
+            padding: 1em;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        
+        .toastui-editor-md-container,
+        .toastui-editor-ww-container {
+            background: #fff;
+        }
+        
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .modal-header {
+            margin-bottom: 1.5rem;
+        }
+        
+        .modal-header h2 {
+            font-size: 1.5rem;
+            color: #000;
+        }
+        
+        .modal-body {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+        
+        .form-group input[type="checkbox"] {
+            margin-right: 0.5rem;
+        }
+        
+        .modal-footer {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+        
+        .modal-footer button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .btn-primary {
+            background: #0066cc;
+            color: #fff;
+        }
+        
+        .btn-primary:hover {
+            background: #0052a3;
+        }
+        
+        .btn-secondary {
+            background: #fff;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .btn-secondary:hover {
+            background: #f5f5f5;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .warning-box strong {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #856404;
+        }
+        
+        .info-box {
+            background: #e6f2ff;
+            border: 1px solid #0066cc;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .redirects-panel {
+            padding: 1rem;
+            border-top: 1px solid #e0e0e0;
+            max-height: 200px;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+        
+        .redirect-item {
+            padding: 0.5rem;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .redirect-info {
+            flex: 1;
+            font-size: 0.9rem;
+        }
+        
+        .redirect-from {
+            color: #666;
+        }
+        
+        .redirect-to {
+            color: #0066cc;
+            font-weight: 500;
+        }
+        
+        .redirect-delete {
+            padding: 0.25rem 0.5rem;
+            background: #ff4444;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        
+        .redirect-delete:hover {
+            background: #cc0000;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>GANG Studio</h1>
+        </div>
+        <div class="content-list" id="contentList">
+            <div class="loading">Loading content...</div>
+        </div>
+    </div>
+    
+    <div class="main">
+        <div class="toolbar">
+            <button onclick="saveContent()">💾 Save</button>
+            <button onclick="showRenameSlugModal()" id="renameSlugBtn" disabled>🔄 Rename Slug</button>
+            <button onclick="showRedirectsPanel()">🔀 Redirects</button>
+            <button onclick="syncProducts()">🛒 Sync Products</button>
+            <button onclick="buildSite()">🔨 Build</button>
+            <button onclick="runOptimize()">🤖 Optimize</button>
+            <button class="mode-toggle" onclick="toggleEditorMode()">🔄 Toggle Mode</button>
+            <span class="status" id="status"></span>
+        </div>
+        
+        <div class="editor-container">
+            <div id="editor"></div>
+        </div>
+        
+        <div class="redirects-panel" id="redirectsPanel" style="display: none;">
+            <h3 style="margin-bottom: 1rem;">Redirects</h3>
+            <div id="redirectsList"></div>
+        </div>
+        
+        <div class="redirects-panel" id="productsPanel" style="display: none;">
+            <h3 style="margin-bottom: 1rem;">Shopify Products</h3>
+            <div id="productsList"></div>
+        </div>
+    </div>
+    
+    <!-- Rename Slug Modal -->
+    <div id="renameSlugModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Rename Slug</h2>
+            </div>
+            <div class="modal-body">
+                <div class="warning-box">
+                    <strong>⚠️ Important:</strong>
+                    Renaming a slug changes the URL. Always create a 301 redirect to preserve SEO and prevent broken links.
+                </div>
+                
+                <div class="form-group">
+                    <label>Current slug:</label>
+                    <input type="text" id="currentSlug" readonly style="background: #f5f5f5;">
+                </div>
+                
+                <div class="form-group">
+                    <label>New slug:</label>
+                    <input type="text" id="newSlug" placeholder="my-new-slug">
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="createRedirect" checked>
+                        Create 301 redirect (recommended)
+                    </label>
+                </div>
+                
+                <div class="info-box" id="redirectInfo" style="display: none;">
+                    <strong>Redirect will be created:</strong>
+                    <div id="redirectPreview"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeRenameSlugModal()">Cancel</button>
+                <button class="btn-primary" onclick="renameSlug()">Rename</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast UI Editor JS -->
+    <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js" defer></script>
+    
+    <script>
+        let currentFile = null;
+        let editor = null;
+        
+        // Initialize Toast UI Editor
+        function initEditor() {
+            const { Editor } = toastui;
+            
+            editor = new Editor({
+                el: document.querySelector('#editor'),
+                height: '100%',
+                initialEditType: 'wysiwyg', // Start in WYSIWYG mode
+                initialValue: '# Welcome to GANG Studio\n\nSelect a file from the sidebar to start editing.\n\nThis is a **WYSIWYG** editor with full markdown support!',
+                usageStatistics: false,
+                toolbarItems: [
+                    ['heading', 'bold', 'italic', 'strike'],
+                    ['hr', 'quote'],
+                    ['ul', 'ol', 'task'],
+                    ['table', 'link', 'image'],
+                    ['code', 'codeblock']
+                ],
+                hooks: {
+                    // Auto-save indicator
+                    change: () => {
+                        if (currentFile) {
+                            document.getElementById('status').textContent = '● Unsaved changes';
+                        }
+                    }
+                }
+            });
+            
+            document.getElementById('status').textContent = 'Mode: WYSIWYG';
+        }
+        
+        // Load content list
+        async function loadContentList() {
+            const listEl = document.getElementById('contentList');
+            try {
+                console.log('Fetching content from /api/content...');
+                const response = await fetch('/api/content');
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const files = await response.json();
+                console.log('Received files:', files);
+                
+                listEl.innerHTML = '';
+                
+                if (files.length === 0) {
+                    listEl.innerHTML = '<div class="loading">No content files found</div>';
+                    return;
+                }
+                
+                files.forEach(file => {
+                    const item = document.createElement('div');
+                    item.className = 'content-item';
+                    item.innerHTML = `
+                        <div class="content-item-name">${file.name}</div>
+                        <div class="content-item-type">${file.type}</div>
+                    `;
+                    item.onclick = () => loadFile(file.path);
+                    listEl.appendChild(item);
+                });
+            } catch (e) {
+                console.error('Failed to load content list:', e);
+                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
+            }
+        }
+        
+        // Load specific file
+        async function loadFile(path) {
+            if (!editor) return;
+            
+            try {
+                const response = await fetch(`/api/content/${path}`);
+                const content = await response.text();
+                
+                currentFile = path;
+                editor.setMarkdown(content);
+                
+                // Update active state
+                document.querySelectorAll('.content-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                event.target.closest('.content-item').classList.add('active');
+                
+                // Enable rename button when a file is loaded
+                document.getElementById('renameSlugBtn').disabled = false;
+                
+                document.getElementById('status').textContent = `Editing: ${path}`;
+            } catch (e) {
+                console.error('Failed to load file:', e);
+                document.getElementById('status').textContent = `Error loading file: ${e.message}`;
+            }
+        }
+        
+        // Toggle between WYSIWYG and Markdown mode
+        function toggleEditorMode() {
+            if (!editor) return;
+            
+            try {
+                const currentMode = editor.isWysiwygMode() ? 'wysiwyg' : 'markdown';
+                if (currentMode === 'wysiwyg') {
+                    editor.changeMode('markdown', true);
+                    document.getElementById('status').textContent = 'Mode: Markdown';
+                } else {
+                    editor.changeMode('wysiwyg', true);
+                    document.getElementById('status').textContent = 'Mode: WYSIWYG';
+                }
+            } catch (e) {
+                console.error('Error toggling mode:', e);
+                document.getElementById('status').textContent = 'Error toggling mode';
+            }
+        }
+        
+        // Save content
+        async function saveContent() {
+            if (!editor || !currentFile) {
+                alert('No file is currently open');
+                return;
+            }
+            
+            try {
+                const markdown = editor.getMarkdown();
+                
+                const response = await fetch(`/api/content/${currentFile}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'text/plain',
+                    },
+                    body: markdown
+                });
+                
+                if (response.ok) {
+                    document.getElementById('status').textContent = '✓ Saved successfully';
+                    setTimeout(() => {
+                        document.getElementById('status').textContent = `Editing: ${currentFile}`;
+                    }, 2000);
+                } else {
+                    const result = await response.json();
+                    throw new Error(result.message || 'Failed to save');
+                }
+            } catch (e) {
+                console.error('Failed to save:', e);
+                alert(`Failed to save: ${e.message}`);
+            }
+        }
+        
+        // Build site
+        function buildSite() {
+            alert('Run "gang build" in terminal to build the site');
+        }
+        
+        // Run optimize
+        function runOptimize() {
+            alert('Run "gang optimize" in terminal to optimize content');
+        }
+        
+        // Sync products
+        async function syncProducts() {
+            document.getElementById('status').textContent = '🛒 Syncing products...';
+            
+            try {
+                const response = await fetch('/api/products/sync', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('status').textContent = `✓ Synced ${result.total} products`;
+                    
+                    // Show products panel
+                    const panel = document.getElementById('productsPanel');
+                    panel.style.display = 'block';
+                    displayProducts(result.products);
+                    
+                    setTimeout(() => {
+                        if (currentFile) {
+                            document.getElementById('status').textContent = `Editing: ${currentFile}`;
+                        }
+                    }, 3000);
+                } else {
+                    alert('Failed to sync products');
+                }
+            } catch (e) {
+                console.error('Failed to sync products:', e);
+                alert(`Failed to sync: ${e.message}`);
+            }
+        }
+        
+        // Display products
+        function displayProducts(products) {
+            const listEl = document.getElementById('productsList');
+            
+            if (!products || products.length === 0) {
+                listEl.innerHTML = '<p style="color: #999;">No products found</p>';
+                return;
+            }
+            
+            // Group by status
+            const byStatus = {
+                'active': [],
+                'draft': [],
+                'archived': []
+            };
+            
+            products.forEach(p => {
+                const status = p._meta.status || 'active';
+                if (!byStatus[status]) byStatus[status] = [];
+                byStatus[status].push(p);
+            });
+            
+            let html = '';
+            
+            ['active', 'draft', 'archived'].forEach(status => {
+                if (byStatus[status] && byStatus[status].length > 0) {
+                    const statusBadge = {
+                        'active': '✅',
+                        'draft': '📝',
+                        'archived': '📦'
+                    }[status];
+                    
+                    html += `<h4 style="margin: 1rem 0 0.5rem; text-transform: capitalize;">${statusBadge} ${status} (${byStatus[status].length})</h4>`;
+                    
+                    byStatus[status].forEach(p => {
+                        const offers = Array.isArray(p.offers) ? p.offers[0] : p.offers;
+                        const price = offers.price || '0';
+                        const currency = offers.priceCurrency || 'USD';
+                        
+                        html += `
+                            <div class="redirect-item">
+                                <div class="redirect-info">
+                                    <div style="font-weight: 500;">${p.name}</div>
+                                    <div class="redirect-from">${currency} ${price} · ${p._meta.source}</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+            });
+            
+            listEl.innerHTML = html;
+        }
+        
+        // Show rename slug modal
+        function showRenameSlugModal() {
+            if (!currentFile) {
+                alert('No file is currently open');
+                return;
+            }
+            
+            // Extract slug and category from current file path
+            const parts = currentFile.split('/');
+            const category = parts[0];
+            const filename = parts[1];
+            const slug = filename.replace('.md', '');
+            
+            document.getElementById('currentSlug').value = slug;
+            document.getElementById('newSlug').value = '';
+            document.getElementById('createRedirect').checked = true;
+            document.getElementById('renameSlugModal').classList.add('active');
+            
+            // Update preview when checkbox changes
+            document.getElementById('createRedirect').addEventListener('change', updateRedirectPreview);
+            document.getElementById('newSlug').addEventListener('input', updateRedirectPreview);
+            
+            function updateRedirectPreview() {
+                const newSlug = document.getElementById('newSlug').value;
+                const createRedirect = document.getElementById('createRedirect').checked;
+                const redirectInfo = document.getElementById('redirectInfo');
+                const redirectPreview = document.getElementById('redirectPreview');
+                
+                if (newSlug && createRedirect) {
+                    const oldUrl = `/${category}/${slug}/`;
+                    const newUrl = `/${category}/${newSlug}/`;
+                    redirectPreview.textContent = `${oldUrl} → ${newUrl}`;
+                    redirectInfo.style.display = 'block';
+                } else {
+                    redirectInfo.style.display = 'none';
+                }
+            }
+        }
+        
+        // Close rename slug modal
+        function closeRenameSlugModal() {
+            document.getElementById('renameSlugModal').classList.remove('active');
+        }
+        
+        // Rename slug
+        async function renameSlug() {
+            const parts = currentFile.split('/');
+            const category = parts[0];
+            const oldSlug = document.getElementById('currentSlug').value;
+            const newSlug = document.getElementById('newSlug').value;
+            const createRedirect = document.getElementById('createRedirect').checked;
+            
+            if (!newSlug) {
+                alert('Please enter a new slug');
+                return;
+            }
+            
+            // Validate slug format
+            if (!/^[a-z0-9-]+$/.test(newSlug)) {
+                alert('Slug can only contain lowercase letters, numbers, and hyphens');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/rename-slug', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        old_slug: oldSlug,
+                        new_slug: newSlug,
+                        category: category,
+                        create_redirect: createRedirect
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('status').textContent = '✓ Slug renamed successfully!';
+                    closeRenameSlugModal();
+                    
+                    // Update current file path
+                    currentFile = result.new_path;
+                    
+                    // Reload content list
+                    loadContentList();
+                    
+                    // Load the renamed file
+                    setTimeout(() => {
+                        loadFile(currentFile);
+                    }, 500);
+                    
+                    if (createRedirect) {
+                        alert(`✅ Slug renamed!\n\nOld slug: ${oldSlug}\nNew slug: ${newSlug}\n\n301 redirect created to preserve SEO.`);
+                    }
+                } else {
+                    alert(`Error: ${result.message || 'Failed to rename slug'}`);
+                }
+            } catch (e) {
+                console.error('Failed to rename slug:', e);
+                alert(`Failed to rename slug: ${e.message}`);
+            }
+        }
+        
+        // Show redirects panel
+        async function showRedirectsPanel() {
+            const panel = document.getElementById('redirectsPanel');
+            
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                await loadRedirects();
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+        
+        // Load redirects
+        async function loadRedirects() {
+            try {
+                const response = await fetch('/api/redirects', {
+                    method: 'POST'
+                });
+                const redirects = await response.json();
+                
+                const listEl = document.getElementById('redirectsList');
+                
+                if (redirects.length === 0) {
+                    listEl.innerHTML = '<p style="color: #999;">No redirects configured</p>';
+                    return;
+                }
+                
+                listEl.innerHTML = redirects.map(r => `
+                    <div class="redirect-item">
+                        <div class="redirect-info">
+                            <div class="redirect-from">${r.from}</div>
+                            <div class="redirect-to">→ ${r.to}</div>
+                        </div>
+                        <button class="redirect-delete" onclick="deleteRedirect('${r.from}')">Delete</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Failed to load redirects:', e);
+                document.getElementById('redirectsList').innerHTML = '<p style="color: #ff6b6b;">Failed to load redirects</p>';
+            }
+        }
+        
+        // Delete redirect
+        async function deleteRedirect(fromPath) {
+            if (!confirm(`Delete redirect for ${fromPath}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/redirects${fromPath}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    document.getElementById('status').textContent = '✓ Redirect deleted';
+                    loadRedirects();
+                    setTimeout(() => {
+                        if (currentFile) {
+                            document.getElementById('status').textContent = `Editing: ${currentFile}`;
+                        }
+                    }, 2000);
+                } else {
+                    alert('Failed to delete redirect');
+                }
+            } catch (e) {
+                console.error('Failed to delete redirect:', e);
+                alert(`Failed to delete redirect: ${e.message}`);
+            }
+        }
+        
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            initEditor();
+            loadContentList();
+        });
+        
+        // Close modal when clicking outside
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                e.target.classList.remove('active');
+            }
+        });
+    </script>
+</body>
+</html>

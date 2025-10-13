@@ -122,8 +122,8 @@ Sitemap: {self.site_url}/sitemap.xml
     
     def generate_all(self, dist_path: Path, pages: List[Dict[str, Any]], posts: List[Dict[str, Any]]):
         """Generate all output files"""
-        # Sitemap
-        sitemap_xml = self.generate_sitemap(pages + posts)
+        # Sitemap (pages already includes all content, don't add posts again)
+        sitemap_xml = self.generate_sitemap(pages)
         (dist_path / 'sitemap.xml').write_text(sitemap_xml)
         
         # Robots

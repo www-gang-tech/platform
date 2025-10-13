@@ -1,0 +1,9 @@
+{
+  "http://localhost:60379/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232059928-7702.report.html",
+  "http://localhost:60379/pages/about/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232060585-24121.report.html",
+  "http://localhost:60379/pages/manifesto/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232061728-4918.report.html",
+  "http://localhost:60379/posts/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232062509-49218.report.html",
+  "http://localhost:60379/posts/qi2-launch/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232063229-48373.report.html",
+  "http://localhost:60379/projects/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232063789-23253.report.html",
+  "http://localhost:60379/projects/design-system-rebuild/index.html": "https://storage.googleapis.com/lighthouse-infrastructure.appspot.com/reports/1760232064520-63639.report.html"
+}

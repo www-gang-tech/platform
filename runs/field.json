@@ -1,0 +1,22 @@
+{
+  "baseUrl": "https://your-domain.com",
+  "generatedAt": "2025-10-13T05:17:42.170Z",
+  "data": [
+    {
+      "url": "https://your-domain.com/",
+      "error": "Error: HTTP 400"
+    },
+    {
+      "url": "https://your-domain.com/posts/",
+      "error": "Error: HTTP 400"
+    },
+    {
+      "url": "https://your-domain.com/projects/",
+      "error": "Error: HTTP 400"
+    },
+    {
+      "url": "https://your-domain.com/products/",
+      "error": "Error: HTTP 400"
+    }
+  ]
+}

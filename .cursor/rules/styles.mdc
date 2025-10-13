@@ -1,0 +1,8 @@
+---
+description: "AA color tokens, small CSS, motion-safe"
+globs: ["styles/**/*.css"]
+alwaysApply: false
+---
+
+- Use only AA-approved color tokens; verify contrast ≥ 4.5:1 for text.
+- Keep CSS ≤ 10KB gz; remove unused rules; respect `prefers-reduced-motion`.

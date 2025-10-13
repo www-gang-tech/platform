@@ -1,0 +1,23 @@
+---
+description: "GANG: standards-first rules (W3C/WCAG, budgets, zero-JS content)"
+alwaysApply: true
+---
+
+# Project North Star
+- Documents, not apps. Static HTML + CSS; **no JS on read-only pages**.
+- Enforce **budgets** (HTML ≤30KB, CSS ≤10KB, JS=0) and **green Lighthouse** (Perf≥95, A11y≥98).
+- WCAG 2.2 AA + APG for any interactive UI.
+
+# W3C-aligned Rules (Always)
+- Use semantic HTML; exactly one <h1>; no heading skips; valid landmarks.
+- Every image needs meaningful `alt` (or `alt=""` if decorative).
+- Forms: `<label>`/`for`, `aria-describedby` for errors, `autocomplete` tokens.
+- JSON-LD 1.1 on every page (Article/Product/etc.); emit sitemap, robots, feeds, AgentMap.
+- Images via `<picture>` with AVIF/WebP; include `width`/`height`; `loading="lazy"`, `decoding="async"`.
+- Respect `lang`, UTF-8, and `hreflang` for locales; avoid locale-ambiguous formats.
+- Security headers (CSP, HSTS, Referrer-Policy). No third-party scripts by default.
+- Prefer server-rendered truth; no content hidden behind JS.
+
+# Quality Gates (CI)
+- Run axe + Lighthouse (mobile, 3 runs median) on representative pages.
+- Block merges on WCAG failures, budget overages, or Lighthouse regressions.

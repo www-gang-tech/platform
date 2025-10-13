@@ -1,0 +1,102 @@
+{
+  "runs": [
+    {
+      "total_duration_ms": 66,
+      "stages": {
+        "copy_assets": 0,
+        "generate_outputs": 2
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-11T22:57:36.591177"
+    },
+    {
+      "total_duration_ms": 63,
+      "stages": {
+        "copy_assets": 0,
+        "generate_outputs": 2
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-11T22:57:46.770704"
+    },
+    {
+      "total_duration_ms": 62,
+      "stages": {
+        "copy_assets": 0,
+        "generate_outputs": 2
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-11T22:58:22.522488"
+    },
+    {
+      "total_duration_ms": 53,
+      "stages": {
+        "copy_assets": 0,
+        "generate_outputs": 1
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-11T22:58:22.867744"
+    },
+    {
+      "total_duration_ms": 53,
+      "stages": {
+        "copy_assets": 1,
+        "generate_outputs": 1
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-11T22:58:23.215964"
+    },
+    {
+      "total_duration_ms": 28,
+      "stages": {
+        "copy_assets": 0,
+        "generate_outputs": 2
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-11T23:02:03.449596"
+    },
+    {
+      "total_duration_ms": 69,
+      "stages": {
+        "copy_assets": 1,
+        "generate_outputs": 2
+      },
+      "files": {
+        "pages": 5,
+        "posts": 1,
+        "projects": 1
+      },
+      "sizes": {},
+      "timestamp": "2025-10-12T00:32:52.159300"
+    }
+  ]
+}

@@ -15,7 +15,10 @@ cd cli/gang
 pip install -e .
 cd ../..
 
-# Build your site
+# Start dev server with live reload (recommended)
+gang serve
+
+# Or build your site once
 gang build
 
 # Validate quality
@@ -37,6 +40,7 @@ gang optimize
 ✅ **Build-time AI** - Fills missing SEO, alt text, JSON-LD  
 ✅ **Template Contracts** - Enforces semantics, a11y, budgets  
 ✅ **Studio CMS** - Split-view editor with live preview  
+✅ **Live Reload** - Dev server with auto-refresh on file changes  
 ✅ **Git-Based** - All content in Markdown, fully portable  
 ✅ **Performance First** - HTML ≤30KB, CSS ≤10KB, JS=0  
 ✅ **CI/CD Built-in** - Lighthouse + axe audits on every deploy  
@@ -95,12 +99,35 @@ CLOUDFLARE_ACCOUNT_ID=...
 ## CLI Commands
 
 ```bash
+gang serve                    # Dev server with live reload (port 8000)
 gang build                    # Build static site
 gang check                    # Validate contracts
 gang optimize                 # AI content optimization
 gang image <dir>              # Process images
 gang studio                   # Start CMS (port 3000)
+gang analyze [file]           # Content quality analysis
+gang validate --links         # Link validation
+gang media upload <file>      # Upload to Cloudflare R2
+gang performance              # View build performance history
 gang --help                   # Show all commands
+```
+
+### Quality Gates
+
+```bash
+# Content quality
+gang analyze content/posts/my-post.md      # Analyze single file
+gang analyze --all                          # Batch analysis
+gang analyze --all --min-score 85           # Enforce minimum score
+
+# Link validation
+gang validate --links                       # Validate all links
+gang validate --links --internal-only       # Fast mode (internal only)
+
+# Build with gates
+gang build --check-quality --min-quality-score 85  # Content quality gate
+gang build --validate-links                         # Link validation gate
+gang build --check-quality --validate-links         # Both gates (recommended)
 ```
 
 ## Features

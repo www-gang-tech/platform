@@ -1,0 +1,37 @@
+name: nightly
+on:
+  schedule: [{ cron: "30 2 * * *" }]  # 2:30am UTC
+  workflow_dispatch: {}
+jobs:
+  run-nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: npm ci || true
+      - run: pip install -e ./cli/gang || true
+      - name: Build & audit
+        run: |
+          gang optimize
+          gang image
+          gang build
+          gang check
+          gang audit
+      - name: Answerability report
+        run: gang report --answerability --out reports
+      - name: CrUX snapshot
+        run: node scripts/crux_snapshot.js
+        env:
+          PSI_API_KEY: ${{ secrets.PSI_API_KEY }}
+      - name: Archive fresh URLs
+        run: node scripts/archive.js
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-reports
+          path: |
+            runs/**/*.json
+            reports/**

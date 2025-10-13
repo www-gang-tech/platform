@@ -1,0 +1,835 @@
+{
+  "metadata": {
+    "generated_at": "2025-10-13T11:32:56.896938",
+    "site_url": "https://example.com",
+    "total_pages": 16
+  },
+  "coverage": {
+    "total_pages": 16,
+    "pages_with_jsonld": 6,
+    "pages_without_jsonld": 10,
+    "coverage_percent": 37.5
+  },
+  "by_type": {
+    "WebSite": {
+      "count": 1,
+      "extractable_facts": 1,
+      "pages": [
+        "/"
+      ]
+    },
+    "CollectionPage": {
+      "count": 4,
+      "extractable_facts": 3,
+      "pages": [
+        "/posts/",
+        "/products/",
+        "/newsletters/",
+        "/projects/"
+      ]
+    },
+    "null": {
+      "count": 10,
+      "extractable_facts": 0,
+      "pages": [
+        "/sitemap/",
+        "/cart/",
+        "/pages/contact/",
+        "/pages/faq/",
+        "/pages/about/",
+        "/pages/wcag-conformance/",
+        "/pages/manifesto/",
+        "/projects/design-system-rebuild/",
+        "/newsletters/qi2-launch-newsletter/",
+        "/posts/qi2-launch/"
+      ]
+    },
+    "Product": {
+      "count": 1,
+      "extractable_facts": 1,
+      "pages": [
+        "/products/example-shirt/"
+      ]
+    }
+  },
+  "pages": [
+    {
+      "file": "dist/index.html",
+      "url": "/",
+      "has_jsonld": true,
+      "jsonld_type": "WebSite",
+      "jsonld_data": {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "GANG",
+        "description": "AI-first static publishing platform",
+        "url": "https://example.com"
+      },
+      "one_pass_answer": {
+        "success": true,
+        "extracted": {
+          "name": "GANG",
+          "url": "https://example.com"
+        },
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/posts/index.html",
+      "url": "/posts/",
+      "has_jsonld": true,
+      "jsonld_type": "CollectionPage",
+      "jsonld_data": {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Posts",
+        "description": "AI-first static publishing platform",
+        "url": "https://example.com"
+      },
+      "one_pass_answer": {
+        "success": true,
+        "extracted": {
+          "name": "Posts",
+          "url": "https://example.com"
+        },
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/products/index.html",
+      "url": "/products/",
+      "has_jsonld": true,
+      "jsonld_type": "CollectionPage",
+      "jsonld_data": {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Products",
+        "description": "Product catalog",
+        "url": "",
+        "numberOfItems": 1
+      },
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {
+          "name": "Products"
+        },
+        "missing": [
+          "url"
+        ]
+      }
+    },
+    {
+      "file": "dist/newsletters/index.html",
+      "url": "/newsletters/",
+      "has_jsonld": true,
+      "jsonld_type": "CollectionPage",
+      "jsonld_data": {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Newsletters",
+        "description": "AI-first static publishing platform",
+        "url": "https://example.com"
+      },
+      "one_pass_answer": {
+        "success": true,
+        "extracted": {
+          "name": "Newsletters",
+          "url": "https://example.com"
+        },
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/projects/index.html",
+      "url": "/projects/",
+      "has_jsonld": true,
+      "jsonld_type": "CollectionPage",
+      "jsonld_data": {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Projects",
+        "description": "AI-first static publishing platform",
+        "url": "https://example.com"
+      },
+      "one_pass_answer": {
+        "success": true,
+        "extracted": {
+          "name": "Projects",
+          "url": "https://example.com"
+        },
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/sitemap/index.html",
+      "url": "/sitemap/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/cart/index.html",
+      "url": "/cart/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/pages/contact/index.html",
+      "url": "/pages/contact/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/pages/faq/index.html",
+      "url": "/pages/faq/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/pages/about/index.html",
+      "url": "/pages/about/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/pages/wcag-conformance/index.html",
+      "url": "/pages/wcag-conformance/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/pages/manifesto/index.html",
+      "url": "/pages/manifesto/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/projects/design-system-rebuild/index.html",
+      "url": "/projects/design-system-rebuild/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/newsletters/qi2-launch-newsletter/index.html",
+      "url": "/newsletters/qi2-launch-newsletter/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/products/example-shirt/index.html",
+      "url": "/products/example-shirt/",
+      "has_jsonld": true,
+      "jsonld_type": "Product",
+      "jsonld_data": {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "_meta": {
+          "created_at": "2025-10-12T12:29:25-04:00",
+          "handle": "example-shirt",
+          "id": 7673406160982,
+          "source": "shopify",
+          "status": "active",
+          "updated_at": "2025-10-13T00:29:35-04:00",
+          "url": null,
+          "variants": [
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953000534",
+              "barcode": "365275101829",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953000534,
+              "image_id": 35384856805462,
+              "inventory_item_id": 45571740074070,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 2,
+              "old_inventory_quantity": 2,
+              "option1": "Green",
+              "option2": "S",
+              "option3": null,
+              "position": 1,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_111",
+              "taxable": true,
+              "title": "Green / S",
+              "updated_at": "2025-10-12T14:49:43-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953033302",
+              "barcode": "463469551155",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953033302,
+              "image_id": 35384856805462,
+              "inventory_item_id": 45571740106838,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 2,
+              "old_inventory_quantity": 2,
+              "option1": "Green",
+              "option2": "M",
+              "option3": null,
+              "position": 2,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_122",
+              "taxable": true,
+              "title": "Green / M",
+              "updated_at": "2025-10-12T14:49:54-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953066070",
+              "barcode": "538375999373",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953066070,
+              "image_id": 35384856805462,
+              "inventory_item_id": 45571740139606,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 3,
+              "old_inventory_quantity": 3,
+              "option1": "Green",
+              "option2": "L",
+              "option3": null,
+              "position": 3,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_133",
+              "taxable": true,
+              "title": "Green / L",
+              "updated_at": "2025-10-12T14:50:05-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953098838",
+              "barcode": "556156161410",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953098838,
+              "image_id": 35384856838230,
+              "inventory_item_id": 45571740172374,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 0,
+              "old_inventory_quantity": 0,
+              "option1": "Blue",
+              "option2": "S",
+              "option3": null,
+              "position": 4,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_211",
+              "taxable": true,
+              "title": "Blue / S",
+              "updated_at": "2025-10-12T14:50:11-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953131606",
+              "barcode": "243307265092",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953131606,
+              "image_id": 35384856838230,
+              "inventory_item_id": 45571740205142,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 0,
+              "old_inventory_quantity": 0,
+              "option1": "Blue",
+              "option2": "M",
+              "option3": null,
+              "position": 5,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_222",
+              "taxable": true,
+              "title": "Blue / M",
+              "updated_at": "2025-10-12T14:50:17-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953164374",
+              "barcode": "777979207524",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953164374,
+              "image_id": 35384856838230,
+              "inventory_item_id": 45571740237910,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 0,
+              "old_inventory_quantity": 0,
+              "option1": "Blue",
+              "option2": "L",
+              "option3": null,
+              "position": 6,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_233",
+              "taxable": true,
+              "title": "Blue / L",
+              "updated_at": "2025-10-12T14:50:22-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953197142",
+              "barcode": "363131220054",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953197142,
+              "image_id": 35384856870998,
+              "inventory_item_id": 45571740270678,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 2,
+              "old_inventory_quantity": 2,
+              "option1": "Gray",
+              "option2": "S",
+              "option3": null,
+              "position": 7,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_311",
+              "taxable": true,
+              "title": "Gray / S",
+              "updated_at": "2025-10-12T14:50:31-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953229910",
+              "barcode": "246715878598",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953229910,
+              "image_id": 35384856870998,
+              "inventory_item_id": 45571740303446,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 2,
+              "old_inventory_quantity": 2,
+              "option1": "Gray",
+              "option2": "M",
+              "option3": null,
+              "position": 8,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_322",
+              "taxable": true,
+              "title": "Gray / M",
+              "updated_at": "2025-10-12T14:50:43-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953262678",
+              "barcode": "845853890770",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953262678,
+              "image_id": 35384856870998,
+              "inventory_item_id": 45571740336214,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 2,
+              "old_inventory_quantity": 2,
+              "option1": "Gray",
+              "option2": "L",
+              "option3": null,
+              "position": 9,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_333",
+              "taxable": true,
+              "title": "Gray / L",
+              "updated_at": "2025-10-12T14:50:53-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953295446",
+              "barcode": "897446170659",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953295446,
+              "image_id": 35384856903766,
+              "inventory_item_id": 45571740368982,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 0,
+              "old_inventory_quantity": 0,
+              "option1": "Purple",
+              "option2": "S",
+              "option3": null,
+              "position": 10,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_411",
+              "taxable": true,
+              "title": "Purple / S",
+              "updated_at": "2025-10-12T14:50:59-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953328214",
+              "barcode": "541330997444",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953328214,
+              "image_id": 35384856903766,
+              "inventory_item_id": 45571740401750,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 0,
+              "old_inventory_quantity": 0,
+              "option1": "Purple",
+              "option2": "M",
+              "option3": null,
+              "position": 11,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_422",
+              "taxable": true,
+              "title": "Purple / M",
+              "updated_at": "2025-10-12T14:51:06-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            },
+            {
+              "admin_graphql_api_id": "gid://shopify/ProductVariant/43459953360982",
+              "barcode": "738293196816",
+              "compare_at_price": null,
+              "created_at": "2025-10-12T12:29:25-04:00",
+              "fulfillment_service": "manual",
+              "grams": 145,
+              "id": 43459953360982,
+              "image_id": 35384856903766,
+              "inventory_item_id": 45571740434518,
+              "inventory_management": "shopify",
+              "inventory_policy": "deny",
+              "inventory_quantity": 0,
+              "old_inventory_quantity": 0,
+              "option1": "Purple",
+              "option2": "L",
+              "option3": null,
+              "position": 12,
+              "price": "25.00",
+              "product_id": 7673406160982,
+              "requires_shipping": true,
+              "sku": "SRT_COT_433",
+              "taxable": true,
+              "title": "Purple / L",
+              "updated_at": "2025-10-12T14:51:12-04:00",
+              "weight": 145.0,
+              "weight_unit": "g"
+            }
+          ]
+        },
+        "brand": {
+          "@type": "Brand",
+          "name": "Acme"
+        },
+        "category": "Shirts",
+        "description": "<p>This t-shirt is as simple as it gets. Easy to wear and insanely comfortable. Plus, it's made right here in our store for that extra special touch. Order a custom design or keep it blank for a classic look you can print on.</p>",
+        "image": [
+          "https://cdn.shopify.com/s/files/1/0681/1818/4022/files/tshirts.jpg?v=1760286568",
+          "https://cdn.shopify.com/s/files/1/0681/1818/4022/files/blank-colored-t-shirts.jpg?v=1760286568",
+          "https://cdn.shopify.com/s/files/1/0681/1818/4022/files/green-t-shirt.jpg?v=1760286568",
+          "https://cdn.shopify.com/s/files/1/0681/1818/4022/files/cobalt-blue-t-shirt.jpg?v=1760286568",
+          "https://cdn.shopify.com/s/files/1/0681/1818/4022/files/grey-t-shirt.jpg?v=1760286568",
+          "https://cdn.shopify.com/s/files/1/0681/1818/4022/files/purple-t-shirt.jpg?v=1760286568"
+        ],
+        "name": "Example T-Shirt",
+        "offers": [
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/InStock",
+            "inventory_quantity": 2,
+            "name": "Green / S",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_111",
+            "url": "None?variant=43459953000534"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/InStock",
+            "inventory_quantity": 2,
+            "name": "Green / M",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_122",
+            "url": "None?variant=43459953033302"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/InStock",
+            "inventory_quantity": 3,
+            "name": "Green / L",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_133",
+            "url": "None?variant=43459953066070"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/OutOfStock",
+            "inventory_quantity": 0,
+            "name": "Blue / S",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_211",
+            "url": "None?variant=43459953098838"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/OutOfStock",
+            "inventory_quantity": 0,
+            "name": "Blue / M",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_222",
+            "url": "None?variant=43459953131606"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/OutOfStock",
+            "inventory_quantity": 0,
+            "name": "Blue / L",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_233",
+            "url": "None?variant=43459953164374"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/InStock",
+            "inventory_quantity": 2,
+            "name": "Gray / S",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_311",
+            "url": "None?variant=43459953197142"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/InStock",
+            "inventory_quantity": 2,
+            "name": "Gray / M",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_322",
+            "url": "None?variant=43459953229910"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/InStock",
+            "inventory_quantity": 2,
+            "name": "Gray / L",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_333",
+            "url": "None?variant=43459953262678"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/OutOfStock",
+            "inventory_quantity": 0,
+            "name": "Purple / S",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_411",
+            "url": "None?variant=43459953295446"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/OutOfStock",
+            "inventory_quantity": 0,
+            "name": "Purple / M",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_422",
+            "url": "None?variant=43459953328214"
+          },
+          {
+            "@type": "Offer",
+            "availability": "https://schema.org/OutOfStock",
+            "inventory_quantity": 0,
+            "name": "Purple / L",
+            "price": "25.00",
+            "priceCurrency": "USD",
+            "sku": "SRT_COT_433",
+            "url": "None?variant=43459953360982"
+          }
+        ],
+        "sku": "SRT_COT_111"
+      },
+      "one_pass_answer": {
+        "success": true,
+        "extracted": {
+          "name": "Example T-Shirt",
+          "price": "25.00",
+          "availability": "https://schema.org/InStock"
+        },
+        "missing": []
+      }
+    },
+    {
+      "file": "dist/posts/qi2-launch/index.html",
+      "url": "/posts/qi2-launch/",
+      "has_jsonld": false,
+      "jsonld_type": null,
+      "jsonld_data": null,
+      "one_pass_answer": {
+        "success": false,
+        "extracted": {},
+        "missing": []
+      }
+    }
+  ],
+  "failures": [
+    {
+      "page": "/sitemap/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/cart/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/pages/contact/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/pages/faq/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/pages/about/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/pages/wcag-conformance/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/pages/manifesto/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/projects/design-system-rebuild/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/newsletters/qi2-launch-newsletter/",
+      "reason": "Missing JSON-LD structured data"
+    },
+    {
+      "page": "/posts/qi2-launch/",
+      "reason": "Missing JSON-LD structured data"
+    }
+  ],
+  "summary": {
+    "passed": false,
+    "coverage_percent": 37.5,
+    "threshold": 95.0
+  }
+}

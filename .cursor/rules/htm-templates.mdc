@@ -1,0 +1,11 @@
+---
+description: "HTML templates must be semantic, accessible, and tiny"
+globs: ["templates/**/*.html"]
+alwaysApply: false
+---
+
+- Exactly one `<h1>`; heading levels in order.
+- Required landmarks: `header`, `main`, `footer`; include a skip link.
+- Use `<figure><img><figcaption>` for content images; no presentational images as content.
+- Add JSON-LD slot; never ship a page without required schema fields.
+- No inline event handlers; zero client JS on content pages.

@@ -1,0 +1,226 @@
+[
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.91,
+    "values": [
+      0.91,
+      0.91,
+      0.91
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/pages/about/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.92,
+    "values": [
+      0.92,
+      0.92,
+      0.92
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/pages/about/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/pages/manifesto/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.92,
+    "values": [
+      0.92,
+      0.92,
+      0.92
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/pages/manifesto/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/posts/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.91,
+    "values": [
+      0.91,
+      0.91,
+      0.91
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/posts/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/posts/qi2-launch/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.92,
+    "values": [
+      0.92,
+      0.92,
+      0.92
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/posts/qi2-launch/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/projects/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.91,
+    "values": [
+      0.91,
+      0.91,
+      0.91
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/projects/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.96,
+    "values": [
+      0.96,
+      0.96,
+      0.96
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "best-practices",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/projects/design-system-rebuild/index.html"
+  },
+  {
+    "name": "minScore",
+    "expected": 1,
+    "actual": 0.92,
+    "values": [
+      0.92,
+      0.92,
+      0.92
+    ],
+    "operator": ">=",
+    "passed": false,
+    "auditProperty": "seo",
+    "auditId": "categories",
+    "level": "error",
+    "url": "http://localhost:60379/projects/design-system-rebuild/index.html"
+  }
+]

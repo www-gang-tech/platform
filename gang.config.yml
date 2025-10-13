@@ -3,7 +3,7 @@ version: "1.0"
 
 # Site metadata
 site:
-  title: "GANG Publishing"
+  title: "GANG"
   url: "https://example.com"
   description: "AI-first static publishing platform"
   language: "en"
@@ -117,8 +117,14 @@ nav:
       path: "/posts"
     - label: "Projects"
       path: "/projects"
+    - label: "Products"
+      path: "/products"
+    - label: "Newsletters"
+      path: "/newsletters"
     - label: "About"
-      path: "/about"
+      path: "/pages/about"
+    - label: "Contact"
+      path: "/pages/contact"
       
 # Image derivatives
 images:

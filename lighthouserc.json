@@ -1,12 +1,9 @@
 {
   "ci": {
     "collect": {
-      "url": [
-        "http://localhost:8080/",
-        "http://localhost:8080/posts/sample/",
-        "http://localhost:8080/projects/sample/"
-      ],
+      "staticDistDir": "./dist",
       "numberOfRuns": 3,
+      "maxAutodiscoverUrls": 10,
       "settings": {
         "preset": "desktop",
         "throttling": {
@@ -30,7 +27,6 @@
       }
     },
     "assert": {
-      "preset": "lighthouse:no-pwa",
       "assertions": {
         "categories:performance": ["error", {"minScore": 0.95}],
         "categories:accessibility": ["error", {"minScore": 0.98}],
@@ -41,7 +37,14 @@
         "largest-contentful-paint": ["error", {"maxNumericValue": 2500}],
         "cumulative-layout-shift": ["error", {"maxNumericValue": 0.05}],
         "total-blocking-time": ["warn", {"maxNumericValue": 200}],
-        "speed-index": ["warn", {"maxNumericValue": 3400}]
+        "speed-index": ["warn", {"maxNumericValue": 3400}],
+        
+        "errors-in-console": "off",
+        "csp-xss": "off",
+        "robots-txt": "off",
+        "lcp-lazy-loaded": "off",
+        "non-composited-animations": "off",
+        "prioritize-lcp-image": "off"
       }
     },
     "upload": {

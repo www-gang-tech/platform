@@ -1,0 +1,189 @@
+name: Shopify Product Sync
+
+on:
+  # Webhook trigger from Shopify
+  repository_dispatch:
+    types: [shopify_product_update]
+  
+  # Manual trigger for bulk sync
+  workflow_dispatch:
+    inputs:
+      product_handle:
+        description: 'Product handle to sync (optional, syncs all if empty)'
+        required: false
+
+jobs:
+  sync-product:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for PR base
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install pyyaml requests beautifulsoup4
+      
+      - name: Extract product data
+        id: extract
+        run: |
+          # Parse webhook payload or fetch from Shopify API
+          PRODUCT_HANDLE="${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}"
+          echo "handle=$PRODUCT_HANDLE" >> $GITHUB_OUTPUT
+          
+          # Save product JSON (from webhook or API)
+          mkdir -p .shopify-sync
+          echo '${{ toJSON(github.event.client_payload.product) }}' > .shopify-sync/product.json
+      
+      - name: Convert to front-matter
+        id: convert
+        run: |
+          python3 << 'EOF'
+          import json
+          import yaml
+          from pathlib import Path
+          from bs4 import BeautifulSoup
+          from datetime import datetime
+          
+          # Load mapping schema
+          with open('schemas/product.map.json') as f:
+              schema = json.load(f)
+          
+          # Load product data
+          with open('.shopify-sync/product.json') as f:
+              product = json.load(f)
+          
+          if not product:
+              print("No product data")
+              exit(1)
+          
+          # Apply mappings
+          front_matter = {}
+          for key, mapping in schema['mappings'].items():
+              source = mapping['source']
+              # Simple JSONPath evaluation (production would use jsonpath_ng)
+              value = product
+              for part in source.replace('[', '.').replace(']', '').split('.'):
+                  if part.startswith('*'):
+                      continue
+                  if part.isdigit():
+                      value = value[int(part)] if isinstance(value, list) else value
+                  else:
+                      value = value.get(part) if isinstance(value, dict) else None
+                  if value is None:
+                      break
+              
+              # Apply transforms
+              if value and mapping.get('transform') == 'strip_html':
+                  value = BeautifulSoup(str(value), 'html.parser').get_text()[:mapping.get('max_length', 1000)]
+              elif value and mapping.get('transform') == 'to_schema_availability':
+                  value = 'InStock' if value else 'OutOfStock'
+              
+              if value is not None:
+                  front_matter[key] = value
+          
+          # Generate front-matter file
+          handle = front_matter.get('handle', 'unknown')
+          content_dir = Path('content/shop')
+          content_dir.mkdir(parents=True, exist_ok=True)
+          
+          output_file = content_dir / f"{handle}.md"
+          
+          with open(output_file, 'w') as f:
+              f.write('---\n')
+              yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
+              f.write('---\n\n')
+              f.write(front_matter.get('summary', ''))
+          
+          print(f"Generated: {output_file}")
+          
+          # Set outputs using environment file (new syntax)
+          import os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"file={output_file}\n")
+              f.write(f"handle={handle}\n")
+          EOF
+      
+      - name: Create PR branch
+        id: pr_branch
+        run: |
+          HANDLE="${{ steps.extract.outputs.handle }}"
+          BRANCH="shop/update-${HANDLE}"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          git config user.name "shopify-sync-bot"
+          git config user.email "bot@gang.tech"
+          
+          # Create branch from main
+          git checkout -b "$BRANCH"
+          
+          # Stage changes
+          git add content/shop/
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes detected"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Commit
+          git commit -m "chore(shop): update product ${HANDLE}
+
+          Synced from Shopify at ${TIMESTAMP}
+          
+          Product ID: ${{ github.event.client_payload.product.id }}
+          Status: ${{ github.event.client_payload.product.status }}
+          
+          Auto-generated by Shopify sync workflow"
+          
+          # Push
+          git push origin "$BRANCH" --force
+          
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+      
+      - name: Create Pull Request
+        if: steps.pr_branch.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.pr_branch.outputs.branch }}
+          title: "🛍️ Update product: ${{ steps.extract.outputs.handle }}"
+          body: |
+            ## Shopify Product Update
+            
+            **Product**: `${{ steps.extract.outputs.handle }}`  
+            **Synced at**: `${{ steps.pr_branch.outputs.timestamp }}`  
+            **Shopify ID**: `${{ github.event.client_payload.product.id }}`
+            
+            ### Changes
+            
+            This PR updates the product front-matter from Shopify.
+            
+            **Review checklist**:
+            - [ ] Product title is correct
+            - [ ] Price matches Shopify
+            - [ ] Images are loading
+            - [ ] Description is appropriate
+            - [ ] Inventory count is accurate
+            
+            ### Preview
+            
+            Build preview will be available after CI completes.
+            
+            ---
+            
+            *Auto-generated by Shopify sync workflow*
+          labels: shopify-sync, automated-pr
+          assignees: ${{ github.repository_owner }}
+          draft: false
+

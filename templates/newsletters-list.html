@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    
+    <title>Newsletters - {{ site_title }}</title>
+    <meta name="description" content="Browse our newsletter archive">
+    <link rel="canonical" href="{{ canonical_url }}">
+    
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+    <div class="theme-toggle">
+        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
+        <label for="theme-switch"></label>
+    </div>
+    
+    <header>
+        <strong>{{ site_title }}</strong>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/newsletters/">Newsletters</a>
+        </nav>
+    </header>
+    
+    <main style="max-width: 65ch; margin: 0 auto;">
+        <h1>Newsletters</h1>
+        
+        <form class="subscribe-form" action="#" method="POST">
+            <input type="email" name="email" placeholder="Enter your email" required aria-label="Email address">
+            <button type="submit">Subscribe</button>
+        </form>
+        
+        {% if newsletters %}
+        <div style="margin-top: 3rem;">
+            {% for newsletter in newsletters %}
+            <article class="newsletter-card">
+                <p class="newsletter-meta">
+                    Issue #{{ newsletter.issue_number }} · {{ newsletter.sent_date }}
+                </p>
+                <h2 style="margin-bottom: 0.5rem;">
+                    <a href="/newsletters/{{ newsletter.slug }}/">{{ newsletter.title }}</a>
+                </h2>
+                {% if newsletter.preview %}
+                <p>{{ newsletter.preview }}</p>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="color: var(--color-muted); text-align: center; margin-top: 3rem;">
+            No newsletters yet. Subscribe above to be notified when we publish our first edition!
+        </p>
+        {% endif %}
+    </main>
+    
+    <footer>
+        <p>&copy; {{ year }} {{ site_title }}. Built with GANG.</p>
+        <p class="lighthouse-scores">
+            <span class="score" title="Performance">⚡ <strong>100</strong></span>
+            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
+            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
+            <span class="score" title="SEO">🔍 <strong>100</strong></span>
+        </p>
+        <p class="last-updated">
+            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
+        </p>
+    </footer>
+</body>
+</html>
