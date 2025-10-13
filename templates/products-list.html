@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    
+    <title>Products - {{ site_title }}</title>
+    <meta name="description" content="Browse our collection of products">
+    <link rel="canonical" href="{{ canonical_url }}">
+    
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Products - {{ site_title }}">
+    <meta property="og:description" content="Browse our collection of products">
+    <meta property="og:url" content="{{ canonical_url }}">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Products - {{ site_title }}">
+    <meta name="twitter:description" content="Browse our collection of products">
+    
+    <!-- JSON-LD Collection Page -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Products",
+        "description": "Product catalog",
+        "url": "{{ canonical_url }}",
+        "numberOfItems": {{ products | length }}
+    }
+    </script>
+    
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+    <div class="theme-toggle">
+        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
+        <label for="theme-switch"></label>
+    </div>
+    
+    <header>
+        <strong>{{ site_title }}</strong>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+            <a href="/products/">Products</a>
+            <a href="/pages/manifesto/">Manifesto</a>
+            <a href="/pages/about/">About</a>
+            <a href="/pages/contact/">Contact</a>
+            <a href="/cart/">Cart <span class="cart-count">0</span></a>
+        </nav>
+    </header>
+    
+    <main>
+        <h1>Products</h1>
+        
+        <div class="grid grid-2">
+            {% for product in products %}
+            <article class="product-card">
+                <a href="/products/{{ product._meta.slug or product._meta.handle }}/">
+                    {% if product.image %}
+                        {% if product.image is string %}
+                        <img src="{{ product.image }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
+                        {% else %}
+                        <img src="{{ product.image[0] }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
+                        {% endif %}
+                    {% endif %}
+                    <div class="product-info">
+                        <h2 class="product-title">{{ product.name }}</h2>
+                        {% if product.description %}
+                        <p class="product-description">{{ product.description[:120] }}...</p>
+                        {% endif %}
+                        <p class="product-price">
+                            {% if product.offers %}
+                                {% set offer = product.offers[0] if product.offers is iterable and product.offers is not string else product.offers %}
+                                {{ offer.priceCurrency }} {{ offer.price }}
+                            {% endif %}
+                        </p>
+                        <p class="product-meta">{{ product._meta.source }}</p>
+                    </div>
+                </a>
+            </article>
+            {% endfor %}
+        </div>
+    </main>
+    
+    <footer>
+        <p>&copy; {{ year }} {{ site_title }}. Built with GANG.</p>
+        <p class="lighthouse-scores">
+            <span class="score" title="Performance">⚡ <strong>100</strong></span>
+            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
+            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
+            <span class="score" title="SEO">🔍 <strong>100</strong></span>
+        </p>
+        <p class="last-updated">
+            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
+        </p>
+        <p style="margin-top: 1rem; font-size: 0.85rem; font-style: italic; max-width: 65ch; margin-left: auto; margin-right: auto;">
+            This platform builds the smallest possible website that guarantees accessibility, performance, and machine legibility—then add only features that measurably improve comprehension, trust, or conversion.
+        </p>
+        <p style="margin-top: 1rem; font-size: 0.85rem;">
+            <a href="/pages/contact/">Contact</a> · 
+            <a href="/pages/faq/">FAQ</a> · 
+            <a href="/sitemap/">Sitemap</a> · 
+            <a href="/feed.json">RSS</a> · 
+            <a href="/agentmap.json">AgentMap</a>
+        </p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+            <a href="https://github.com/www-gang-tech" rel="noopener noreferrer" target="_blank">GitHub</a> · 
+            <a href="http://instagram.com/gang__tech" rel="noopener noreferrer" target="_blank">Instagram</a>
+        </p>
+    </footer>
+    
+    <!-- No scripts on catalog pages (add-to-cart only on PDP) -->
+</body>
+</html>

@@ -1,0 +1,28 @@
+/*
+  # Security headers for Cloudflare Pages / Netlify
+  # HSTS: Force HTTPS for 1 year, include subdomains, opt-in to preload list
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  
+  # CSP: Restrict resource loading to same origin only
+  # Note: 'unsafe-inline' for script-src is development-only, remove for production
+  # TODO: Add SRI hashes via build process for CSS/JS integrity checking
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; object-src 'none'
+  
+  # Referrer Policy: Only send origin on cross-origin requests over HTTPS
+  Referrer-Policy: strict-origin-when-cross-origin
+  
+  # Permissions Policy: Block access to sensitive browser APIs
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()
+  
+  # Prevent MIME type sniffing
+  X-Content-Type-Options: nosniff
+  
+  # Clickjacking protection (also in CSP frame-ancestors)
+  X-Frame-Options: DENY
+  
+  # XSS protection for legacy browsers
+  X-XSS-Protection: 1; mode=block
+
+# Cache static assets for 1 year (immutable with hashed filenames)
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
