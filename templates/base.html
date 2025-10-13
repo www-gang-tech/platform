@@ -192,8 +192,14 @@
         {% block content %}{% endblock %}
     </main>
     
+    {# Trust & subscription block #}
+    {% include "partials/trust.html" %}
+    
     <footer role="contentinfo">
         <p>&copy; {{ year }} {{ site_title }}. Built with <a href="https://github.com/www-gang-tech/platform">GANG</a>.</p>
+        
+        {# Field vitals (Ticket 13) #}
+        {% include "partials/explain.html" %}
     </footer>
 </body>
 </html>

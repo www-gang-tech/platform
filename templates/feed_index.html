@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Feed</h1>
+<p class="intro">Notes, shots, drops, and more. Reverse-chronological stream of everything.</p>
+
+{% if items %}
+<div class="feed-grid">
+  {% for item in items %}
+    {% include "partials/card.html" %}
+  {% endfor %}
+</div>
+{% else %}
+<p>No feed items yet.</p>
+{% endif %}
+
+{# Pagination (if needed) #}
+{% if pagination %}
+<nav aria-label="Pagination" class="pagination">
+  {% if pagination.prev %}<a href="{{ pagination.prev }}" rel="prev">← Newer</a>{% endif %}
+  <span>Page {{ pagination.current }} of {{ pagination.total }}</span>
+  {% if pagination.next %}<a href="{{ pagination.next }}" rel="next">Older →</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}
