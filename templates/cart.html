@@ -1,22 +1,13 @@
 <!DOCTYPE html>
-<html lang="{{ lang }}">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    <title>{{ title }} - {{ site_title }}</title>
-    <meta name="description" content="{{ description }}">
-    {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     
-    <!-- JSON-LD Structured Data -->
-    {% if jsonld %}
-    <script type="application/ld+json">
-    {{ jsonld | tojson }}
-    </script>
-    {% endif %}
-    
-    <!-- Resource Hints -->
-    <link rel="preload" href="/assets/style.css" as="style">
+    <title>Shopping Cart - GANG</title>
+    <meta name="description" content="Your shopping cart">
+    <link rel="canonical" href="http://localhost:8000/cart/">
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -26,11 +17,9 @@
         <label for="theme-switch"></label>
     </div>
     
-    <header role="banner">
-        <a href="/" style="text-decoration: none; color: inherit;">
-            <strong>{{ site_title }}</strong>
-        </a>
-        <nav role="navigation" aria-label="Main navigation">
+    <header>
+        <strong>GANG</strong>
+        <nav>
             <a href="/">Home</a>
             <a href="/posts/">Posts</a>
             <a href="/projects/">Projects</a>
@@ -42,12 +31,41 @@
         </nav>
     </header>
     
-    <main role="main">
-        {% block content %}{% endblock %}
+    <main style="max-width: 900px; margin: 0 auto;">
+        <h1>Shopping Cart</h1>
+        
+        <!-- Empty cart message -->
+        <div id="cart-empty" style="display: none; text-align: center; padding: 3rem 0;">
+            <p style="font-size: 1.2rem; color: var(--color-muted); margin-bottom: 1rem;">Your cart is empty</p>
+            <a href="/products/" class="button">Continue Shopping</a>
+        </div>
+        
+        <!-- Cart items -->
+        <div id="cart-items"></div>
+        
+        <!-- Cart summary -->
+        <div id="cart-summary" style="display: none; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2>Subtotal:</h2>
+                <p id="cart-subtotal" style="font-size: 1.5rem; font-weight: 600;">$0.00</p>
+            </div>
+            
+            <p style="color: var(--color-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                Shipping and taxes calculated at checkout
+            </p>
+            
+            <button onclick="proceedToCheckout()" class="button" style="width: 100%;">
+                Proceed to Checkout →
+            </button>
+            
+            <p style="text-align: center; margin-top: 1rem;">
+                <a href="/products/">Continue Shopping</a>
+            </p>
+        </div>
     </main>
     
     <footer>
-        <p>&copy; {{ year }} {{ site_title }}. Built with GANG. __PAGE_SIZE__</p>
+        <p>&copy; 2025 GANG. Built with GANG.</p>
         <p class="lighthouse-scores">
             <span class="score" title="Performance">⚡ <strong>100</strong></span>
             <span class="score" title="Accessibility">♿ <strong>100</strong></span>
@@ -55,7 +73,7 @@
             <span class="score" title="SEO">🔍 <strong>100</strong></span>
         </p>
         <p class="last-updated">
-            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
+            <time datetime="2025-10-12T13:00:00">Last updated: 2025-10-12 13:00</time>
         </p>
         <p style="margin-top: 1rem; font-size: 0.85rem; font-style: italic; max-width: 65ch; margin-left: auto; margin-right: auto;">
             This platform builds the smallest possible website that guarantees accessibility, performance, and machine legibility—then add only features that measurably improve comprehension, trust, or conversion.
@@ -72,5 +90,9 @@
             <a href="http://instagram.com/gang__tech" class="ext">Instagram</a>
         </p>
     </footer>
+    
+    <!-- Cart functionality -->
+    <script src="/assets/cart.js"></script>
 </body>
 </html>
+

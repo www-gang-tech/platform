@@ -1,0 +1,10 @@
+{% if explain and explain.field %}
+  <section class="explain" aria-label="Performance summary">
+    <p>Field Vitals (28d p75):
+      {% set f = explain.field %}
+      LCP {{ (f.lcp_ms/1000.0)|round(1) }}s ·
+      CLS {{ f.cls|round(2) }} ·
+      INP {{ f.inp_ms }}ms
+    </p>
+  </section>
+{% endif %}

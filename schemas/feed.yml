@@ -1,0 +1,207 @@
+# Unified Feed Schema
+# Defines front-matter structure for all feed content types
+
+version: "1.0"
+
+# Shared fields across all feed types
+shared:
+  date:
+    type: iso8601
+    required: true
+    description: "Publication date in ISO 8601 format"
+  
+  tags:
+    type: array
+    items: string
+    required: false
+    description: "Categorization tags"
+  
+  syndicate:
+    type: boolean
+    default: true
+    description: "Whether to include in syndication bundles"
+  
+  cta:
+    type: object
+    required: false
+    properties:
+      label:
+        type: string
+        required: true
+      href:
+        type: url
+        required: true
+      rel:
+        type: string
+        required: false
+        description: "Link relationship (e.g., noopener)"
+    description: "Call to action button/link"
+  
+  assets:
+    type: array
+    required: false
+    items:
+      type: object
+      properties:
+        src:
+          type: url
+          required: true
+        alt:
+          type: string
+          required: true
+        ocr:
+          type: string
+          required: false
+          description: "OCR-extracted text for accessibility"
+        width:
+          type: integer
+          required: false
+        height:
+          type: integer
+          required: false
+    description: "Media assets (images, videos)"
+
+# Type-specific schemas
+types:
+  note:
+    extends: shared
+    description: "Quick thought, status update, or micro-blog post"
+    required_fields: [date, summary]
+    fields:
+      summary:
+        type: string
+        max_length: 280
+        required: true
+        description: "Brief summary or standalone text"
+      body:
+        type: markdown
+        required: false
+        description: "Optional extended content"
+  
+  shot:
+    extends: shared
+    description: "Visual-first post (photo, screenshot, video)"
+    required_fields: [date, assets]
+    fields:
+      title:
+        type: string
+        required: false
+        description: "Optional title"
+      caption:
+        type: markdown
+        required: false
+        description: "Image/video caption"
+      assets:
+        required: true
+        min_items: 1
+        description: "At least one image/video required"
+  
+  drop:
+    extends: shared
+    description: "Announcement, launch, or significant update"
+    required_fields: [date, title, summary, body]
+    fields:
+      title:
+        type: string
+        required: true
+        max_length: 120
+        description: "Drop title/headline"
+      summary:
+        type: string
+        required: true
+        max_length: 300
+        description: "Brief summary for cards/previews"
+      body:
+        type: markdown
+        required: true
+        description: "Full announcement content"
+  
+  product:
+    extends: shared
+    description: "Product showcase or quick-add"
+    required_fields: [date, title, price, availability, sku]
+    fields:
+      title:
+        type: string
+        required: true
+        description: "Product name"
+      price:
+        type: string
+        required: true
+        pattern: "^[0-9]+\\.?[0-9]*$"
+        description: "Product price (numeric string)"
+      availability:
+        type: string
+        required: true
+        enum: [InStock, OutOfStock, PreOrder, Discontinued]
+        description: "Stock status (Schema.org format)"
+      sku:
+        type: string
+        required: true
+        description: "Stock keeping unit"
+      body:
+        type: markdown
+        required: false
+        description: "Optional product description"
+  
+  update:
+    extends: shared
+    description: "Platform/product update or changelog entry"
+    required_fields: [date, title, body]
+    fields:
+      title:
+        type: string
+        required: true
+        description: "Update title"
+      body:
+        type: markdown
+        required: true
+        description: "Update details"
+      version:
+        type: string
+        required: false
+        pattern: "^v?[0-9]+\\.[0-9]+\\.[0-9]+.*$"
+        description: "Semantic version (optional)"
+  
+  link:
+    extends: shared
+    description: "Link sharing with commentary"
+    required_fields: [date, title, href]
+    fields:
+      title:
+        type: string
+        required: true
+        description: "Link title or article headline"
+      href:
+        type: url
+        required: true
+        description: "Destination URL"
+      commentary:
+        type: markdown
+        required: false
+        description: "Your thoughts/commentary on the link"
+  
+  sheet:
+    extends: shared
+    description: "Data table or spreadsheet sharing"
+    required_fields: [date, title, csv]
+    fields:
+      title:
+        type: string
+        required: true
+        description: "Dataset title"
+      csv:
+        type: url
+        required: true
+        description: "URL to CSV file"
+      body:
+        type: markdown
+        required: false
+        description: "Dataset description or methodology"
+
+# Validation rules
+validation:
+  required_in_all_types: [date, type]
+  allowed_statuses: [draft, published]
+  tag_max_count: 10
+  tag_max_length: 30

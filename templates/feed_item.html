@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article itemscope itemtype="https://schema.org/{{ jsonld_type or 'CreativeWork' }}">
+  <header>
+    <p class="kicker">{{ type|upper }} · <time datetime="{{ date }}" itemprop="datePublished">{{ date_formatted }}</time></p>
+    
+    {% if title %}
+    <h1 itemprop="headline name">{{ title }}</h1>
+    {% endif %}
+    
+    {% if summary and title %}
+    <p class="lede" itemprop="description">{{ summary }}</p>
+    {% endif %}
+  </header>
+  
+  {# Assets (images/video) for shot type #}
+  {% if assets %}
+  <div class="assets">
+    {% for asset in assets %}
+    <figure>
+      <img
+        src="{{ asset.src }}"
+        width="{{ asset.width or 1200 }}"
+        height="{{ asset.height or 675 }}"
+        alt="{{ asset.alt or '' }}"
+        loading="{{ 'eager' if loop.first else 'lazy' }}"
+        decoding="async"
+        itemprop="image">
+      {% if asset.caption or caption %}<figcaption>{{ asset.caption or caption }}</figcaption>{% endif %}
+      
+      {# OCR transcript (Ticket 05) #}
+      {% if asset.ocr %}
+      <details class="ocr-transcript">
+        <summary>Text version</summary>
+        <pre>{{ asset.ocr }}</pre>
+      </details>
+      {% endif %}
+    </figure>
+    {% endfor %}
+  </div>
+  {% endif %}
+  
+  {# Main content #}
+  {% if body or content %}
+  <div class="content" itemprop="articleBody text">
+    {{ (body or content) | safe }}
+  </div>
+  {% elif summary and not title %}
+  <div class="content" itemprop="text">
+    <p>{{ summary }}</p>
+  </div>
+  {% endif %}
+  
+  {# Product-specific fields #}
+  {% if type == 'product' %}
+  <dl class="product-meta">
+    {% if price %}
+    <dt>Price:</dt>
+    <dd itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+      <span itemprop="priceCurrency" content="USD">$</span><span itemprop="price">{{ price }}</span>
+      <meta itemprop="availability" content="https://schema.org/{{ availability or 'InStock' }}">
+    </dd>
+    {% endif %}
+    {% if sku %}
+    <dt>SKU:</dt>
+    <dd itemprop="sku">{{ sku }}</dd>
+    {% endif %}
+  </dl>
+  {% endif %}
+  
+  {# Link type - external link with commentary #}
+  {% if type == 'link' and href %}
+  <p class="external-link">
+    <a href="{{ href }}" rel="noopener" class="ext" itemprop="url">{{ href }}</a>
+  </p>
+  {% endif %}
+  
+  {# Sheet type - CSV download #}
+  {% if type == 'sheet' and csv %}
+  <p class="data-download">
+    <a href="{{ csv }}" download class="button" itemprop="url">Download CSV</a>
+  </p>
+  {% endif %}
+  
+  {# Update type - version badge #}
+  {% if type == 'update' and version %}
+  <p class="version-badge">Version: <code itemprop="version">{{ version }}</code></p>
+  {% endif %}
+  
+  {# Call to action #}
+  {% if cta and cta.href %}
+  <p class="cta">
+    <a href="{{ cta.href }}" class="button"{% if cta.rel %} rel="{{ cta.rel }}"{% endif %}>
+      {{ cta.label or 'Learn more' }} →
+    </a>
+  </p>
+  {% endif %}
+  
+  {# Tags #}
+  {% if tags %}
+  <footer>
+    <p class="tags">
+      Tags:
+      {% for tag in tags %}
+        <a href="/tags/{{ tag }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </p>
+  </footer>
+  {% endif %}
+</article>
+
+{# Include trust block #}
+{% include "partials/trust.html" %}
+{% endblock %}

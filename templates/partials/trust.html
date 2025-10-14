@@ -1,0 +1,14 @@
+<section class="trust" aria-label="Trust & policies">
+    <ul>
+      <li><a href="/about/">About</a></li>
+      <li><a href="/contact/">Contact</a></li>
+      <li><a href="/pages/returns/">Returns & Warranty</a></li>
+      <li><a href="/pages/policies/">Policies</a></li>
+      <li><a href="/subscribe/">Subscribe</a></li>
+    </ul>
+    {% if page.last_updated or item.date %}
+      <p class="updated">Last updated:
+        <time datetime="{{ (page.last_updated or item.date) }}">{{ (page.last_updated or item.date)|date("%b %e, %Y") }}</time>
+      </p>
+    {% endif %}
+  </section>

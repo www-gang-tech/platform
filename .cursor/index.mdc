@@ -1,0 +1,70 @@
+---
+description: "GANG Platform - Master Index of Standards and Rules"
+version: "1.0"
+---
+
+# GANG Platform Standards Index
+
+This document serves as the master index for all platform standards, rules, and quality bars.
+
+## Core Principles
+
+1. **Documents, not apps** - Static HTML + CSS; no JS on read-only pages
+2. **Enforce budgets** - HTML ≤30KB, CSS ≤10KB, JS=0 on content
+3. **WCAG 2.2 AA compliance** - Accessibility is non-negotiable
+4. **Performance targets** - Lighthouse ≥95/98/100/100
+
+## Referenced Documents
+
+- `docs/QUALITY-BARS.md` - Quality standards and requirements
+- `.cursor/rules/htm-templates.mdc` - HTML template standards
+- `.cursor/rules/styles.mdc` - CSS and design standards
+- `.cursor/rules/no-rounded-corners.md` - Component design rules
+- `gang.config.yml` - Build configuration and budgets
+
+## Build Requirements
+
+### Performance Budgets (per page)
+- HTML: ≤30KB
+- CSS: ≤10KB
+- JS: 0 on content pages (posts, pages, projects, newsletters)
+- JS: ≤10KB on interactive pages (products, cart)
+- Images: ≤500KB total per page
+
+### Lighthouse Thresholds
+- Performance: ≥95
+- Accessibility: ≥98
+- Best Practices: 100
+- SEO: 100
+
+### Required Elements (Every Page)
+- Exactly one `<h1>`
+- Semantic landmarks: `header`, `main`, `footer`
+- JSON-LD structured data
+- Canonical URL
+- Meta description
+- Open Graph tags
+- Alt text on all images
+
+## Quality Gates
+
+All builds must pass:
+1. ✅ Slug uniqueness check
+2. ✅ Content quality score ≥85
+3. ✅ WCAG AA compliance (axe)
+4. ✅ Lighthouse assertions
+5. ✅ Valid HTML (Nu validator)
+6. ✅ Link validation (no 404s)
+
+## Contract Enforcement
+
+See `/contracts/*.yml` for page-type specific contracts defining:
+- Required headings structure
+- Landmark requirements
+- JSON-LD properties
+- Byte budgets
+- Accessibility requirements
+
+---
+
+*This index is checked on every build to ensure compliance.*

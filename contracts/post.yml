@@ -1,0 +1,58 @@
+# Post Contract - Blog Articles
+type: post
+description: "Blog posts and articles with publish dates"
+
+budgets:
+  html: 30720  # 30KB
+  css: 10240   # 10KB
+  js: 0        # No JavaScript allowed
+
+headings:
+  required: ["h1"]
+  pattern: "h1 > h2 > h3"
+  single_h1: true
+
+landmarks:
+  required:
+    - header
+    - main
+    - footer
+  recommended:
+    - article  # Wrap post content in <article>
+
+jsonld:
+  required_type: "BlogPosting"  # or "Article"
+  required_props:
+    - "@context"
+    - "@type"
+    - headline
+    - datePublished
+    - author
+    - publisher
+    - description
+  recommended:
+    - image
+    - dateModified
+    - wordCount
+
+meta:
+  required:
+    - title
+    - description
+    - canonical
+    - og:type
+    - og:title
+    - og:description
+    - twitter:card
+
+accessibility:
+  wcag_level: "AA"
+  contrast_ratio: 4.5
+  keyboard_nav: true
+  alt_coverage: 100
+  
+performance:
+  lcp_max: 2500
+  cls_max: 0.05
+  inp_max: 200
+

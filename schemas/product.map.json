@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Product Field Mapping",
+  "description": "Typed field mapping from Shopify to frontmatter",
+  "type": "object",
+  "mappings": {
+    "title": {
+      "shopify_field": "title",
+      "frontmatter_field": "title",
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "shopify_field": "body_html",
+      "frontmatter_field": "description",
+      "type": "string",
+      "transform": "html_to_markdown"
+    },
+    "slug": {
+      "shopify_field": "handle",
+      "frontmatter_field": "slug",
+      "type": "string",
+      "required": true
+    },
+    "price": {
+      "shopify_field": "variants[0].price",
+      "frontmatter_field": "price",
+      "type": "number"
+    },
+    "currency": {
+      "shopify_field": "variants[0].currency",
+      "frontmatter_field": "currency",
+      "type": "string",
+      "default": "USD"
+    },
+    "sku": {
+      "shopify_field": "variants[0].sku",
+      "frontmatter_field": "sku",
+      "type": "string"
+    },
+    "images": {
+      "shopify_field": "images[*].src",
+      "frontmatter_field": "images",
+      "type": "array"
+    },
+    "image_alts": {
+      "shopify_field": "images[*].alt",
+      "frontmatter_field": "image_alts",
+      "type": "array"
+    },
+    "variants": {
+      "shopify_field": "variants",
+      "frontmatter_field": "variants",
+      "type": "array",
+      "transform": "normalize_variants"
+    },
+    "tags": {
+      "shopify_field": "tags",
+      "frontmatter_field": "tags",
+      "type": "array"
+    },
+    "vendor": {
+      "shopify_field": "vendor",
+      "frontmatter_field": "brand",
+      "type": "string"
+    },
+    "updated_at": {
+      "shopify_field": "updated_at",
+      "frontmatter_field": "shopify_updated_at",
+      "type": "datetime"
+    },
+    "product_type": {
+      "shopify_field": "product_type",
+      "frontmatter_field": "category",
+      "type": "string"
+    }
+  }
+}
+

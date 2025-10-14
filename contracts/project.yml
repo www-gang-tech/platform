@@ -1,0 +1,50 @@
+# Project Contract - Portfolio Items
+type: project
+description: "Portfolio projects and case studies"
+
+budgets:
+  html: 30720  # 30KB
+  css: 10240   # 10KB
+  js: 0        # No JavaScript allowed
+
+headings:
+  required: ["h1"]
+  pattern: "h1 > h2 > h3"
+  single_h1: true
+
+landmarks:
+  required:
+    - header
+    - main
+    - footer
+
+jsonld:
+  required_type: "CreativeWork"  # or "Article"
+  required_props:
+    - "@context"
+    - "@type"
+    - name
+    - description
+    - author
+    - dateCreated
+  recommended:
+    - image
+    - keywords
+
+meta:
+  required:
+    - title
+    - description
+    - canonical
+
+accessibility:
+  wcag_level: "AA"
+  contrast_ratio: 4.5
+  keyboard_nav: true
+  alt_coverage: 100
+
+performance:
+  lcp_max: 2500
+  cls_max: 0.05
+  inp_max: 200
+
