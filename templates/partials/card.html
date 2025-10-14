@@ -1,0 +1,37 @@
+{# expects `item` in context #}
+<article class="card" aria-labelledby="card-{{ item.slug }}">
+  <p class="kicker">{{ item.type|upper }} · <time datetime="{{ item.date }}">{{ item.date|date("%b %e, %Y") }}</time></p>
+  <h2 id="card-{{ item.slug }}">
+    <a href="{{ item.url }}">{{ item.title or item.summary or item.type|upper }}</a>
+  </h2>
+
+  {% if item.assets and item.assets[0] %}
+    {% set img = item.assets[0] %}
+    <figure>
+      <img
+        src="{{ img.src }}"
+        width="{{ img.width or 1200 }}"
+        height="{{ img.height or 675 }}"
+        alt="{{ img.alt or '' }}"
+        loading="lazy"
+        decoding="async">
+      {% if img.caption %}<figcaption>{{ img.caption }}</figcaption>{% endif %}
+    </figure>
+  {% endif %}
+
+  {% if item.summary %}
+    <p class="summary">{{ item.summary }}</p>
+  {% endif %}
+
+  {% if item.cta and item.cta.href %}
+    <p class="cta"><a class="button" href="{{ item.cta.href }}">{{ item.cta.label or "View" }}</a></p>
+  {% endif %}
+
+  {% if item.tags %}
+    <ul class="tags" aria-label="Tags">
+      {% for tag in item.tags %}
+        <li><a href="/tags/{{ tag|urlencode }}/">#{{ tag }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</article>

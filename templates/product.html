@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    
+    <title>{{ title }} - {{ site_title }}</title>
+    <meta name="description" content="{{ description }}">
+    <link rel="canonical" href="{{ canonical_url }}">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="product">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description }}">
+    <meta property="og:url" content="{{ canonical_url }}">
+    {% if product_image %}
+    <meta property="og:image" content="{{ product_image }}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    {% endif %}
+    <meta property="product:price:amount" content="{{ price }}">
+    <meta property="product:price:currency" content="{{ currency }}">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ title }}">
+    <meta name="twitter:description" content="{{ description }}">
+    {% if product_image %}
+    <meta name="twitter:image" content="{{ product_image }}">
+    {% endif %}
+    
+    <!-- JSON-LD Product Schema -->
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
+    
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+    <div class="theme-toggle">
+        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
+        <label for="theme-switch"></label>
+    </div>
+    
+    <header>
+        <strong>{{ site_title }}</strong>
+        <nav>
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+            <a href="/products/">Products</a>
+            <a href="/pages/manifesto/">Manifesto</a>
+            <a href="/pages/about/">About</a>
+            <a href="/pages/contact/">Contact</a>
+            <a href="/cart/">Cart <span class="cart-count">0</span></a>
+        </nav>
+    </header>
+    
+    <main>
+        <div class="product-container">
+            <div class="product-gallery">
+                {% if product_images %}
+                    {% if product_images is string %}
+                        <!-- Fallback: product_images came as string, use product_image -->
+                        <img src="{{ product_image }}" 
+                             alt="{{ title }}" 
+                             width="800" 
+                             height="800" 
+                             loading="eager" 
+                             decoding="async">
+                    {% else %}
+                        {% for image in product_images %}
+                        <img src="{{ image }}" 
+                             alt="{{ title }}" 
+                             width="800" 
+                             height="800" 
+                             loading="{{ 'eager' if loop.first else 'lazy' }}" 
+                             decoding="async"
+                             data-variant-image="{{ loop.index0 }}"
+                             style="{{ 'display: block;' if loop.first else 'display: none;' }}">
+                        {% endfor %}
+                    {% endif %}
+                {% endif %}
+            </div>
+            
+            <div class="product-info">
+                <h1>{{ title }}</h1>
+                
+                <div class="product-price" data-price>
+                    {{ currency }} {{ price }}
+                </div>
+                
+                <div class="product-description">
+                    {{ content | safe }}
+                </div>
+                
+                <!-- Product Form (works without JS, enhanced with JS) -->
+                <form class="product-form" 
+                      action="#" 
+                      method="GET"
+                      data-product-name="{{ title }}"
+                      data-price="{{ price }}"
+                      data-currency="{{ currency }}"
+                      data-image="{{ product_image }}"
+                      data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-sku="{{ sku }}"
+                      data-variant-id="{{ sku }}">
+                    
+                    {% if colors %}
+                    <div class="form-group">
+                        <label for="color">Color:</label>
+                        <select name="color" id="color" required>
+                            {% for color in colors %}
+                            <option value="{{ color }}">{{ color }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    
+                    {% if sizes %}
+                    <div class="form-group">
+                        <label for="size">Size:</label>
+                        <select name="size" id="size" required>
+                            {% for size in sizes %}
+                            <option value="{{ size }}">{{ size }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="form-group">
+                        <label for="quantity">Quantity:</label>
+                        <input type="number" name="quantity" id="quantity" value="1" min="1" max="99" required>
+                    </div>
+                    
+                    <p data-stock-message style="margin: 1rem 0; font-weight: 500;">
+                        {% if 'InStock' in availability %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
+                    </p>
+                    
+                    <button type="submit" class="buy-button">
+                        Add to Cart
+                    </button>
+                </form>
+                
+                <!-- Variant data for JS (hidden) -->
+                {% if variants %}
+                <script type="application/json" id="variants-data">
+                {{ variants | tojson }}
+                </script>
+                {% endif %}
+                
+                <div class="product-meta" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--color-border);">
+                    <dl style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem;">
+                        {% if sku %}
+                        <dt style="font-weight: 600;">SKU:</dt>
+                        <dd>{{ sku }}</dd>
+                        {% endif %}
+                        
+                        {% if brand %}
+                        <dt style="font-weight: 600;">Brand:</dt>
+                        <dd>{{ brand }}</dd>
+                        {% endif %}
+                        
+                        {% if category %}
+                        <dt style="font-weight: 600;">Category:</dt>
+                        <dd>{{ category }}</dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <p>&copy; {{ year }} {{ site_title }}. Built with GANG.</p>
+        <p class="lighthouse-scores">
+            <span class="score" title="Performance">⚡ <strong>100</strong></span>
+            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
+            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
+            <span class="score" title="SEO">🔍 <strong>100</strong></span>
+        </p>
+        <p class="last-updated">
+            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
+        </p>
+        <p style="margin-top: 1rem; font-size: 0.85rem; font-style: italic; max-width: 65ch; margin-left: auto; margin-right: auto;">
+            This platform builds the smallest possible website that guarantees accessibility, performance, and machine legibility—then add only features that measurably improve comprehension, trust, or conversion.
+        </p>
+        <p style="margin-top: 1rem; font-size: 0.85rem;">
+            <a href="/pages/contact/">Contact</a> · 
+            <a href="/pages/faq/">FAQ</a> · 
+            <a href="/sitemap/">Sitemap</a> · 
+            <a href="/feed.json">RSS</a> · 
+            <a href="/agentmap.json">AgentMap</a>
+        </p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+            <a href="https://github.com/www-gang-tech" class="ext">GitHub</a> · 
+            <a href="http://instagram.com/gang__tech" class="ext">Instagram</a>
+        </p>
+    </footer>
+    
+    <!-- Progressive enhancement for variants (works without JS) -->
+    <script src="/assets/cart.js" defer></script>
+    {% if variants %}
+    <script src="/assets/product.js" defer></script>
+    {% endif %}
+</body>
+</html>

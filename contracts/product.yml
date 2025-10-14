@@ -1,0 +1,68 @@
+# Product Contract - E-commerce Product Pages
+type: product
+description: "Product detail pages with variants and purchasing"
+
+budgets:
+  html: 40960  # 40KB (larger for product data)
+  css: 10240   # 10KB
+  js: 10240    # 10KB allowed for variants/cart
+
+headings:
+  required: ["h1"]
+  pattern: "h1 > h2 > h3"
+  single_h1: true
+
+landmarks:
+  required:
+    - header
+    - main
+    - footer
+
+jsonld:
+  required_type: "Product"
+  required_props:
+    - "@context"
+    - "@type"
+    - name
+    - description
+    - image
+    - offers
+    - brand
+    - sku
+  required_in_offers:
+    - "@type"
+    - price
+    - priceCurrency
+    - availability
+    - url
+
+meta:
+  required:
+    - title
+    - description
+    - canonical
+    - og:type
+    - og:title
+    - og:description
+    - og:image
+    - product:price:amount
+    - product:price:currency
+
+forms:
+  required_elements:
+    - label  # All inputs must have labels
+    - button[type="submit"]
+  progressive_enhancement: true  # Must work without JS
+
+accessibility:
+  wcag_level: "AA"
+  contrast_ratio: 4.5
+  keyboard_nav: true
+  alt_coverage: 100
+  focus_indicators: true
+
+performance:
+  lcp_max: 2500
+  cls_max: 0.05
+  inp_max: 200
+
