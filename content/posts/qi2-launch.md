@@ -2,7 +2,7 @@
 
 The key innovation is the **Magnetic Power Profile** \- devices and chargers use magnets to snap into perfect alignment\.
 
-### Key Improvements
+## Key Improvements
 
 * **15W guaranteed** (vs inconsistent speeds in Qi v1)
 * Perfect alignment every time via magnets
