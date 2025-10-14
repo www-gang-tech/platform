@@ -3878,7 +3878,50 @@ def studio(ctx, port, host):
             
             def do_POST(self):
                 """Handle POST requests"""
-                if self.path == '/api/rename-slug':
+                if self.path == '/api/validate-headings':
+                    try:
+                        # Read request body
+                        content_length = int(self.headers['Content-Length'])
+                        body = self.rfile.read(content_length)
+                        data = json.loads(body.decode())
+                        
+                        content = data.get('content', '')
+                        
+                        click.echo(f"🔍 Validating headings in content ({len(content)} chars)")
+                        
+                        # Import heading validator
+                        sys.path.insert(0, str(Path(__file__).parent))
+                        from core.heading_validator import HeadingValidator
+                        
+                        validator = HeadingValidator()
+                        result = validator.validate_markdown(content)
+                        
+                        # Add formatted report
+                        result['report'] = validator.generate_error_report(result)
+                        
+                        click.echo(f"✅ Validation complete: {'PASS' if result['valid'] else 'FAIL'}")
+                        
+                        # Return validation result
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(json.dumps(result, default=str).encode())
+                        
+                    except Exception as e:
+                        import traceback
+                        click.echo(f"❌ Error validating headings: {e}")
+                        click.echo(traceback.format_exc())
+                        self.send_response(500)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Internal server error',
+                            'message': str(e)
+                        }).encode())
+                
+                elif self.path == '/api/rename-slug':
                     try:
                         # Read request body
                         content_length = int(self.headers['Content-Length'])

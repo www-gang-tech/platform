@@ -387,7 +387,9 @@
     
     <div class="main">
         <div class="toolbar">
-            <button onclick="saveContent()">💾 Save</button>
+            <button onclick="validateAndSave()">📤 Publish</button>
+            <button onclick="saveContent()">💾 Save Draft</button>
+            <button onclick="validateHeadings()">✓ Check Headings</button>
             <button onclick="showRenameSlugModal()" id="renameSlugBtn" disabled>🔄 Rename Slug</button>
             <button onclick="showRedirectsPanel()">🔀 Redirects</button>
             <button onclick="syncProducts()">🛒 Sync Products</button>
@@ -453,12 +455,29 @@
         </div>
     </div>
     
+    <!-- Heading Validation Modal -->
+    <div id="validationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Heading Validation</h2>
+            </div>
+            <div class="modal-body">
+                <div id="validationResult"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeValidationModal()">Close</button>
+                <button class="btn-primary" id="publishAnywayBtn" onclick="forcePublish()" style="display: none;">Publish Anyway</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- Toast UI Editor JS -->
     <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js" defer></script>
     
     <script>
         let currentFile = null;
         let editor = null;
+        let validationPassed = false;
         
         // Initialize Toast UI Editor
         function initEditor() {
@@ -575,6 +594,120 @@
         }
         
         // Save content
+        // Validate headings
+        async function validateHeadings() {
+            if (!editor) {
+                alert('No file is currently open');
+                return null;
+            }
+            
+            document.getElementById('status').textContent = '🔍 Validating headings...';
+            
+            try {
+                const markdown = editor.getMarkdown();
+                
+                const response = await fetch('/api/validate-headings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ content: markdown })
+                });
+                
+                const result = await response.json();
+                
+                // Show validation modal
+                showValidationModal(result);
+                
+                document.getElementById('status').textContent = result.valid ? '✓ Headings valid' : '⚠️ Heading errors found';
+                
+                return result;
+            } catch (e) {
+                console.error('Failed to validate:', e);
+                alert(`Validation failed: ${e.message}`);
+                return null;
+            }
+        }
+        
+        // Show validation modal
+        function showValidationModal(result) {
+            const modal = document.getElementById('validationModal');
+            const resultDiv = document.getElementById('validationResult');
+            const publishBtn = document.getElementById('publishAnywayBtn');
+            
+            if (result.valid) {
+                resultDiv.innerHTML = `
+                    <div style="color: green; font-size: 1.2rem; margin-bottom: 1rem;">
+                        ✅ Heading structure is valid!
+                    </div>
+                    <div style="background: #f0f9f0; border: 1px solid #4caf50; padding: 1rem; border-radius: 4px;">
+                        <strong>Found ${result.headings.length} heading(s):</strong>
+                        <ul style="margin-top: 0.5rem;">
+                            ${result.headings.map(([level, text]) => 
+                                `<li>h${level}: ${text}</li>`
+                            ).join('')}
+                        </ul>
+                    </div>
+                `;
+                publishBtn.style.display = 'none';
+                validationPassed = true;
+            } else {
+                resultDiv.innerHTML = `
+                    <div style="color: #d32f2f; font-size: 1.2rem; margin-bottom: 1rem;">
+                        ❌ Heading validation failed
+                    </div>
+                    <div style="background: #ffebee; border: 1px solid #ef5350; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                        <strong>Errors:</strong>
+                        <ul style="margin-top: 0.5rem;">
+                            ${result.errors.map(error => `<li>${error}</li>`).join('')}
+                        </ul>
+                    </div>
+                    ${result.suggestions && result.suggestions.length > 0 ? `
+                        <div style="background: #fff3e0; border: 1px solid #ff9800; padding: 1rem; border-radius: 4px;">
+                            <strong>How to fix:</strong>
+                            <ul style="margin-top: 0.5rem;">
+                                ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
+                `;
+                publishBtn.style.display = 'inline-block';
+                validationPassed = false;
+            }
+            
+            modal.style.display = 'flex';
+        }
+        
+        // Close validation modal
+        function closeValidationModal() {
+            document.getElementById('validationModal').style.display = 'none';
+        }
+        
+        // Validate and save (publish)
+        async function validateAndSave() {
+            const result = await validateHeadings();
+            
+            if (!result) return;
+            
+            if (result.valid) {
+                closeValidationModal();
+                await saveContent();
+                document.getElementById('status').textContent = '📤 Published successfully!';
+            } else {
+                // Modal is already shown, user must fix or choose "Publish Anyway"
+                document.getElementById('status').textContent = '⚠️ Fix heading errors before publishing';
+            }
+        }
+        
+        // Force publish without validation
+        async function forcePublish() {
+            if (confirm('Are you sure you want to publish with heading errors? This may impact accessibility and SEO.')) {
+                closeValidationModal();
+                await saveContent();
+                document.getElementById('status').textContent = '📤 Published (with warnings)';
+            }
+        }
+        
         async function saveContent() {
             if (!editor || !currentFile) {
                 alert('No file is currently open');
