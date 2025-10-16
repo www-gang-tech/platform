@@ -3,7 +3,7 @@
 type: pagetitle: "About GANG"summary: "We build AI-first publishing tools that put content quality and accessibility first."date: 2025-01-15status: published
 ---
 
-# About GANG
+# About Gang
 
 GANG is an essentialist, AI-first static publishing platform built for teams who refuse to compromise on quality, accessibility, or performance.
 
