@@ -1,1 +1,3 @@
-{"content":"***\n\n<p>type: pagetitle: \"About GANG\"summary: \"We build AI-first publishing tools that put content quality and accessibility first.\"date: 2025-01-15status: published\n---</p><p></p>## About Gang\n\n</p><p>GANG is an essentialist, AI-first static publishing platform built for teams who refuse to compromise on quality, accessibility, or performance.\n\n<p></p>## Our Philosophy\n\n</p><p>Every website should be:\n\n<p>1. **Fast** \\- Sub\\-2\\.5s LCP\\, zero client\\-side JavaScript\n2. **Accessible** \\- WCAG 2\\.2 AA minimum\\, no exceptions\n3. **Honest** \\- Semantic HTML\\, valid structured data\n4. **Portable** \\- Markdown \\+ Git\\, zero vendor lock\\-in</p>***\n\n*Built by people who care about the web.*"}
+This is a test
+
+<p></p>
