@@ -3,7 +3,7 @@
 title: "Manifesto"summary: "Our principles for building the web: semantic, accessible, fast, and AI-first"date: 2025-01-11
 ---
 
-# The GANG Manifestoo
+# GANG Manifesto
 
 **Documents, not apps.** The web was built on hyperlinked documents. We're bringing that back.
 
