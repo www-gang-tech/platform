@@ -1,9 +1,14 @@
-***
-
-title: "Manifesto"summary: "Our principles for building the web: semantic, accessible, fast, and AI-first"date: 2025-01-11
+---
+title: "Manifesto"
+summary: "Our principles for building the web: semantic, accessible, fast, and AI-first"
+date: 2025-01-11
+jsonld: {}
+seo:
+  description: null
+  title: null
 ---
 
-# The GANG Manifesto
+# Manifesto
 
 **Documents, not apps.** The web was built on hyperlinked documents. We're bringing that back.
 

@@ -22,6 +22,7 @@
 - [Content Import](guides/CONTENT_IMPORT_GUIDE.md) - Bulk import from other platforms
 - [CMS Slug Rename](guides/CMS_SLUG_RENAME_GUIDE.md) - URL management
 - [Email Workflow](guides/EMAIL_WORKFLOW.md) - Newsletter publishing
+- [In-Place Editor Quick Start](guides/IN_PLACE_EDITOR_QUICKSTART.md) - Edit pages in context (NEW)
 
 **Workflows**:
 - [Operations Guide](guides/OPERATE.md) - Day-to-day operations
@@ -52,6 +53,14 @@
 - [Build Performance](architecture/BUILD_PERFORMANCE.md) - Performance metrics
 - [Implementation Summary](architecture/IMPLEMENTATION_SUMMARY.md) - Tech decisions
 - [Avoiding Stalls](architecture/AVOIDING_STALLS.md) - Performance optimization
+
+**In-Place Editor** (NEW):
+- [📚 Documentation Hub](architecture/IN_PLACE_EDITOR_README.md) - **Start here!** Navigation & overview
+- [✅ Phase 1 Complete](architecture/IN_PLACE_EDITOR_PHASE1_COMPLETE.md) - **MVP Implementation Status**
+- [📋 Executive Summary](architecture/IN_PLACE_EDITOR_SUMMARY.md) - Decision & rationale
+- [📖 Implementation Plan](architecture/IN_PLACE_EDITOR_PLAN.md) - Detailed technical spec
+- [⚖️ Studio Comparison](architecture/EDITOR_COMPARISON.md) - Feature & UX analysis
+- [🔄 User Flows & Diagrams](architecture/IN_PLACE_EDITOR_FLOWS.md) - Visual architecture
 
 **Status Reports**:
 - [Build Complete Status](architecture/BUILD_COMPLETE_STATUS.md) - Final build state

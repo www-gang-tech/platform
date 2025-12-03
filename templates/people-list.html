@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article>
+    <h1>People</h1>
+
+{% if sections %}
+    {% for section_name, people_list in sections.items() %}
+    <section aria-labelledby="section-{{ section_name|lower|replace(' ', '-') }}">
+        <h2 id="section-{{ section_name|lower|replace(' ', '-') }}">{{ section_name }}</h2>
+        
+        <div class="people-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-top: 1.5rem;">
+            {% for person in people_list %}
+            <article class="person-card" style="border: 1px solid var(--color-border); border-radius: 8px; padding: 1.5rem; transition: transform 0.2s;">
+                <a href="{{ person.url }}" style="text-decoration: none; color: inherit; display: block;">
+                    {% if person.image %}
+                    <img 
+                        src="{{ person.image }}" 
+                        alt="{{ person.title }} profile picture" 
+                        width="120" 
+                        height="120" 
+                        style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; margin-bottom: 1rem; display: block;"
+                        loading="lazy" 
+                        decoding="async"
+                    >
+                    {% endif %}
+                    <h3 style="margin-top: 0; margin-bottom: 0.5rem;">{{ person.title }}</h3>
+                    {% if person.role %}
+                    <p style="color: var(--color-muted); font-size: 0.9rem; margin: 0 0 0.75rem 0;">{{ person.role }}</p>
+                    {% endif %}
+                    {% if person.summary %}
+                    <p style="font-size: 0.9rem; margin: 0;">{{ person.summary|truncate(120) }}</p>
+                    {% endif %}
+                </a>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+{% else %}
+    <p>No people found.</p>
+{% endif %}
+</article>
+{% endblock %}
+

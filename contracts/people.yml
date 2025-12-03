@@ -1,0 +1,55 @@
+# People Contract - Profile Pages
+type: person
+description: "People profiles (team members, advisors, contributors, etc.)"
+
+budgets:
+  html: 30720  # 30KB
+  css: 10240   # 10KB  
+  js: 0        # No JavaScript allowed
+
+headings:
+  required: ["h1"]
+  pattern: "h1 > h2 > h3"  # No level skips
+  single_h1: true
+
+landmarks:
+  required:
+    - header
+    - main
+    - footer
+  optional:
+    - nav
+    - aside
+
+jsonld:
+  required_type: "Person"
+  required_props:
+    - "@context"
+    - "@type"
+    - name
+    - url
+    - description
+
+meta:
+  required:
+    - title
+    - description
+    - canonical
+  optional:
+    - image
+    - role
+    - section
+    - social_links
+  
+accessibility:
+  wcag_level: "AA"
+  contrast_ratio: 4.5
+  keyboard_nav: true
+  alt_coverage: 100
+
+performance:
+  lcp_max: 2500  # ms
+  cls_max: 0.05
+  inp_max: 200   # ms
+
+

@@ -71,6 +71,8 @@ class SearchIndexer:
             url = f"/projects/{slug}/"
         elif category == 'pages':
             url = f"/pages/{slug}/"
+        elif category == 'people':
+            url = f"/people/{slug}/"
         else:
             url = f"/{category}/{slug}/"
         
@@ -86,7 +88,7 @@ class SearchIndexer:
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
         return {
-            'id': str(file_path.relative_to(self.content_path)),
+            'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
             'description': description,
             'url': url,

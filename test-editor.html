@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Editor Test</title>
+    <style>
+        .edit-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #content {
+            padding: 20px;
+        }
+    </style>
+</head>
+<body data-page-type="page" data-category="pages" data-slug="manifesto">
+    <div id="content">
+        <h1>Test Page</h1>
+        <p>This is a test page to verify the editor works.</p>
+    </div>
+    
+    <button id="edit-trigger" class="edit-btn" onclick="activateEditor()">
+        ✏️ Edit
+    </button>
+    
+    <script src="/assets/editor-bundle.js"></script>
+    
+    <script>
+        // Debug function
+        window.testEditor = function() {
+            console.log('Testing editor...');
+            console.log('activateEditor function:', typeof activateEditor);
+            console.log('gangEditor object:', typeof gangEditor);
+            
+            if (typeof activateEditor === 'function') {
+                console.log('Calling activateEditor...');
+                activateEditor();
+            } else {
+                console.error('activateEditor is not a function!');
+            }
+        };
+        
+        console.log('Test page loaded. Try: testEditor()');
+    </script>
+</body>
+</html>

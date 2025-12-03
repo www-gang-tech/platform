@@ -1,0 +1,403 @@
+/* GANG In-Place Editor - Web 1.0 Styling */
+/* No blur/filters - solid colors only - simple animations */
+
+/* Edit Button (floating trigger) */
+.edit-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #333;
+    color: #fff;
+    border: 1px solid #000;
+    padding: 12px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background 0.2s;
+    z-index: 9999;
+}
+
+.edit-btn:hover {
+    background: #000;
+}
+
+.edit-btn:focus {
+    outline: 2px solid #0066cc;
+    outline-offset: 2px;
+}
+
+/* Full-Screen Overlay */
+.editor-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #fff;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+}
+
+.editor-container {
+    max-width: 800px;
+    width: 100%;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+
+.editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+    flex-shrink: 0;
+}
+
+.editor-header h2 {
+    margin: 0;
+    font-size: 1.5em;
+    color: #333;
+}
+
+.editor-header-actions {
+    position: relative;
+}
+
+/* ContentEditable Area */
+.editor-content {
+    flex: 1;
+    width: 100%;
+    padding: 16px;
+    font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow-y: auto;
+    outline: none;
+    background: #fff;
+}
+
+.editor-content:focus {
+    border-color: #333;
+}
+
+.editor-content[data-placeholder]:empty:before {
+    content: attr(data-placeholder);
+    color: #999;
+    font-style: italic;
+}
+
+/* Content styling within editor */
+.editor-content h1 {
+    font-size: 2em;
+    margin: 0.5em 0;
+    color: #333;
+    font-weight: 600;
+}
+
+.editor-content h2 {
+    font-size: 1.5em;
+    margin: 0.5em 0;
+    color: #333;
+    font-weight: 600;
+}
+
+.editor-content h3 {
+    font-size: 1.25em;
+    margin: 0.5em 0;
+    color: #333;
+    font-weight: 600;
+}
+
+.editor-content p {
+    margin: 1em 0;
+    color: #333;
+}
+
+.editor-content strong {
+    font-weight: 600;
+}
+
+.editor-content em {
+    font-style: italic;
+}
+
+.editor-content code {
+    background: #f5f5f5;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.editor-content a {
+    color: #0066cc;
+    text-decoration: underline;
+}
+
+.editor-content a:hover {
+    color: #004499;
+}
+
+/* Floating Toolbar (appears on text selection) */
+.floating-toolbar {
+    position: absolute;
+    display: none;
+    flex-direction: row;
+    gap: 4px;
+    background: #333;
+    border: 1px solid #000;
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 10002;
+}
+
+.floating-toolbar button {
+    background: transparent;
+    color: #fff;
+    border: none;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 14px;
+    transition: background 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.floating-toolbar button:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.floating-toolbar button:active {
+    background: rgba(255,255,255,0.2);
+}
+
+.floating-toolbar button i {
+    display: block;
+    font-size: 14px;
+}
+
+/* Action Menu Dropdown */
+.editor-actions-btn {
+    background: #333;
+    color: #fff;
+    border: 1px solid #000;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.editor-actions-btn:hover {
+    background: #000;
+}
+
+.editor-actions-btn:focus {
+    outline: 2px solid #0066cc;
+    outline-offset: 2px;
+}
+
+.action-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    min-width: 180px;
+    display: none;
+    z-index: 10001;
+    margin-top: 4px;
+}
+
+.action-menu.show {
+    display: block;
+}
+
+.action-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 12px 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.15s;
+    color: #333;
+}
+
+.action-menu button:hover {
+    background: #f5f5f5;
+}
+
+.action-menu button:first-child {
+    border-radius: 4px 4px 0 0;
+}
+
+.action-menu button:last-child {
+    border-radius: 0 0 4px 4px;
+}
+
+.action-menu button i {
+    margin-right: 8px;
+    width: 16px;
+    text-align: center;
+}
+
+/* Toast Notifications */
+.editor-toast {
+    position: fixed;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    background: #333;
+    color: #fff;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 10001;
+    transition: transform 0.3s ease-out;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    max-width: 400px;
+    text-align: center;
+}
+
+.editor-toast-show {
+    transform: translateX(-50%) translateY(120px);
+}
+
+.editor-toast-success {
+    background: #2d6a2d;
+}
+
+.editor-toast-error {
+    background: #a03030;
+}
+
+.editor-toast-info {
+    background: #333;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .editor-overlay {
+        background: #1a1a1a;
+    }
+    
+    .editor-content {
+        background: #1a1a1a;
+        color: #e0e0e0;
+        border-color: #444;
+    }
+    
+    .editor-content:focus {
+        border-color: #666;
+    }
+    
+    .editor-content h1,
+    .editor-content h2,
+    .editor-content h3,
+    .editor-content p {
+        color: #e0e0e0;
+    }
+    
+    .editor-content code {
+        background: #333;
+        color: #e0e0e0;
+    }
+    
+    .editor-header h2 {
+        color: #e0e0e0;
+    }
+    
+    .editor-header {
+        border-color: #444;
+    }
+    
+    .action-menu {
+        background: #2a2a2a;
+        border-color: #444;
+    }
+    
+    .action-menu button {
+        color: #e0e0e0;
+    }
+    
+    .action-menu button:hover {
+        background: #333;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .edit-btn {
+        border-width: 2px;
+    }
+    
+    .editor-content {
+        border-width: 2px;
+    }
+    
+    .floating-toolbar {
+        border-width: 2px;
+    }
+    
+    .action-menu {
+        border-width: 2px;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .edit-btn,
+    .floating-toolbar button,
+    .action-menu button,
+    .editor-toast {
+        transition: none;
+    }
+    
+    .editor-toast {
+        transition: transform 0.1s ease-out;
+    }
+}
+
+/* Print styles - hide editor UI */
+@media print {
+    .edit-btn,
+    .editor-overlay,
+    .floating-toolbar,
+    .action-menu,
+    .editor-toast {
+        display: none !important;
+    }
+}
+
+/* Focus management for accessibility */
+.editor-content:focus {
+    box-shadow: 0 0 0 2px #0066cc;
+}
+
+/* Ensure proper spacing */
+.editor-content * + * {
+    margin-top: 0.5em;
+}
+
+.editor-content h1 + *,
+.editor-content h2 + *,
+.editor-content h3 + * {
+    margin-top: 0.25em;
+}

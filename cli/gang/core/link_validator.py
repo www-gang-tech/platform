@@ -202,7 +202,7 @@ class LinkValidator:
         content_type = parts[0]  # posts, pages, projects, etc.
         slug = rel_path.stem
         
-        if content_type in ['posts', 'projects']:
+        if content_type in ['posts', 'projects', 'people']:
             return f'/{content_type}/{slug}/'
         elif content_type == 'pages':
             return f'/pages/{slug}/'

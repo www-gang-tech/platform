@@ -12,19 +12,7 @@
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-    <div class="theme-toggle">
-        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
-        <label for="theme-switch"></label>
-    </div>
-    
-    <header>
-        <strong>{{ site_title }}</strong>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/newsletters/">Newsletters</a>
-        </nav>
-    </header>
+    {% include "partials/header.html" %}
     
     <main style="max-width: 65ch; margin: 0 auto;">
         <h1>Newsletters</h1>
@@ -57,17 +45,6 @@
         {% endif %}
     </main>
     
-    <footer>
-        <p>&copy; {{ year }} {{ site_title }}. Built with GANG.</p>
-        <p class="lighthouse-scores">
-            <span class="score" title="Performance">⚡ <strong>100</strong></span>
-            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
-            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
-            <span class="score" title="SEO">🔍 <strong>100</strong></span>
-        </p>
-        <p class="last-updated">
-            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
-        </p>
-    </footer>
+    {% include "partials/footer.html" %}
 </body>
 </html>

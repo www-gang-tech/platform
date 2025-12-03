@@ -1,16 +1,22 @@
 ---
-type: project
-title: "Design System Rebuild: Accessibility-First Foundations"
-summary: "Complete redesign with WCAG 2.2 AA compliance, APG patterns, and zero-compromise performance."
 date: 2025-04-15
-year: 2025
-status: published
 featured: true
+jsonld: {}
+seo:
+  description: null
+  title: null
+status: published
+summary: Complete redesign with WCAG 2.2 AA compliance, APG patterns, and zero-compromise
+  performance.
 tags:
-  - design-systems
-  - accessibility
-  - performance
+- design-systems
+- accessibility
+- performance
+title: 'Design System Rebuild: Accessibility-First Foundations'
+type: project
+year: 2025
 ---
+
 
 In Q1 2025, we rebuilt our entire design system from scratch. The driver? An accessibility audit revealed 47 critical issues.
 

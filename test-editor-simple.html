@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Editor Test</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/assets/editor.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .test-info {
+            background: #f0f0f0;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body data-page-type="page" data-category="pages" data-slug="test">
+    <div class="test-info">
+        <h3>Simple Editor Test</h3>
+        <p>This page tests if the editor functions are available.</p>
+        <p>Check the browser console for any errors.</p>
+    </div>
+    
+    <h1>Test Content</h1>
+    <p>This is test content to verify the editor works.</p>
+    
+    <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
+        <i class="fa-solid fa-pen"></i> Edit
+    </button>
+    
+    <script src="/assets/editor-bundle.js"></script>
+    
+    <script>
+        // Test script
+        window.addEventListener('load', () => {
+            console.log('=== SIMPLE EDITOR TEST ===');
+            console.log('window.gangEditor:', typeof window.gangEditor);
+            console.log('window.activateEditor:', typeof window.activateEditor);
+            console.log('InPlaceEditor class:', typeof InPlaceEditor);
+            
+            // Test if we can create an editor instance
+            try {
+                const testEditor = new InPlaceEditor();
+                console.log('✅ InPlaceEditor can be instantiated');
+            } catch (e) {
+                console.error('❌ InPlaceEditor instantiation failed:', e);
+            }
+            
+            // Test if activateEditor works
+            if (typeof window.activateEditor === 'function') {
+                console.log('✅ activateEditor function is available');
+            } else {
+                console.error('❌ activateEditor function is NOT available');
+            }
+        });
+    </script>
+</body>
+</html>
+
+
+
+
+
+

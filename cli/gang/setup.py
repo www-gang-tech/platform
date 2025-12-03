@@ -14,6 +14,9 @@ setup(
         'anthropic>=0.18.0',
         'beautifulsoup4>=4.12.0',
         'pillow>=10.0.0',
+        'requests>=2.31.0',
+        'watchdog>=3.0.0',
+        'boto3>=1.28.0',
     ],
     entry_points={
         'console_scripts': [

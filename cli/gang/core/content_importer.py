@@ -260,7 +260,7 @@ class ContentImporter:
         conflicts = []
         
         # Check all content types
-        for content_type in ['posts', 'pages', 'projects']:
+        for content_type in ['posts', 'pages', 'projects', 'people']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue
@@ -293,7 +293,7 @@ Categories:
 
 Respond in JSON:
 {{
-  "category": "posts|pages|projects",
+  "category": "posts|pages|projects|people",
   "confidence": "high|medium|low",
   "reasoning": "Brief explanation why"
 }}"""
@@ -457,7 +457,7 @@ class SlugChecker:
         duplicates = {}
         
         # Scan all content types
-        for content_type in ['posts', 'pages', 'projects', 'newsletters']:
+        for content_type in ['posts', 'pages', 'projects', 'newsletters', 'people']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue

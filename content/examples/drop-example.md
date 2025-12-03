@@ -1,14 +1,22 @@
 ---
-type: drop
-date: 2025-10-13T10:00:00Z
-title: "Announcing Feed System"
-summary: "A unified content stream that accepts 7 minimal types. No database, no JS, just semantic HTML and RSS."
-tags: [launch, features]
-syndicate: true
 cta:
-  label: "Try it now"
-  href: "/feed/"
+  href: /feed/
+  label: Try it now
+date: 2025-10-13 10:00:00+00:00
+jsonld: {}
+seo:
+  description: null
+  title: null
+summary: A unified content stream that accepts 7 minimal types. No database, no JS,
+  just semantic HTML and RSS.
+syndicate: true
+tags:
+- launch
+- features
+title: Announcing Feed System
+type: drop
 ---
+
 
 # What's New
 

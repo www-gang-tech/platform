@@ -4,8 +4,8 @@ version: "1.0"
 # Site metadata
 site:
   title: "GANG"
-  url: "https://example.com"
-  description: "AI-first static publishing platform"
+  url: "https://gang-platform.dev"
+  description: "A new protocol for intentional living expressed through crafted objects and open source research."
   language: "en"
   
 # Build settings
@@ -177,6 +177,19 @@ outputs:
   - feed.json
   - agentmap.json
   
+# Comments system
+comments:
+  enabled: true
+  webhook_url: "https://your-n8n.app/webhook/comments"
+  moderation: "manual"  # manual, auto, ai
+  gravatar: true
+  threading: false  # future: nested replies
+  max_length: 2000
+  allowed_html: []  # or ["strong", "em", "code"] for limited HTML
+  spam_protection:
+    honeypot: true
+    akismet: false
+
 # Localization (future)
 locales:
   default: "en"

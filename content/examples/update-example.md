@@ -1,11 +1,18 @@
 ---
-type: update
-date: 2025-10-13T08:00:00Z
-title: "Performance improvements"
-version: "v1.2.0"
-tags: [changelog, performance]
+date: 2025-10-13 08:00:00+00:00
+jsonld: {}
+seo:
+  description: null
+  title: null
 syndicate: false
+tags:
+- changelog
+- performance
+title: Performance improvements
+type: update
+version: v1.2.0
 ---
+
 
 ## Changes
 

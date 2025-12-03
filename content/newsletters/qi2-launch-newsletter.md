@@ -1,14 +1,19 @@
 ---
-title: Qi2 Launch
+canonical_url: https://example.com/posts/qi2-launch/
 date: '2025-10-12'
-summary: ''
+esp_provider: klaviyo
+jsonld: {}
 newsletter_id: qi2-launch
 sent_date: '2025-10-12T23:26:26.801464'
-esp_provider: klaviyo
-canonical_url: https://example.com/posts/qi2-launch/
+seo:
+  description: null
+  title: null
+summary: ''
 tags: []
+title: Qi2 Launch
 ---
-# What's New in Qi2
+
+## What's New in Qi2
 
 The key innovation is the **Magnetic Power Profile** \- devices and chargers use magnets to snap into perfect alignment\.
 

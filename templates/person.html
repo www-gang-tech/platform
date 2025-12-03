@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article itemscope itemtype="https://schema.org/Person">
+    <header style="margin-bottom: 2rem;">
+        <div style="display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap;">
+            {% if image %}
+            <img 
+                src="{{ image }}" 
+                alt="{{ title }} profile picture" 
+                width="200" 
+                height="200" 
+                itemprop="image"
+                style="width: 200px; height: 200px; border-radius: 50%; object-fit: cover; flex-shrink: 0;"
+                loading="eager" 
+                decoding="async"
+            >
+            {% endif %}
+            <div style="flex: 1; min-width: 200px;">
+                <h1 itemprop="name">{{ title }}</h1>
+                {% if role %}
+                <p itemprop="jobTitle" style="font-size: 1.1rem; color: var(--color-muted); margin: 0.5rem 0 1rem 0;">{{ role }}</p>
+                {% endif %}
+                {% if social_links %}
+                <nav aria-label="Social links" style="margin-top: 1rem;">
+                    <ul style="list-style: none; padding: 0; margin: 0; display: flex; gap: 1rem; flex-wrap: wrap;">
+                        {% for link in social_links %}
+                        <li>
+                            <a 
+                                href="{{ link.url }}" 
+                                rel="noopener noreferrer"
+                                itemprop="sameAs"
+                                class="ext"
+                                aria-label="{{ link.platform|default('Social link') }}"
+                            >
+                                {{ link.platform|default(link.url) }}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </nav>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    
+    {% if summary %}
+    <p itemprop="description" style="font-size: 1.1rem; margin-bottom: 2rem; color: var(--color-muted);">{{ summary }}</p>
+    {% endif %}
+    
+    <div itemprop="description" class="markdown-body">
+        {{ content | safe }}
+    </div>
+</article>
+{% endblock %}
+
+

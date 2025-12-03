@@ -1,9 +1,14 @@
 ---
-title: WCAG Conformance Statement
-date: 2025-10-12
 author: GANG Team
+date: 2025-10-12
+jsonld: {}
+seo:
+  description: null
+  title: null
 summary: Our commitment to web accessibility and WCAG 2.2 Level AA conformance
+title: WCAG Conformance Statement
 ---
+
 
 # WCAG Conformance Statement
 

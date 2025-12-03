@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 GANG CLI - Single binary for all build operations
 """
@@ -62,7 +63,7 @@ def report(ctx, answerability, format):
         reports_dir = Path('reports')
         reports_dir.mkdir(exist_ok=True)
         
-        click.echo("🔍 Analyzing answerability...\n")
+        click.echo("Score Analyzing answerability...\n")
         
         analyzer = AnswerabilityAnalyzer(dist_path)
         results = analyzer.analyze_site()
@@ -113,7 +114,7 @@ def check(ctx, verbose):
     
     validator = ContractValidator(contracts_dir)
     
-    click.echo("🔍 Validating site against contracts...\n")
+    click.echo("Score Validating site against contracts...\n")
     
     results = []
     
@@ -203,7 +204,7 @@ def optimize(ctx, force):
             new_content = f"---\n{yaml.dump(optimized, default_flow_style=False)}---\n{body}"
             md_file.write_text(new_content)
             optimized_count += 1
-            click.echo(f"  ✓ {md_file.relative_to(content_path)}")
+            click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
     
     click.echo(f"✅ Optimized {optimized_count} files")
 
@@ -279,7 +280,7 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
             # Status breakdown
             statuses = [analyzer._calculate_overall_status(a) for a in all_analyses]
             click.echo(f"\nStatus breakdown:")
-            click.echo(f"  ✓ Good: {statuses.count('good') + statuses.count('excellent')}")
+            click.echo(f"  Best Practices Good: {statuses.count('good') + statuses.count('excellent')}")
             click.echo(f"  ⚠️  Warning: {statuses.count('warning')}")
             click.echo(f"  ✗ Poor: {statuses.count('poor')}")
             
@@ -442,7 +443,7 @@ def performance(ctx, limit):
             return
         
         click.echo("=" * 60)
-        click.echo(f"⚡ Build Performance History (last {min(limit, len(runs))} runs)")
+        click.echo(f"Performance Build Performance History (last {min(limit, len(runs))} runs)")
         click.echo("=" * 60)
         click.echo("")
         
@@ -533,7 +534,7 @@ def fix(ctx, links, apply, commit, min_confidence, rebuild):
     broken_count = len(results['broken_internal']) + len(results['broken_external'])
     
     if broken_count == 0:
-        click.echo("✓ No broken links found!")
+        click.echo("Best Practices No broken links found!")
         return
     
     click.echo(f"Found {broken_count} broken link(s)\n")
@@ -644,7 +645,7 @@ def upload(ctx, source, path):
             total_mb = result['total_size'] / (1024 * 1024)
             click.echo(f"\n✅ Uploaded {len(result['uploaded'])} file(s) ({total_mb:.2f}MB)")
             for item in result['uploaded'][:5]:
-                click.echo(f"  ✓ {item['file']}")
+                click.echo(f"  Best Practices {item['file']}")
                 click.echo(f"    {item['url']}")
             if len(result['uploaded']) > 5:
                 click.echo(f"  ... and {len(result['uploaded']) - 5} more")
@@ -843,7 +844,7 @@ def import_content(ctx, source, title, category, compress_images, commit):
             ctx.exit(1)
     
     # Import and process
-    click.echo("🔍 Analyzing content...")
+    click.echo("Score Analyzing content...")
     result = importer.import_from_text(content, title)
     
     # Show what was found
@@ -891,7 +892,7 @@ def import_content(ctx, source, title, category, compress_images, commit):
                 size_kb = img['size'] / 1024
                 orig_kb = img['original_size'] / 1024
                 savings = ((img['original_size'] - img['size']) / img['original_size']) * 100
-                click.echo(f"  ✓ Uploaded & compressed: {size_kb:.1f}KB (saved {savings:.0f}%)")
+                click.echo(f"  Best Practices Uploaded & compressed: {size_kb:.1f}KB (saved {savings:.0f}%)")
                 if img.get('alt_generated_by_ai'):
                     click.echo(f"    Alt text (AI): {img['alt']}")
     
@@ -1438,7 +1439,7 @@ def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
     image = Path(image_path)
     
     if auto_detect:
-        click.echo("🔍 Detecting focal point...")
+        click.echo("Score Detecting focal point...")
         focal_point = FocalPointDetector.detect_focal_point(image)
         click.echo(f"   Detected: ({focal_point[0]:.2f}, {focal_point[1]:.2f})")
     else:
@@ -1743,27 +1744,27 @@ def email_check_deliverability(domain):
         sys.path.insert(0, str(Path(__file__).parent))
         from core.email_templates import DeliverabilityChecker
     
-    click.echo(f"🔍 Checking deliverability for: {domain}\n")
+    click.echo(f"Score Checking deliverability for: {domain}\n")
     
     try:
         results = DeliverabilityChecker.check_dns_records(domain)
         
         click.echo("SPF Record:")
         if results['spf']:
-            click.echo(f"  ✓ {results['spf']}")
+            click.echo(f"  Best Practices {results['spf']}")
         else:
             click.echo("  ✗ Not found")
         
         click.echo("\nDMARC Record:")
         if results['dmarc']:
-            click.echo(f"  ✓ {results['dmarc']}")
+            click.echo(f"  Best Practices {results['dmarc']}")
         else:
             click.echo("  ✗ Not found")
         
         click.echo("\nMX Records:")
         if results['mx']:
             for mx in results['mx']:
-                click.echo(f"  ✓ {mx}")
+                click.echo(f"  Best Practices {mx}")
         else:
             click.echo("  ✗ Not found")
         
@@ -2086,7 +2087,7 @@ def slugs(ctx, fix):
     config = ctx.obj
     content_path = Path(config['build']['content'])
     
-    click.echo("🔍 Checking slug uniqueness...\n")
+    click.echo("Score Checking slug uniqueness...\n")
     
     checker = SlugChecker(content_path)
     results = checker.check_all_slugs()
@@ -2163,12 +2164,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo("   Fix by renaming files to have unique slugs")
             ctx.exit(1)
         else:
-            click.echo(f"✓ All {results['total_slugs']} slugs are unique\n")
+            click.echo(f"Best Practices All {results['total_slugs']} slugs are unique\n")
     
     # Quality gate check
     if check_quality:
         from core.analyzer import ContentAnalyzer
-        click.echo("🔍 Running content quality checks...")
+        click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
         content_path = Path(config['build']['content'])
         md_files = list(content_path.rglob('*.md'))
@@ -2191,7 +2192,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo("Tip: Use --min-quality-score to adjust threshold or fix content issues")
             ctx.exit(1)
         else:
-            click.echo(f"✓ All {len(md_files)} files pass quality threshold ({min_quality_score}+)\n")
+            click.echo(f"Best Practices All {len(md_files)} files pass quality threshold ({min_quality_score}+)\n")
     
     # Link validation check
     if validate_links:
@@ -2217,7 +2218,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo("Build aborted due to broken links\n")
             ctx.exit(1)
         else:
-            click.echo(f"✓ All {results['total_links']} links valid\n")
+            click.echo(f"Best Practices All {results['total_links']} links valid\n")
     
     # Initialize systems
     templates_path = Path(config['build'].get('templates', './templates'))
@@ -2247,7 +2248,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         stats = result['stats']
         if stats['total_images'] > 0:
             savings_kb = stats['savings_bytes'] / 1024
-            click.echo(f"  ✓ Optimized {stats['total_images']} image(s) → {stats['total_variants']} variants")
+            click.echo(f"  Best Practices Optimized {stats['total_images']} image(s) → {stats['total_variants']} variants")
             click.echo(f"  💾 Saved {savings_kb:.1f}KB ({stats['savings_percent']:.1f}% reduction)")
     
     # Copy public assets
@@ -2284,7 +2285,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Manually collect .md files to avoid Click recursion issue
     all_md_files = []
-    for category_dir in ['posts', 'pages', 'projects', 'newsletters']:
+    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
         category_path = content_path / category_dir
         if category_path.exists():
             for md_file in category_path.glob('*.md'):
@@ -2323,6 +2324,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Prepare context for template
         build_time = datetime.now()
+        slug = md_file.stem
+        
+        # Check if editor mode is enabled (for in-place editing)
+        user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
@@ -2337,10 +2343,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
+            # In-place editor context
+            'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
+            'category': content_type,  # 'posts', 'pages', 'projects', etc.
+            'slug': slug,
+            'user_authenticated': user_authenticated,
         }
         
+        # Treat articles as posts
+        if content_type == 'articles':
+            content_type = 'posts'
+            # Update context to reflect the change
+            context['page_type'] = 'post'
+            context['category'] = 'posts'
+        
         # Add canonical URL
-        slug = md_file.stem
         if content_type == 'posts':
             url = f"/posts/{slug}/"
         elif content_type == 'projects':
@@ -2356,7 +2373,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         if content_type == 'posts':
             template_name = 'post.html'
         elif content_type == 'projects':
-            template_name = 'post.html'  # Use same as posts for now
+            template_name = 'article.html'  # Use article template for projects
         elif content_type == 'newsletters':
             template_name = 'newsletter.html'
         else:
@@ -2373,7 +2390,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         output_file = dist_path / content_type / slug / 'index.html'
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html)
-        click.echo(f"  ✓ {md_file.relative_to(content_path)}")
+        click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
         
         # Collect metadata for sitemaps
         page_data = {
@@ -2408,7 +2425,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         'posts': sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5],
     }
     
-    index_html = create_index_simple(config, all_posts[:5])
+    index_html = create_index_simple(config, all_posts[:5], templates_path)
     page_size_bytes = len(index_html.encode('utf-8'))
     index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'index.html').write_text(index_html)
@@ -2418,22 +2435,23 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         newsletters_dir = dist_path / 'newsletters'
         newsletters_dir.mkdir(parents=True, exist_ok=True)
         
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters')
+        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
         page_size_bytes = len(newsletters_html.encode('utf-8'))
         newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (newsletters_dir / 'index.html').write_text(newsletters_html)
     
     # Create list pages
-    if all_posts:
-        click.echo("📄 Creating posts index...")
-        posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts')
-        page_size_bytes = len(posts_html.encode('utf-8'))
-        posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-        (dist_path / 'posts' / 'index.html').write_text(posts_html)
+    # Always create posts index page, even if empty
+    click.echo("📄 Creating posts index...")
+    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+    page_size_bytes = len(posts_html.encode('utf-8'))
+    posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+    (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
+    (dist_path / 'posts' / 'index.html').write_text(posts_html)
     
     if all_projects:
         click.echo("📄 Creating projects index...")
-        projects_html = create_list_page_simple(config, all_projects, 'Projects')
+        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
@@ -2624,8 +2642,19 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_dir = dist_path / 'cart'
             cart_dir.mkdir(parents=True, exist_ok=True)
             
+            build_time = datetime.now()
+            build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
+            build_time_iso = build_time.isoformat()
+            
             cart_template = jinja_env.get_template('cart.html')
-            cart_html = cart_template.render()
+            cart_html = cart_template.render(
+                year=datetime.now().year,
+                site_title=config['site']['title'],
+                lighthouse_scores=True,
+                build_time=build_time_formatted,
+                build_time_iso=build_time_iso,
+                description=config['site']['description']
+            )
             (cart_dir / 'index.html').write_text(cart_html)
             
             click.echo("🛒 Generated cart page")
@@ -2659,7 +2688,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         scheduler = ContentScheduler(content_path)
         all_md = list(content_path.rglob('*.md'))
         schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [item['path'] for item in schedule_result['publishable']]
+        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
+                      for item in schedule_result['publishable']]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2703,8 +2733,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         agentmap_file.write_text(json.dumps(agentmap, indent=2))
         
         # Generate Content API
-        api_generator = ContentAPIGenerator(config, site_url)
-        content_api = api_generator.generate(publishable_paths, products)
+        api_generator = ContentAPIGenerator(site_url)
+        content_api = api_generator.generate_content_index(publishable_paths, content_path)
         
         api_dir = dist_path / 'api'
         api_dir.mkdir(parents=True, exist_ok=True)
@@ -2732,6 +2762,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         js_original = 0
         js_minified = 0
         for js_file in js_files:
+            # Skip editor-bundle.js to avoid corruption
+            if js_file.name == 'editor-bundle.js':
+                continue
+                
             js_content = js_file.read_text()
             js_original += len(js_content)
             # Remove single-line comments (but preserve URLs)
@@ -2861,7 +2895,73 @@ def format_bytes(bytes_size: int) -> str:
         return f"{bytes_size / (1024 * 1024):.2f}MB"
 
 
-def create_index_simple(config: Dict, recent_posts: List) -> str:
+def render_header(config: Dict, templates_path: Path = None) -> str:
+    """Render header partial template from HTML file"""
+    from jinja2 import Environment, FileSystemLoader
+    
+    if templates_path is None:
+        # Default to templates directory relative to project root
+        templates_path = Path(__file__).parent.parent.parent / 'templates'
+    
+    try:
+        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        template = env.get_template('partials/header.html')
+        return template.render(site_title=config['site']['title'])
+    except Exception as e:
+        # Fallback to simple header if template fails
+        return f"""<header role="banner">
+    <a href="/" style="text-decoration: none; color: inherit;">
+        <strong>{config['site']['title']}</strong>
+    </a>
+    <nav role="navigation" aria-label="Main navigation">
+        <a href="/">Home</a>
+        <a href="/posts/">Posts</a>
+        <a href="/projects/">Projects</a>
+        <a href="/products/">Products</a>
+        <a href="/pages/manifesto/">Manifesto</a>
+        <a href="/pages/about/">About</a>
+        <a href="/pages/contact/">Contact</a>
+        <a href="/cart/">Cart <span class="cart-count">0</span></a>
+    </nav>
+</header>"""
+
+
+def render_footer(config: Dict, year: int = None, page_size: str = None, build_time: str = None, 
+                  build_time_iso: str = None, lighthouse_scores: bool = True, 
+                  description: str = None, templates_path: Path = None) -> str:
+    """Render footer partial template from HTML file"""
+    from jinja2 import Environment, FileSystemLoader
+    from datetime import datetime
+    
+    if templates_path is None:
+        # Default to templates directory relative to project root
+        templates_path = Path(__file__).parent.parent.parent / 'templates'
+    
+    if year is None:
+        year = datetime.now().year
+    
+    try:
+        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        template = env.get_template('partials/footer.html')
+        return template.render(
+            site_title=config['site']['title'],
+            year=year,
+            page_size=page_size,
+            build_time=build_time,
+            build_time_iso=build_time_iso,
+            lighthouse_scores=lighthouse_scores,
+            description=description
+        )
+    except Exception as e:
+        # Fallback to simple footer if template fails
+        footer_text = f"<p>&copy; {year} {config['site']['title']}. Built with GANG."
+        if page_size:
+            footer_text += f" {page_size}"
+        footer_text += "</p>"
+        return f"<footer>{footer_text}</footer>"
+
+
+def create_index_simple(config: Dict, recent_posts: List, templates_path: Path = None) -> str:
     """Create simple index page"""
     posts_html = ""
     for post in recent_posts:
@@ -2883,8 +2983,18 @@ def create_index_simple(config: Dict, recent_posts: List) -> str:
     build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
     build_time_iso = build_time.isoformat()
     
-    # Dark mode toggle HTML
-    toggle_html = '<div class="theme-toggle"><input type="checkbox" id="theme-switch" aria-label="Toggle dark mode"><label for="theme-switch"></label></div>'
+    # Render header and footer
+    header_html = render_header(config, templates_path)
+    footer_html = render_footer(
+        config,
+        year=datetime.now().year,
+        page_size=None,  # Will be replaced with __PAGE_SIZE__ placeholder
+        build_time=build_time_formatted,
+        build_time_iso=build_time_iso,
+        lighthouse_scores=True,
+        description=config['site']['description'],
+        templates_path=templates_path
+    )
     
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
@@ -2906,63 +3016,25 @@ def create_index_simple(config: Dict, recent_posts: List) -> str:
     </style>
 </head>
 <body>
-    {toggle_html}
-    <header>
-        <strong>{config['site']['title']}</strong>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/projects/">Projects</a>
-            <a href="/products/">Products</a>
-            <a href="/pages/manifesto/">Manifesto</a>
-            <a href="/pages/about/">About</a>
-            <a href="/pages/contact/">Contact</a>
-            <a href="/cart/">Cart <span class="cart-count">0</span></a>
-        </nav>
-    </header>
+    {header_html}
     <main>
-        <h1>Welcome to {config['site']['title']}</h1>
+        <h1>{config['site']['title']}</h1>
         <p>{config['site']['description']}</p>
         
         <h2>Latest Posts</h2>
-        <ul>
+        <ul  class="unstyled">
             {posts_html}
         </ul>
         <p><a href="/posts/">View all posts →</a></p>
     </main>
-    <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
-        <p class="lighthouse-scores">
-            <span class="score" title="Performance">⚡ <strong>100</strong></span>
-            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
-            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
-            <span class="score" title="SEO">🔍 <strong>100</strong></span>
-        </p>
-        <p class="last-updated">
-            <time datetime="{build_time_iso}">Last updated: {build_time_formatted}</time>
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.85rem; font-style: italic; max-width: 65ch; margin-left: auto; margin-right: auto;">
-            This platform builds the smallest possible website that guarantees accessibility, performance, and machine legibility—then add only features that measurably improve comprehension, trust, or conversion.
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.85rem;">
-            <a href="/pages/contact/">Contact</a> · 
-            <a href="/pages/faq/">FAQ</a> · 
-            <a href="/sitemap/">Sitemap</a> · 
-            <a href="/feed.json">RSS</a> · 
-            <a href="/agentmap.json">AgentMap</a>
-        </p>
-        <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-            <a href="https://github.com/www-gang-tech" rel="noopener noreferrer" target="_blank">GitHub</a> · 
-            <a href="http://instagram.com/gang__tech" rel="noopener noreferrer" target="_blank">Instagram</a>
-        </p>
-    </footer>
+    {footer_html}
 </body>
 </html>"""
     
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str) -> str:
+def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
@@ -2987,8 +3059,18 @@ def create_list_page_simple(config: Dict, items: List, title: str) -> str:
     build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
     build_time_iso = build_time.isoformat()
     
-    # Dark mode toggle HTML
-    toggle_html = '<div class="theme-toggle"><input type="checkbox" id="theme-switch" aria-label="Toggle dark mode"><label for="theme-switch"></label></div>'
+    # Render header and footer
+    header_html = render_header(config, templates_path)
+    footer_html = render_footer(
+        config,
+        year=datetime.now().year,
+        page_size=None,  # Will be replaced with __PAGE_SIZE__ placeholder
+        build_time=build_time_formatted,
+        build_time_iso=build_time_iso,
+        lighthouse_scores=True,
+        description=config['site']['description'],
+        templates_path=templates_path
+    )
     
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
@@ -3013,54 +3095,14 @@ def create_list_page_simple(config: Dict, items: List, title: str) -> str:
     </style>
 </head>
 <body>
-    {toggle_html}
-    <header>
-        <a href="/" style="text-decoration: none; color: inherit;">
-            <strong>{config['site']['title']}</strong>
-        </a>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/projects/">Projects</a>
-            <a href="/products/">Products</a>
-            <a href="/pages/manifesto/">Manifesto</a>
-            <a href="/pages/about/">About</a>
-            <a href="/pages/contact/">Contact</a>
-            <a href="/cart/">Cart <span class="cart-count">0</span></a>
-        </nav>
-    </header>
+    {header_html}
     <main>
         <h1>{title}</h1>
         <ul>
             {items_html}
         </ul>
     </main>
-    <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
-        <p class="lighthouse-scores">
-            <span class="score" title="Performance">⚡ <strong>100</strong></span>
-            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
-            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
-            <span class="score" title="SEO">🔍 <strong>100</strong></span>
-        </p>
-        <p class="last-updated">
-            <time datetime="{build_time_iso}">Last updated: {build_time_formatted}</time>
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.85rem; font-style: italic; max-width: 65ch; margin-left: auto; margin-right: auto;">
-            This platform builds the smallest possible website that guarantees accessibility, performance, and machine legibility—then add only features that measurably improve comprehension, trust, or conversion.
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.85rem;">
-            <a href="/pages/contact/">Contact</a> · 
-            <a href="/pages/faq/">FAQ</a> · 
-            <a href="/sitemap/">Sitemap</a> · 
-            <a href="/feed.json">RSS</a> · 
-            <a href="/agentmap.json">AgentMap</a>
-        </p>
-        <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-            <a href="https://github.com/www-gang-tech" rel="noopener noreferrer" target="_blank">GitHub</a> · 
-            <a href="http://instagram.com/gang__tech" rel="noopener noreferrer" target="_blank">Instagram</a>
-        </p>
-    </footer>
+    {footer_html}
 </body>
 </html>"""
     
@@ -3089,6 +3131,14 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
     description = frontmatter.get('summary', config['site']['description'])
+    
+    # Build time for footer
+    build_time = datetime.now()
+    build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
+    build_time_iso = build_time.isoformat()
+    
+    # Render header
+    header_html = render_header(config)
     
     # Build HTML page
     page_html = f"""<!DOCTYPE html>
@@ -3209,21 +3259,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     </style>
 </head>
 <body>
-    <header>
-        <a href="/" style="text-decoration: none; color: inherit;">
-            <strong>{config['site']['title']}</strong>
-        </a>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/projects/">Projects</a>
-            <a href="/products/">Products</a>
-            <a href="/pages/manifesto/">Manifesto</a>
-            <a href="/pages/about/">About</a>
-            <a href="/pages/contact/">Contact</a>
-            <a href="/cart/">Cart <span class="cart-count">0</span></a>
-        </nav>
-    </header>
+    {header_html}
     <main>
         <article>
             {body_html}
@@ -3232,10 +3268,10 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     <footer>
         <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
         <p class="lighthouse-scores">
-            <span class="score" title="Performance">⚡ <strong>100</strong></span>
-            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
-            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
-            <span class="score" title="SEO">🔍 <strong>100</strong></span>
+            <span class="score" title="Performance">Performance <strong>100</strong></span>
+            <span class="score" title="Accessibility">Accessibility <strong>100</strong></span>
+            <span class="score" title="Best Practices">Best Practices <strong>100</strong></span>
+            <span class="score" title="SEO">Score <strong>100</strong></span>
         </p>
         <p class="last-updated">
             <time datetime="{build_time_iso}">Last updated: {build_time_formatted}</time>
@@ -3251,6 +3287,9 @@ def create_index(config: Dict, posts: List, projects: List) -> str:
     """Create the homepage"""
     posts_links = '\n'.join([f'<li><a href="/posts/{slug}/">{slug.replace("-", " ").title()}</a></li>' 
                               for slug, _ in posts[:5]])
+    
+    # Render header
+    header_html = render_header(config)
     
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
@@ -3357,25 +3396,13 @@ def create_index(config: Dict, posts: List, projects: List) -> str:
     </style>
 </head>
 <body>
-    <header>
-        <strong>{config['site']['title']}</strong>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/projects/">Projects</a>
-            <a href="/products/">Products</a>
-            <a href="/pages/manifesto/">Manifesto</a>
-            <a href="/pages/about/">About</a>
-            <a href="/pages/contact/">Contact</a>
-            <a href="/cart/">Cart <span class="cart-count">0</span></a>
-        </nav>
-    </header>
+    {header_html}
     <main>
-        <h1>Welcome to {config['site']['title']}</h1>
+        <h1>{config['site']['title']}</h1>
         <p>{config['site']['description']}</p>
         
         <h2>Latest Posts</h2>
-        <ul>
+        <ul  class="unstyled">>
             {posts_links}
         </ul>
         <p><a href="/posts/">View all posts →</a></p>
@@ -3393,6 +3420,9 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
     """Create a list page for posts or projects"""
     items_links = '\n'.join([f'<li><a href="/{title.lower()}/{slug}/">{slug.replace("-", " ").title()}</a></li>' 
                               for slug, _ in items])
+    
+    # Render header
+    header_html = render_header(config)
     
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
@@ -3494,21 +3524,7 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
     </style>
 </head>
 <body>
-    <header>
-        <a href="/" style="text-decoration: none; color: inherit;">
-            <strong>{config['site']['title']}</strong>
-        </a>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/projects/">Projects</a>
-            <a href="/products/">Products</a>
-            <a href="/pages/manifesto/">Manifesto</a>
-            <a href="/pages/about/">About</a>
-            <a href="/pages/contact/">Contact</a>
-            <a href="/cart/">Cart <span class="cart-count">0</span></a>
-        </nav>
-    </header>
+    {header_html}
     <main>
         <h1>{title}</h1>
         <ul>
@@ -3646,7 +3662,7 @@ def update_deps(ctx, check_only, security_only):
     """Check and update third-party dependencies"""
     import subprocess
     
-    click.echo("🔍 Checking for dependency updates...\n")
+    click.echo("Score Checking for dependency updates...\n")
     
     # Check if pip-audit is available for security checks
     has_pip_audit = False
@@ -3720,7 +3736,7 @@ def image(ctx, source_dir, output, analyze, check_alt):
     # If analyze or check-alt mode
     if analyze or check_alt:
         content_path = Path(config['build']['content'])
-        click.echo("🔍 Analyzing images in content...\n")
+        click.echo("Score Analyzing images in content...\n")
         
         total_missing_alt = 0
         total_external = 0
@@ -3796,7 +3812,7 @@ def studio(ctx, port, host):
                         content_path = Path(config['build']['content']).resolve()
                         files = []
                         
-                        click.echo(f"🔍 Looking for content in: {content_path}")
+                        click.echo(f"Score Looking for content in: {content_path}")
                         
                         if not content_path.exists():
                             click.echo(f"⚠️  Content directory not found: {content_path}")
@@ -3887,7 +3903,7 @@ def studio(ctx, port, host):
                         
                         content = data.get('content', '')
                         
-                        click.echo(f"🔍 Validating headings in content ({len(content)} chars)")
+                        click.echo(f"Score Validating headings in content ({len(content)} chars)")
                         
                         # Import heading validator
                         sys.path.insert(0, str(Path(__file__).parent))
@@ -4178,6 +4194,34 @@ def serve(ctx, port, host):
     """Start dev server with live reload"""
     click.echo("🚀 Starting dev server with live reload...")
     
+    import signal
+    import sys
+    
+    # Global variables for cleanup
+    server = None
+    observer = None
+    
+    def signal_handler(signum, frame):
+        """Handle shutdown signals"""
+        click.echo(f"\n👋 Received signal {signum}, shutting down...")
+        try:
+            if observer:
+                observer.stop()
+                observer.join(timeout=1)
+        except:
+            pass
+        try:
+            if server:
+                server.shutdown()
+        except:
+            pass
+        sys.exit(0)
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Terminal close
+    signal.signal(signal.SIGHUP, signal_handler)   # Terminal hangup
+    
     try:
         from watchdog.observers import Observer
         from watchdog.events import FileSystemEventHandler
@@ -4324,6 +4368,10 @@ def serve(ctx, port, host):
                         template_name = 'page.html'
                     
                     build_time = datetime.now()
+                    
+                    # Check if editor mode is enabled (for in-place editing)
+                    user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+                    
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
@@ -4339,6 +4387,11 @@ def serve(ctx, port, host):
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
                         'canonical_url': f"{config['site']['url']}{url}",
+                        # In-place editor context
+                        'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
+                        'category': content_type,  # 'posts', 'pages', 'projects', etc.
+                        'slug': slug,
+                        'user_authenticated': user_authenticated,
                     }
                     
                     # Render HTML
@@ -4382,7 +4435,7 @@ def serve(ctx, port, host):
                         all_pages.append(page_data)
                 
                 # Create index page
-                index_html = create_index_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5])
+                index_html = create_index_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5], templates_path)
                 # Inject live reload script
                 if '</body>' in index_html:
                     index_html = index_html.replace('</body>', live_reload_script + '</body>')
@@ -4395,7 +4448,7 @@ def serve(ctx, port, host):
                 
                 # Create list pages
                 if all_posts:
-                    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts')
+                    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
                     # Inject live reload script
                     if '</body>' in posts_html:
                         posts_html = posts_html.replace('</body>', live_reload_script + '</body>')
@@ -4405,7 +4458,7 @@ def serve(ctx, port, host):
                     (dist_path / 'posts' / 'index.html').write_text(posts_html)
                 
                 if all_projects:
-                    projects_html = create_list_page_simple(config, all_projects, 'Projects')
+                    projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
                     # Inject live reload script
                     if '</body>' in projects_html:
                         projects_html = projects_html.replace('</body>', live_reload_script + '</body>')
@@ -4573,8 +4626,18 @@ def serve(ctx, port, host):
                         # Generate cart page
                         cart_dir = dist_path / 'cart'
                         cart_dir.mkdir(parents=True, exist_ok=True)
+                        build_time = datetime.now()
+                        build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
+                        build_time_iso = build_time.isoformat()
                         cart_template = jinja_env.get_template('cart.html')
-                        cart_html = cart_template.render()
+                        cart_html = cart_template.render(
+                            year=datetime.now().year,
+                            site_title=config['site']['title'],
+                            lighthouse_scores=True,
+                            build_time=build_time_formatted,
+                            build_time_iso=build_time_iso,
+                            description=config['site']['description']
+                        )
                         if '</body>' in cart_html:
                             cart_html = cart_html.replace('</body>', live_reload_script + '</body>')
                         (cart_dir / 'index.html').write_text(cart_html)
@@ -4691,8 +4754,9 @@ def serve(ctx, port, host):
         
         click.echo(f"\n✅ Dev server running at http://{host}:{port}")
         click.echo("📝 Live reload enabled - changes will auto-refresh the browser")
-        click.echo("Press Ctrl+C to stop\n")
+        click.echo("Press Ctrl+C to stop (or close terminal)\n")
         
+        # The signal handler will take care of cleanup
         try:
             server.serve_forever()
         except KeyboardInterrupt:
@@ -4700,6 +4764,9 @@ def serve(ctx, port, host):
             observer.stop()
             observer.join()
             server.shutdown()
+        except SystemExit:
+            # Signal handler called sys.exit()
+            pass
     
     except ImportError as e:
         click.echo(f"❌ Error: {e}", err=True)

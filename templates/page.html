@@ -2,7 +2,9 @@
 
 {% block content %}
 <article>
-    {{ content | safe }}
+    <div class="markdown-body">
+        {{ content | safe }}
+    </div>
 </article>
 {% endblock %}
 

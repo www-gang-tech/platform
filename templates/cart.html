@@ -12,27 +12,17 @@
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-    <div class="theme-toggle">
-        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
-        <label for="theme-switch"></label>
-    </div>
+    {% include "partials/header.html" %}
     
-    <header>
-        <strong>GANG</strong>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/projects/">Projects</a>
-            <a href="/products/">Products</a>
-            <a href="/pages/manifesto/">Manifesto</a>
-            <a href="/pages/about/">About</a>
-            <a href="/pages/contact/">Contact</a>
-            <a href="/cart/">Cart <span class="cart-count">0</span></a>
-        </nav>
-    </header>
+    <nav aria-label="Breadcrumb" class="breadcrumb">
+        <ol>
+            <li><a href="/">Home</a></li>
+            <li><span aria-current="page">Cart</span></li>
+        </ol>
+    </nav>
     
     <main style="max-width: 900px; margin: 0 auto;">
-        <h1>Shopping Cart</h1>
+        <h1>Cart</h1>
         
         <!-- Empty cart message -->
         <div id="cart-empty" style="display: none; text-align: center; padding: 3rem 0;">
@@ -64,32 +54,7 @@
         </div>
     </main>
     
-    <footer>
-        <p>&copy; 2025 GANG. Built with GANG.</p>
-        <p class="lighthouse-scores">
-            <span class="score" title="Performance">⚡ <strong>100</strong></span>
-            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
-            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
-            <span class="score" title="SEO">🔍 <strong>100</strong></span>
-        </p>
-        <p class="last-updated">
-            <time datetime="2025-10-12T13:00:00">Last updated: 2025-10-12 13:00</time>
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.85rem; font-style: italic; max-width: 65ch; margin-left: auto; margin-right: auto;">
-            This platform builds the smallest possible website that guarantees accessibility, performance, and machine legibility—then add only features that measurably improve comprehension, trust, or conversion.
-        </p>
-        <p style="margin-top: 1rem; font-size: 0.85rem;">
-            <a href="/pages/contact/">Contact</a> · 
-            <a href="/pages/faq/">FAQ</a> · 
-            <a href="/sitemap/">Sitemap</a> · 
-            <a href="/feed.json">RSS</a> · 
-            <a href="/agentmap.json">AgentMap</a>
-        </p>
-        <p style="margin-top: 0.5rem; font-size: 0.85rem;">
-            <a href="https://github.com/www-gang-tech" class="ext">GitHub</a> · 
-            <a href="http://instagram.com/gang__tech" class="ext">Instagram</a>
-        </p>
-    </footer>
+    {% include 'partials/footer.html' %}
     
     <!-- Cart functionality -->
     <script src="/assets/cart.js"></script>

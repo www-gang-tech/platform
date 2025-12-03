@@ -12,19 +12,23 @@
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-    <div class="theme-toggle">
-        <input type="checkbox" id="theme-switch" aria-label="Toggle dark mode">
-        <label for="theme-switch"></label>
-    </div>
+    {% include "partials/header.html" %}
     
-    <header>
-        <strong>{{ site_title }}</strong>
-        <nav>
-            <a href="/">Home</a>
-            <a href="/posts/">Posts</a>
-            <a href="/newsletters/">Newsletters</a>
-        </nav>
-    </header>
+    {% if breadcrumbs %}
+    <nav aria-label="Breadcrumb" class="breadcrumb">
+        <ol>
+            {% for crumb in breadcrumbs %}
+            <li>
+                {% if not loop.last %}
+                <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+                {% else %}
+                <span aria-current="page">{{ crumb.label }}</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ol>
+    </nav>
+    {% endif %}
     
     <main style="max-width: 65ch; margin: 0 auto;">
         <div class="newsletter-header">
@@ -34,7 +38,7 @@
             <h1>{{ title }}</h1>
         </div>
         
-        <article>
+        <article class="markdown-body">
             {{ content | safe }}
         </article>
         
@@ -45,17 +49,6 @@
         </div>
     </main>
     
-    <footer>
-        <p>&copy; {{ year }} {{ site_title }}. Built with GANG.</p>
-        <p class="lighthouse-scores">
-            <span class="score" title="Performance">⚡ <strong>100</strong></span>
-            <span class="score" title="Accessibility">♿ <strong>100</strong></span>
-            <span class="score" title="Best Practices">✓ <strong>100</strong></span>
-            <span class="score" title="SEO">🔍 <strong>100</strong></span>
-        </p>
-        <p class="last-updated">
-            <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
-        </p>
-    </footer>
+    {% include "partials/footer.html" %}
 </body>
 </html>

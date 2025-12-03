@@ -1,0 +1,42 @@
+<footer style="margin: 8rem 0 1rem 0;" class="footnotes">
+    
+    {% if lighthouse_scores %}
+    <p class="lighthouse-scores">
+        <span class="score" title="Performance measures how quickly the page loads and becomes interactive">Performance: <strong>100</strong></span>
+        <span class="score" title="Accessibility measures how well the page can be used by people with disabilities">Accessibility: <strong>100</strong></span>
+        <span class="score" title="Best Practices checks for modern web development practices and security">Best Practices: <strong>100</strong></span>
+        <span class="score" title="SEO measures how well the page is optimized for search engines">SEO: <strong>100</strong></span>
+    </p>
+    {% endif %}
+    
+    <!-- {% if description %}
+    <p style="margin-top: 1rem; font-style: italic; max-width: 65ch;">
+        {{ description }}
+    </p>
+    {% endif %} -->
+    
+    <p style="margin: 0;">&copy; {{ year }} {{ site_title }}. Built with GANG.{% if page_size %} {{ page_size }}{% endif %}</p>
+    
+    {% if build_time %}
+    <p class="last-updated">
+        <time datetime="{{ build_time_iso }}">Last updated: {{ build_time }}</time>
+    </p>
+    {% endif %}
+
+    <nav>
+        <p >
+            <a href="/pages/contact/" style="margin-right: 1rem;">Contact</a>
+            <a href="/pages/faq/" style="margin-right: 1rem;">FAQ</a>
+            <a href="/pages/features/" style="margin-right: 1rem;">Features</a>
+            <a href="/sitemap/" style="margin-right: 1rem;">Sitemap</a>
+            <a href="/feed.json" style="margin-right: 1rem;">RSS</a>
+            <a href="/agentmap.json">AgentMap</a>
+        </p>
+        <p >
+            <a href="https://github.com/www-gang-tech" style="margin-right: 1rem;">GitHub</a>
+            <a href="http://instagram.com/gang__tech">Instagram</a>
+        </p>
+    </nav>
+    
+</footer>
+

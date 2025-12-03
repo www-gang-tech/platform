@@ -1,9 +1,14 @@
 ---
-title: Frequently Asked Questions
-date: 2025-10-12
 author: GANG Team
+date: 2025-10-12
+jsonld: {}
+seo:
+  description: null
+  title: null
 summary: Common questions about the GANG platform
+title: Frequently Asked Questions
 ---
+
 
 # Frequently Asked Questions
 

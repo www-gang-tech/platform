@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>New Editor Test</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/assets/editor.css">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-content {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196f3;
+        }
+    </style>
+</head>
+<body data-page-type="page" data-category="pages" data-slug="test">
+    <div class="test-content">
+        <div class="test-info">
+            <h3>New Editor Test Page</h3>
+            <p>This page tests the new Notion-style editor with:</p>
+            <ul>
+                <li>ContentEditable instead of ToastUI</li>
+                <li>Floating toolbar on text selection</li>
+                <li>Custom toast notifications</li>
+                <li>Web 1.0 styling (no blur effects)</li>
+                <li>FontAwesome icons</li>
+            </ul>
+        </div>
+        
+        <h1>Test Content</h1>
+        <p>This is a test page to verify the new editor works correctly. Try selecting some text to see the floating toolbar appear.</p>
+        
+        <h2>Features to Test</h2>
+        <ul>
+            <li><strong>Bold text</strong> and <em>italic text</em></li>
+            <li><a href="https://example.com">Links</a> and <code>code snippets</code></li>
+            <li>Different heading levels</li>
+        </ul>
+        
+        <p>Click the edit button in the bottom-right corner to test the full editor interface.</p>
+    </div>
+    
+    <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
+        <i class="fa-solid fa-pen"></i> Edit
+    </button>
+    
+    <script src="/assets/editor-bundle.js"></script>
+    
+    <script>
+        // Test function to verify editor is loaded
+        window.addEventListener('load', () => {
+            console.log('Test page loaded');
+            console.log('activateEditor function available:', typeof window.activateEditor === 'function');
+            console.log('gangEditor instance available:', typeof window.gangEditor === 'object');
+        });
+    </script>
+</body>
+</html>
+
+
+
+
+
+

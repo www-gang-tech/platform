@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Editor</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/assets/editor.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .debug-info {
+            background: #f0f0f0;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body data-page-type="page" data-category="pages" data-slug="debug">
+    <div class="debug-info">
+        <h3>Debug Editor Test</h3>
+        <p>This page tests the editor functionality. Check the browser console for any errors.</p>
+        <p>Button should be positioned in bottom-right corner with proper styling.</p>
+    </div>
+    
+    <h1>Test Content</h1>
+    <p>This is test content to verify the editor works.</p>
+    
+    <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
+        <i class="fa-solid fa-pen"></i> Edit
+    </button>
+    
+    <script src="/assets/editor-bundle.js"></script>
+    
+    <script>
+        // Debug script
+        window.addEventListener('load', () => {
+            console.log('=== EDITOR DEBUG ===');
+            console.log('activateEditor function:', typeof window.activateEditor);
+            console.log('gangEditor instance:', typeof window.gangEditor);
+            console.log('Button element:', document.getElementById('edit-trigger'));
+            console.log('Button computed style:', window.getComputedStyle(document.getElementById('edit-trigger')));
+            
+            // Test if button click works
+            document.getElementById('edit-trigger').addEventListener('click', () => {
+                console.log('Button clicked!');
+            });
+        });
+    </script>
+</body>
+</html>
+
+
+
+
+
+

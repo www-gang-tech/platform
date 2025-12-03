@@ -1,0 +1,471 @@
+/**
+ * GANG In-Place Editor
+ * Contextual editing directly on published pages
+ */
+
+class InPlaceEditor {
+    constructor() {
+        this.editor = null;
+        this.originalContent = null;
+        this.isEditing = false;
+        this.currentFile = null;
+    }
+
+    async activate() {
+        if (this.isEditing) return;
+        
+        // Get page metadata from body attributes
+        const { category, slug } = document.body.dataset;
+        
+        if (!category || !slug) {
+            console.error('Missing category or slug in body dataset');
+            alert('Cannot activate editor: missing page metadata');
+            return;
+        }
+
+        // Store original HTML for restore
+        this.originalContent = document.querySelector('#content').innerHTML;
+        
+        // Show loading state
+        this.showLoading();
+        
+        try {
+            // Fetch markdown source from API
+            const filePath = `${category}/${slug}`;
+            const response = await fetch(`/api/content/${filePath}`);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to load content: ${response.status}`);
+            }
+            
+            const markdown = await response.text();
+            this.currentFile = filePath;
+            
+            // Load ToastUI Editor if not already loaded
+            await this.loadEditorLibrary();
+            
+            // Initialize editor
+            this.initEditor(markdown);
+            
+            // Show toolbar
+            this.showToolbar();
+            
+            this.isEditing = true;
+            
+            // Hide edit trigger
+            const trigger = document.getElementById('edit-trigger');
+            if (trigger) trigger.style.display = 'none';
+            
+            // Check for local draft
+            this.checkForDraft();
+            
+        } catch (error) {
+            console.error('Editor activation failed:', error);
+            alert(`Failed to activate editor: ${error.message}\n\nMake sure the studio backend is running.`);
+            this.restore();
+        }
+    }
+
+    async loadEditorLibrary() {
+        // Check if ToastUI Editor is already loaded
+        if (typeof toastui !== 'undefined') {
+            return;
+        }
+
+        // Load CSS
+        if (!document.querySelector('link[href*="toastui-editor"]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://uicdn.toast.com/editor/latest/toastui-editor.min.css';
+            document.head.appendChild(link);
+        }
+
+        // Load JS
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js';
+            script.onload = () => {
+                console.log('ToastUI Editor loaded');
+                resolve();
+            };
+            script.onerror = () => reject(new Error('Failed to load ToastUI Editor'));
+            document.head.appendChild(script);
+        });
+    }
+
+    initEditor(markdown) {
+        // Clear main content area
+        const main = document.querySelector('#content');
+        main.innerHTML = '<div id="editor-root"></div>';
+        
+        // Initialize ToastUI Editor
+        const { Editor } = toastui;
+        
+        this.editor = new Editor({
+            el: document.querySelector('#editor-root'),
+            height: '70vh',
+            initialEditType: 'wysiwyg',
+            initialValue: markdown,
+            previewStyle: 'vertical',
+            usageStatistics: false,
+            toolbarItems: [
+                ['heading', 'bold', 'italic', 'strike'],
+                ['hr', 'quote'],
+                ['ul', 'ol', 'task', 'indent', 'outdent'],
+                ['table', 'link', 'image'],
+                ['code', 'codeblock'],
+            ],
+            hooks: {
+                addImageBlobHook: (blob, callback) => {
+                    // Handle image upload
+                    this.uploadImage(blob)
+                        .then(url => callback(url, 'Image'))
+                        .catch(err => {
+                            console.error('Image upload failed:', err);
+                            alert('Image upload failed. Please try again.');
+                        });
+                }
+            }
+        });
+
+        // Add keyboard shortcuts
+        this.setupKeyboardShortcuts();
+    }
+
+    setupKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            if (!this.isEditing) return;
+
+            // Cmd/Ctrl + S: Save draft
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                this.saveDraft();
+            }
+
+            // Escape: Cancel
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                this.cancel();
+            }
+        });
+    }
+
+    showToolbar() {
+        // Create floating toolbar if it doesn't exist
+        if (!document.getElementById('editor-toolbar')) {
+            const toolbar = document.createElement('div');
+            toolbar.id = 'editor-toolbar';
+            toolbar.className = 'editor-toolbar';
+            toolbar.setAttribute('role', 'toolbar');
+            toolbar.setAttribute('aria-label', 'Editor controls');
+            toolbar.innerHTML = `
+                <button onclick="gangEditor.publish()" class="btn-primary" aria-label="Publish changes">
+                    📤 Publish
+                </button>
+                <button onclick="gangEditor.saveDraft()" class="btn-secondary" aria-label="Save draft">
+                    💾 Save Draft
+                </button>
+                <button onclick="gangEditor.validateHeadings()" class="btn-secondary" aria-label="Check heading structure">
+                    ✓ Check Headings
+                </button>
+                <button onclick="gangEditor.toggleMode()" class="btn-secondary" aria-label="Toggle editor mode">
+                    🔄 Toggle Mode
+                </button>
+                <button onclick="gangEditor.cancel()" class="btn-cancel" aria-label="Cancel editing">
+                    ❌ Cancel
+                </button>
+                <span class="editor-status" id="editor-status"></span>
+            `;
+            document.body.appendChild(toolbar);
+        }
+        
+        document.getElementById('editor-toolbar').style.display = 'flex';
+    }
+
+    hideToolbar() {
+        const toolbar = document.getElementById('editor-toolbar');
+        if (toolbar) {
+            toolbar.style.display = 'none';
+        }
+    }
+
+    toggleMode() {
+        if (!this.editor) return;
+
+        try {
+            const currentMode = this.editor.isWysiwygMode() ? 'wysiwyg' : 'markdown';
+            if (currentMode === 'wysiwyg') {
+                this.editor.changeMode('markdown');
+                this.updateStatus('Mode: Markdown');
+            } else {
+                this.editor.changeMode('wysiwyg');
+                this.updateStatus('Mode: WYSIWYG');
+            }
+        } catch (e) {
+            console.error('Error toggling mode:', e);
+        }
+    }
+
+    async validateHeadings() {
+        if (!this.editor) return false;
+
+        const markdown = this.editor.getMarkdown();
+        
+        this.updateStatus('🔍 Validating headings...');
+
+        try {
+            const response = await fetch('/api/validate-headings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: markdown })
+            });
+            
+            const result = await response.json();
+            
+            if (result.valid) {
+                this.showNotification('✅ Heading structure is valid!', 'success');
+                this.updateStatus('');
+            } else {
+                this.showValidationModal(result);
+                this.updateStatus('⚠️ Heading errors found');
+            }
+            
+            return result.valid;
+        } catch (error) {
+            console.error('Validation failed:', error);
+            alert('Validation failed. Please try again.');
+            this.updateStatus('');
+            return false;
+        }
+    }
+
+    showValidationModal(result) {
+        // Remove existing modal if any
+        const existing = document.querySelector('.validation-modal');
+        if (existing) existing.remove();
+
+        const modal = document.createElement('div');
+        modal.className = 'validation-modal';
+        modal.innerHTML = `
+            <div class="modal-overlay" onclick="this.parentElement.remove()"></div>
+            <div class="modal-content">
+                <h2>❌ Heading Validation Failed</h2>
+                <div class="errors">
+                    <strong>Errors:</strong>
+                    <ul>
+                        ${result.errors.map(e => `<li>${e}</li>`).join('')}
+                    </ul>
+                </div>
+                ${result.suggestions ? `
+                    <div class="suggestions">
+                        <strong>How to fix:</strong>
+                        <ul>
+                            ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                <div class="modal-actions">
+                    <button onclick="this.closest('.validation-modal').remove()" class="btn-secondary">
+                        Fix Issues
+                    </button>
+                    <button onclick="gangEditor.forcePublish()" class="btn-warning">
+                        Publish Anyway
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    async publish() {
+        // Validate first
+        const valid = await this.validateHeadings();
+        if (!valid) {
+            return; // Modal will show with publish anyway option
+        }
+        
+        await this.saveAndDeploy();
+    }
+
+    async forcePublish() {
+        if (confirm('Publishing with heading errors may impact accessibility and SEO. Continue?')) {
+            // Close validation modal
+            document.querySelector('.validation-modal')?.remove();
+            await this.saveAndDeploy();
+        }
+    }
+
+    async saveAndDeploy() {
+        if (!this.editor || !this.currentFile) return;
+
+        const markdown = this.editor.getMarkdown();
+        
+        try {
+            // Show saving indicator
+            this.updateStatus('💾 Saving...');
+            this.showNotification('💾 Saving...', 'info');
+            
+            // Save content
+            const response = await fetch(`/api/content/${this.currentFile}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/plain' },
+                body: markdown
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Save failed: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            // Clear local draft
+            this.clearDraft();
+            
+            this.updateStatus('✅ Saved!');
+            this.showNotification('✅ Saved! Triggering deploy...', 'success');
+            
+            // Trigger build/deploy
+            try {
+                await fetch('/api/build', { method: 'POST' });
+                this.showNotification('✅ Deploy triggered! Page will reload in 3 seconds...', 'success');
+                
+                setTimeout(() => {
+                    location.reload();
+                }, 3000);
+            } catch (buildError) {
+                console.warn('Auto-deploy not available:', buildError);
+                this.showNotification('✅ Saved! Run "gang build" to deploy.', 'success');
+                
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            }
+            
+        } catch (error) {
+            console.error('Save failed:', error);
+            alert(`Failed to save: ${error.message}`);
+            this.updateStatus('❌ Save failed');
+        }
+    }
+
+    async saveDraft() {
+        if (!this.editor || !this.currentFile) return;
+
+        const markdown = this.editor.getMarkdown();
+        const key = `draft_${this.currentFile.replace(/\//g, '_')}`;
+        
+        // Save to localStorage
+        localStorage.setItem(key, JSON.stringify({
+            markdown,
+            timestamp: Date.now()
+        }));
+        
+        this.showNotification('💾 Draft saved locally', 'info');
+        this.updateStatus('💾 Draft saved');
+        
+        setTimeout(() => this.updateStatus(''), 2000);
+    }
+
+    checkForDraft() {
+        if (!this.currentFile) return;
+
+        const key = `draft_${this.currentFile.replace(/\//g, '_')}`;
+        const draft = localStorage.getItem(key);
+        
+        if (draft) {
+            const { markdown, timestamp } = JSON.parse(draft);
+            const age = Math.floor((Date.now() - timestamp) / 1000 / 60);
+            
+            if (confirm(`Load draft from ${age} minute${age !== 1 ? 's' : ''} ago?`)) {
+                this.editor.setMarkdown(markdown);
+                this.showNotification('📝 Draft loaded', 'info');
+            }
+        }
+    }
+
+    clearDraft() {
+        if (!this.currentFile) return;
+        const key = `draft_${this.currentFile.replace(/\//g, '_')}`;
+        localStorage.removeItem(key);
+    }
+
+    async uploadImage(blob) {
+        // TODO: Implement image upload to R2 or media storage
+        // For now, create a data URL
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    cancel() {
+        if (this.editor && this.editor.getMarkdown() !== this.originalContent) {
+            if (!confirm('Discard changes?')) {
+                return;
+            }
+        }
+        this.restore();
+    }
+
+    restore() {
+        // Destroy editor
+        if (this.editor) {
+            this.editor.destroy();
+            this.editor = null;
+        }
+        
+        // Restore original content
+        if (this.originalContent) {
+            document.querySelector('#content').innerHTML = this.originalContent;
+        }
+        
+        // Hide toolbar
+        this.hideToolbar();
+        
+        // Show edit trigger
+        const trigger = document.getElementById('edit-trigger');
+        if (trigger) trigger.style.display = 'block';
+        
+        this.isEditing = false;
+        this.currentFile = null;
+    }
+
+    showLoading() {
+        const main = document.querySelector('#content');
+        main.innerHTML = '<div class="loading">Loading editor...</div>';
+    }
+
+    showNotification(message, type = 'info') {
+        // Remove existing notifications
+        document.querySelectorAll('.notification').forEach(n => n.remove());
+
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.textContent = message;
+        notification.setAttribute('role', 'status');
+        notification.setAttribute('aria-live', 'polite');
+        document.body.appendChild(notification);
+        
+        setTimeout(() => notification.remove(), 3000);
+    }
+
+    updateStatus(message) {
+        const status = document.getElementById('editor-status');
+        if (status) {
+            status.textContent = message;
+        }
+    }
+}
+
+// Initialize global editor instance
+window.gangEditor = new InPlaceEditor();
+
+// Expose activation function
+window.activateEditor = () => window.gangEditor.activate();
+
+// Add loading indicator to page
+console.log('GANG In-Place Editor loaded');
+
+
