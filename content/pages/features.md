@@ -516,3 +516,4 @@ A comprehensive overview of all features available in the GANG platform.
 
 *GANG Platform v1.0 - AI-first static publishing with e-commerce, newsletters, and comments*
 
+
