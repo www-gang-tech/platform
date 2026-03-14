@@ -3773,10 +3773,23 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    process_result = processor.process_all_images(source_path, output_path)
+    if isinstance(process_result, dict) and 'images' in process_result:
+        image_map = process_result.get('images', {})
+        stats = process_result.get('stats', {})
+    else:
+        # Backward compatibility for older processors that returned only image_map.
+        image_map = process_result or {}
+        stats = {}
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    
+    if stats:
+        click.echo(
+            f"📉 Size savings: {stats.get('savings_percent', 0):.1f}% "
+            f"({stats.get('savings_bytes', 0)} bytes)"
+        )
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")
