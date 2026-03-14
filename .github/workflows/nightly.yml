@@ -16,7 +16,7 @@ jobs:
       - name: Build & audit
         run: |
           gang optimize
-          gang image
+          gang image public
           gang build
           gang check
           gang audit
