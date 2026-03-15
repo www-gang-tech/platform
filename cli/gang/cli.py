@@ -110,7 +110,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -2686,7 +2686,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        # Reuse pre-collected markdown files to avoid Path.rglob() issues in Click context.
+        all_md = all_md_files
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
@@ -2714,8 +2715,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Get publishable content (convert Path objects to list)
         scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
+        # Reuse pre-collected markdown files to avoid Path.rglob() issues in Click context.
+        all_md_files_for_agentmap = all_md_files
+        schedule_result = scheduler.get_publishable_content(all_md_files_for_agentmap)
         publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                             for item in schedule_result['publishable']]
         
@@ -3574,7 +3576,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            failed_path = Path(file_result['file'])
+            try:
+                display_path = failed_path.relative_to(dist_path)
+            except ValueError:
+                display_path = failed_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
