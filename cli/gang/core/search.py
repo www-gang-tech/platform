@@ -39,6 +39,26 @@ class SearchIndexer:
                 continue
         
         return index
+
+    def _normalize_scalar(self, value: Any, fallback: str = "") -> str:
+        """Convert frontmatter values to plain strings for JSON safety."""
+        if value is None:
+            return fallback
+        if isinstance(value, str):
+            return value
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize tag values into a list of strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, list):
+            return [self._normalize_scalar(tag) for tag in tags if tag is not None]
+        if isinstance(tags, (set, tuple)):
+            return [self._normalize_scalar(tag) for tag in tags]
+        return [self._normalize_scalar(tags)]
     
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
@@ -58,9 +78,13 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._normalize_scalar(
+            frontmatter.get('title', file_path.stem.replace('-', ' ').title())
+        )
+        description = self._normalize_scalar(
+            frontmatter.get('description') or frontmatter.get('summary', '')
+        )
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +120,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._normalize_scalar(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
