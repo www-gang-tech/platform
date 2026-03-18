@@ -58,10 +58,11 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
+        normalized_date = self._normalize_date(frontmatter.get('date', ''))
         
         # Generate URL
         slug = file_path.stem
@@ -96,8 +97,39 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': normalized_date,
         }
+
+    def _normalize_tags(self, raw_tags: Any) -> List[str]:
+        """Normalize frontmatter tags into a list of strings."""
+        if raw_tags is None:
+            return []
+
+        if isinstance(raw_tags, (str, Path)):
+            return [str(raw_tags)]
+
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = []
+            for tag in raw_tags:
+                if tag is None:
+                    continue
+                tags.append(str(tag))
+            return tags
+
+        return [str(raw_tags)]
+
+    def _normalize_date(self, raw_date: Any) -> str:
+        """Normalize frontmatter date values for JSON serialization."""
+        if raw_date is None:
+            return ''
+
+        if hasattr(raw_date, 'isoformat'):
+            try:
+                return raw_date.isoformat()
+            except Exception:
+                pass
+
+        return str(raw_date)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
