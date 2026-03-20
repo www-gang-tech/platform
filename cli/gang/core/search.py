@@ -61,7 +61,19 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
+        if isinstance(tags, str):
+            tags = [tags]
+        elif not isinstance(tags, list):
+            tags = [str(tags)] if tags is not None else []
+        tags = [str(tag) for tag in tags if tag is not None]
         category = file_path.parent.name
+        date_value = frontmatter.get('date', '')
+        if hasattr(date_value, 'isoformat'):
+            date_value = date_value.isoformat()
+        elif date_value is None:
+            date_value = ''
+        else:
+            date_value = str(date_value)
         
         # Generate URL
         slug = file_path.stem
@@ -96,7 +108,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
