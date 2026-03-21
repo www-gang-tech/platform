@@ -3574,7 +3574,13 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                file_label = file_path.relative_to(dist_path).as_posix()
+            except ValueError:
+                file_label = file_path.name
+
+            click.echo(f"\n❌ {file_label}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues

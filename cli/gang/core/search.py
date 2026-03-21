@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 import yaml
 
 
@@ -60,8 +60,9 @@ class SearchIndexer:
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
+        published_date = self._normalize_metadata_value(frontmatter.get('date', ''))
         
         # Generate URL
         slug = file_path.stem
@@ -88,7 +89,7 @@ class SearchIndexer:
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
         return {
-            'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
+            'id': self._content_id(file_path),
             'title': title,
             'description': description,
             'url': url,
@@ -96,8 +97,35 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': published_date,
         }
+
+    def _content_id(self, file_path: Path) -> str:
+        """Return a stable, relative content ID when possible."""
+        path_obj = Path(file_path)
+        try:
+            return path_obj.resolve().relative_to(self.content_path.resolve()).as_posix()
+        except Exception:
+            try:
+                return path_obj.relative_to(self.content_path).as_posix()
+            except Exception:
+                return path_obj.as_posix()
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize tags into a list of strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
+
+    def _normalize_metadata_value(self, value: Any) -> str:
+        """Convert frontmatter values into JSON-serializable strings."""
+        if value is None:
+            return ''
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""

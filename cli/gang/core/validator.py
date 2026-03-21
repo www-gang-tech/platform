@@ -168,7 +168,7 @@ class ContractValidator:
             })
         
         # Check inline CSS size
-        with open(html_path, 'r') as f:
+        with open(html_path, 'r', encoding='utf-8') as f:
             content = f.read()
             style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
             css_size = sum(len(style) for style in style_tags)
@@ -185,10 +185,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
-            
-            if scripts or inline_scripts:
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
+
+            if executable_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -196,6 +198,18 @@ class ContractValidator:
                 })
         
         return issues
+
+    @staticmethod
+    def _is_executable_script(script_tag) -> bool:
+        """Return True for executable JS; ignore non-executable data blocks."""
+        script_type = (script_tag.get('type') or '').strip().lower()
+        if script_type.startswith('application/ld+json'):
+            return False
+        if not script_type:
+            return True
+        if script_type == 'module':
+            return True
+        return 'javascript' in script_type or 'ecmascript' in script_type
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
