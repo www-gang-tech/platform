@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 import yaml
 
 
@@ -96,8 +96,15 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            # YAML frontmatter may parse unquoted dates into date/datetime objects.
+            'date': self._to_json_safe_value(frontmatter.get('date', '')),
         }
+
+    def _to_json_safe_value(self, value: Any) -> Any:
+        """Convert common non-JSON frontmatter values to JSON-safe types."""
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return value
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
