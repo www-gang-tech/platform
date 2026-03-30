@@ -93,8 +93,9 @@ def report(ctx, answerability, format):
 
 @cli.command()
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
+@click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
-def check(ctx, verbose):
+def check(ctx, verbose, output):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -106,6 +107,10 @@ def check(ctx, verbose):
     config = ctx.obj
     dist_path = Path(config['build']['output'])
     contracts_dir = Path('contracts')
+
+    if not dist_path.exists():
+        click.echo("❌ dist/ directory not found. Run 'gang build' first.", err=True)
+        ctx.exit(1)
     
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
@@ -145,6 +150,21 @@ def check(ctx, verbose):
     # Generate Explain report
     report = validator.generate_explain_report(results)
     click.echo("\n" + report)
+
+    summary = {
+        'total_files': len(results),
+        'passed': len([r for r in results if r['valid']]),
+        'failed': len([r for r in results if not r['valid']]),
+    }
+
+    if output:
+        output_path = Path(output)
+        payload = {
+            'summary': summary,
+            'results': results,
+        }
+        output_path.write_text(json.dumps(payload, indent=2))
+        click.echo(f"\n📄 Report saved to {output_path}")
     
     # Exit with error if any failures
     failed = [r for r in results if not r['valid']]
@@ -3539,11 +3559,11 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
     
     return html
 
-@cli.command()
+@cli.command('check-legacy')
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
-def check(ctx, output):
-    """Validate Template Contracts and WCAG compliance"""
+def check_legacy(ctx, output):
+    """Legacy validator (full-directory WCAG checks)"""
     try:
         from core.validator import ContractValidator
     except ImportError:
