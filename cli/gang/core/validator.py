@@ -185,10 +185,38 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            script_tags = soup.find_all('script')
+            executable_scripts = []
+            js_mime_types = {
+                'text/javascript',
+                'application/javascript',
+                'text/ecmascript',
+                'application/ecmascript',
+                'application/x-javascript',
+                'module',
+            }
+            non_executable_types = {
+                'application/ld+json',
+                'application/json',
+                'importmap',
+                'speculationrules',
+            }
             
-            if scripts or inline_scripts:
+            for script in script_tags:
+                script_type = (script.get('type') or '').strip().lower()
+                
+                # Empty type defaults to JavaScript in HTML.
+                if not script_type:
+                    executable_scripts.append(script)
+                    continue
+                
+                if script_type in non_executable_types:
+                    continue
+                
+                if script_type in js_mime_types:
+                    executable_scripts.append(script)
+            
+            if executable_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',

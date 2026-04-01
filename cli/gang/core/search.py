@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 import yaml
 
 
@@ -61,6 +61,12 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
+        if isinstance(tags, str):
+            tags = [tags]
+        elif isinstance(tags, (tuple, set)):
+            tags = [str(tag) for tag in tags]
+        elif not isinstance(tags, list):
+            tags = []
         category = file_path.parent.name
         
         # Generate URL
@@ -87,6 +93,14 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        raw_date = frontmatter.get('date', '')
+        if isinstance(raw_date, (datetime, date)):
+            date_value = raw_date.isoformat()
+        elif raw_date is None:
+            date_value = ''
+        else:
+            date_value = str(raw_date)
+
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +110,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
