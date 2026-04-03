@@ -58,9 +58,16 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._normalize_text(
+            frontmatter.get('title'),
+            default=file_path.stem.replace('-', ' ').title()
+        )
+        description = self._normalize_text(
+            frontmatter.get('description') or frontmatter.get('summary'),
+            default=''
+        )
+        tags = self._normalize_tags(frontmatter.get('tags', []))
+        doc_date = self._normalize_date(frontmatter.get('date', ''))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +103,34 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': doc_date,
         }
+
+    def _normalize_text(self, value: Any, default: str = '') -> str:
+        """Normalize frontmatter text-like values to plain strings."""
+        if value is None:
+            return default
+        return str(value).strip() or default
+
+    def _normalize_tags(self, value: Any) -> List[str]:
+        """Normalize tags into a list of strings."""
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(tag).strip() for tag in value if str(tag).strip()]
+        normalized = str(value).strip()
+        return [normalized] if normalized else []
+
+    def _normalize_date(self, value: Any) -> str:
+        """Normalize date/datetime-like values for JSON serialization."""
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat') and callable(value.isoformat):
+            try:
+                return value.isoformat()
+            except Exception:
+                pass
+        return str(value).strip()
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
