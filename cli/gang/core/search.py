@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -58,9 +58,10 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        description = str(description) if description is not None else ''
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +97,29 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._normalize_date(frontmatter.get('date', '')),
         }
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize tags to a list of strings for safe indexing."""
+        if tags is None:
+            return []
+        if isinstance(tags, str):
+            tag = tags.strip()
+            return [tag] if tag else []
+        if isinstance(tags, list):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
+
+    def _normalize_date(self, value: Any) -> str:
+        """Normalize date/datetime values to JSON-safe string output."""
+        if value is None:
+            return ''
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
