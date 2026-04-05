@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -58,9 +58,18 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description_raw = frontmatter.get('description') or frontmatter.get('summary', '')
+        description = str(description_raw) if description_raw is not None else ''
+        tags_raw = frontmatter.get('tags', [])
+        if isinstance(tags_raw, str):
+            tags = [tags_raw]
+        elif isinstance(tags_raw, (list, tuple, set)):
+            tags = [str(tag) for tag in tags_raw if tag is not None]
+        elif tags_raw is None:
+            tags = []
+        else:
+            tags = [str(tags_raw)]
         category = file_path.parent.name
         
         # Generate URL
@@ -87,6 +96,14 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        date_value = frontmatter.get('date', '')
+        if isinstance(date_value, (datetime, date)):
+            date_value = date_value.isoformat()
+        elif date_value is None:
+            date_value = ''
+        else:
+            date_value = str(date_value)
+
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +113,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
