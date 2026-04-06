@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -58,9 +58,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,28 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._normalize_date(frontmatter.get('date', '')),
         }
+
+    def _stringify(self, value: Any) -> str:
+        """Convert scalar frontmatter values to safe strings."""
+        if value is None:
+            return ''
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize tags into a list of strings."""
+        if isinstance(tags, list):
+            return [self._stringify(tag) for tag in tags if tag is not None]
+        if tags in (None, ''):
+            return []
+        return [self._stringify(tags)]
+
+    def _normalize_date(self, value: Any) -> str:
+        """Normalize dates to JSON-safe string values."""
+        return self._stringify(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
