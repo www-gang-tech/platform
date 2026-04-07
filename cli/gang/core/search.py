@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -58,9 +58,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,28 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._normalize_date_value(frontmatter.get('date', '')),
         }
+
+    def _normalize_tags(self, raw_tags: Any) -> List[str]:
+        """Normalize frontmatter tags to a string list."""
+        if raw_tags is None:
+            return []
+        if isinstance(raw_tags, str):
+            return [raw_tags]
+        if isinstance(raw_tags, (list, tuple, set)):
+            return [str(tag) for tag in raw_tags if tag is not None]
+        return [str(raw_tags)]
+
+    def _normalize_date_value(self, raw_date: Any) -> str:
+        """Return a JSON-safe date string for index payloads."""
+        if raw_date is None:
+            return ''
+        if isinstance(raw_date, datetime):
+            return raw_date.isoformat()
+        if isinstance(raw_date, date):
+            return raw_date.isoformat()
+        return str(raw_date)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
