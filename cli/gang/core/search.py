@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 import yaml
 
 
@@ -58,9 +58,13 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._normalize_scalar(
+            frontmatter.get('title', file_path.stem.replace('-', ' ').title())
+        )
+        description = self._normalize_scalar(
+            frontmatter.get('description') or frontmatter.get('summary', '')
+        )
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +100,32 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._normalize_scalar(frontmatter.get('date', '')),
         }
+
+    def _normalize_scalar(self, value: Any) -> str:
+        """Convert values to JSON-safe display strings."""
+        if value is None:
+            return ''
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        if isinstance(value, Path):
+            return str(value)
+        return str(value)
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize tags into a list of strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, str):
+            return [tags]
+        if isinstance(tags, (Path, datetime, date)):
+            return [self._normalize_scalar(tags)]
+        if isinstance(tags, list):
+            return [self._normalize_scalar(tag) for tag in tags if tag is not None]
+        return [self._normalize_scalar(tags)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
