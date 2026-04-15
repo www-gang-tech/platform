@@ -7,6 +7,7 @@ GANG CLI - Single binary for all build operations
 import click
 import yaml
 import os
+import sys
 import hashlib
 import json
 import shutil
@@ -91,10 +92,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
