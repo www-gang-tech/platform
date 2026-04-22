@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -58,9 +58,21 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._to_text(
+            frontmatter.get('title'),
+            default=file_path.stem.replace('-', ' ').title()
+        )
+        description = self._to_text(
+            frontmatter.get('description') or frontmatter.get('summary', ''),
+            default=''
+        )
+        tags_raw = frontmatter.get('tags', [])
+        if tags_raw is None:
+            tags_raw = []
+        elif not isinstance(tags_raw, list):
+            tags_raw = [tags_raw]
+        tags = [self._to_text(tag, default='') for tag in tags_raw]
+        tags = [tag for tag in tags if tag]
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +108,17 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._to_text(frontmatter.get('date'), default=''),
         }
+
+    @staticmethod
+    def _to_text(value: Any, default: str = '') -> str:
+        """Normalize frontmatter values to predictable string output."""
+        if value is None:
+            return default
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
