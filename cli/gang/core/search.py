@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 import yaml
 
 
@@ -61,6 +61,10 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
+        if isinstance(tags, str):
+            tags = [tags]
+        elif not isinstance(tags, list):
+            tags = []
         category = file_path.parent.name
         
         # Generate URL
@@ -85,7 +89,11 @@ class SearchIndexer:
             description = paragraphs[0][:200] + '...' if paragraphs else ''
         
         # Create searchable content (title is weighted more)
-        searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
+        searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(str(tag) for tag in tags)}"
+
+        # YAML frontmatter may parse dates into date/datetime objects.
+        # Normalize to string so the index can be serialized to JSON.
+        date_value = self._to_json_safe_scalar(frontmatter.get('date', ''))
         
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
@@ -96,8 +104,16 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
+
+    def _to_json_safe_scalar(self, value: Any) -> Any:
+        """Convert common non-JSON scalar types into JSON-safe values."""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        return value
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
