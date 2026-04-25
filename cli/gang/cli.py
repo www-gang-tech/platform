@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
+from core.frontmatter import dump_frontmatter
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -91,11 +93,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate site against custom contract files"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -201,7 +203,7 @@ def optimize(ctx, force):
         
         if optimized != frontmatter:
             # Write back with optimized frontmatter
-            new_content = f"---\n{yaml.dump(optimized, default_flow_style=False)}---\n{body}"
+            new_content = dump_frontmatter(optimized, body)
             md_file.write_text(new_content)
             optimized_count += 1
             click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
@@ -448,12 +450,14 @@ def performance(ctx, limit):
         click.echo("")
         
         # Show recent runs
-        for i, run in enumerate(runs[-limit:], 1):
+        shown_runs = runs[-limit:]
+        first_run_number = len(runs) - len(shown_runs) + 1
+        for i, run in enumerate(shown_runs, first_run_number):
             timestamp = run.get('timestamp', 'Unknown')
             duration_ms = run.get('total_duration_ms', 0)
             duration_s = duration_ms / 1000
             
-            click.echo(f"#{len(runs) - limit + i}: {duration_ms}ms ({duration_s:.2f}s)")
+            click.echo(f"#{i}: {duration_ms}ms ({duration_s:.2f}s)")
             click.echo(f"   Time: {timestamp}")
             
             # Show file counts

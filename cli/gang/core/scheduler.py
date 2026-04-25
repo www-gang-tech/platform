@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 import yaml
 
+from .frontmatter import dump_frontmatter
+
 
 class ContentScheduler:
     """Manage scheduled content publishing"""
@@ -219,7 +221,7 @@ class ContentScheduler:
             if publish_date:
                 frontmatter['publish_date'] = publish_date.isoformat()
             
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+            new_content = dump_frontmatter(frontmatter, content)
             file_path.write_text(new_content)
             return True
         
@@ -244,7 +246,7 @@ class ContentScheduler:
         
         # Write back
         body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return True
