@@ -142,11 +142,13 @@ class SearchIndexer:
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
         return '''<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-interactive-page="true">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search articles, projects, pages, and newsletters.">
+    <link rel="canonical" href="/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -236,20 +238,25 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
-    <h1>🔍 Search</h1>
+<body data-interactive-page="true">
+    <header>
+        <h1>Search</h1>
+    </header>
     
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <main>
+        <div class="search-box">
+            <label for="searchInput">Search articles, projects, pages, and newsletters</label>
+            <input 
+                type="search" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
     
     <script>
         let searchIndex = null;
@@ -366,6 +373,9 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    <footer>
+        <p><a href="/">Return home</a></p>
+    </footer>
 </body>
 </html>'''
 

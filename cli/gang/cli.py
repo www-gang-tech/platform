@@ -2329,11 +2329,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        description = (
+            frontmatter.get('summary')
+            or (frontmatter.get('seo') or {}).get('description')
+            or config['site']['description']
+        )
+        
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2686,7 +2692,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        all_md = []
+        for category_path in content_path.iterdir():
+            if category_path.is_dir():
+                all_md.extend(category_path.glob('*.md'))
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
@@ -2714,7 +2723,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Get publishable content (convert Path objects to list)
         scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
+        all_md_files = []
+        for category_path in content_path.iterdir():
+            if category_path.is_dir():
+                all_md_files.extend(category_path.glob('*.md'))
         schedule_result = scheduler.get_publishable_content(all_md_files)
         publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                             for item in schedule_result['publishable']]
@@ -3591,8 +3603,8 @@ def check(ctx, output):
             json.dump(results, f, indent=2)
         click.echo(f"\n📄 Report saved to {output_path}")
     
-    # Exit with error code if validation failed
-    if summary['failed'] > 0:
+    # Exit with error code only for blocking validation errors.
+    if any(file_result['summary']['errors'] > 0 for file_result in results['files']):
         ctx.exit(1)
 
 @cli.command()

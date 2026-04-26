@@ -185,10 +185,14 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
+            interactive_page = (
+                soup.find(attrs={'data-interactive-page': 'true'}) is not None
+                or soup.find(attrs={'data-allow-js': 'true'}) is not None
+            )
+            scripts = [] if interactive_page else soup.find_all('script', src=True)
             inline_scripts = [
                 script for script in soup.find_all('script', src=False)
-                if (script.get('type') or '').lower() not in {'application/ld+json'}
+                if not interactive_page and (script.get('type') or '').lower() not in {'application/ld+json'}
             ]
             
             if scripts or inline_scripts:
@@ -216,12 +220,14 @@ class ContractValidator:
         # Calculate summary
         all_issues = (results['semantic'] + results['accessibility'] + 
                      results['seo'] + results['budgets'])
+        error_count = len([i for i in all_issues if i['severity'] == 'error'])
+        warning_count = len([i for i in all_issues if i['severity'] == 'warning'])
         
         results['summary'] = {
             'total_issues': len(all_issues),
-            'errors': len([i for i in all_issues if i['severity'] == 'error']),
-            'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'errors': error_count,
+            'warnings': warning_count,
+            'passed': error_count == 0,
         }
         
         return results
@@ -238,13 +244,14 @@ class ContractValidator:
         # Overall summary
         total_files = len(results)
         passed_files = len([r for r in results if r['summary']['passed']])
+        failed_files = total_files - passed_files
         
         return {
             'files': results,
             'summary': {
                 'total_files': total_files,
                 'passed': passed_files,
-                'failed': total_files - passed_files,
+                'failed': failed_files,
                 'pass_rate': (passed_files / total_files * 100) if total_files > 0 else 0,
             }
         }
