@@ -10,7 +10,7 @@ import os
 import hashlib
 import json
 import shutil
-import html
+import html as html_lib
 import markdown
 import time
 import threading
@@ -2966,7 +2966,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     """Create simple index page"""
     posts_html = ""
     for post in recent_posts:
-        posts_html += f'<li><a href="{html.escape(str(post["url"]), quote=True)}">{html.escape(str(post["title"]))}</a></li>\n'
+        posts_html += f'<li><a href="{html_lib.escape(str(post["url"]), quote=True)}">{html_lib.escape(str(post["title"]))}</a></li>\n'
     
     site_url = config['site']['url'].rstrip('/')
     canonical_url = f"{site_url}/"
@@ -3006,9 +3006,9 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    <title>{html.escape(str(config['site']['title']))}</title>
-    <meta name="description" content="{html.escape(str(config['site']['description']), quote=True)}">
-    <link rel="canonical" href="{html.escape(canonical_url, quote=True)}">
+    <title>{html_lib.escape(str(config['site']['title']))}</title>
+    <meta name="description" content="{html_lib.escape(str(config['site']['description']), quote=True)}">
+    <link rel="canonical" href="{html_lib.escape(canonical_url, quote=True)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3023,8 +3023,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 <body>
     {header_html}
     <main>
-        <h1>{html.escape(str(config['site']['title']))}</h1>
-        <p>{html.escape(str(config['site']['description']))}</p>
+        <h1>{html_lib.escape(str(config['site']['title']))}</h1>
+        <p>{html_lib.escape(str(config['site']['description']))}</p>
         
         <h2>Latest Posts</h2>
         <ul  class="unstyled">
@@ -3043,9 +3043,9 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     """Create simple list page"""
     items_html = ""
     for item in items:
-        items_html += f'<li><a href="{html.escape(str(item["url"]), quote=True)}">{html.escape(str(item["title"]))}</a>'
+        items_html += f'<li><a href="{html_lib.escape(str(item["url"]), quote=True)}">{html_lib.escape(str(item["title"]))}</a>'
         if item.get('summary'):
-            items_html += f'<p>{html.escape(str(item["summary"]))}</p>'
+            items_html += f'<p>{html_lib.escape(str(item["summary"]))}</p>'
         items_html += '</li>\n'
     
     site_url = config['site']['url'].rstrip('/')
@@ -3087,9 +3087,9 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    <title>{html.escape(str(title))} - {html.escape(str(config['site']['title']))}</title>
-    <meta name="description" content="{html.escape(str(config['site']['description']), quote=True)}">
-    <link rel="canonical" href="{html.escape(canonical_url, quote=True)}">
+    <title>{html_lib.escape(str(title))} - {html_lib.escape(str(config['site']['title']))}</title>
+    <meta name="description" content="{html_lib.escape(str(config['site']['description']), quote=True)}">
+    <link rel="canonical" href="{html_lib.escape(canonical_url, quote=True)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3107,7 +3107,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
 <body>
     {header_html}
     <main>
-        <h1>{html.escape(str(title))}</h1>
+        <h1>{html_lib.escape(str(title))}</h1>
         <ul>
             {items_html}
         </ul>
