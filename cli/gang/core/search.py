@@ -8,6 +8,7 @@ from typing import Dict, List, Any
 import json
 import re
 from datetime import datetime
+from html import escape
 import yaml
 
 
@@ -58,9 +59,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary'), '')
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +97,22 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date'), ''),
         }
+    
+    def _stringify(self, value: Any, default: str = '') -> str:
+        """Convert YAML scalar values to JSON-safe strings."""
+        if value is None:
+            return default
+        return str(value)
+    
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize frontmatter tags into JSON-safe strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -130,12 +145,21 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = escape(site.get('title', ''))
+        site_description = escape(site.get('description', ''))
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = escape(f"{site_url}/search/")
+        lang = escape(site.get('language', 'en'))
+        
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +250,8 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <h1>Search</h1>
+    <p>__SITE_DESCRIPTION__</p>
     
     <div class="search-box">
         <input 
@@ -357,4 +382,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', lang)
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__CANONICAL_URL__', canonical_url)
+            .replace('__SITE_DESCRIPTION__', site_description)
+        )
 

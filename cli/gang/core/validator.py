@@ -181,12 +181,19 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check executable JavaScript only. JSON-LD and other inert data blocks
+        # are required for SEO but do not execute or affect the JS budget.
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
             scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() not in {
+                    'application/ld+json',
+                    'application/json',
+                }
+            ]
             
             if scripts or inline_scripts:
                 issues.append({
