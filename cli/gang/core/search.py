@@ -143,243 +143,49 @@ class SearchIndexer:
         
         return text.strip()
     
-    def generate_search_page_html(self) -> str:
-        """Generate a standalone search page HTML"""
+    def generate_search_page_html(self, documents: List[Dict[str, Any]] = None) -> str:
+        """Generate a static, semantic search index page."""
         site = self.config.get('site', {})
         site_title = escape(site.get('title', ''))
         site_description = escape(site.get('description', ''))
         site_url = site.get('url', '').rstrip('/')
         canonical_url = escape(f"{site_url}/search/")
         lang = escape(site.get('language', 'en'))
+        documents = documents or []
+        items = []
+        for document in sorted(documents, key=lambda doc: doc.get('title', '')):
+            title = escape(document.get('title', 'Untitled'))
+            url = escape(document.get('url', '#'), quote=True)
+            description = escape(document.get('description') or document.get('content') or '')
+            category = escape(document.get('category', 'content'))
+            items.append(
+                f'<li><a href="{url}">{title}</a>'
+                f'<p><span>{category}</span>{description}</p></li>'
+            )
+        items_html = '\n'.join(items) if items else '<li>No searchable documents are available.</li>'
         
         html = '''<!DOCTYPE html>
 <html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self' https: data:; font-src 'self'; base-uri 'self'; form-action 'self' https:;">
     <title>Search - __SITE_TITLE__</title>
     <meta name="description" content="Search __SITE_TITLE__ content.">
     <link rel="canonical" href="__CANONICAL_URL__">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            line-height: 1.6;
-            color: #1a1a1a;
-            background: #fff;
-            padding: 2rem;
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        h1 { margin-bottom: 2rem; font-size: 2rem; }
-        .search-box {
-            margin-bottom: 2rem;
-            position: relative;
-        }
-        #searchInput {
-            width: 100%;
-            padding: 1rem;
-            font-size: 1.1rem;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-        }
-        #searchInput:focus {
-            outline: none;
-            border-color: #0066cc;
-        }
-        .search-stats {
-            margin-bottom: 1rem;
-            color: #666;
-            font-size: 0.9rem;
-        }
-        .result {
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            transition: all 0.2s;
-        }
-        .result:hover {
-            border-color: #0066cc;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .result-title {
-            font-size: 1.3rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-        .result-title a {
-            color: #0066cc;
-            text-decoration: none;
-        }
-        .result-title a:hover {
-            text-decoration: underline;
-        }
-        .result-meta {
-            font-size: 0.85rem;
-            color: #666;
-            margin-bottom: 0.5rem;
-        }
-        .result-description {
-            color: #333;
-            line-height: 1.5;
-        }
-        .result-category {
-            display: inline-block;
-            padding: 0.25rem 0.5rem;
-            background: #e6f2ff;
-            color: #0066cc;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            margin-right: 0.5rem;
-        }
-        .no-results {
-            text-align: center;
-            padding: 3rem;
-            color: #666;
-        }
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: #999;
-        }
-        mark {
-            background: #ffeb3b;
-            padding: 0 2px;
-        }
-    </style>
+    <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-    <h1>Search</h1>
-    <p>__SITE_DESCRIPTION__</p>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
-    
-    <script>
-        let searchIndex = null;
-        
-        // Load search index
-        fetch('/search-index.json')
-            .then(r => r.json())
-            .then(data => {
-                searchIndex = data;
-                document.getElementById('searchStats').textContent = 
-                    `${data.documents.length} documents indexed`;
-            })
-            .catch(e => {
-                document.getElementById('results').innerHTML = 
-                    '<div class="no-results">Failed to load search index</div>';
-            });
-        
-        // Search function
-        function search(query) {
-            if (!searchIndex || !query.trim()) {
-                document.getElementById('results').innerHTML = '';
-                document.getElementById('searchStats').textContent = 
-                    `${searchIndex?.documents.length || 0} documents indexed`;
-                return;
-            }
-            
-            const terms = query.toLowerCase().trim().split(/\\s+/);
-            const results = [];
-            
-            for (const doc of searchIndex.documents) {
-                let score = 0;
-                const searchable = doc.searchable;
-                
-                // Score based on term matches
-                for (const term of terms) {
-                    if (term.length < 2) continue;
-                    
-                    // Title match (high weight)
-                    if (doc.title.toLowerCase().includes(term)) {
-                        score += 10;
-                    }
-                    
-                    // Exact match in content
-                    const regex = new RegExp(term, 'gi');
-                    const matches = (searchable.match(regex) || []).length;
-                    score += matches;
-                }
-                
-                if (score > 0) {
-                    results.push({ ...doc, score });
-                }
-            }
-            
-            // Sort by score
-            results.sort((a, b) => b.score - a.score);
-            
-            // Display results
-            displayResults(results, query);
-        }
-        
-        function displayResults(results, query) {
-            const container = document.getElementById('results');
-            const stats = document.getElementById('searchStats');
-            
-            if (results.length === 0) {
-                container.innerHTML = 
-                    '<div class="no-results">No results found for "' + 
-                    escapeHtml(query) + '"</div>';
-                stats.textContent = '0 results';
-                return;
-            }
-            
-            stats.textContent = `${results.length} result(s) for "${query}"`;
-            
-            container.innerHTML = results.map(r => `
-                <div class="result">
-                    <div class="result-title">
-                        <a href="${r.url}">${escapeHtml(r.title)}</a>
-                    </div>
-                    <div class="result-meta">
-                        <span class="result-category">${escapeHtml(r.category)}</span>
-                        ${r.date ? '<span>' + r.date + '</span>' : ''}
-                    </div>
-                    <div class="result-description">
-                        ${escapeHtml(r.description || r.content)}
-                    </div>
-                </div>
-            `).join('');
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        // Debounced search
-        let searchTimeout;
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                search(e.target.value);
-            }, 300);
-        });
-        
-        // Auto-focus search box
-        document.getElementById('searchInput').focus();
-        
-        // Search from URL parameter
-        const urlParams = new URLSearchParams(window.location.search);
-        const queryParam = urlParams.get('q');
-        if (queryParam) {
-            document.getElementById('searchInput').value = queryParam;
-            setTimeout(() => search(queryParam), 500);
-        }
-    </script>
+    <header role="banner"><a href="/">__SITE_TITLE__</a></header>
+    <main>
+        <h1>Search</h1>
+        <p>__SITE_DESCRIPTION__</p>
+        <p>Browse __DOCUMENT_COUNT__ indexed documents. A machine-readable index is available at <a href="/search-index.json">search-index.json</a>.</p>
+        <ol>
+__DOCUMENTS__
+        </ol>
+    </main>
+    <footer><p>&copy; __YEAR__ __SITE_TITLE__.</p></footer>
 </body>
 </html>'''
         return (
@@ -388,5 +194,8 @@ class SearchIndexer:
             .replace('__SITE_TITLE__', site_title)
             .replace('__CANONICAL_URL__', canonical_url)
             .replace('__SITE_DESCRIPTION__', site_description)
+            .replace('__DOCUMENT_COUNT__', str(len(documents)))
+            .replace('__DOCUMENTS__', items_html)
+            .replace('__YEAR__', str(datetime.now().year))
         )
 
