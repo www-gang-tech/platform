@@ -181,12 +181,18 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for executable JavaScript (JSON-LD is required structured data).
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if self._is_executable_script(script)
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if self._is_executable_script(script)
+            ]
             
             if scripts or inline_scripts:
                 issues.append({
@@ -196,6 +202,27 @@ class ContractValidator:
                 })
         
         return issues
+
+    def _is_executable_script(self, script) -> bool:
+        """Return whether a script tag represents executable JavaScript."""
+        script_type = (script.get('type') or '').strip().lower()
+        if not script_type:
+            return True
+
+        executable_types = {
+            'application/ecmascript',
+            'application/javascript',
+            'application/x-ecmascript',
+            'application/x-javascript',
+            'module',
+            'text/ecmascript',
+            'text/javascript',
+            'text/jscript',
+            'text/livescript',
+            'text/x-ecmascript',
+            'text/x-javascript',
+        }
+        return script_type in executable_types
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
