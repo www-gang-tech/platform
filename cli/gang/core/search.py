@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -54,13 +54,13 @@ class SearchIndexer:
                 try:
                     frontmatter = yaml.safe_load(parts[1]) or {}
                     body = parts[2]
-                except:
+                except yaml.YAMLError:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date', '')),
         }
+
+    def _stringify(self, value: Any) -> str:
+        """Normalize frontmatter values for search text and JSON output."""
+        if value is None:
+            return ''
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, value: Any) -> List[str]:
+        """Return tags as a list of strings even when YAML provides a scalar."""
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [self._stringify(item) for item in value if item is not None]
+        return [self._stringify(value)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
