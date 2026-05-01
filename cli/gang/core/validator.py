@@ -181,12 +181,15 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for executable JavaScript (JSON-LD is structured data, not JS payload).
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
             scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() != 'application/ld+json'
+            ]
             
             if scripts or inline_scripts:
                 issues.append({

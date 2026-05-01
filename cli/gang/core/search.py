@@ -61,6 +61,10 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
+        if tags is None:
+            tags = []
+        elif isinstance(tags, str):
+            tags = [tags]
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +100,14 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._serialize_date(frontmatter.get('date', '')),
         }
+
+    def _serialize_date(self, value: Any) -> str:
+        """Return a JSON-safe date value for the static search index."""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value) if value else ''
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""

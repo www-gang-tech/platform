@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command('list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2333,7 +2333,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': (
+                frontmatter.get('summary')
+                or frontmatter.get('description')
+                or frontmatter.get('seo', {}).get('description')
+                or config['site']['description']
+            ),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2698,10 +2703,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_index_file = dist_path / 'search-index.json'
         search_index_file.write_text(json.dumps(search_index))
         
-        # Write search page
-        search_page = dist_path / 'search' / 'index.html'
-        search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        # The default site budget is JS=0 for read-only pages, so only emit the
+        # interactive search UI when the project explicitly allows JavaScript.
+        if config.get('budgets', {}).get('js', 0) != 0:
+            search_page = dist_path / 'search' / 'index.html'
+            search_page.parent.mkdir(parents=True, exist_ok=True)
+            search_page.write_text(indexer.generate_search_page_html())
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
@@ -2996,14 +3003,16 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         templates_path=templates_path
     )
     
+    canonical_url = config['site']['url']
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3072,14 +3081,17 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         templates_path=templates_path
     )
     
+    slug = title.lower().replace(' ', '-')
+    canonical_url = f"{config['site']['url']}/{slug}/"
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
