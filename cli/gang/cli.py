@@ -46,8 +46,10 @@ def cli(ctx):
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
+@click.option('--out', 'out_dir', type=click.Path(file_okay=False), default='reports',
+              help='Directory for generated reports')
 @click.pass_context
-def report(ctx, answerability, format):
+def report(ctx, answerability, format, out_dir):
     """Generate reports on content quality and structure"""
     
     if answerability:
@@ -60,8 +62,8 @@ def report(ctx, answerability, format):
         
         config = ctx.obj
         dist_path = Path(config['build']['output'])
-        reports_dir = Path('reports')
-        reports_dir.mkdir(exist_ok=True)
+        reports_dir = Path(out_dir)
+        reports_dir.mkdir(parents=True, exist_ok=True)
         
         click.echo("Score Analyzing answerability...\n")
         
@@ -672,11 +674,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -3574,7 +3576,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3716,7 +3723,7 @@ def update_deps(ctx, check_only, security_only):
     click.echo("\n💡 Tip: Enable Dependabot in .github/dependabot.yml for automated PRs")
 
 @cli.command()
-@click.argument('source_dir', type=click.Path(exists=True))
+@click.argument('source_dir', required=False, type=click.Path(exists=True))
 @click.option('--output', '-o', type=click.Path(), help='Output directory for processed images')
 @click.option('--analyze', is_flag=True, help='Analyze image usage in content')
 @click.option('--check-alt', is_flag=True, help='Check for missing alt text')
@@ -3769,6 +3776,10 @@ def image(ctx, source_dir, output, analyze, check_alt):
         return
     
     # Regular image processing
+    if not source_dir:
+        click.echo("Error: source_dir is required unless --analyze or --check-alt is used.", err=True)
+        ctx.exit(2)
+    
     click.echo("🖼️  Processing images...")
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
