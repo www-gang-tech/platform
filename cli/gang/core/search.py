@@ -147,12 +147,13 @@ class SearchIndexer:
         
         return text.strip()
     
-    def generate_search_page_html(self) -> str:
+    def generate_search_page_html(self, documents: List[Dict[str, Any]] = None) -> str:
         """Generate a static search landing page without executable JavaScript."""
         site = self.config.get('site', {})
         site_title = self._as_text(site.get('title'), 'Site')
         site_url = self._as_text(site.get('url'), 'https://example.com').rstrip('/')
         description = 'Browse the static search index for articles, projects, and pages.'
+        document_count = len(documents or [])
         return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -180,6 +181,7 @@ class SearchIndexer:
     <main>
         <h1>Search</h1>
         <p>{description}</p>
+        <p>{document_count} documents are available in the static search index.</p>
         <p>This site keeps read-only pages JavaScript-free. Search data is available as structured JSON for agents, crawlers, and custom tooling.</p>
         <ul class="search-links">
             <li><a href="/search-index.json">Download the search index JSON</a></li>
