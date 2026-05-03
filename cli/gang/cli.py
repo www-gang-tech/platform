@@ -3541,8 +3541,9 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
+@click.option('--verbose', is_flag=True, help='Show passing files as well as failures')
 @click.pass_context
-def check(ctx, output):
+def check(ctx, output, verbose):
     """Validate Template Contracts and WCAG compliance"""
     try:
         from core.validator import ContractValidator
@@ -3573,8 +3574,11 @@ def check(ctx, output):
     # Print file details
     for file_result in results['files']:
         file_summary = file_result['summary']
+        relative_file = str(Path(file_result['file']).relative_to(dist_path))
+        if verbose or not file_summary['passed']:
+            status = "✅" if file_summary['passed'] else "❌"
+            click.echo(f"\n{status} {relative_file}")
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
