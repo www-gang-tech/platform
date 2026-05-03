@@ -57,10 +57,13 @@ class SearchIndexer:
                 except:
                     pass
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        # Extract metadata and normalize YAML-native values for JSON output.
+        title = self._as_text(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._as_text(
+            frontmatter.get('description') or frontmatter.get('summary'),
+            ''
+        )
+        tags = self._as_text_list(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +99,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._as_text(frontmatter.get('date'), ''),
         }
+
+    def _as_text(self, value: Any, default: str = '') -> str:
+        """Return a JSON-safe string for frontmatter scalar values."""
+        if value is None:
+            return default
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+
+    def _as_text_list(self, value: Any) -> List[str]:
+        """Normalize frontmatter arrays and scalars to a list of strings."""
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [self._as_text(item) for item in value if item is not None]
+        return [self._as_text(value)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
