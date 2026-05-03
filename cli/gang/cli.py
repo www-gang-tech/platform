@@ -2333,7 +2333,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': (
+                frontmatter.get('summary')
+                or frontmatter.get('description')
+                or config['site']['description']
+            ),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2701,7 +2705,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Write search page
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        search_page.write_text(indexer.generate_search_page_html(search_index['documents']))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
@@ -3004,6 +3008,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3043,6 +3048,9 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
     
+    canonical_path = f"/{title.lower().replace(' ', '-')}/"
+    canonical_url = f"{config['site']['url']}{canonical_path}"
+
     # Create JSON-LD structured data
     import json
     jsonld = {
@@ -3050,7 +3058,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3088,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -4380,7 +4389,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or config['site']['description'],
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
