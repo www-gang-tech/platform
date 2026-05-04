@@ -13,6 +13,7 @@ import shutil
 import markdown
 import time
 import threading
+import builtins
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -173,7 +174,7 @@ def optimize(ctx, force):
         return
     
     content_path = Path(config['build']['content'])
-    md_files = list(content_path.rglob('*.md'))
+    md_files = builtins.list(content_path.rglob('*.md'))
     
     click.echo(f"Found {len(md_files)} content files")
     
@@ -229,7 +230,7 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
     # Batch analysis mode
     if analyze_all:
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = builtins.list(content_path.rglob('*.md'))
         
         if not md_files:
             click.echo("⚠️  No markdown files found", err=True)
@@ -570,7 +571,7 @@ def fix(ctx, links, apply, commit, min_confidence, rebuild):
                 import subprocess
                 
                 # Add changed files
-                files_changed = list(set([f['file'] for f in fix_results['fixes']]))
+                files_changed = builtins.list(set([f['file'] for f in fix_results['fixes']]))
                 for file in files_changed:
                     file_path = content_path / file
                     subprocess.run(['git', 'add', str(file_path)], check=True)
@@ -2037,7 +2038,7 @@ def generate_agentmap(ctx):
     for category_dir in ['posts', 'pages', 'projects']:
         category_path = content_path / category_dir
         if category_path.exists():
-            all_md_files.extend(list(category_path.glob('*.md')))
+            all_md_files.extend(builtins.list(category_path.glob('*.md')))
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     publishable = [item['path'] for item in schedule_result['publishable']]
@@ -2172,7 +2173,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = builtins.list(content_path.rglob('*.md'))
         
         failed_files = []
         for md_file in md_files:
@@ -2686,7 +2687,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        all_md = builtins.list(content_path.rglob('*.md'))
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
@@ -3618,7 +3619,7 @@ def audit(ctx, output):
         ctx.exit(1)
     
     # Count pages
-    page_count = len(list(dist_path.rglob('index.html')))
+    page_count = len(builtins.list(dist_path.rglob('index.html')))
     click.echo(f"📊 Running audits on {page_count} pages...")
     click.echo("🔦 Lighthouse CI will auto-discover all pages in dist/")
     click.echo("   (3 runs per page, this may take a few minutes)\n")
