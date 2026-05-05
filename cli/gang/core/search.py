@@ -5,6 +5,7 @@ Generate search index and provide search functionality.
 
 from pathlib import Path
 from typing import Dict, List, Any
+from html import escape
 import json
 import re
 from datetime import datetime
@@ -57,10 +58,18 @@ class SearchIndexer:
                 except:
                     pass
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        # Extract metadata and normalize YAML values for JSON/search safety.
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags if tag is not None]
+        elif raw_tags:
+            tags = [str(raw_tags)]
+        else:
+            tags = []
+        raw_date = frontmatter.get('date', '')
+        date = raw_date.isoformat() if hasattr(raw_date, 'isoformat') else str(raw_date or '')
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +105,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -128,17 +137,45 @@ class SearchIndexer:
         
         return text.strip()
     
-    def generate_search_page_html(self) -> str:
-        """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+    def generate_search_page_html(self, search_index: Dict[str, Any]) -> str:
+        """Generate a static search index page without client-side JavaScript."""
+        documents = search_index.get('documents', [])
+        items = []
+        for doc in documents:
+            title = escape(str(doc.get('title') or 'Untitled'))
+            url = escape(str(doc.get('url') or '#'), quote=True)
+            category = escape(str(doc.get('category') or 'content'))
+            date = escape(str(doc.get('date') or ''))
+            description = escape(str(doc.get('description') or doc.get('content') or ''))
+            date_html = f'<span>{date}</span>' if date else ''
+            description_html = f'<p>{description}</p>' if description else ''
+            items.append(f'''
+        <li class="result">
+            <h2 class="result-title"><a href="{url}">{title}</a></h2>
+            <p class="result-meta"><span class="result-category">{category}</span>{date_html}</p>
+            {description_html}
+        </li>''')
+        results_html = '\n'.join(items) or '<li>No indexed documents found.</li>'
+
+        return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search Index</title>
+    <meta name="description" content="Browse the static content index.">
+    <script type="application/ld+json">
+    {{
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "name": "Search Index",
+      "description": "Browse the static content index.",
+      "url": "/search/"
+    }}
+    </script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
             font-family: system-ui, -apple-system, sans-serif;
             line-height: 1.6;
             color: #1a1a1a;
@@ -146,61 +183,43 @@ class SearchIndexer:
             padding: 2rem;
             max-width: 800px;
             margin: 0 auto;
-        }
-        h1 { margin-bottom: 2rem; font-size: 2rem; }
-        .search-box {
+        }}
+        header, main, footer {{ display: block; }}
+        h1 {{ margin-bottom: 1rem; font-size: 2rem; }}
+        .search-stats {{
             margin-bottom: 2rem;
-            position: relative;
-        }
-        #searchInput {
-            width: 100%;
-            padding: 1rem;
-            font-size: 1.1rem;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-        }
-        #searchInput:focus {
-            outline: none;
-            border-color: #0066cc;
-        }
-        .search-stats {
-            margin-bottom: 1rem;
             color: #666;
             font-size: 0.9rem;
-        }
-        .result {
+        }}
+        .result {{
             padding: 1.5rem;
             margin-bottom: 1rem;
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             transition: all 0.2s;
-        }
-        .result:hover {
-            border-color: #0066cc;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .result-title {
+        }}
+        .result-title {{
             font-size: 1.3rem;
             font-weight: 600;
             margin-bottom: 0.5rem;
-        }
-        .result-title a {
+        }}
+        .result-title a {{
             color: #0066cc;
             text-decoration: none;
-        }
-        .result-title a:hover {
+        }}
+        .result-title a:hover {{
             text-decoration: underline;
-        }
-        .result-meta {
+        }}
+        .result-meta {{
             font-size: 0.85rem;
             color: #666;
             margin-bottom: 0.5rem;
-        }
-        .result-description {
+        }}
+        .result p:last-child {{
             color: #333;
             line-height: 1.5;
-        }
-        .result-category {
+        }}
+        .result-category {{
             display: inline-block;
             padding: 0.25rem 0.5rem;
             background: #e6f2ff;
@@ -208,153 +227,24 @@ class SearchIndexer:
             border-radius: 4px;
             font-size: 0.8rem;
             margin-right: 0.5rem;
-        }
-        .no-results {
-            text-align: center;
-            padding: 3rem;
-            color: #666;
-        }
-        .loading {
-            text-align: center;
-            padding: 2rem;
-            color: #999;
-        }
-        mark {
-            background: #ffeb3b;
-            padding: 0 2px;
-        }
+        }}
+        ul {{ list-style: none; }}
+        footer {{ margin-top: 3rem; color: #666; }}
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
-    
-    <script>
-        let searchIndex = null;
-        
-        // Load search index
-        fetch('/search-index.json')
-            .then(r => r.json())
-            .then(data => {
-                searchIndex = data;
-                document.getElementById('searchStats').textContent = 
-                    `${data.documents.length} documents indexed`;
-            })
-            .catch(e => {
-                document.getElementById('results').innerHTML = 
-                    '<div class="no-results">Failed to load search index</div>';
-            });
-        
-        // Search function
-        function search(query) {
-            if (!searchIndex || !query.trim()) {
-                document.getElementById('results').innerHTML = '';
-                document.getElementById('searchStats').textContent = 
-                    `${searchIndex?.documents.length || 0} documents indexed`;
-                return;
-            }
-            
-            const terms = query.toLowerCase().trim().split(/\\s+/);
-            const results = [];
-            
-            for (const doc of searchIndex.documents) {
-                let score = 0;
-                const searchable = doc.searchable;
-                
-                // Score based on term matches
-                for (const term of terms) {
-                    if (term.length < 2) continue;
-                    
-                    // Title match (high weight)
-                    if (doc.title.toLowerCase().includes(term)) {
-                        score += 10;
-                    }
-                    
-                    // Exact match in content
-                    const regex = new RegExp(term, 'gi');
-                    const matches = (searchable.match(regex) || []).length;
-                    score += matches;
-                }
-                
-                if (score > 0) {
-                    results.push({ ...doc, score });
-                }
-            }
-            
-            // Sort by score
-            results.sort((a, b) => b.score - a.score);
-            
-            // Display results
-            displayResults(results, query);
-        }
-        
-        function displayResults(results, query) {
-            const container = document.getElementById('results');
-            const stats = document.getElementById('searchStats');
-            
-            if (results.length === 0) {
-                container.innerHTML = 
-                    '<div class="no-results">No results found for "' + 
-                    escapeHtml(query) + '"</div>';
-                stats.textContent = '0 results';
-                return;
-            }
-            
-            stats.textContent = `${results.length} result(s) for "${query}"`;
-            
-            container.innerHTML = results.map(r => `
-                <div class="result">
-                    <div class="result-title">
-                        <a href="${r.url}">${escapeHtml(r.title)}</a>
-                    </div>
-                    <div class="result-meta">
-                        <span class="result-category">${escapeHtml(r.category)}</span>
-                        ${r.date ? '<span>' + r.date + '</span>' : ''}
-                    </div>
-                    <div class="result-description">
-                        ${escapeHtml(r.description || r.content)}
-                    </div>
-                </div>
-            `).join('');
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        // Debounced search
-        let searchTimeout;
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                search(e.target.value);
-            }, 300);
-        });
-        
-        // Auto-focus search box
-        document.getElementById('searchInput').focus();
-        
-        // Search from URL parameter
-        const urlParams = new URLSearchParams(window.location.search);
-        const queryParam = urlParams.get('q');
-        if (queryParam) {
-            document.getElementById('searchInput').value = queryParam;
-            setTimeout(() => search(queryParam), 500);
-        }
-    </script>
+    <header>
+        <h1>Search Index</h1>
+        <p class="search-stats">{len(documents)} documents indexed</p>
+    </header>
+    <main>
+        <ul>
+{results_html}
+        </ul>
+    </main>
+    <footer>
+        <p><a href="/">Return home</a></p>
+    </footer>
 </body>
 </html>'''
 

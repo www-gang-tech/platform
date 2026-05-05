@@ -46,8 +46,9 @@ def cli(ctx):
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
+@click.option('--out', 'reports_dir', type=click.Path(), default='reports', help='Directory for generated reports')
 @click.pass_context
-def report(ctx, answerability, format):
+def report(ctx, answerability, format, reports_dir):
     """Generate reports on content quality and structure"""
     
     if answerability:
@@ -60,7 +61,7 @@ def report(ctx, answerability, format):
         
         config = ctx.obj
         dist_path = Path(config['build']['output'])
-        reports_dir = Path('reports')
+        reports_dir = Path(reports_dir)
         reports_dir.mkdir(exist_ok=True)
         
         click.echo("Score Analyzing answerability...\n")
@@ -672,11 +673,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2328,12 +2329,18 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
-        
+
+        description = (
+            frontmatter.get('description')
+            or frontmatter.get('summary')
+            or config['site']['description']
+        )
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2349,14 +2356,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
-        
+
         # Treat articles as posts
         if content_type == 'articles':
             content_type = 'posts'
             # Update context to reflect the change
             context['page_type'] = 'post'
             context['category'] = 'posts'
-        
+
         # Add canonical URL
         if content_type == 'posts':
             url = f"/posts/{slug}/"
@@ -2366,9 +2373,50 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/pages/{slug}/"
         else:
             url = f"/{content_type}/{slug}/"
-        
+
         context['canonical_url'] = f"{config['site']['url']}{url}"
-        
+
+        jsonld = frontmatter.get('jsonld')
+        if not jsonld:
+            date_value = frontmatter.get('date')
+            date_published = date_value.isoformat() if hasattr(date_value, 'isoformat') else str(date_value or '')
+            author = {
+                '@type': 'Organization',
+                'name': config['site']['title'],
+                'url': config['site']['url'],
+            }
+
+            if content_type in ('posts', 'newsletters'):
+                jsonld = {
+                    '@context': 'https://schema.org',
+                    '@type': 'BlogPosting',
+                    'headline': context['title'],
+                    'description': description,
+                    'url': context['canonical_url'],
+                    'datePublished': date_published,
+                    'author': author,
+                }
+            elif content_type == 'projects':
+                jsonld = {
+                    '@context': 'https://schema.org',
+                    '@type': 'Article',
+                    'headline': context['title'],
+                    'description': description,
+                    'url': context['canonical_url'],
+                    'datePublished': date_published,
+                    'author': author,
+                }
+            else:
+                jsonld = {
+                    '@context': 'https://schema.org',
+                    '@type': 'WebPage',
+                    'name': context['title'],
+                    'description': description,
+                    'url': context['canonical_url'],
+                }
+
+            context['jsonld'] = jsonld
+
         # Select template
         if content_type == 'posts':
             template_name = 'post.html'
@@ -2696,12 +2744,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Write search index
         search_index_file = dist_path / 'search-index.json'
-        search_index_file.write_text(json.dumps(search_index))
+        search_index_file.write_text(json.dumps(search_index, default=str))
         
         # Write search page
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        search_page.write_text(indexer.generate_search_page_html(search_index))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
@@ -3574,7 +3622,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3716,7 +3769,7 @@ def update_deps(ctx, check_only, security_only):
     click.echo("\n💡 Tip: Enable Dependabot in .github/dependabot.yml for automated PRs")
 
 @cli.command()
-@click.argument('source_dir', type=click.Path(exists=True))
+@click.argument('source_dir', type=click.Path(exists=True), required=False)
 @click.option('--output', '-o', type=click.Path(), help='Output directory for processed images')
 @click.option('--analyze', is_flag=True, help='Analyze image usage in content')
 @click.option('--check-alt', is_flag=True, help='Check for missing alt text')
@@ -3769,6 +3822,10 @@ def image(ctx, source_dir, output, analyze, check_alt):
         return
     
     # Regular image processing
+    if not source_dir:
+        click.echo("Error: source_dir is required unless --analyze or --check-alt is used.", err=True)
+        ctx.exit(2)
+
     click.echo("🖼️  Processing images...")
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
