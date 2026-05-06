@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -62,6 +62,19 @@ class SearchIndexer:
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
         category = file_path.parent.name
+        published_date = frontmatter.get('date', '')
+        if isinstance(published_date, (date, datetime)):
+            published_date = published_date.isoformat()
+        elif published_date is None:
+            published_date = ''
+        else:
+            published_date = str(published_date)
+
+        if isinstance(tags, str):
+            tags = [tags]
+        elif not isinstance(tags, list):
+            tags = [str(tags)]
+        tags = [str(tag) for tag in tags]
         
         # Generate URL
         slug = file_path.stem
@@ -96,7 +109,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': published_date,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +143,27 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'GANG')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search articles, projects, and pages on {site_title}."
+
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SearchAction",
+      "target": "__SITE_URL__/search/?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +254,9 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header><a href="/">__SITE_TITLE__</a></header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +269,8 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer><p>&copy; __SITE_TITLE__</p></footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +389,8 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (html
+                .replace('__SITE_TITLE__', site_title)
+                .replace('__SITE_URL__', site_url)
+                .replace('__DESCRIPTION__', description))
 

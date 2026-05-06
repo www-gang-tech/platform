@@ -46,8 +46,10 @@ def cli(ctx):
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
+@click.option('--output', '--out', '-o', type=click.Path(), default='reports',
+              help='Directory for generated report files')
 @click.pass_context
-def report(ctx, answerability, format):
+def report(ctx, answerability, format, output):
     """Generate reports on content quality and structure"""
     
     if answerability:
@@ -60,7 +62,7 @@ def report(ctx, answerability, format):
         
         config = ctx.obj
         dist_path = Path(config['build']['output'])
-        reports_dir = Path('reports')
+        reports_dir = Path(output)
         reports_dir.mkdir(exist_ok=True)
         
         click.echo("Score Analyzing answerability...\n")
@@ -91,7 +93,7 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
 def check(ctx, verbose):
@@ -676,7 +678,7 @@ def upload(ctx, source, path):
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2329,11 +2331,19 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        seo_data = frontmatter.get('seo') or {}
+        description = (
+            frontmatter.get('summary')
+            or frontmatter.get('description')
+            or seo_data.get('description')
+            or config['site']['description']
+        )
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2368,6 +2378,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context['jsonld']:
+            context['jsonld'] = build_content_jsonld(
+                config,
+                frontmatter,
+                content_type,
+                url,
+                description
+            )
         
         # Select template
         if content_type == 'posts':
@@ -2959,6 +2977,51 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
             footer_text += f" {page_size}"
         footer_text += "</p>"
         return f"<footer>{footer_text}</footer>"
+
+
+def build_content_jsonld(config: Dict, frontmatter: Dict, content_type: str, url: str, description: str) -> Dict:
+    """Create default structured data when content does not provide JSON-LD."""
+    site = config.get('site', {})
+    title = frontmatter.get('title', '')
+    canonical_url = f"{site.get('url', '').rstrip('/')}{url}"
+    date_value = frontmatter.get('date') or frontmatter.get('publish_date') or ''
+    if date_value:
+        date_value = str(date_value)
+
+    if content_type in ('posts', 'newsletters'):
+        return {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": title,
+            "description": description,
+            "datePublished": date_value,
+            "author": {
+                "@type": "Organization",
+                "name": site.get('title', '')
+            },
+            "url": canonical_url
+        }
+
+    if content_type == 'projects':
+        return {
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            "name": title,
+            "description": description,
+            "author": {
+                "@type": "Organization",
+                "name": site.get('title', '')
+            },
+            "url": canonical_url
+        }
+
+    return {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": title,
+        "description": description,
+        "url": canonical_url
+    }
 
 
 def create_index_simple(config: Dict, recent_posts: List, templates_path: Path = None) -> str:
@@ -3716,7 +3779,7 @@ def update_deps(ctx, check_only, security_only):
     click.echo("\n💡 Tip: Enable Dependabot in .github/dependabot.yml for automated PRs")
 
 @cli.command()
-@click.argument('source_dir', type=click.Path(exists=True))
+@click.argument('source_dir', required=False, type=click.Path(exists=True))
 @click.option('--output', '-o', type=click.Path(), help='Output directory for processed images')
 @click.option('--analyze', is_flag=True, help='Analyze image usage in content')
 @click.option('--check-alt', is_flag=True, help='Check for missing alt text')
@@ -3769,6 +3832,10 @@ def image(ctx, source_dir, output, analyze, check_alt):
         return
     
     # Regular image processing
+    if not source_dir:
+        click.echo("❌ Error: source_dir is required unless --analyze or --check-alt is used.", err=True)
+        ctx.exit(1)
+
     click.echo("🖼️  Processing images...")
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
@@ -4372,11 +4439,19 @@ def serve(ctx, port, host):
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
                     
+                    seo_data = frontmatter.get('seo') or {}
+                    description = (
+                        frontmatter.get('summary')
+                        or frontmatter.get('description')
+                        or seo_data.get('description')
+                        or config['site']['description']
+                    )
+
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4393,6 +4468,14 @@ def serve(ctx, port, host):
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    if not context['jsonld']:
+                        context['jsonld'] = build_content_jsonld(
+                            config,
+                            frontmatter,
+                            content_type,
+                            url,
+                            context['description']
+                        )
                     
                     # Render HTML
                     try:

@@ -151,7 +151,7 @@ class ContractValidator:
         
         for script in jsonld_scripts:
             try:
-                data = json.loads(script.string)
+                data = json.loads(script.string or '')
                 
                 # Check @type
                 if required_type and data.get('@type') != required_type:
@@ -162,7 +162,7 @@ class ContractValidator:
                     if prop not in data:
                         errors.append(f"Missing required JSON-LD property: {prop}")
                 
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 errors.append("Invalid JSON-LD: failed to parse")
         
         return {'errors': errors}

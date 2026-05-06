@@ -38,7 +38,7 @@ class OutputGenerators:
             priority = SubElement(url, 'priority')
             if page['url'] == '/':
                 priority.text = '1.0'
-            elif page.get('type') == 'post':
+            elif page.get('type') in ('post', 'posts'):
                 priority.text = '0.8'
             else:
                 priority.text = '0.6'
