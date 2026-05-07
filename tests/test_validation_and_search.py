@@ -88,6 +88,27 @@ class CliCommandRegistrationTests(unittest.TestCase):
         self.assertNotIn("list", vars(cli_module))
         self.assertIn("list", cli_module.cli.commands["media"].commands)
 
+    def test_empty_frontmatter_jsonld_gets_page_default(self):
+        cli_module = importlib.import_module("cli")
+        config = {
+            "site": {
+                "title": "GANG",
+                "description": "Site description",
+                "url": "https://example.com",
+            }
+        }
+        context = {
+            "title": "Launch",
+            "description": "Launch description",
+            "date": "2025-10-12",
+        }
+
+        jsonld = cli_module.get_page_jsonld({"jsonld": {}}, config, context, "posts", "/posts/launch/")
+
+        self.assertEqual(jsonld["@type"], "Article")
+        self.assertEqual(jsonld["url"], "https://example.com/posts/launch/")
+        self.assertEqual(jsonld["headline"], "Launch")
+
 
 if __name__ == "__main__":
     unittest.main()

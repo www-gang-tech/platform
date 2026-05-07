@@ -2369,6 +2369,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = get_page_jsonld(frontmatter, config, context, content_type, url)
         
         # Select template
         if content_type == 'posts':
@@ -2966,6 +2967,42 @@ def get_meta_description(frontmatter: Dict, config: Dict) -> str:
         or seo.get('description')
         or config['site']['description']
     )
+
+
+def get_page_jsonld(frontmatter: Dict, config: Dict, context: Dict, content_type: str, url: str) -> Dict:
+    """Return explicit JSON-LD or a sensible page-level default."""
+    existing = frontmatter.get('jsonld')
+    if existing:
+        return existing
+
+    canonical_url = f"{config['site']['url'].rstrip('/')}{url}"
+    title = context.get('title') or frontmatter.get('title') or ''
+    description = context.get('description') or get_meta_description(frontmatter, config)
+    schema_type = {
+        'posts': 'Article',
+        'newsletters': 'Article',
+        'projects': 'CreativeWork',
+        'pages': 'WebPage',
+    }.get(content_type, 'WebPage')
+
+    jsonld = {
+        '@context': 'https://schema.org',
+        '@type': schema_type,
+        'name': title,
+        'description': description,
+        'url': canonical_url,
+    }
+
+    if schema_type == 'Article':
+        jsonld['headline'] = title
+        if context.get('date'):
+            jsonld['datePublished'] = str(context['date'])
+        jsonld['author'] = {
+            '@type': 'Organization',
+            'name': config['site']['title'],
+        }
+
+    return jsonld
 
 
 def create_index_simple(config: Dict, recent_posts: List, templates_path: Path = None) -> str:
@@ -4412,6 +4449,7 @@ def serve(ctx, port, host):
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    context['jsonld'] = get_page_jsonld(frontmatter, config, context, content_type, url)
                     
                     # Render HTML
                     try:
