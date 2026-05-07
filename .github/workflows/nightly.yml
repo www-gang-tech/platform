@@ -18,12 +18,12 @@ jobs:
       - name: Build & audit
         run: |
           gang optimize
-          gang image
+          gang image public --check-alt
           gang build
           gang check
           gang audit
       - name: Answerability report
-        run: gang report --answerability --out reports
+        run: gang report --answerability
       - name: CrUX snapshot
         run: node scripts/crux_snapshot.js
         env:
