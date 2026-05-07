@@ -1,4 +1,5 @@
 import json
+import importlib
 import sys
 import unittest
 from pathlib import Path
@@ -78,6 +79,14 @@ Launch body.
 
             self.assertIn('"date": "2025-10-12"', serialized)
             self.assertEqual(index["documents"][0]["tags"], ["release"])
+
+
+class CliCommandRegistrationTests(unittest.TestCase):
+    def test_media_list_command_does_not_shadow_builtin_list(self):
+        cli_module = importlib.import_module("cli")
+
+        self.assertNotIn("list", vars(cli_module))
+        self.assertIn("list", cli_module.cli.commands["media"].commands)
 
 
 if __name__ == "__main__":
