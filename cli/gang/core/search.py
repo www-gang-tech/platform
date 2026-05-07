@@ -58,9 +58,12 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._to_text(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = self._to_text(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = frontmatter.get('tags') or []
+        if isinstance(tags, str):
+            tags = [tags]
+        tags = [self._to_text(tag) for tag in tags]
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +99,17 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._to_text(frontmatter.get('date', '')),
         }
+
+    @staticmethod
+    def _to_text(value: Any) -> str:
+        """Convert frontmatter values into JSON-safe strings."""
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""

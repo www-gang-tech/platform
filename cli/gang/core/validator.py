@@ -14,6 +14,20 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+
+    @staticmethod
+    def _is_executable_script(script) -> bool:
+        """Return True only for scripts that execute JavaScript."""
+        script_type = (script.get('type') or 'text/javascript').split(';', 1)[0].strip().lower()
+        non_executable_types = {
+            'application/ld+json',
+            'application/json',
+            'application/manifest+json',
+            'application/schema+json',
+            'importmap',
+            'speculationrules',
+        }
+        return script_type not in non_executable_types
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -185,10 +199,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if executable_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
