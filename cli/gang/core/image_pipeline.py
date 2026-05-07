@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import subprocess
 import json
 import base64
+from html import escape
 
 
 class ImagePipeline:
@@ -23,7 +24,7 @@ class ImagePipeline:
         }
     
     def process_image(self, image_path: Path, focal_point: Optional[Tuple[float, float]] = None,
-                     is_lcp: bool = False) -> Dict[str, Any]:
+                     is_lcp: bool = False, alt_text: Optional[str] = None) -> Dict[str, Any]:
         """
         Process a single image with focal point cropping
         
@@ -43,6 +44,7 @@ class ImagePipeline:
             'original': str(image_path),
             'focal_point': focal_point,
             'is_lcp': is_lcp,
+            'alt_text': alt_text if alt_text is not None else self._alt_text_from_filename(image_path),
             'crops': {},
             'thumbhash': None,
             'html': ''
@@ -68,6 +70,11 @@ class ImagePipeline:
         result['html'] = html
         
         return result
+
+    @staticmethod
+    def _alt_text_from_filename(image_path: Path) -> str:
+        """Create a readable fallback when explicit alt text is not supplied."""
+        return image_path.stem.replace('-', ' ').replace('_', ' ').strip()
     
     def _generate_crop(self, image_path: Path, width: int, focal_point: Tuple[float, float]) -> Optional[Path]:
         """Generate art-directed crop at focal point"""
@@ -163,8 +170,10 @@ class ImagePipeline:
         lazy = '' if is_lcp else ' loading="lazy"'
         decode = ' decoding="async"' if not is_lcp else ''
         
-        html += f'  <img src="{formats.get("jpg", data["original"])}"'
-        html += f' alt="TODO: Add alt text"'
+        src = escape(formats.get("jpg", data["original"]), quote=True)
+        alt_text = escape(data.get('alt_text', ''), quote=True)
+        html += f'  <img src="{src}"'
+        html += f' alt="{alt_text}"'
         html += f'{lazy}{decode}>\n'
         html += '</picture>'
         

@@ -1420,8 +1420,9 @@ def changes(ctx, days):
 @click.option('--focal-y', type=float, default=0.5, help='Focal point Y (0-1)')
 @click.option('--auto-detect', is_flag=True, help='Auto-detect focal point using AI')
 @click.option('--is-lcp', is_flag=True, help='Mark as LCP image (no lazy loading)')
+@click.option('--alt', 'alt_text', help='Alt text for the generated image HTML')
 @click.pass_context
-def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
+def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp, alt_text):
     """Process image with focal point and generate responsive crops"""
     try:
         from core.image_pipeline import ImagePipeline, FocalPointDetector
@@ -1446,7 +1447,7 @@ def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
         focal_point = (focal_x, focal_y)
     
     click.echo(f"🖼️  Processing: {image.name}")
-    result = pipeline.process_image(image, focal_point, is_lcp)
+    result = pipeline.process_image(image, focal_point, is_lcp, alt_text)
     
     click.echo(f"✅ Generated {len(result['crops'])} crops")
     click.echo(f"✅ Generated {len(result['formats'])} formats")
@@ -3773,10 +3774,13 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
+    stats = result['stats']
     
-    total_variants = sum(len(variants) for variants in image_map.values())
+    total_variants = stats['total_variants']
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    click.echo(f"📉 Optimized size delta: {stats['savings_bytes']} bytes ({stats['savings_percent']:.1f}%)")
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")
