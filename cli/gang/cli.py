@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2264,6 +2264,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Build content
     content_path = Path(config['build']['content'])
+    comments_config = config.get('comments', {})
+    comment_manager = None
+    if comments_config.get('enabled'):
+        try:
+            from core.comments import CommentsManager
+            comment_manager = CommentsManager(content_path)
+        except Exception as e:
+            click.echo(f"⚠️  Could not initialize comments: {e}")
+
     all_pages = []
     all_posts = []
     all_projects = []
@@ -2325,6 +2334,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        seo = frontmatter.get('seo') or {}
+        title = frontmatter.get('title') or seo.get('title') or md_file.stem.replace('-', ' ').title()
+        description = (
+            frontmatter.get('summary')
+            or frontmatter.get('description')
+            or seo.get('description')
+            or config['site']['description']
+        )
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2332,8 +2349,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2365,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': [],
+            'comments_enabled': comments_config.get('enabled', False),
+            'comments_webhook_url': comments_config.get('webhook_url', ''),
         }
         
         # Treat articles as posts
@@ -2356,7 +2376,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             # Update context to reflect the change
             context['page_type'] = 'post'
             context['category'] = 'posts'
-        
+
+        if comment_manager and context['page_type'] in ('post', 'product'):
+            context['comments'] = comment_manager.get_comments_for_page(slug, context['page_type'])
+
         # Add canonical URL
         if content_type == 'posts':
             url = f"/posts/{slug}/"
@@ -2698,12 +2721,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_index_file = dist_path / 'search-index.json'
         search_index_file.write_text(json.dumps(search_index))
         
-        # Write search page
-        search_page = dist_path / 'search' / 'index.html'
-        search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
-        
-        click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
+        if config.get('budgets', {}).get('js', 0) == 0:
+            click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents); skipped JS search page due to zero-JS budget")
+        else:
+            # Write search page only when the configured JS budget allows it.
+            search_page = dist_path / 'search' / 'index.html'
+            search_page.parent.mkdir(parents=True, exist_ok=True)
+            search_page.write_text(indexer.generate_search_page_html())
+            click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
     
@@ -2966,14 +2991,17 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     posts_html = ""
     for post in recent_posts:
         posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
-    
+
+    site_url = config['site']['url'].rstrip('/')
+    canonical_url = f"{site_url}/"
+
     # Create JSON-LD structured data
     jsonld = {
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": config['site']['title'],
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
@@ -3004,6 +3032,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3042,7 +3071,11 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         if item.get('summary'):
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
-    
+
+    site_url = config['site']['url'].rstrip('/')
+    list_slug = title.lower().replace(' ', '-')
+    canonical_url = f"{site_url}/{list_slug}/"
+
     # Create JSON-LD structured data
     import json
     jsonld = {
@@ -3050,7 +3083,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3113,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>

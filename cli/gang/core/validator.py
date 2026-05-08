@@ -181,14 +181,23 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for executable JavaScript (structured data scripts are not runtime JS)
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
-            
-            if scripts or inline_scripts:
+            non_executable_types = {
+                'application/ld+json',
+                'application/json',
+                'application/schema+json',
+            }
+
+            def is_executable_script(script):
+                script_type = (script.get('type') or '').strip().lower()
+                return not script_type or script_type not in non_executable_types
+
+            scripts = [script for script in soup.find_all('script') if is_executable_script(script)]
+
+            if scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',

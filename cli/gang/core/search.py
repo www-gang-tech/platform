@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import datetime, date
 import yaml
 
 
@@ -58,9 +58,13 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        tags = frontmatter.get('tags') or []
+        if isinstance(tags, (str, Path)):
+            tags = [str(tags)]
+        else:
+            tags = [str(tag) for tag in tags]
         category = file_path.parent.name
         
         # Generate URL
@@ -87,6 +91,10 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        published_date = frontmatter.get('date', '')
+        if isinstance(published_date, (datetime, date)):
+            published_date = published_date.isoformat()
+
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +104,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': published_date,
         }
     
     def _clean_markdown(self, text: str) -> str:
