@@ -9,6 +9,7 @@ import yaml
 import os
 import hashlib
 import json
+import builtins
 import shutil
 import markdown
 import time
@@ -173,7 +174,7 @@ def optimize(ctx, force):
         return
     
     content_path = Path(config['build']['content'])
-    md_files = list(content_path.rglob('*.md'))
+    md_files = builtins.list(content_path.rglob('*.md'))
     
     click.echo(f"Found {len(md_files)} content files")
     
@@ -229,7 +230,7 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
     # Batch analysis mode
     if analyze_all:
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = builtins.list(content_path.rglob('*.md'))
         
         if not md_files:
             click.echo("⚠️  No markdown files found", err=True)
@@ -570,7 +571,7 @@ def fix(ctx, links, apply, commit, min_confidence, rebuild):
                 import subprocess
                 
                 # Add changed files
-                files_changed = list(set([f['file'] for f in fix_results['fixes']]))
+                files_changed = builtins.list(set([f['file'] for f in fix_results['fixes']]))
                 for file in files_changed:
                     file_path = content_path / file
                     subprocess.run(['git', 'add', str(file_path)], check=True)
@@ -2037,7 +2038,7 @@ def generate_agentmap(ctx):
     for category_dir in ['posts', 'pages', 'projects']:
         category_path = content_path / category_dir
         if category_path.exists():
-            all_md_files.extend(list(category_path.glob('*.md')))
+            all_md_files.extend(builtins.list(category_path.glob('*.md')))
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     publishable = [item['path'] for item in schedule_result['publishable']]
@@ -2114,6 +2115,24 @@ def slugs(ctx, fix):
     else:
         click.echo(f"\n✅ All slugs are unique!")
 
+
+def get_meta_description(frontmatter: Dict, default: str) -> str:
+    """Return the best non-empty description for page metadata."""
+    summary = frontmatter.get('summary')
+    if summary:
+        return str(summary)
+    
+    seo = frontmatter.get('seo')
+    if isinstance(seo, dict) and seo.get('description'):
+        return str(seo['description'])
+    
+    description = frontmatter.get('description')
+    if description:
+        return str(description)
+    
+    return default
+
+
 @cli.command()
 @click.option('--check-quality', is_flag=True, help='Run content quality checks before building')
 @click.option('--min-quality-score', type=int, default=85, help='Minimum quality score (default: 85)')
@@ -2172,7 +2191,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = builtins.list(content_path.rglob('*.md'))
         
         failed_files = []
         for md_file in md_files:
@@ -2333,7 +2352,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': get_meta_description(frontmatter, config['site']['description']),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2686,7 +2705,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        all_md = builtins.list(content_path.rglob('*.md'))
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
@@ -3004,6 +3023,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3043,6 +3063,8 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
     
+    collection_url = f"{config['site']['url']}/{title.lower()}/"
+    
     # Create JSON-LD structured data
     import json
     jsonld = {
@@ -3050,7 +3072,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": collection_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3102,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{collection_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3130,7 +3153,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = get_meta_description(frontmatter, config['site']['description'])
     
     # Build time for footer
     build_time = datetime.now()
@@ -3618,7 +3641,7 @@ def audit(ctx, output):
         ctx.exit(1)
     
     # Count pages
-    page_count = len(list(dist_path.rglob('index.html')))
+    page_count = len(builtins.list(dist_path.rglob('index.html')))
     click.echo(f"📊 Running audits on {page_count} pages...")
     click.echo("🔦 Lighthouse CI will auto-discover all pages in dist/")
     click.echo("   (3 runs per page, this may take a few minutes)\n")
@@ -4376,7 +4399,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': get_meta_description(frontmatter, config['site']['description']),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
