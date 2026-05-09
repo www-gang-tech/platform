@@ -142,12 +142,15 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__SITE_URL__/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -237,8 +240,12 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
-    <h1>🔍 Search</h1>
+<body data-page-type="interactive">
+    <header>
+        <p><a href="/">__SITE_TITLE__</a></p>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -251,6 +258,11 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -369,4 +381,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site.get('title', 'Site'))
+            .replace('__SITE_URL__', site.get('url', '').rstrip('/'))
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
