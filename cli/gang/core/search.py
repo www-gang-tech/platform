@@ -5,6 +5,7 @@ Generate search index and provide search functionality.
 
 from pathlib import Path
 from typing import Dict, List, Any
+import html
 import json
 import re
 from datetime import date, datetime
@@ -134,8 +135,88 @@ class SearchIndexer:
         
         return text.strip()
     
-    def generate_search_page_html(self) -> str:
-        """Generate a standalone search page HTML"""
+    def generate_search_page_html(self, search_index: Dict[str, Any]) -> str:
+        """Generate a static, no-JavaScript search index page."""
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        language = site.get('language', 'en')
+        description = f"Browse indexed content from {site_title}."
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        
+        documents = sorted(
+            search_index.get('documents', []),
+            key=lambda doc: (doc.get('category', ''), doc.get('title', ''))
+        )
+        items = []
+        for doc in documents:
+            title = html.escape(str(doc.get('title', 'Untitled')))
+            url = html.escape(str(doc.get('url', '#')))
+            category = html.escape(str(doc.get('category', 'content')).title())
+            summary = html.escape(str(doc.get('description') or doc.get('content') or ''))
+            date_value = html.escape(str(doc.get('date') or ''))
+            date_html = f'<time datetime="{date_value}">{date_value}</time>' if date_value else ''
+            items.append(
+                '<li class="search-result">'
+                f'<h2><a href="{url}">{title}</a></h2>'
+                f'<p class="meta"><span>{category}</span>{date_html}</p>'
+                f'<p>{summary}</p>'
+                '</li>'
+            )
+        
+        jsonld = {
+            '@context': 'https://schema.org',
+            '@type': 'CollectionPage',
+            'name': 'Search',
+            'description': description,
+            'url': canonical_url,
+            'numberOfItems': len(documents),
+        }
+        jsonld_str = json.dumps(jsonld, indent=2)
+        items_html = '\n'.join(items) or '<li>No content is currently indexed.</li>'
+        
+        return f'''<!DOCTYPE html>
+<html lang="{html.escape(language)}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; base-uri 'self'; form-action 'self';">
+    <title>Search - {html.escape(site_title)}</title>
+    <meta name="description" content="{html.escape(description)}">
+    <link rel="canonical" href="{html.escape(canonical_url)}">
+    <script type="application/ld+json">
+{jsonld_str}
+    </script>
+    <link rel="stylesheet" href="/assets/style.css">
+    <style>
+        .search-results {{ list-style: none; margin-left: 0; padding-left: 0; }}
+        .search-result {{ margin-bottom: 2rem; }}
+        .search-result h2 {{ margin-bottom: 0.25rem; }}
+        .meta {{ color: #555; font-size: 0.9rem; }}
+        .meta span {{ margin-right: 0.75rem; }}
+    </style>
+</head>
+<body>
+    <header role="banner">
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main id="content">
+        <h1>Search</h1>
+        <p>{html.escape(description)} For machine-readable search data, see <a href="/search-index.json">search-index.json</a>.</p>
+        <ol class="search-results">
+            {items_html}
+        </ol>
+    </main>
+    <footer>
+        <p>&copy; {datetime.now().year} {html.escape(site_title)}</p>
+    </footer>
+</body>
+</html>'''
+    
+    def generate_interactive_search_page_html(self) -> str:
+        """Generate the legacy client-side search page HTML."""
         return '''<!DOCTYPE html>
 <html lang="en">
 <head>
