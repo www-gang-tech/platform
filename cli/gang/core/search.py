@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -96,8 +96,14 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._serialize_date(frontmatter.get('date', '')),
         }
+    
+    def _serialize_date(self, value: Any) -> str:
+        """Return a JSON-safe date value from YAML frontmatter."""
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value) if value is not None else ''
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
