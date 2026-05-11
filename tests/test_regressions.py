@@ -14,6 +14,7 @@ from core.analyzer import ContentAnalyzer
 from core.contract_validator import ContractValidator
 from core.link_validator import LinkValidator
 from core.optimizer import AIOptimizer
+from core.search import SearchIndexer
 
 
 class RegressionTests(unittest.TestCase):
@@ -103,6 +104,27 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual([], results["broken_external"])
         self.assertEqual([], results["broken_internal"])
         self.assertEqual(1, results["internal_links"])
+
+    def test_search_indexer_normalizes_frontmatter_for_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            content = Path(tmp) / "content"
+            (content / "posts").mkdir(parents=True)
+            md_file = content / "posts" / "dated.md"
+            md_file.write_text(
+                "---\n"
+                "title: 123\n"
+                "date: 2026-05-11\n"
+                "tags: launch\n"
+                "---\n"
+                "# Launch\n"
+            )
+
+            index = SearchIndexer(content, {}).build_search_index([md_file])
+
+        document = index["documents"][0]
+        self.assertEqual("123", document["title"])
+        self.assertEqual("2026-05-11", document["date"])
+        self.assertEqual(["launch"], document["tags"])
 
 
 if __name__ == "__main__":
