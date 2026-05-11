@@ -15,6 +15,7 @@ from core.contract_validator import ContractValidator
 from core.link_validator import LinkValidator
 from core.optimizer import AIOptimizer
 from core.search import SearchIndexer
+from core.validator import ContractValidator as ConfigContractValidator
 
 
 class RegressionTests(unittest.TestCase):
@@ -125,6 +126,25 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual("123", document["title"])
         self.assertEqual("2026-05-11", document["date"])
         self.assertEqual(["launch"], document["tags"])
+
+    def test_validator_ignores_jsonld_for_js_budget(self):
+        validator = ConfigContractValidator({"budgets": {"js": 0}})
+        with tempfile.TemporaryDirectory() as tmp:
+            html = Path(tmp) / "index.html"
+            html.write_text(
+                '<script type="application/ld+json">{"@context":"https://schema.org"}</script>'
+            )
+
+            self.assertEqual([], validator.check_budgets(html))
+
+    def test_validator_handles_bad_tabindex_values(self):
+        validator = ConfigContractValidator({
+            "contracts": {"accessibility": ["keyboard_nav"]}
+        })
+
+        issues = validator.check_accessibility('<button tabindex="bogus">Go</button>')
+
+        self.assertEqual([], issues)
 
 
 if __name__ == "__main__":
