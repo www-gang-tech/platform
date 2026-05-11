@@ -299,7 +299,10 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const errors = Array.isArray(result.errors) && result.errors.length
+                    ? result.errors.join('; ')
+                    : (result.message || 'Heading validation failed');
+                this.showNotification('Validation failed: ' + errors, 'error');
             }
             
         } catch (error) {
@@ -354,8 +357,12 @@ class InPlaceEditor {
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
+        }
+        
+        if (pageType && slug) {
+            return `${pageType}s/${slug}`;
         }
         
         return 'unknown';

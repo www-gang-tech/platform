@@ -109,6 +109,8 @@ class TaxonomyManager:
             if content.startswith('---'):
                 parts = content.split('---', 2)
                 frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                if not isinstance(frontmatter, dict):
+                    frontmatter = {}
                 
                 title = frontmatter.get('title', md_file.stem)
                 category = frontmatter.get('category')
@@ -150,6 +152,8 @@ class TaxonomyManager:
             if content.startswith('---'):
                 parts = content.split('---', 2)
                 frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                if not isinstance(frontmatter, dict):
+                    frontmatter = {}
                 
                 file_category = frontmatter.get('category')
                 file_tags = frontmatter.get('tags', [])

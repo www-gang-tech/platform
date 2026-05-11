@@ -71,23 +71,32 @@ class AnswerabilityAnalyzer:
             
             for script in jsonld_scripts:
                 try:
-                    data = json.loads(script.string)
-                    result['jsonld_types'].append(data.get('@type', 'Unknown'))
-                    
-                    # Determine type and check required props
-                    schema_type = data.get('@type')
-                    required = self._get_required_props(schema_type)
-                    result['required_props'] = required
-                    
-                    # Check which are present
-                    for prop in required:
-                        if prop in data:
-                            result['extractable_data'][prop] = 'present'
-                        else:
-                            result['missing_props'].append(prop)
-                    
-                except json.JSONDecodeError:
+                    text = script.get_text(strip=True)
+                    if not text:
+                        continue
+                    data = json.loads(text)
+                except (TypeError, json.JSONDecodeError):
                     pass
+                else:
+                    for node in self._iter_jsonld_nodes(data):
+                        schema_types = self._jsonld_types(node)
+                        result['jsonld_types'].extend(schema_types or ['Unknown'])
+                        
+                        for schema_type in schema_types:
+                            required = self._get_required_props(schema_type)
+                            for prop in required:
+                                if prop not in result['required_props']:
+                                    result['required_props'].append(prop)
+                                
+                                if prop in node:
+                                    result['extractable_data'][prop] = 'present'
+                                elif prop not in result['missing_props']:
+                                    result['missing_props'].append(prop)
+            
+            result['missing_props'] = [
+                prop for prop in result['required_props']
+                if prop not in result['extractable_data']
+            ]
         
         # Extract basic data
         title_tag = soup.find('title')
@@ -132,6 +141,39 @@ class AnswerabilityAnalyzer:
         }
         
         return props_map.get(schema_type, [])
+    
+    def _iter_jsonld_nodes(self, data: Any) -> List[Dict[str, Any]]:
+        """Flatten JSON-LD documents, including @graph lists, into object nodes."""
+        if isinstance(data, list):
+            nodes = []
+            for item in data:
+                nodes.extend(self._iter_jsonld_nodes(item))
+            return nodes
+        
+        if not isinstance(data, dict):
+            return []
+        
+        nodes = [data]
+        graph = data.get('@graph')
+        if isinstance(graph, list):
+            for item in graph:
+                nodes.extend(self._iter_jsonld_nodes(item))
+        elif isinstance(graph, dict):
+            nodes.extend(self._iter_jsonld_nodes(graph))
+        
+        return nodes
+    
+    def _jsonld_types(self, node: Dict[str, Any]) -> List[str]:
+        """Return normalized @type values from a JSON-LD node."""
+        if not isinstance(node, dict):
+            return []
+        
+        value = node.get('@type')
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if value:
+            return [str(value)]
+        return []
     
     def _infer_type(self, file_path: Path) -> str:
         """Infer content type from file path"""

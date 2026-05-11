@@ -119,6 +119,8 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Convert markdown to HTML
@@ -183,6 +185,8 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Update status and schedule
@@ -190,7 +194,11 @@ class NewsletterManager:
         frontmatter['scheduled_for'] = send_date.isoformat()
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False)
+        if not frontmatter_yaml.endswith('\n'):
+            frontmatter_yaml += '\n'
+        separator = '' if body.startswith('\n') else '\n'
+        new_content = f"---\n{frontmatter_yaml}---{separator}{body}"
         file_path.write_text(new_content)
         
         return {
@@ -220,6 +228,8 @@ class NewsletterManager:
                 if content.startswith('---'):
                     parts = content.split('---', 2)
                     frontmatter = yaml.safe_load(parts[1]) or {}
+                    if not isinstance(frontmatter, dict):
+                        continue
                     
                     status = frontmatter.get('status', 'draft')
                     

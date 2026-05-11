@@ -51,6 +51,9 @@ def get_content(file_path):
     if '..' in file_path or file_path.startswith('/'):
         return jsonify({'error': 'Invalid file path'}), 400
     
+    if file_path == 'list':
+        return list_content()
+    
     # Construct full path
     full_path = CONTENT_DIR / (file_path + '.md')
     
@@ -248,6 +251,8 @@ def list_content():
                     if content.startswith('---'):
                         parts = content.split('---', 2)
                         frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        if not isinstance(frontmatter, dict):
+                            frontmatter = {}
                         title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
                     else:
                         title = md_file.stem.replace('-', ' ').title()

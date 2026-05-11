@@ -62,7 +62,10 @@
             });
             
             if (response.ok) {
-                const result = await response.json();
+                const contentType = response.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    await response.json();
+                }
                 showStatus(status, '✓ Comment submitted! It will appear after approval.', 'success');
                 form.reset();
                 resetButton(button);

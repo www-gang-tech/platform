@@ -53,6 +53,8 @@ class SearchIndexer:
             if len(parts) >= 3:
                 try:
                     frontmatter = yaml.safe_load(parts[1]) or {}
+                    if not isinstance(frontmatter, dict):
+                        frontmatter = {}
                     body = parts[2]
                 except:
                     pass

@@ -41,7 +41,13 @@ def cli(ctx):
         ctx.abort()
     
     with open(config_path) as f:
-        ctx.obj = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
+    
+    if not isinstance(config, dict):
+        click.echo("Error: gang.config.yml must contain a YAML mapping", err=True)
+        ctx.abort()
+    
+    ctx.obj = config
 
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
@@ -189,6 +195,8 @@ def optimize(ctx, force):
         if content.startswith('---'):
             parts = content.split('---', 2)
             frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            if not isinstance(frontmatter, dict):
+                frontmatter = {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -201,7 +209,11 @@ def optimize(ctx, force):
         
         if optimized != frontmatter:
             # Write back with optimized frontmatter
-            new_content = f"---\n{yaml.dump(optimized, default_flow_style=False)}---\n{body}"
+            frontmatter_yaml = yaml.dump(optimized, default_flow_style=False)
+            if not frontmatter_yaml.endswith('\n'):
+                frontmatter_yaml += '\n'
+            separator = '' if body.startswith('\n') else '\n'
+            new_content = f"---\n{frontmatter_yaml}---{separator}{body}"
             md_file.write_text(new_content)
             optimized_count += 1
             click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
@@ -261,6 +273,10 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
                     
             except Exception as e:
                 click.echo(f"❌ {md_file.relative_to(content_path)}: {e}")
+        
+        if not all_analyses:
+            click.echo("❌ No files could be analyzed successfully", err=True)
+            ctx.exit(1)
         
         # Summary report
         if format == 'summary' or format == 'text':
@@ -370,7 +386,7 @@ def validate(ctx, links, internal_only, suggest_fixes, format):
     
     validator = LinkValidator(config, content_path, dist_path)
     
-    results = validator.scan_all_files()
+    results = validator.scan_all_files(check_external=not internal_only)
     
     # If internal-only, clear external results
     if internal_only:
@@ -2310,6 +2326,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         if content.startswith('---'):
             parts = content.split('---', 2)
             frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            if not isinstance(frontmatter, dict):
+                frontmatter = {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -3117,6 +3135,8 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     if content.startswith('---'):
         parts = content.split('---', 2)
         frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+        if not isinstance(frontmatter, dict):
+            frontmatter = {}
         body = parts[2] if len(parts) > 2 else ''
     else:
         frontmatter = {}
@@ -4340,6 +4360,8 @@ def serve(ctx, port, host):
                     if content.startswith('---'):
                         parts = content.split('---', 2)
                         frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        if not isinstance(frontmatter, dict):
+                            frontmatter = {}
                         body = parts[2] if len(parts) > 2 else ''
                     else:
                         frontmatter = {}

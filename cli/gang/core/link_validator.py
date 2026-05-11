@@ -27,7 +27,7 @@ class LinkValidator:
         # Track all internal pages
         self.internal_pages: Set[str] = set()
         
-    def scan_all_files(self) -> Dict[str, Any]:
+    def scan_all_files(self, check_external: bool = True) -> Dict[str, Any]:
         """Scan all markdown files and validate links"""
         md_files = list(self.content_path.rglob('*.md'))
         
@@ -58,7 +58,7 @@ class LinkValidator:
         }
         
         for md_file in sorted(md_files):
-            file_result = self.validate_file(md_file, git_remotes)
+            file_result = self.validate_file(md_file, git_remotes, check_external=check_external)
             results['total_files'] += 1
             results['total_links'] += file_result['total_links']
             results['internal_links'] += file_result['internal_links']
@@ -98,7 +98,7 @@ class LinkValidator:
             pass
         return []
     
-    def validate_file(self, file_path: Path, git_remotes: List[str] = None) -> Dict[str, Any]:
+    def validate_file(self, file_path: Path, git_remotes: List[str] = None, check_external: bool = True) -> Dict[str, Any]:
         """Validate links in a single file"""
         if git_remotes is None:
             git_remotes = []
@@ -135,6 +135,9 @@ class LinkValidator:
             
             # Check if external or internal
             if url.startswith('http://') or url.startswith('https://'):
+                if not check_external:
+                    continue
+                
                 result['external_links'] += 1
                 
                 # Check if this is a git remote (whitelist it)
@@ -181,6 +184,9 @@ class LinkValidator:
         
         for alt_text, url in images:
             if url.startswith('http://') or url.startswith('https://'):
+                if not check_external:
+                    continue
+                
                 # External image
                 result['warnings'].append({
                     'file': result['file'],

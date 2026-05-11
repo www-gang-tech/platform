@@ -163,6 +163,8 @@ class ContentAPIGenerator:
                     parts = content.split('---', 2)
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
+                        if not isinstance(frontmatter, dict):
+                            frontmatter = {}
                 
                 category = file_path.parent.name
                 slug = file_path.stem
@@ -204,6 +206,8 @@ class ContentAPIGenerator:
             parts = content.split('---', 2)
             if len(parts) >= 3:
                 frontmatter = yaml.safe_load(parts[1]) or {}
+                if not isinstance(frontmatter, dict):
+                    frontmatter = {}
                 body = parts[2]
         
         # Convert markdown to HTML

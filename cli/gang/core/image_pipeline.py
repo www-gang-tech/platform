@@ -184,10 +184,12 @@ class ImagePipeline:
             return
         
         import yaml
-        frontmatter = yaml.safe_load(parts[1])
+        frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return
         
         # Add/update images array
-        if 'images' not in frontmatter:
+        if not isinstance(frontmatter.get('images'), list):
             frontmatter['images'] = []
         
         # Find or create entry for this image
@@ -206,7 +208,10 @@ class ImagePipeline:
         
         # Write back
         new_frontmatter = yaml.dump(frontmatter, default_flow_style=False)
-        new_content = f"---\n{new_frontmatter}---{parts[2]}"
+        if not new_frontmatter.endswith('\n'):
+            new_frontmatter += '\n'
+        separator = '' if parts[2].startswith('\n') else '\n'
+        new_content = f"---\n{new_frontmatter}---{separator}{parts[2]}"
         md_file.write_text(new_content)
 
 

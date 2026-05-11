@@ -22,7 +22,9 @@ class ContractValidator:
         contracts = {}
         
         for contract_file in self.contracts_dir.glob('*.yml'):
-            contract = yaml.safe_load(contract_file.read_text())
+            contract = yaml.safe_load(contract_file.read_text()) or {}
+            if not isinstance(contract, dict) or not contract.get('type'):
+                continue
             contracts[contract['type']] = contract
         
         return contracts
@@ -149,23 +151,79 @@ class ContractValidator:
         required_type = jsonld_rules.get('required_type')
         required_props = jsonld_rules.get('required_props', [])
         
+        nodes = []
+        parse_failed = False
+        
         for script in jsonld_scripts:
             try:
-                data = json.loads(script.string)
-                
-                # Check @type
-                if required_type and data.get('@type') != required_type:
-                    errors.append(f"JSON-LD @type is '{data.get('@type')}', expected '{required_type}'")
-                
-                # Check required props
-                for prop in required_props:
-                    if prop not in data:
-                        errors.append(f"Missing required JSON-LD property: {prop}")
-                
-            except json.JSONDecodeError:
-                errors.append("Invalid JSON-LD: failed to parse")
+                text = script.get_text(strip=True)
+                if not text:
+                    parse_failed = True
+                    continue
+                data = json.loads(text)
+                nodes.extend(self._iter_jsonld_nodes(data))
+            except (TypeError, json.JSONDecodeError):
+                parse_failed = True
+        
+        if parse_failed:
+            errors.append("Invalid JSON-LD: failed to parse")
+        
+        if not nodes:
+            return {'errors': errors}
+        
+        candidates = nodes
+        if required_type:
+            candidates = [node for node in nodes if self._jsonld_type_matches(node, required_type)]
+            if not candidates:
+                found_types = sorted({
+                    type_name
+                    for node in nodes
+                    for type_name in self._jsonld_types(node)
+                }) or ['Unknown']
+                errors.append(f"JSON-LD @type is '{', '.join(found_types)}', expected '{required_type}'")
+        
+        for prop in required_props:
+            if not any(isinstance(node, dict) and prop in node for node in candidates):
+                errors.append(f"Missing required JSON-LD property: {prop}")
         
         return {'errors': errors}
+    
+    def _iter_jsonld_nodes(self, data: Any) -> List[Dict[str, Any]]:
+        """Flatten JSON-LD documents, including @graph lists, into object nodes."""
+        if isinstance(data, list):
+            nodes = []
+            for item in data:
+                nodes.extend(self._iter_jsonld_nodes(item))
+            return nodes
+        
+        if not isinstance(data, dict):
+            return []
+        
+        nodes = [data]
+        graph = data.get('@graph')
+        if isinstance(graph, list):
+            for item in graph:
+                nodes.extend(self._iter_jsonld_nodes(item))
+        elif isinstance(graph, dict):
+            nodes.extend(self._iter_jsonld_nodes(graph))
+        
+        return nodes
+    
+    def _jsonld_types(self, node: Dict[str, Any]) -> List[str]:
+        """Return normalized @type values from a JSON-LD node."""
+        if not isinstance(node, dict):
+            return []
+        
+        value = node.get('@type')
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if value:
+            return [str(value)]
+        return []
+    
+    def _jsonld_type_matches(self, node: Dict[str, Any], required_type: str) -> bool:
+        """Check if a JSON-LD node has the required schema type."""
+        return required_type in self._jsonld_types(node)
     
     def _check_meta(self, soup: BeautifulSoup, meta_rules: Dict) -> Dict[str, List[str]]:
         """Check meta tags"""

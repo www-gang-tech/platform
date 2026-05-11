@@ -30,6 +30,8 @@ class ContentAnalyzer:
         if content.startswith('---'):
             parts = content.split('---', 2)
             frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            if not isinstance(frontmatter, dict):
+                frontmatter = {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}

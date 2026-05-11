@@ -59,6 +59,9 @@ class ContentScheduler:
                 })
                 continue
             
+            if not isinstance(frontmatter, dict):
+                frontmatter = {}
+            
             # Get status
             status = frontmatter.get('status', 'published')
             
@@ -232,6 +235,9 @@ class ContentScheduler:
         except:
             return False
         
+        if not isinstance(frontmatter, dict):
+            return False
+        
         # Update frontmatter
         if publish_date:
             frontmatter['publish_date'] = publish_date.isoformat()
@@ -244,7 +250,11 @@ class ContentScheduler:
         
         # Write back
         body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False)
+        if not frontmatter_yaml.endswith('\n'):
+            frontmatter_yaml += '\n'
+        separator = '' if body.startswith('\n') else '\n'
+        new_content = f"---\n{frontmatter_yaml}---{separator}{body}"
         file_path.write_text(new_content)
         
         return True

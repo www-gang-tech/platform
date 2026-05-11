@@ -6,6 +6,7 @@ Build-time AI content optimization using Anthropic Claude
 import os
 import hashlib
 import json
+import copy
 from pathlib import Path
 from typing import Dict, Any, Optional
 import anthropic
@@ -72,8 +73,9 @@ class AIOptimizer:
         
         # Don't overwrite human-written content
         if self.ai_config.get('never_overwrite_human', True):
-            if frontmatter.get('seo', {}).get('title') and frontmatter.get('seo', {}).get('description'):
-                return frontmatter.get('seo', {})
+            seo = frontmatter.get('seo', {})
+            if isinstance(seo, dict) and seo.get('title') and seo.get('description'):
+                return seo
         
         prompt = f"""You are an SEO expert. Given this content, generate an SEO-optimized title and description.
 
@@ -185,12 +187,12 @@ Return valid JSON-LD for Schema.org {content_type.title()}. Include @context, @t
             print("⚠️  AI optimization skipped: No ANTHROPIC_API_KEY found")
             return frontmatter
         
-        optimized = frontmatter.copy()
+        optimized = copy.deepcopy(frontmatter)
         fill_missing = self.ai_config.get('fill_missing', [])
         
         # Generate SEO if needed
         if 'seo.title' in fill_missing or 'seo.description' in fill_missing:
-            if not optimized.get('seo'):
+            if not isinstance(optimized.get('seo'), dict):
                 optimized['seo'] = {}
             
             seo_data = self.generate_seo(markdown_content, frontmatter)

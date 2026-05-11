@@ -64,6 +64,8 @@ class ContentSyndicator:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Check if already syndicated
@@ -318,6 +320,8 @@ class ContentSyndicator:
             return False
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return False
         body = parts[2]
         
         # Add syndication URLs
@@ -329,7 +333,11 @@ class ContentSyndicator:
                 frontmatter['syndicated'][platform] = result['url']
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False)
+        if not frontmatter_yaml.endswith('\n'):
+            frontmatter_yaml += '\n'
+        separator = '' if body.startswith('\n') else '\n'
+        new_content = f"---\n{frontmatter_yaml}---{separator}{body}"
         file_path.write_text(new_content)
         
         return True

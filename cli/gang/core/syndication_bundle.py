@@ -52,7 +52,9 @@ class SyndicationBundleGenerator:
         if len(parts) < 3:
             return None
         
-        frontmatter = yaml.safe_load(parts[1])
+        frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return None
         markdown_content = parts[2].strip()
         
         # Extract metadata

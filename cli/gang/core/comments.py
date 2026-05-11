@@ -45,7 +45,9 @@ class CommentsManager:
         for comment_file in comments_dir.glob("comment-*.yml"):
             try:
                 with open(comment_file, 'r', encoding='utf-8') as f:
-                    comment_data = yaml.safe_load(f)
+                    comment_data = yaml.safe_load(f) or {}
+                if not isinstance(comment_data, dict):
+                    continue
                 
                 # Only include approved comments
                 if comment_data.get('status') == 'approved':
@@ -116,7 +118,9 @@ class CommentsManager:
                     if comment_file.exists():
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
-                                comment_data = yaml.safe_load(f)
+                                comment_data = yaml.safe_load(f) or {}
+                            if not isinstance(comment_data, dict):
+                                return False
                             
                             comment_data['status'] = status
                             
@@ -157,7 +161,9 @@ class CommentsManager:
                     for comment_file in page_dir.glob("comment-*.yml"):
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
-                                comment_data = yaml.safe_load(f)
+                                comment_data = yaml.safe_load(f) or {}
+                            if not isinstance(comment_data, dict):
+                                continue
                             
                             # Apply status filter
                             if status_filter and comment_data.get('status') != status_filter:

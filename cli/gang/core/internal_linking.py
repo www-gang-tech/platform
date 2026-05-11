@@ -35,6 +35,8 @@ class InternalLinkingSuggester:
         if source_content.startswith('---'):
             parts = source_content.split('---', 2)
             source_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            if not isinstance(source_fm, dict):
+                source_fm = {}
             source_body = parts[2] if len(parts) > 2 else source_content
         else:
             source_fm = {}
@@ -54,6 +56,8 @@ class InternalLinkingSuggester:
                 if other_text.startswith('---'):
                     parts = other_text.split('---', 2)
                     other_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                    if not isinstance(other_fm, dict):
+                        other_fm = {}
                 else:
                     other_fm = {}
                 
