@@ -1,6 +1,7 @@
 import json
 import sys
 import unittest
+import importlib
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,7 @@ from click.testing import CliRunner
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
+cli_module = importlib.import_module("cli")
 from cli import cli, create_index_simple, create_list_page_simple  # noqa: E402
 from core.image_pipeline import ImagePipeline  # noqa: E402
 from core.search import SearchIndexer  # noqa: E402
@@ -48,6 +50,12 @@ class GangCheckCliTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("--output", result.output)
         self.assertIn("--verbose", result.output)
+
+    def test_media_list_command_does_not_shadow_builtin_list(self):
+        result = self.runner.invoke(cli, ["media", "list", "--help"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertNotIn("list", vars(cli_module))
 
     def test_check_fails_when_dist_is_missing(self):
         with self.runner.isolated_filesystem():
