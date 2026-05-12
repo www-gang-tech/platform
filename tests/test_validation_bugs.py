@@ -15,7 +15,12 @@ from core.validator import ContractValidator  # noqa: E402
 
 
 MIN_CONFIG = {
-    "site": {"title": "Test", "url": "https://example.com"},
+    "site": {
+        "title": "Test",
+        "url": "https://example.com",
+        "description": "Test description",
+        "language": "en",
+    },
     "build": {
         "output": "./dist",
         "content": "./content",
