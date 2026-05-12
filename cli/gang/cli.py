@@ -91,11 +91,8 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
-@click.option('--verbose', is_flag=True, help='Show detailed validation results')
-@click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def _check_static_contract_files(ctx, verbose):
+    """Validate built pages against contracts/*.yml specifications."""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -1420,8 +1417,10 @@ def changes(ctx, days):
 @click.option('--focal-y', type=float, default=0.5, help='Focal point Y (0-1)')
 @click.option('--auto-detect', is_flag=True, help='Auto-detect focal point using AI')
 @click.option('--is-lcp', is_flag=True, help='Mark as LCP image (no lazy loading)')
+@click.option('--alt', 'alt_text', help='Alt text for the generated <img>')
+@click.option('--decorative', is_flag=True, help='Use empty alt text for a decorative image')
 @click.pass_context
-def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
+def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp, alt_text, decorative):
     """Process image with focal point and generate responsive crops"""
     try:
         from core.image_pipeline import ImagePipeline, FocalPointDetector
@@ -1445,8 +1444,17 @@ def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
     else:
         focal_point = (focal_x, focal_y)
     
+    if decorative and alt_text:
+        click.echo("❌ Use either --alt or --decorative, not both.", err=True)
+        ctx.exit(1)
+    
+    if alt_text is None:
+        alt_text = ""
+        if not decorative:
+            click.echo("⚠️  No --alt provided; generated HTML will use empty alt text.", err=True)
+    
     click.echo(f"🖼️  Processing: {image.name}")
-    result = pipeline.process_image(image, focal_point, is_lcp)
+    result = pipeline.process_image(image, focal_point, is_lcp, alt_text=alt_text)
     
     click.echo(f"✅ Generated {len(result['crops'])} crops")
     click.echo(f"✅ Generated {len(result['formats'])} formats")
@@ -3541,8 +3549,9 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
+@click.option('--verbose', is_flag=True, help='Show per-file validation results')
 @click.pass_context
-def check(ctx, output):
+def check(ctx, output, verbose):
     """Validate Template Contracts and WCAG compliance"""
     try:
         from core.validator import ContractValidator
@@ -3558,7 +3567,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3570,13 +3579,18 @@ def check(ctx, output):
     click.echo(f"  ❌ Failed: {summary['failed']}")
     click.echo(f"  📈 Pass rate: {summary['pass_rate']:.1f}%")
     
+    if summary['total_files'] == 0:
+        click.echo("\n❌ No HTML files found in dist/. Run 'gang build' first.", err=True)
+    
     # Print file details
     for file_result in results['files']:
         file_summary = file_result['summary']
-        if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+        if verbose or not file_summary['passed']:
+            icon = "✅" if file_summary['passed'] else "❌"
+            click.echo(f"\n{icon} {Path(file_result['file']).name}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
-            
+        
+        if not file_summary['passed']:
             # Show issues
             for category in ['semantic', 'accessibility', 'seo', 'budgets']:
                 issues = file_result[category]
@@ -3592,7 +3606,7 @@ def check(ctx, output):
         click.echo(f"\n📄 Report saved to {output_path}")
     
     # Exit with error code if validation failed
-    if summary['failed'] > 0:
+    if summary['failed'] > 0 or summary['total_files'] == 0:
         ctx.exit(1)
 
 @cli.command()

@@ -100,12 +100,28 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
-            if bad_tabindex:
+            positive_tabindex = []
+            invalid_tabindex = []
+            for elem in soup.find_all(attrs={'tabindex': True}):
+                tabindex = elem.get('tabindex')
+                try:
+                    if int(tabindex) > 0:
+                        positive_tabindex.append(elem)
+                except (TypeError, ValueError):
+                    invalid_tabindex.append(elem)
+            
+            if positive_tabindex:
                 issues.append({
                     'severity': 'warning',
                     'rule': 'keyboard_nav',
-                    'message': f'Found {len(bad_tabindex)} elements with positive tabindex (anti-pattern)',
+                    'message': f'Found {len(positive_tabindex)} elements with positive tabindex (anti-pattern)',
+                })
+            
+            if invalid_tabindex:
+                issues.append({
+                    'severity': 'error',
+                    'rule': 'keyboard_nav',
+                    'message': f'Found {len(invalid_tabindex)} elements with invalid tabindex values',
                 })
         
         return issues
@@ -186,7 +202,14 @@ class ContractValidator:
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
             scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() not in {
+                    'application/ld+json',
+                    'application/json',
+                    'application/schema+json',
+                }
+            ]
             
             if scripts or inline_scripts:
                 issues.append({

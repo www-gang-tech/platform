@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import subprocess
 import json
 import base64
+import html as html_lib
 
 
 class ImagePipeline:
@@ -23,7 +24,7 @@ class ImagePipeline:
         }
     
     def process_image(self, image_path: Path, focal_point: Optional[Tuple[float, float]] = None,
-                     is_lcp: bool = False) -> Dict[str, Any]:
+                     is_lcp: bool = False, alt_text: str = "") -> Dict[str, Any]:
         """
         Process a single image with focal point cropping
         
@@ -31,6 +32,7 @@ class ImagePipeline:
             image_path: Path to source image
             focal_point: (x, y) coordinates (0-1 range) for focal point
             is_lcp: If True, don't lazy load (this is the LCP image)
+            alt_text: Accessible alternative text, or empty string for decorative images
         
         Returns:
             Dict with processed image data and HTML
@@ -64,7 +66,7 @@ class ImagePipeline:
             result['thumbhash'] = thumbhash
         
         # Generate <picture> HTML
-        html = self._generate_picture_html(result, is_lcp)
+        html = self._generate_picture_html(result, is_lcp, alt_text)
         result['html'] = html
         
         return result
@@ -142,7 +144,7 @@ class ImagePipeline:
         # For now, return a mock hash
         return "1QcSHQRnh493V4dIh4eXh1h4kJUI"
     
-    def _generate_picture_html(self, data: Dict[str, Any], is_lcp: bool) -> str:
+    def _generate_picture_html(self, data: Dict[str, Any], is_lcp: bool, alt_text: str = "") -> str:
         """Generate responsive <picture> element"""
         
         formats = data.get('formats', {})
@@ -163,8 +165,9 @@ class ImagePipeline:
         lazy = '' if is_lcp else ' loading="lazy"'
         decode = ' decoding="async"' if not is_lcp else ''
         
+        escaped_alt = html_lib.escape(alt_text or "", quote=True)
         html += f'  <img src="{formats.get("jpg", data["original"])}"'
-        html += f' alt="TODO: Add alt text"'
+        html += f' alt="{escaped_alt}"'
         html += f'{lazy}{decode}>\n'
         html += '</picture>'
         
