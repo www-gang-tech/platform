@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
 from cli import cli, create_index_simple, create_list_page_simple  # noqa: E402
 from core.image_pipeline import ImagePipeline  # noqa: E402
+from core.search import SearchIndexer  # noqa: E402
 from core.validator import ContractValidator  # noqa: E402
 
 
@@ -139,6 +141,30 @@ class GeneratedPageRegressionTests(unittest.TestCase):
 
         self.assertIn('<link rel="canonical" href="https://example.com/">', index_html)
         self.assertIn('<link rel="canonical" href="https://example.com/posts/">', posts_html)
+
+
+class SearchIndexRegressionTests(unittest.TestCase):
+    def test_yaml_dates_are_serialized_as_strings(self):
+        with CliRunner().isolated_filesystem():
+            content_path = Path("content")
+            post_path = content_path / "posts" / "dated.md"
+            post_path.parent.mkdir(parents=True)
+            post_path.write_text(
+                """---
+title: Dated
+date: 2025-10-12
+tags:
+  - launch
+---
+
+Body text.
+"""
+            )
+
+            index = SearchIndexer(content_path, MIN_CONFIG).build_search_index([post_path])
+
+        json.dumps(index)
+        self.assertEqual(index["documents"][0]["date"], "2025-10-12")
 
 
 if __name__ == "__main__":

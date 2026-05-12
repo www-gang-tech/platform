@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -60,8 +60,13 @@ class SearchIndexer:
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        tags = frontmatter.get('tags') or []
+        if isinstance(tags, str):
+            tags = [tags]
+        else:
+            tags = [str(tag) for tag in tags]
         category = file_path.parent.name
+        published_date = self._json_safe_date(frontmatter.get('date', ''))
         
         # Generate URL
         slug = file_path.stem
@@ -96,8 +101,16 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': published_date,
         }
+    
+    def _json_safe_date(self, value: Any) -> str:
+        """Normalize YAML date/datetime values before JSON serialization."""
+        if value is None:
+            return ''
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
