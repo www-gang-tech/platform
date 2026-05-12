@@ -9,7 +9,7 @@ from click.testing import CliRunner
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
-from cli import cli  # noqa: E402
+from cli import cli, create_index_simple, create_list_page_simple  # noqa: E402
 from core.image_pipeline import ImagePipeline  # noqa: E402
 from core.validator import ContractValidator  # noqa: E402
 
@@ -125,6 +125,15 @@ class ImagePipelineRegressionTests(unittest.TestCase):
 
         self.assertIn('alt="A &quot;great&quot; &amp; useful product"', html)
         self.assertNotIn("TODO: Add alt text", html)
+
+
+class GeneratedPageRegressionTests(unittest.TestCase):
+    def test_simple_index_and_list_pages_emit_canonicals(self):
+        index_html = create_index_simple(MIN_CONFIG, [])
+        posts_html = create_list_page_simple(MIN_CONFIG, [], "Posts")
+
+        self.assertIn('<link rel="canonical" href="https://example.com/">', index_html)
+        self.assertIn('<link rel="canonical" href="https://example.com/posts/">', posts_html)
 
 
 if __name__ == "__main__":
