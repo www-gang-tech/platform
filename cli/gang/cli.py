@@ -2709,10 +2709,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_index_file = dist_path / 'search-index.json'
         search_index_file.write_text(json.dumps(search_index))
         
-        # Write search page
-        search_page = dist_path / 'search' / 'index.html'
-        search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        # The standalone search UI needs JavaScript, so keep it out of
+        # zero-JS builds while still publishing the data index.
+        if config.get('budgets', {}).get('js') != 0:
+            search_page = dist_path / 'search' / 'index.html'
+            search_page.parent.mkdir(parents=True, exist_ok=True)
+            search_page.write_text(indexer.generate_search_page_html())
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
