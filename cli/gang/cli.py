@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate built pages against page-type contract files"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -3573,8 +3573,14 @@ def check(ctx, output):
     # Print file details
     for file_result in results['files']:
         file_summary = file_result['summary']
-        if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+        if file_summary['errors'] or file_summary['warnings']:
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            status_icon = "❌" if file_summary['errors'] else "⚠️"
+            click.echo(f"\n{status_icon} {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
