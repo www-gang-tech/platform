@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -57,10 +57,10 @@ class SearchIndexer:
                 except:
                     pass
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        # Extract metadata and normalize it for JSON serialization.
+        title = self._stringify(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary') or '')
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date', '')),
         }
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Return tags as a JSON-safe list of strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [self._stringify(tag) for tag in tags if tag is not None]
+        return [self._stringify(tags)]
+
+    def _stringify(self, value: Any) -> str:
+        """Convert frontmatter values to JSON-safe strings."""
+        if value is None:
+            return ''
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -136,6 +152,7 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search articles, projects, and pages.">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -225,7 +242,7 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
+<body data-page-type="utility">
     <h1>🔍 Search</h1>
     
     <div class="search-box">

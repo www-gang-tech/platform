@@ -2328,12 +2328,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        description = get_meta_description(frontmatter, config)
+        comments_config = config.get('comments', {})
         
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2350,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': [],
+            'comments_webhook_url': comments_config.get('webhook_url', ''),
         }
         
         # Treat articles as posts
@@ -2846,6 +2850,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("")
         report = profiler.format_report()
         click.echo(report)
+
+
+def get_meta_description(frontmatter: Dict, config: Dict) -> str:
+    """Choose a non-empty meta description for rendered content."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    return (
+        frontmatter.get('description')
+        or frontmatter.get('summary')
+        or seo.get('description')
+        or config['site']['description']
+    )
 
 
 def process_markdown_fallback(md_file: Path, content_type: str, config: Dict) -> str:
@@ -4377,12 +4392,14 @@ def serve(ctx, port, host):
                     
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+                    description = get_meta_description(frontmatter, config)
+                    comments_config = config.get('comments', {})
                     
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4398,6 +4415,8 @@ def serve(ctx, port, host):
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.
                         'slug': slug,
                         'user_authenticated': user_authenticated,
+                        'comments': [],
+                        'comments_webhook_url': comments_config.get('webhook_url', ''),
                     }
                     
                     # Render HTML

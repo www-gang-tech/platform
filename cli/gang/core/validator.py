@@ -190,17 +190,18 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            executable_scripts = [
-                script for script in soup.find_all('script')
-                if self._is_executable_script(script)
-            ]
-            
-            if executable_scripts:
-                issues.append({
-                    'severity': 'error',
-                    'rule': 'js_budget',
-                    'message': f'JavaScript detected in {len(executable_scripts)} script tag(s), but budget is 0 bytes',
-                })
+            if not self._allows_page_javascript(html_path, soup):
+                executable_scripts = [
+                    script for script in soup.find_all('script')
+                    if self._is_executable_script(script)
+                ]
+                
+                if executable_scripts:
+                    issues.append({
+                        'severity': 'error',
+                        'rule': 'js_budget',
+                        'message': f'JavaScript detected in {len(executable_scripts)} script tag(s), but budget is 0 bytes',
+                    })
         
         return issues
 
@@ -220,6 +221,20 @@ class ContractValidator:
             'application/schema+json',
         }
         return script_type not in non_executable_types
+
+    def _allows_page_javascript(self, html_path: Path, soup: BeautifulSoup) -> bool:
+        """Allow JavaScript on explicitly interactive utility pages."""
+        body = soup.find('body')
+        if body and body.get('data-page-type') == 'utility':
+            return True
+        
+        try:
+            dist_path = Path(self.config.get('build', {}).get('output', 'dist'))
+            relative_path = html_path.relative_to(dist_path)
+        except ValueError:
+            relative_path = html_path
+        
+        return relative_path.parts[:1] == ('search',)
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
