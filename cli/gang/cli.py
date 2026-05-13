@@ -132,6 +132,9 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
+            
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2344,7 +2347,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'jsonld': None,
+            'og_type': 'article' if content_type in ('posts', 'articles') else 'website',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2372,6 +2376,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = get_structured_data(frontmatter, config, content_type, context)
         
         # Select template
         if content_type == 'posts':
@@ -2861,6 +2866,60 @@ def get_meta_description(frontmatter: Dict, config: Dict) -> str:
         or seo.get('description')
         or config['site']['description']
     )
+
+
+def get_structured_data(frontmatter: Dict, config: Dict, content_type: str, context: Dict) -> Dict:
+    """Return existing or fallback JSON-LD for a rendered content page."""
+    existing = frontmatter.get('jsonld')
+    if isinstance(existing, dict) and existing:
+        return existing
+    
+    site_title = config['site']['title']
+    date_value = context.get('date') or ''
+    if hasattr(date_value, 'isoformat'):
+        date_value = date_value.isoformat()
+    else:
+        date_value = str(date_value)
+    
+    base = {
+        '@context': 'https://schema.org',
+        'url': context.get('canonical_url', ''),
+        'description': context.get('description', ''),
+    }
+    
+    if content_type in ('posts', 'articles'):
+        return {
+            **base,
+            '@type': 'BlogPosting',
+            'headline': context.get('title', ''),
+            'datePublished': date_value,
+            'author': {
+                '@type': 'Organization',
+                'name': site_title,
+            },
+            'publisher': {
+                '@type': 'Organization',
+                'name': site_title,
+            },
+        }
+    
+    if content_type == 'projects':
+        return {
+            **base,
+            '@type': 'CreativeWork',
+            'name': context.get('title', ''),
+            'dateCreated': date_value,
+            'author': {
+                '@type': 'Organization',
+                'name': site_title,
+            },
+        }
+    
+    return {
+        **base,
+        '@type': 'WebPage',
+        'name': context.get('title', ''),
+    }
 
 
 def process_markdown_fallback(md_file: Path, content_type: str, config: Dict) -> str:
@@ -4408,8 +4467,9 @@ def serve(ctx, port, host):
                         'tags': frontmatter.get('tags', []),
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
-                        'jsonld': frontmatter.get('jsonld'),
+                        'jsonld': None,
                         'canonical_url': f"{config['site']['url']}{url}",
+                        'og_type': 'article' if content_type in ('posts', 'articles') else 'website',
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -4418,6 +4478,7 @@ def serve(ctx, port, host):
                         'comments': [],
                         'comments_webhook_url': comments_config.get('webhook_url', ''),
                     }
+                    context['jsonld'] = get_structured_data(frontmatter, config, content_type, context)
                     
                     # Render HTML
                     try:
