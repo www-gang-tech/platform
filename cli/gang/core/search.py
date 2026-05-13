@@ -146,6 +146,9 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
+        site_url = self.config.get('site', {}).get('url', '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        
         return '''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -153,6 +156,7 @@ class SearchIndexer:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
     <meta name="description" content="Search articles, projects, and pages.">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -243,19 +247,23 @@ class SearchIndexer:
     </style>
 </head>
 <body data-page-type="utility">
-    <h1>🔍 Search</h1>
+    <header>
+        <h1>🔍 Search</h1>
+    </header>
     
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <main>
+        <div class="search-box">
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
     
     <script>
         let searchIndex = null;
@@ -372,6 +380,9 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    <footer>
+        <p><a href="/">Home</a></p>
+    </footer>
 </body>
-</html>'''
+</html>'''.replace('__CANONICAL_URL__', canonical_url)
 
