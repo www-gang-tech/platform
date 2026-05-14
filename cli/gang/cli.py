@@ -2340,19 +2340,26 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         comments_config = config.get('comments', {})
         comments_webhook_url = comments_config.get('webhook_url', '')
-        comments_enabled = bool(comments_config.get('enabled') and comments_webhook_url)
+        has_real_comments_webhook = bool(comments_webhook_url and 'your-n8n.app' not in comments_webhook_url)
+        comments_enabled = bool(
+            comments_config.get('enabled') and
+            has_real_comments_webhook and
+            content_type in {'posts', 'articles', 'projects'}
+        )
         
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
             'date_formatted': str(frontmatter.get('date', '')),
             'tags': frontmatter.get('tags', []),
+            'issue_number': frontmatter.get('issue_number', frontmatter.get('newsletter_id', '')),
+            'sent_date': frontmatter.get('sent_date', frontmatter.get('date', '')),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
@@ -4434,18 +4441,28 @@ def serve(ctx, port, host):
                     
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+                    comments_config = config.get('comments', {})
+                    comments_webhook_url = comments_config.get('webhook_url', '')
+                    has_real_comments_webhook = bool(comments_webhook_url and 'your-n8n.app' not in comments_webhook_url)
+                    comments_enabled = bool(
+                        comments_config.get('enabled') and
+                        has_real_comments_webhook and
+                        content_type in {'posts', 'articles', 'projects'}
+                    )
                     
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': frontmatter.get('summary') or config['site']['description'],
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
                         'date': frontmatter.get('date'),
                         'date_formatted': str(frontmatter.get('date', '')),
                         'tags': frontmatter.get('tags', []),
+                        'issue_number': frontmatter.get('issue_number', frontmatter.get('newsletter_id', '')),
+                        'sent_date': frontmatter.get('sent_date', frontmatter.get('date', '')),
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
@@ -4455,6 +4472,10 @@ def serve(ctx, port, host):
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.
                         'slug': slug,
                         'user_authenticated': user_authenticated,
+                        'comments': [],
+                        'comments_enabled': comments_enabled,
+                        'comments_webhook_url': comments_webhook_url,
+                        'related': [],
                     }
                     
                     # Render HTML
