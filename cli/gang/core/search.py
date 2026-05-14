@@ -57,10 +57,16 @@ class SearchIndexer:
                 except:
                     pass
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        # Extract metadata and normalize frontmatter into JSON-safe values.
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary', ''))
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags]
+        elif raw_tags:
+            tags = [str(raw_tags)]
+        else:
+            tags = []
         category = file_path.parent.name
         
         # Generate URL
@@ -87,6 +93,14 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        date_value = frontmatter.get('date', '')
+        if hasattr(date_value, 'isoformat'):
+            date_value = date_value.isoformat()
+        elif date_value is None:
+            date_value = ''
+        else:
+            date_value = str(date_value)
+        
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +110,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
