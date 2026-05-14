@@ -271,10 +271,12 @@ class InPlaceEditor {
             }
             
             this.showNotification('Content saved successfully', 'success');
+            return true;
             
         } catch (error) {
             console.error('Save failed:', error);
             this.showNotification('Failed to save: ' + error.message, 'error');
+            return false;
         }
     }
 
@@ -299,7 +301,8 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const errors = Array.isArray(result.errors) ? result.errors.join('; ') : (result.message || 'Unknown validation error');
+                this.showNotification('Validation failed: ' + errors, 'error');
             }
             
         } catch (error) {
@@ -311,7 +314,10 @@ class InPlaceEditor {
     async publishContent() {
         try {
             // First save the content
-            await this.saveContent();
+            const saved = await this.saveContent();
+            if (!saved) {
+                return;
+            }
             
             // Then trigger build/deploy
             const buildResponse = await fetch('http://localhost:5001/api/build', { 
@@ -354,7 +360,7 @@ class InPlaceEditor {
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
         }
         

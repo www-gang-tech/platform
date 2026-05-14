@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     
     <title>Products - {{ site_title }}</title>
     <meta name="description" content="Browse our collection of products">
@@ -54,7 +54,7 @@
                     <div class="product-info">
                         <h2 class="product-title">{{ product.name }}</h2>
                         {% if product.description %}
-                        <p class="product-description">{{ product.description[:120] }}...</p>
+                        <p class="product-description">{{ product.description[:120] }}{% if product.description|length > 120 %}...{% endif %}</p>
                         {% endif %}
                         <p class="product-price">
                             {% if product.offers %}

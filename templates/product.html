@@ -88,7 +88,7 @@
                       data-price="{{ price }}"
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
-                      data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-product-url="{{ product_url }}"
                       data-sku="{{ sku }}"
                       data-variant-id="{{ sku }}">
                     
@@ -120,7 +120,7 @@
                     </div>
                     
                     <p data-stock-message style="margin: 1rem 0; font-weight: 500;">
-                        {% if 'InStock' in availability %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
+                        {% if 'InStock' in availability|default('')|string %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
                     </p>
                     
                     <button type="submit" class="buy-button">

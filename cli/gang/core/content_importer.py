@@ -456,8 +456,8 @@ class SlugChecker:
         slug_map = {}
         duplicates = {}
         
-        # Scan all content types
-        for content_type in ['posts', 'pages', 'projects', 'newsletters', 'people']:
+        # Keep this list aligned with the content folders the build command reads.
+        for content_type in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue

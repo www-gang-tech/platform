@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang|default('en') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +7,7 @@
     
     <title>Shopping Cart - GANG</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ canonical_url }}">
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -25,10 +25,13 @@
         <h1>Cart</h1>
         
         <!-- Empty cart message -->
-        <div id="cart-empty" style="display: none; text-align: center; padding: 3rem 0;">
+        <div id="cart-empty" style="text-align: center; padding: 3rem 0;">
             <p style="font-size: 1.2rem; color: var(--color-muted); margin-bottom: 1rem;">Your cart is empty</p>
             <a href="/products/" class="button">Continue Shopping</a>
         </div>
+        <noscript>
+            <p style="text-align: center; color: var(--color-muted);">Cart updates require JavaScript in this static storefront.</p>
+        </noscript>
         
         <!-- Cart items -->
         <div id="cart-items"></div>

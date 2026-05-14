@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 
 @click.group()
 @click.pass_context
@@ -42,6 +43,10 @@ def cli(ctx):
     
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
+    
+    if not isinstance(ctx.obj, dict):
+        click.echo("Error: gang.config.yml must contain a YAML mapping", err=True)
+        ctx.abort()
 
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
@@ -110,7 +115,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -261,6 +266,10 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
                     
             except Exception as e:
                 click.echo(f"❌ {md_file.relative_to(content_path)}: {e}")
+        
+        if not all_analyses:
+            click.echo("❌ No files could be analyzed", err=True)
+            ctx.exit(1)
         
         # Summary report
         if format == 'summary' or format == 'text':
@@ -448,12 +457,14 @@ def performance(ctx, limit):
         click.echo("")
         
         # Show recent runs
-        for i, run in enumerate(runs[-limit:], 1):
+        recent_runs = runs[-limit:]
+        start_index = len(runs) - len(recent_runs) + 1
+        for i, run in enumerate(recent_runs, start_index):
             timestamp = run.get('timestamp', 'Unknown')
             duration_ms = run.get('total_duration_ms', 0)
             duration_s = duration_ms / 1000
             
-            click.echo(f"#{len(runs) - limit + i}: {duration_ms}ms ({duration_s:.2f}s)")
+            click.echo(f"#{i}: {duration_ms}ms ({duration_s:.2f}s)")
             click.echo(f"   Time: {timestamp}")
             
             # Show file counts
@@ -793,7 +804,7 @@ def delete(ctx, remote_path):
 @click.argument('source', type=click.Path(exists=True), required=False)
 @click.option('--title', help='Article title (auto-detected if not provided)')
 @click.option('--category', type=click.Choice(['posts', 'pages', 'projects']), help='Content category (AI suggests if not provided)')
-@click.option('--compress-images', is_flag=True, default=True, help='Compress images before upload')
+@click.option('--compress-images/--no-compress-images', default=True, help='Compress images before upload')
 @click.option('--commit', is_flag=True, help='Create git commit after import')
 @click.pass_context
 def import_content(ctx, source, title, category, compress_images, commit):
@@ -940,10 +951,9 @@ def import_content(ctx, source, title, category, compress_images, commit):
 @click.argument('old_slug')
 @click.argument('new_slug')
 @click.option('--category', type=click.Choice(['posts', 'pages', 'projects']), required=True, help='Content category')
-@click.option('--redirect', is_flag=True, default=True, help='Create 301 redirect (default: yes)')
-@click.option('--no-redirect', is_flag=True, help='Skip creating redirect')
+@click.option('--redirect/--no-redirect', default=True, help='Create 301 redirect')
 @click.pass_context
-def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
+def rename_slug(ctx, old_slug, new_slug, category, redirect):
     """Rename a content slug with optional 301 redirect"""
     try:
         from core.content_importer import SlugChecker
@@ -981,7 +991,7 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     old_url = f"/{category}/{old_slug}/"
     new_url = f"/{category}/{new_slug}/"
     
-    create_redirect = redirect and not no_redirect
+    create_redirect = redirect
     
     if create_redirect:
         click.echo(f"🔀 Will create 301 redirect:")
@@ -2118,7 +2128,7 @@ def slugs(ctx, fix):
 @click.option('--check-quality', is_flag=True, help='Run content quality checks before building')
 @click.option('--min-quality-score', type=int, default=85, help='Minimum quality score (default: 85)')
 @click.option('--validate-links', is_flag=True, help='Validate all links before building')
-@click.option('--check-slugs', is_flag=True, default=True, help='Check slug uniqueness (default: enabled)')
+@click.option('--check-slugs/--no-check-slugs', default=True, help='Check slug uniqueness')
 @click.option('--optimize-images', is_flag=True, help='Auto-optimize images before building')
 @click.option('--profile', is_flag=True, help='Show build performance metrics')
 @click.pass_context
@@ -2328,6 +2338,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        comments_config = config.get('comments', {})
+        comments_webhook_url = comments_config.get('webhook_url', '')
+        comments_enabled = bool(comments_config.get('enabled') and comments_webhook_url)
         
         context = {
             'site_title': config['site']['title'],
@@ -2348,6 +2361,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': [],
+            'comments_enabled': comments_enabled,
+            'comments_webhook_url': comments_webhook_url,
+            'related': [],
         }
         
         # Treat articles as posts
@@ -2508,6 +2525,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             plp_html = plp_template.render(
                 products=products,
                 site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                canonical_url=f"{config['site']['url']}/products/",
                 year=datetime.now().year,
                 navigation=config.get('nav', {}).get('main', []),
                 build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -2612,6 +2631,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'product_url': f"/products/{slug}/",
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
@@ -2650,6 +2670,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                canonical_url=f"{config['site']['url']}/cart/",
+                navigation=config.get('nav', {}).get('main', []),
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -3799,6 +3822,29 @@ def studio(ctx, port, host):
         import threading
         
         config = ctx.obj
+        allowed_categories = {'posts', 'articles', 'pages', 'projects', 'newsletters', 'products', 'people'}
+        
+        def send_json(handler, status, payload):
+            handler.send_response(status)
+            handler.send_header('Content-type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.end_headers()
+            handler.wfile.write(json.dumps(payload, default=str).encode())
+        
+        def resolve_content_file(raw_path):
+            content_base = Path(config['build']['content']).resolve()
+            relative_path = unquote(urlparse(raw_path).path).lstrip('/')
+            candidate = (content_base / relative_path).resolve()
+            if candidate != content_base and content_base not in candidate.parents:
+                raise ValueError("Invalid content path")
+            return content_base, candidate
+        
+        def validate_slug_request(category, *slugs):
+            if category not in allowed_categories:
+                raise ValueError("Invalid content category")
+            for slug in slugs:
+                if not slug or '/' in slug or '\\' in slug or slug in {'.', '..'}:
+                    raise ValueError("Invalid slug")
         
         class StudioHandler(SimpleHTTPRequestHandler):
             def log_message(self, format, *args):
@@ -3847,8 +3893,7 @@ def studio(ctx, port, host):
                     try:
                         # Get specific content file
                         file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = resolve_content_file(file_path)
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -3862,6 +3907,9 @@ def studio(ctx, port, host):
                         else:
                             click.echo(f"❌ File not found: {content_path}")
                             self.send_error(404)
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        send_json(self, 400, {'error': str(e)})
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
@@ -3948,6 +3996,7 @@ def studio(ctx, port, host):
                         new_slug = data.get('new_slug')
                         category = data.get('category')
                         create_redirect = data.get('create_redirect', True)
+                        validate_slug_request(category, old_slug, new_slug)
                         
                         click.echo(f"🔄 Rename request: {old_slug} → {new_slug} (redirect: {create_redirect})")
                         
@@ -3956,7 +4005,7 @@ def studio(ctx, port, host):
                         from core.redirects import RedirectManager
                         from core.content_importer import SlugChecker
                         
-                        content_path = Path(config['build']['content'])
+                        content_path = Path(config['build']['content']).resolve()
                         dist_path = Path(config['build']['output'])
                         
                         # Check old file exists
@@ -4012,6 +4061,9 @@ def studio(ctx, port, host):
                             'redirect': redirect_info
                         }).encode())
                         
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid rename request: {e}")
+                        send_json(self, 400, {'error': str(e)})
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error renaming slug: {e}")
@@ -4086,11 +4138,14 @@ def studio(ctx, port, host):
                     try:
                         # Get file path and content
                         file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = resolve_content_file(file_path)
                         
                         # Read request body
-                        content_length = int(self.headers['Content-Length'])
+                        content_length_header = self.headers.get('Content-Length')
+                        if content_length_header is None:
+                            send_json(self, 411, {'error': 'Content-Length required'})
+                            return
+                        content_length = int(content_length_header)
                         body = self.rfile.read(content_length)
                         content = body.decode()
                         
@@ -4107,6 +4162,9 @@ def studio(ctx, port, host):
                             'path': str(content_path.relative_to(content_base))
                         }).encode())
                         
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        send_json(self, 400, {'error': str(e)})
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error saving file: {e}")
@@ -4596,6 +4654,7 @@ def serve(ctx, port, host):
                                 'title': product.get('name', ''),
                                 'description': product.get('description', ''),
                                 'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                                'product_url': f"/products/{slug}/",
                                 'product_image': images[0] if images else '',
                                 'product_images': images,
                                 'price': first_offer.get('price', '0'),
@@ -4633,6 +4692,9 @@ def serve(ctx, port, host):
                         cart_html = cart_template.render(
                             year=datetime.now().year,
                             site_title=config['site']['title'],
+                            lang=config['site'].get('language', 'en'),
+                            canonical_url=f"{config['site']['url']}/cart/",
+                            navigation=config.get('nav', {}).get('main', []),
                             lighthouse_scores=True,
                             build_time=build_time_formatted,
                             build_time_iso=build_time_iso,
@@ -4983,7 +5045,7 @@ def create_studio_html(output_path: Path):
                         <div class="content-item-name">${file.name}</div>
                         <div class="content-item-type">${file.type}</div>
                     `;
-                    item.onclick = () => loadFile(file.path);
+                    item.onclick = () => loadFile(file.path, item);
                     listEl.appendChild(item);
                 });
             } catch (e) {
@@ -4993,7 +5055,7 @@ def create_studio_html(output_path: Path):
         }
         
         // Load specific file
-        async function loadFile(path) {
+        async function loadFile(path, selectedItem) {
             try {
                 const response = await fetch(`/api/content/${path}`);
                 const content = await response.text();
@@ -5006,7 +5068,9 @@ def create_studio_html(output_path: Path):
                 document.querySelectorAll('.content-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                event.target.closest('.content-item').classList.add('active');
+                if (selectedItem) {
+                    selectedItem.classList.add('active');
+                }
             } catch (e) {
                 console.error('Failed to load file:', e);
             }
