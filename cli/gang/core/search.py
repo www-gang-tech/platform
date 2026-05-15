@@ -246,6 +246,11 @@ class SearchIndexer:
     </style>
 </head>
 <body data-page-type="utility">
+    <header role="banner">
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+        </nav>
+    </header>
     <main role="main">
     <h1>🔍 Search</h1>
     
@@ -261,6 +266,9 @@ class SearchIndexer:
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
     </main>
+    <footer>
+        <p><a href="/">Back to home</a></p>
+    </footer>
     
     <script>
         let searchIndex = null;

@@ -36,6 +36,51 @@ def comments_are_configured(config: Dict) -> bool:
         and 'your-n8n.io' not in webhook_url
     )
 
+
+def date_to_iso(value) -> str:
+    if value is None:
+        return ''
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+
+def build_jsonld(config: Dict, content_type: str, title: str, description: str, url: str, date=None) -> Dict:
+    site = config.get('site', {})
+    site_title = site.get('title', '')
+    absolute_url = f"{site.get('url', '').rstrip('/')}{url}"
+    
+    if content_type == 'posts':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'datePublished': date_to_iso(date),
+            'author': {'@type': 'Organization', 'name': site_title},
+            'publisher': {'@type': 'Organization', 'name': site_title},
+            'url': absolute_url,
+        }
+    
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': {'@type': 'Organization', 'name': site_title},
+            'dateCreated': date_to_iso(date),
+            'url': absolute_url,
+        }
+    
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'description': description,
+        'url': absolute_url,
+    }
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -151,6 +196,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2349,6 +2396,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
+        description = (
+            frontmatter.get('summary')
+            or frontmatter.get('description')
+            or (frontmatter.get('seo') or {}).get('description')
+            or config['site']['description']
+        )
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2356,8 +2410,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2366,7 +2420,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
             'comments_enabled': comments_are_configured(config),
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
@@ -2393,6 +2446,18 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = frontmatter.get('jsonld') or build_jsonld(
+            config,
+            content_type,
+            title,
+            description,
+            url,
+            frontmatter.get('date')
+        )
+        context['og_type'] = 'article' if content_type in ('posts', 'projects', 'newsletters') else 'website'
+        context['og_title'] = title
+        context['og_description'] = description
+        context['twitter_card'] = 'summary'
         
         # Select template
         if content_type == 'posts':
@@ -4415,6 +4480,13 @@ def serve(ctx, port, host):
                         template_name = 'page.html'
                     
                     build_time = datetime.now()
+                    title = frontmatter.get('title', slug.replace('-', ' ').title())
+                    description = (
+                        frontmatter.get('summary')
+                        or frontmatter.get('description')
+                        or (frontmatter.get('seo') or {}).get('description')
+                        or config['site']['description']
+                    )
                     
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -4422,8 +4494,8 @@ def serve(ctx, port, host):
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
-                        'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'title': title,
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4432,8 +4504,19 @@ def serve(ctx, port, host):
                         'tags': frontmatter.get('tags', []),
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
-                        'jsonld': frontmatter.get('jsonld'),
                         'canonical_url': f"{config['site']['url']}{url}",
+                        'jsonld': frontmatter.get('jsonld') or build_jsonld(
+                            config,
+                            content_type,
+                            title,
+                            description,
+                            url,
+                            frontmatter.get('date')
+                        ),
+                        'og_type': 'article' if content_type in ('posts', 'projects', 'newsletters') else 'website',
+                        'og_title': title,
+                        'og_description': description,
+                        'twitter_card': 'summary',
                         'comments_enabled': comments_are_configured(config),
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
