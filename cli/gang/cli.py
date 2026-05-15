@@ -13,9 +13,28 @@ import shutil
 import markdown
 import time
 import threading
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+
+
+def format_frontmatter_block(frontmatter: Dict, body: str) -> str:
+    """Serialize markdown frontmatter with a separated closing fence."""
+    frontmatter_yaml = yaml.dump(frontmatter or {}, default_flow_style=False).rstrip()
+    body_prefix = "" if body.startswith("\n") else "\n"
+    return f"---\n{frontmatter_yaml}\n---{body_prefix}{body}"
+
+
+def comments_are_configured(config: Dict) -> bool:
+    comments = config.get('comments', {}) if config else {}
+    webhook_url = str(comments.get('webhook_url', '') or '')
+    return bool(
+        comments.get('enabled')
+        and webhook_url
+        and 'your-n8n.app' not in webhook_url
+        and 'your-n8n.io' not in webhook_url
+    )
 
 @click.group()
 @click.pass_context
@@ -91,10 +110,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -201,7 +220,7 @@ def optimize(ctx, force):
         
         if optimized != frontmatter:
             # Write back with optimized frontmatter
-            new_content = f"---\n{yaml.dump(optimized, default_flow_style=False)}---\n{body}"
+            new_content = format_frontmatter_block(optimized, body)
             md_file.write_text(new_content)
             optimized_count += 1
             click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
@@ -264,6 +283,10 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
         
         # Summary report
         if format == 'summary' or format == 'text':
+            if not all_analyses:
+                click.echo("❌ No files could be analyzed successfully", err=True)
+                ctx.exit(1)
+            
             click.echo("\n" + "=" * 60)
             click.echo("📊 SUMMARY REPORT")
             click.echo("=" * 60)
@@ -672,11 +695,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2270,8 +2293,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_newsletters = []
     
     # Parse markdown files
-    if profiler:
-        profiler.stage('process_content').__enter__()
+    process_content_stage = profiler.stage('process_content') if profiler else None
+    if process_content_stage:
+        process_content_stage.__enter__()
     
     # Filter content based on publish dates
     try:
@@ -2343,6 +2367,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
+            'comments_enabled': comments_are_configured(config),
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2412,6 +2437,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             all_newsletters.append(page_data)
         elif content_type == 'pages':
             all_pages.append(page_data)
+    
+    if process_content_stage:
+        process_content_stage.__exit__(None, None, None)
     
     # Create index page
     click.echo("🏠 Creating index page...")
@@ -2614,6 +2642,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
                     'product_image': images[0] if images else '',
                     'product_images': images,
+                    'slug': slug,
                     'price': first_offer.get('price', '0'),
                     'currency': first_offer.get('priceCurrency', 'USD'),
                     'recurring': None,
@@ -3574,7 +3603,9 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            display_path = file_path.relative_to(dist_path) if file_path.is_relative_to(dist_path) else file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3797,6 +3828,7 @@ def studio(ctx, port, host):
         from http.server import HTTPServer, SimpleHTTPRequestHandler
         import json
         import threading
+        from urllib.parse import unquote, urlsplit
         
         config = ctx.obj
         
@@ -3804,6 +3836,21 @@ def studio(ctx, port, host):
             def log_message(self, format, *args):
                 # Suppress HTTP request logs
                 pass
+            
+            def _resolve_content_path(self):
+                request_path = urlsplit(self.path).path
+                file_path = unquote(request_path.replace('/api/content/', '', 1))
+                content_base = Path(config['build']['content']).resolve()
+                content_path = (content_base / file_path).resolve()
+                
+                try:
+                    content_path.relative_to(content_base)
+                except ValueError:
+                    click.echo(f"❌ Forbidden content path: {content_path}")
+                    self.send_error(403, "Forbidden path")
+                    return None, None
+                
+                return content_base, content_path
             
             def do_GET(self):
                 if self.path == '/api/content':
@@ -3846,9 +3893,9 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = self._resolve_content_path()
+                        if content_path is None:
+                            return
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -4085,9 +4132,9 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/content/'):
                     try:
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = self._resolve_content_path()
+                        if content_path is None:
+                            return
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4387,6 +4434,7 @@ def serve(ctx, port, host):
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
                         'canonical_url': f"{config['site']['url']}{url}",
+                        'comments_enabled': comments_are_configured(config),
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -4598,6 +4646,7 @@ def serve(ctx, port, host):
                                 'canonical_url': f"{config['site']['url']}/products/{slug}/",
                                 'product_image': images[0] if images else '',
                                 'product_images': images,
+                                'slug': slug,
                                 'price': first_offer.get('price', '0'),
                                 'currency': first_offer.get('priceCurrency', 'USD'),
                                 'recurring': None,

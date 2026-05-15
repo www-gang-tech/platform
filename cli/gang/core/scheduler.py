@@ -9,6 +9,13 @@ from typing import Dict, List, Any, Optional
 import yaml
 
 
+def format_frontmatter_block(frontmatter: Dict[str, Any], body: str) -> str:
+    """Serialize markdown frontmatter with a separated closing fence."""
+    frontmatter_yaml = yaml.dump(frontmatter or {}, default_flow_style=False).rstrip()
+    body_prefix = "" if body.startswith("\n") else "\n"
+    return f"---\n{frontmatter_yaml}\n---{body_prefix}{body}"
+
+
 class ContentScheduler:
     """Manage scheduled content publishing"""
     
@@ -219,7 +226,7 @@ class ContentScheduler:
             if publish_date:
                 frontmatter['publish_date'] = publish_date.isoformat()
             
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+            new_content = format_frontmatter_block(frontmatter, content)
             file_path.write_text(new_content)
             return True
         
@@ -244,7 +251,7 @@ class ContentScheduler:
         
         # Write back
         body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = format_frontmatter_block(frontmatter, body)
         file_path.write_text(new_content)
         
         return True

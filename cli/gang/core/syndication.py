@@ -11,6 +11,14 @@ import os
 import hashlib
 
 
+def format_frontmatter_block(frontmatter: Dict[str, Any], body: str) -> str:
+    """Serialize markdown frontmatter with a separated closing fence."""
+    import yaml
+    frontmatter_yaml = yaml.dump(frontmatter or {}, default_flow_style=False).rstrip()
+    body_prefix = "" if body.startswith("\n") else "\n"
+    return f"---\n{frontmatter_yaml}\n---{body_prefix}{body}"
+
+
 class ContentSyndicator:
     """Syndicate content to multiple platforms"""
     
@@ -329,7 +337,7 @@ class ContentSyndicator:
                 frontmatter['syndicated'][platform] = result['url']
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = format_frontmatter_block(frontmatter, body)
         file_path.write_text(new_content)
         
         return True

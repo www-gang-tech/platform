@@ -368,8 +368,14 @@ class EmailOrchestrator:
         }
         
         # Create newsletter content
+        newsletter_yaml = yaml.dump(
+            newsletter_frontmatter,
+            default_flow_style=False,
+            sort_keys=False
+        ).rstrip()
         newsletter_content = f"""---
-{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False)}---
+{newsletter_yaml}
+---
 {body}
 
 ---

@@ -2,10 +2,10 @@
     
     {% if lighthouse_scores %}
     <p class="lighthouse-scores">
-        <span class="score" title="Performance measures how quickly the page loads and becomes interactive">Performance: <strong>100</strong></span>
-        <span class="score" title="Accessibility measures how well the page can be used by people with disabilities">Accessibility: <strong>100</strong></span>
-        <span class="score" title="Best Practices checks for modern web development practices and security">Best Practices: <strong>100</strong></span>
-        <span class="score" title="SEO measures how well the page is optimized for search engines">SEO: <strong>100</strong></span>
+        <span class="score" title="Performance measures how quickly the page loads and becomes interactive">Performance: <strong>{{ lighthouse_scores.performance|default(100) }}</strong></span>
+        <span class="score" title="Accessibility measures how well the page can be used by people with disabilities">Accessibility: <strong>{{ lighthouse_scores.accessibility|default(100) }}</strong></span>
+        <span class="score" title="Best Practices checks for modern web development practices and security">Best Practices: <strong>{{ lighthouse_scores.best_practices|default(lighthouse_scores['best-practices']|default(100)) }}</strong></span>
+        <span class="score" title="SEO measures how well the page is optimized for search engines">SEO: <strong>{{ lighthouse_scores.seo|default(100) }}</strong></span>
     </p>
     {% endif %}
     

@@ -205,8 +205,10 @@ class ImagePipeline:
         image_entry['focal_point'] = list(focal_point)
         
         # Write back
-        new_frontmatter = yaml.dump(frontmatter, default_flow_style=False)
-        new_content = f"---\n{new_frontmatter}---{parts[2]}"
+        new_frontmatter = yaml.dump(frontmatter, default_flow_style=False).rstrip()
+        body = parts[2]
+        body_prefix = "" if body.startswith("\n") else "\n"
+        new_content = f"---\n{new_frontmatter}\n---{body_prefix}{body}"
         md_file.write_text(new_content)
 
 

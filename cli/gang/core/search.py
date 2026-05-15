@@ -58,9 +58,12 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._to_string(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._to_string(
+            frontmatter.get('description') or frontmatter.get('summary'),
+            ''
+        )
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +99,23 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._to_string(frontmatter.get('date'), ''),
         }
+    
+    def _to_string(self, value: Any, default: str = '') -> str:
+        """Convert YAML-loaded scalar values to JSON-safe strings."""
+        if value is None:
+            return default
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+    
+    def _normalize_tags(self, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [self._to_string(tag) for tag in value if tag is not None]
+        return [self._to_string(value)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -136,6 +154,8 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search published pages, posts, projects, and other content.">
+    <link rel="canonical" href="/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -225,7 +245,8 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
+<body data-page-type="utility">
+    <main role="main">
     <h1>🔍 Search</h1>
     
     <div class="search-box">
@@ -239,6 +260,7 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
     
     <script>
         let searchIndex = null;

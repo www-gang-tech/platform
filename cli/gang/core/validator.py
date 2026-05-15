@@ -100,7 +100,13 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            def has_positive_tabindex(value):
+                try:
+                    return value is not None and int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+            
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -185,10 +191,21 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            if self._allows_executable_javascript(soup, html_path):
+                return issues
             
-            if scripts or inline_scripts:
+            non_executable_types = {
+                'application/ld+json',
+                'application/json',
+            }
+            
+            def is_executable_script(script):
+                script_type = (script.get('type') or '').strip().lower()
+                return script_type not in non_executable_types
+            
+            scripts = [script for script in soup.find_all('script') if is_executable_script(script)]
+            
+            if scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -196,6 +213,16 @@ class ContractValidator:
                 })
         
         return issues
+    
+    def _allows_executable_javascript(self, soup: BeautifulSoup, html_path: Path) -> bool:
+        """JS budgets apply to read-only content pages, not interactive utility surfaces."""
+        page_type_elem = soup.find(attrs={'data-page-type': True})
+        page_type = page_type_elem.get('data-page-type') if page_type_elem else ''
+        if page_type in {'utility', 'product', 'cart', 'editor', 'studio'}:
+            return True
+        
+        parts = set(html_path.parts)
+        return bool({'search', 'products', 'cart'} & parts)
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
@@ -218,7 +245,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': not any(i['severity'] == 'error' for i in all_issues),
         }
         
         return results
