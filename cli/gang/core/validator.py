@@ -181,12 +181,22 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for JavaScript (should be 0 on read-only content pages).
+        # JSON-LD and application/json scripts are data, not executable JS.
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            page_mode = soup.find('meta', attrs={'name': 'gang:page-mode'})
+            is_interactive = (
+                page_mode is not None
+                and page_mode.get('content', '').strip().lower() == 'interactive'
+            )
+            data_script_types = {'application/ld+json', 'application/json'}
+            scripts = [] if is_interactive else soup.find_all('script', src=True)
+            inline_scripts = [] if is_interactive else [
+                script for script in soup.find_all('script', src=False)
+                if script.get('type', '').strip().lower() not in data_script_types
+            ]
             
             if scripts or inline_scripts:
                 issues.append({

@@ -46,8 +46,9 @@ def cli(ctx):
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
+@click.option('--out', 'output_dir', default='reports', type=click.Path(), help='Output directory for generated reports')
 @click.pass_context
-def report(ctx, answerability, format):
+def report(ctx, answerability, format, output_dir):
     """Generate reports on content quality and structure"""
     
     if answerability:
@@ -60,8 +61,8 @@ def report(ctx, answerability, format):
         
         config = ctx.obj
         dist_path = Path(config['build']['output'])
-        reports_dir = Path('reports')
-        reports_dir.mkdir(exist_ok=True)
+        reports_dir = Path(output_dir)
+        reports_dir.mkdir(parents=True, exist_ok=True)
         
         click.echo("Score Analyzing answerability...\n")
         
@@ -2333,7 +2334,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': (
+                frontmatter.get('summary')
+                or frontmatter.get('description')
+                or (frontmatter.get('seo') or {}).get('description')
+                or config['site']['description']
+            ),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2996,6 +3002,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         templates_path=templates_path
     )
     
+    canonical_url = f"{config['site']['url'].rstrip('/')}/"
+    
     html = f"""<!DOCTYPE html>
 <html lang="{config['site']['language']}">
 <head>
@@ -3004,6 +3012,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3045,12 +3054,15 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     
     # Create JSON-LD structured data
     import json
+    canonical_path = f"/{title.lower().replace(' ', '-')}/"
+    canonical_url = f"{config['site']['url'].rstrip('/')}{canonical_path}"
+    
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3092,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3716,7 +3729,7 @@ def update_deps(ctx, check_only, security_only):
     click.echo("\n💡 Tip: Enable Dependabot in .github/dependabot.yml for automated PRs")
 
 @cli.command()
-@click.argument('source_dir', type=click.Path(exists=True))
+@click.argument('source_dir', type=click.Path(exists=True), required=False)
 @click.option('--output', '-o', type=click.Path(), help='Output directory for processed images')
 @click.option('--analyze', is_flag=True, help='Analyze image usage in content')
 @click.option('--check-alt', is_flag=True, help='Check for missing alt text')
@@ -3770,13 +3783,21 @@ def image(ctx, source_dir, output, analyze, check_alt):
     
     # Regular image processing
     click.echo("🖼️  Processing images...")
-    source_path = Path(source_dir)
+    if source_dir:
+        source_path = Path(source_dir)
+    else:
+        public_path = Path(config['build'].get('public', './public'))
+        source_path = public_path / 'images' if (public_path / 'images').exists() else public_path
+        if not source_path.exists():
+            click.echo(f"❌ Error: image source not found: {source_path}", err=True)
+            ctx.exit(1)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
+    stats = result['stats']
     
-    total_variants = sum(len(variants) for variants in image_map.values())
-    click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    click.echo(f"✅ Processed {stats['total_images']} images into {stats['total_variants']} variants")
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")

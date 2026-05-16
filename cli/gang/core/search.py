@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -96,8 +96,14 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._serialize_date(frontmatter.get('date')),
         }
+    
+    def _serialize_date(self, value: Any) -> str:
+        """Return frontmatter dates in a JSON-serializable form."""
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value) if value is not None else ''
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -136,6 +142,9 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search the site archive">
+    <meta name="gang:page-mode" content="interactive">
+    <link rel="canonical" href="/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {

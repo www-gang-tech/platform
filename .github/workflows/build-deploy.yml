@@ -44,8 +44,8 @@ jobs:
       
       - name: Validate contracts
         id: validate
-        run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+        run: gang check --output validation-report.json
+        continue-on-error: true
       
       - name: Upload validation report
         if: always()
@@ -53,6 +53,10 @@ jobs:
         with:
           name: validation-report
           path: validation-report.json
+      
+      - name: Fail on contract violations
+        if: steps.validate.outcome == 'failure'
+        run: exit 1
       
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -84,8 +88,9 @@ jobs:
         run: npm install -g @lhci/cli@0.13.x
       
       - name: Run Lighthouse CI
-        run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+        id: lighthouse
+        run: lhci autorun --config=lighthouserc.json
+        continue-on-error: true
       
       - name: Upload Lighthouse reports
         if: always()
@@ -95,7 +100,7 @@ jobs:
           path: .lighthouseci/
       
       - name: Comment PR with results
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && hashFiles('.lighthouseci/manifest.json') != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -116,6 +121,10 @@ jobs:
               repo: context.repo.repo,
               body: `## 🚦 Lighthouse Results\n\n${results}`
             });
+      
+      - name: Fail on Lighthouse regressions
+        if: steps.lighthouse.outcome == 'failure'
+        run: exit 1
 
   axe:
     name: Accessibility Audit (axe)
@@ -141,17 +150,21 @@ jobs:
         run: npm install -g @axe-core/cli
       
       - name: Run axe accessibility tests
+        id: axe
         run: |
           # Start simple HTTP server in background
           npx http-server dist -p 8080 &
           SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           sleep 3
           
           # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
-          
-          # Cleanup
-          kill $SERVER_PID
+          axe http://localhost:8080 --exit
+        continue-on-error: true
+      
+      - name: Fail on accessibility violations
+        if: steps.axe.outcome == 'failure'
+        run: exit 1
 
   deploy:
     name: Deploy to Cloudflare Pages
