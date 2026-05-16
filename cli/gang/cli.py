@@ -2374,6 +2374,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = frontmatter.get('jsonld') or create_default_jsonld(config, content_type, context, url)
         
         # Select template
         if content_type == 'posts':
@@ -2857,6 +2858,30 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
 def process_markdown_fallback(md_file: Path, content_type: str, config: Dict) -> str:
     """Fallback markdown processor if templates fail"""
     return process_markdown(md_file, content_type, config)
+
+
+def create_default_jsonld(config: Dict, content_type: str, context: Dict, url: str) -> Dict:
+    """Create conservative structured data when content omits JSON-LD."""
+    if content_type in ('posts', 'articles', 'newsletters', 'projects'):
+        schema_type = 'Article'
+        data = {
+            '@context': 'https://schema.org',
+            '@type': schema_type,
+            'headline': context['title'],
+            'description': context['description'],
+            'url': f"{config['site']['url']}{url}",
+        }
+        if context.get('date'):
+            data['datePublished'] = str(context['date'])
+        return data
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': context['title'],
+        'description': context['description'],
+        'url': f"{config['site']['url']}{url}",
+    }
 
 
 def process_external_links(html: str) -> str:

@@ -145,6 +145,9 @@ class SearchIndexer:
     <meta name="description" content="Search the site archive">
     <meta name="gang:page-mode" content="interactive">
     <link rel="canonical" href="/search/">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"WebPage","name":"Search","description":"Search the site archive","url":"/search/"}
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
