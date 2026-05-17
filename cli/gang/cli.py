@@ -2590,6 +2590,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             'availability': offer.get('availability', 'InStock'),
                             'url': offer.get('url', '#'),
                             'sku': offer.get('sku', ''),
+                            'variant_id': str(offer.get('variant_id', '')),
                             'image_index': color_to_image.get(color_part, 0) if color_part else 0
                         })
                     
@@ -2622,6 +2623,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
+                    'variant_id': str(first_offer.get('variant_id', '')),
                     'sku': product.get('sku', ''),
                     'brand': brand_name,
                     'category': product.get('category', ''),
@@ -4575,6 +4577,7 @@ def serve(ctx, port, host):
                                         'availability': offer.get('availability', 'InStock'),
                                         'url': offer.get('url', '#'),
                                         'sku': offer.get('sku', ''),
+                                        'variant_id': str(offer.get('variant_id', '')),
                                         'image_index': color_to_image.get(color_part, 0) if color_part else 0
                                     })
                                 
@@ -4606,6 +4609,7 @@ def serve(ctx, port, host):
                                 'variants': variants_list,
                                 'colors': colors_list,
                                 'sizes': sizes_list,
+                                'variant_id': str(first_offer.get('variant_id', '')),
                                 'sku': product.get('sku', ''),
                                 'brand': brand_name,
                                 'category': product.get('category', ''),

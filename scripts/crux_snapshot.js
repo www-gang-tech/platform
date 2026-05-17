@@ -37,7 +37,8 @@ async function fetchCrUXData(url) {
           const json = JSON.parse(data);
           
           // Extract CrUX field data
-          const cruxMetrics = json.loadingExperience?.metrics || {};
+          const loadingExperience = json.loadingExperience || {};
+          const cruxMetrics = loadingExperience.metrics || {};
           
           const result = {
             url: fullUrl,
@@ -50,7 +51,9 @@ async function fetchCrUXData(url) {
               inp: extractMetric(cruxMetrics.INTERACTION_TO_NEXT_PAINT),
               ttfb: extractMetric(cruxMetrics.EXPERIMENTAL_TIME_TO_FIRST_BYTE)
             },
-            overall_category: cruxMetrics.OVERALL_CATEGORY || 'UNKNOWN'
+            overall_category: loadingExperience.overall_category ||
+              loadingExperience.OVERALL_CATEGORY ||
+              'UNKNOWN'
           };
           
           resolve(result);

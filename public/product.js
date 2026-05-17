@@ -17,9 +17,18 @@
     const buyButton = form.querySelector('[type="submit"]');
     const productImages = document.querySelectorAll('[data-variant-image]');
     
-    // Get all variant data from hidden input
+    // Get all variant data from hidden JSON. If an editor leaves malformed JSON,
+    // keep the base product form usable instead of failing the whole script.
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            const parsedVariants = JSON.parse(variantsData.textContent || '[]');
+            variants = Array.isArray(parsedVariants) ? parsedVariants : [];
+        } catch {
+            variants = [];
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
@@ -38,6 +47,11 @@
         if (priceDisplay) {
             priceDisplay.textContent = `${variant.currency} ${variant.price}`;
         }
+        form.dataset.price = variant.price || form.dataset.price || '0';
+        form.dataset.currency = variant.currency || form.dataset.currency || 'USD';
+        form.dataset.variantId = variant.variant_id || variant.sku || form.dataset.variantId || '';
+        form.dataset.sku = variant.sku || form.dataset.sku || '';
+        form.dataset.checkoutUrl = variant.url || form.dataset.checkoutUrl || '';
         
         // Update stock message
         const inStock = variant.availability === 'https://schema.org/InStock' || 
@@ -88,7 +102,12 @@
     // Quantity validation
     if (quantityInput) {
         quantityInput.addEventListener('input', function() {
-            const val = parseInt(this.value);
+            if (this.value === '') return;
+            const val = parseInt(this.value, 10);
+            if (Number.isNaN(val)) {
+                this.value = 1;
+                return;
+            }
             if (val < 1) this.value = 1;
             if (val > 99) this.value = 99;
         });

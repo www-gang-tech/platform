@@ -46,9 +46,11 @@
             return;
         }
         
-        // Disable button and show loading state
-        button.disabled = true;
-        button.textContent = 'Submitting...';
+        // Disable button and show loading state when the expected control exists.
+        if (button) {
+            button.disabled = true;
+            button.textContent = 'Submitting...';
+        }
         showStatus(status, 'Submitting comment...', 'info');
         
         try {
@@ -135,6 +137,7 @@
      * Reset button to original state
      */
     function resetButton(button) {
+        if (!button) return;
         button.disabled = false;
         button.textContent = 'Submit Comment';
     }

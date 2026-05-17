@@ -68,6 +68,7 @@ class ProductSchema:
                 'url': f"{product.get('url')}?variant={variant.get('id')}",
                 'sku': variant.get('sku', ''),
                 'name': variant.get('title', ''),
+                'variant_id': str(variant.get('id', '')),
                 'inventory_quantity': inventory_qty  # Include for debugging
             })
         
