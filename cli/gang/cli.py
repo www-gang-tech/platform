@@ -2688,7 +2688,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        # Avoid the module-level Click command named `list` shadowing builtins.list.
+        all_md = [md_file for md_file in content_path.rglob('*.md')]
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
