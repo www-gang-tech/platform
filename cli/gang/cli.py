@@ -132,6 +132,8 @@ def check_types(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file == type_path / 'index.html':
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2348,6 +2350,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
+            'og_type': 'article' if content_type in ('posts', 'articles', 'projects') else 'website',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2380,6 +2383,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context['jsonld']:
+            context['jsonld'] = create_default_jsonld(
+                config,
+                content_type,
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                frontmatter
+            )
         
         # Select template
         if content_type == 'posts':
@@ -2916,6 +2928,52 @@ def format_bytes(bytes_size: int) -> str:
         return f"{bytes_size / 1024:.1f}KB"
     else:
         return f"{bytes_size / (1024 * 1024):.2f}MB"
+
+
+def create_default_jsonld(config: Dict, content_type: str, title: str, description: str,
+                          canonical_url: str, frontmatter: Dict) -> Dict:
+    """Create baseline structured data for content missing explicit JSON-LD."""
+    site = config.get('site', {})
+    site_title = site.get('title', 'Site')
+    site_url = site.get('url', canonical_url)
+    publisher = {
+        "@type": "Organization",
+        "name": site_title,
+        "url": site_url,
+    }
+    
+    if content_type == 'posts':
+        published = frontmatter.get('date') or frontmatter.get('publish_date') or datetime.now().date()
+        return {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "description": description,
+            "datePublished": str(published),
+            "author": frontmatter.get('author') or publisher,
+            "publisher": publisher,
+            "url": canonical_url,
+        }
+    
+    if content_type == 'projects':
+        created = frontmatter.get('date') or frontmatter.get('year') or datetime.now().date()
+        return {
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            "name": title,
+            "description": description,
+            "author": frontmatter.get('author') or publisher,
+            "dateCreated": str(created),
+            "url": canonical_url,
+        }
+    
+    return {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": title,
+        "url": canonical_url,
+        "description": description,
+    }
 
 
 def render_header(config: Dict, templates_path: Path = None) -> str:
