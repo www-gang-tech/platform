@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command('list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2618,7 +2618,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                         })
                     
                     first_offer = offers[0]
-                    # Convert sets to lists without using list() to avoid Click collision
                     colors_list = [c for c in sorted(colors)]
                     sizes_list = [s for s in sorted(sizes)]
                 else:
