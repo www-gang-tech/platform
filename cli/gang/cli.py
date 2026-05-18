@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-types')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_types(ctx, verbose):
+    """Validate built pages against page-type contracts"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -1420,8 +1420,9 @@ def changes(ctx, days):
 @click.option('--focal-y', type=float, default=0.5, help='Focal point Y (0-1)')
 @click.option('--auto-detect', is_flag=True, help='Auto-detect focal point using AI')
 @click.option('--is-lcp', is_flag=True, help='Mark as LCP image (no lazy loading)')
+@click.option('--alt', default='', help='Alt text for generated <img> fallback')
 @click.pass_context
-def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
+def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp, alt):
     """Process image with focal point and generate responsive crops"""
     try:
         from core.image_pipeline import ImagePipeline, FocalPointDetector
@@ -1446,7 +1447,7 @@ def process_image(ctx, image_path, focal_x, focal_y, auto_detect, is_lcp):
         focal_point = (focal_x, focal_y)
     
     click.echo(f"🖼️  Processing: {image.name}")
-    result = pipeline.process_image(image, focal_point, is_lcp)
+    result = pipeline.process_image(image, focal_point, is_lcp, alt)
     
     click.echo(f"✅ Generated {len(result['crops'])} crops")
     click.echo(f"✅ Generated {len(result['formats'])} formats")
@@ -2325,15 +2326,19 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        seo_metadata = frontmatter.get('seo') or {}
+        title = seo_metadata.get('title') or frontmatter.get('title') or md_file.stem.replace('-', ' ').title()
+        description = seo_metadata.get('description') or frontmatter.get('summary') or config['site']['description']
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        comments_config = config.get('comments', {})
         
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2353,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments_webhook_url': comments_config.get('webhook_url', '') if comments_config.get('enabled', False) else '',
+            'comments_enhanced': False,
+            'comments': [],
+            'related': [],
+            'breadcrumbs': [],
+            'issue_number': frontmatter.get('issue_number', ''),
+            'sent_date': frontmatter.get('sent_date', ''),
         }
         
         # Treat articles as posts
@@ -2435,7 +2447,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         newsletters_dir = dist_path / 'newsletters'
         newsletters_dir.mkdir(parents=True, exist_ok=True)
         
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
+        newsletters_html = create_list_page_simple(
+            config,
+            sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True),
+            'Newsletters',
+            templates_path,
+            '/newsletters/'
+        )
         page_size_bytes = len(newsletters_html.encode('utf-8'))
         newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (newsletters_dir / 'index.html').write_text(newsletters_html)
@@ -2443,7 +2461,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Create list pages
     # Always create posts index page, even if empty
     click.echo("📄 Creating posts index...")
-    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+    posts_html = create_list_page_simple(
+        config,
+        sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True),
+        'Posts',
+        templates_path,
+        '/posts/'
+    )
     page_size_bytes = len(posts_html.encode('utf-8'))
     posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
@@ -2451,7 +2475,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     if all_projects:
         click.echo("📄 Creating projects index...")
-        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
+        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path, '/projects/')
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
@@ -3004,6 +3028,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3034,7 +3059,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
+def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None,
+                            canonical_path: str = None) -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
@@ -3053,6 +3079,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "url": config['site']['url']
     }
     jsonld_str = json.dumps(jsonld, indent=2)
+    canonical_url = f"{config['site']['url']}{canonical_path or '/' + title.lower().replace(' ', '-') + '/'}"
     
     # Build timestamp
     build_time = datetime.now()
@@ -3080,6 +3107,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>

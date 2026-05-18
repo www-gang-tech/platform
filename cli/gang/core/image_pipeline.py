@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import subprocess
 import json
 import base64
+from html import escape
 
 
 class ImagePipeline:
@@ -23,7 +24,7 @@ class ImagePipeline:
         }
     
     def process_image(self, image_path: Path, focal_point: Optional[Tuple[float, float]] = None,
-                     is_lcp: bool = False) -> Dict[str, Any]:
+                     is_lcp: bool = False, alt_text: str = "") -> Dict[str, Any]:
         """
         Process a single image with focal point cropping
         
@@ -43,6 +44,7 @@ class ImagePipeline:
             'original': str(image_path),
             'focal_point': focal_point,
             'is_lcp': is_lcp,
+            'alt': alt_text,
             'crops': {},
             'thumbhash': None,
             'html': ''
@@ -148,6 +150,7 @@ class ImagePipeline:
         formats = data.get('formats', {})
         crops = data.get('crops', {})
         thumbhash = data.get('thumbhash')
+        alt_text = escape(str(data.get('alt') or ''), quote=True)
         
         html = '<picture>\n'
         
@@ -164,7 +167,7 @@ class ImagePipeline:
         decode = ' decoding="async"' if not is_lcp else ''
         
         html += f'  <img src="{formats.get("jpg", data["original"])}"'
-        html += f' alt="TODO: Add alt text"'
+        html += f' alt="{alt_text}"'
         html += f'{lazy}{decode}>\n'
         html += '</picture>'
         
