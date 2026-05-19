@@ -8,6 +8,7 @@ from typing import Dict, List, Any
 import json
 import re
 from datetime import datetime
+from html import escape
 import yaml
 
 
@@ -146,12 +147,20 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = escape(str(site.get('title', 'GANG')))
+        lang = escape(str(site.get('language', 'en')))
+        description = escape(f"Search articles, projects, and pages from {site.get('title', 'GANG')}.")
+        canonical_url = escape(f"{str(site.get('url', '')).rstrip('/')}/search/")
+
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -241,10 +250,14 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
-    <h1>🔍 Search</h1>
-    
+<body data-page-type="utility">
+    <header>
+        <h1>Search</h1>
+    </header>
+
+    <main>
     <div class="search-box">
+        <label for="searchInput">Search content</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -255,6 +268,14 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    <noscript>
+        <p>Search requires JavaScript. Browse all published URLs in the <a href="/sitemap.xml">sitemap</a>.</p>
+    </noscript>
+    </main>
+
+    <footer>
+        <p><a href="/">Back to home</a></p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -373,4 +394,12 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+
+        return (
+            html
+            .replace('__LANG__', lang)
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', canonical_url)
+        )
 

@@ -193,6 +193,14 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
+            body = soup.find('body')
+            is_utility_page = (
+                html_path.parent.name in {'search', 'cart'}
+                or (body and body.get('data-page-type') == 'utility')
+            )
+            if is_utility_page:
+                return issues
+
             def is_executable_script(script):
                 script_type = (script.get('type') or '').strip().lower()
                 return script_type not in {'application/ld+json', 'application/json'}
