@@ -9,7 +9,7 @@
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
     
     <!-- JSON-LD Structured Data -->
-    {% if jsonld %}
+    {% if jsonld is defined and jsonld is not none %}
     <script type="application/ld+json">
     {{ jsonld | tojson }}
     </script>
@@ -44,7 +44,9 @@
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
+    {% if comments_enabled %}
     <!-- Comments System (progressive enhancement) -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>

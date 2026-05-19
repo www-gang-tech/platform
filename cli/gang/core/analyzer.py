@@ -29,7 +29,8 @@ class ContentAnalyzer:
         # Parse frontmatter and body
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            loaded_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = loaded_frontmatter if isinstance(loaded_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -76,6 +77,8 @@ class ContentAnalyzer:
             return {
                 'word_count': 0,
                 'sentence_count': 0,
+                'words_per_sentence': 0,
+                'syllables_per_word': 0,
                 'grade_level': 0,
                 'reading_time_minutes': 0,
                 'status': 'error',

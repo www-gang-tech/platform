@@ -14,8 +14,80 @@ import markdown
 import time
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
+
+
+def _safe_frontmatter(raw: str) -> Dict[str, Any]:
+    """Load YAML frontmatter as a mapping, treating empty/null data as absent."""
+    data = yaml.safe_load(raw) if raw else {}
+    return data if isinstance(data, dict) else {}
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert common YAML/Python values into JSON-serializable values."""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _frontmatter_description(frontmatter: Dict[str, Any], config: Dict[str, Any]) -> str:
+    seo = frontmatter.get("seo") if isinstance(frontmatter.get("seo"), dict) else {}
+    return (
+        frontmatter.get("summary")
+        or frontmatter.get("description")
+        or seo.get("description")
+        or config["site"]["description"]
+    )
+
+
+def _default_jsonld(
+    frontmatter: Dict[str, Any],
+    content_type: str,
+    canonical_url: str,
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    schema_type = {
+        "posts": "Article",
+        "articles": "Article",
+        "projects": "Article",
+        "newsletters": "Article",
+        "pages": "WebPage",
+    }.get(content_type, "WebPage")
+
+    title = frontmatter.get("title") or config["site"]["title"]
+    description = _frontmatter_description(frontmatter, config)
+    jsonld = {
+        "@context": "https://schema.org",
+        "@type": schema_type,
+        "url": canonical_url,
+        "name": title,
+        "description": description,
+    }
+
+    if schema_type == "Article":
+        jsonld["headline"] = title
+        if frontmatter.get("date"):
+            jsonld["datePublished"] = _json_safe(frontmatter.get("date"))
+
+    return jsonld
+
+
+def _comments_enabled(config: Dict[str, Any]) -> bool:
+    comments = config.get("comments", {})
+    webhook_url = str(comments.get("webhook_url") or "")
+    return (
+        bool(comments.get("enabled"))
+        and bool(webhook_url)
+        and "your-n8n.app" not in webhook_url
+    )
+
 
 @click.group()
 @click.pass_context
@@ -91,11 +163,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate built pages against page-type contract files"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -188,7 +260,7 @@ def optimize(ctx, force):
         # Parse frontmatter
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = _safe_frontmatter(parts[1]) if len(parts) > 1 else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -264,6 +336,10 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
         
         # Summary report
         if format == 'summary' or format == 'text':
+            if not all_analyses:
+                click.echo("\n❌ No files were analyzed successfully", err=True)
+                ctx.exit(1)
+
             click.echo("\n" + "=" * 60)
             click.echo("📊 SUMMARY REPORT")
             click.echo("=" * 60)
@@ -291,6 +367,14 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
                 ctx.exit(1)
         
         elif format == 'json':
+            if not all_analyses:
+                click.echo(json.dumps({
+                    'total_files': 0,
+                    'total_words': 0,
+                    'files': []
+                }, indent=2))
+                ctx.exit(1)
+
             click.echo(json.dumps({
                 'total_files': len(all_analyses),
                 'total_words': sum(a['readability']['word_count'] for a in all_analyses),
@@ -672,11 +756,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2309,7 +2393,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         content = md_file.read_text()
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = _safe_frontmatter(parts[1]) if len(parts) > 1 else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -2328,12 +2412,26 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+
+        # Treat articles as posts before deriving template context.
+        if content_type == 'articles':
+            content_type = 'posts'
+
+        page_type = content_type.rstrip('s')
+        comments_enabled = _comments_enabled(config) and page_type == 'post'
+        comments = []
+        if comments_enabled:
+            try:
+                from core.comments import CommentsManager
+                comments = CommentsManager(content_path).get_comments_for_page(slug, page_type)
+            except Exception as e:
+                click.echo(f"⚠️  Could not load comments for {md_file}: {e}")
         
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': _frontmatter_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2342,20 +2440,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
             # In-place editor context
-            'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
+            'page_type': page_type,  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments_enabled': comments_enabled,
+            'comments': comments,
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', '') if comments_enabled else '',
+            'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
+            'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
         }
-        
-        # Treat articles as posts
-        if content_type == 'articles':
-            content_type = 'posts'
-            # Update context to reflect the change
-            context['page_type'] = 'post'
-            context['category'] = 'posts'
         
         # Add canonical URL
         if content_type == 'posts':
@@ -2368,6 +2463,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        authored_jsonld = frontmatter.get('jsonld')
+        context['jsonld'] = _json_safe(
+            authored_jsonld if authored_jsonld else _default_jsonld(frontmatter, content_type, context['canonical_url'], config)
+        )
         
         # Select template
         if content_type == 'posts':
@@ -2977,6 +3076,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
+    canonical_url = config['site']['url'].rstrip('/') + '/'
     
     # Build timestamp
     build_time = datetime.now()
@@ -3004,6 +3104,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3053,6 +3154,8 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "url": config['site']['url']
     }
     jsonld_str = json.dumps(jsonld, indent=2)
+    slug = title.lower().replace(' ', '-')
+    canonical_url = f"{config['site']['url'].rstrip('/')}/{slug}/"
     
     # Build timestamp
     build_time = datetime.now()
@@ -3080,6 +3183,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3116,7 +3220,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     # Parse frontmatter
     if content.startswith('---'):
         parts = content.split('---', 2)
-        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+        frontmatter = _safe_frontmatter(parts[1]) if len(parts) > 1 else {}
         body = parts[2] if len(parts) > 2 else ''
     else:
         frontmatter = {}
@@ -3130,7 +3234,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = _frontmatter_description(frontmatter, config)
     
     # Build time for footer
     build_time = datetime.now()
@@ -3574,7 +3678,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3773,7 +3882,8 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
@@ -4339,7 +4449,7 @@ def serve(ctx, port, host):
                     content = md_file.read_text()
                     if content.startswith('---'):
                         parts = content.split('---', 2)
-                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        frontmatter = _safe_frontmatter(parts[1]) if len(parts) > 1 else {}
                         body = parts[2] if len(parts) > 2 else ''
                     else:
                         frontmatter = {}
@@ -4376,7 +4486,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': _frontmatter_description(frontmatter, config),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),

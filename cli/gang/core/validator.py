@@ -100,7 +100,15 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            def has_positive_tabindex(value):
+                if not value:
+                    return False
+                try:
+                    return int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -185,8 +193,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            def is_executable_script(script):
+                script_type = (script.get('type') or '').strip().lower()
+                return script_type not in {'application/ld+json', 'application/json'}
+
+            scripts = [script for script in soup.find_all('script', src=True) if is_executable_script(script)]
+            inline_scripts = [script for script in soup.find_all('script', src=False) if is_executable_script(script)]
             
             if scripts or inline_scripts:
                 issues.append({
@@ -218,7 +230,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': not any(issue['severity'] == 'error' for issue in all_issues),
         }
         
         return results

@@ -22,7 +22,9 @@ class ContractValidator:
         contracts = {}
         
         for contract_file in self.contracts_dir.glob('*.yml'):
-            contract = yaml.safe_load(contract_file.read_text())
+            contract = yaml.safe_load(contract_file.read_text()) or {}
+            if not isinstance(contract, dict) or 'type' not in contract:
+                continue
             contracts[contract['type']] = contract
         
         return contracts
