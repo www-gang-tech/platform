@@ -54,10 +54,10 @@ def _default_jsonld(
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
     schema_type = {
-        "posts": "Article",
-        "articles": "Article",
-        "projects": "Article",
-        "newsletters": "Article",
+        "posts": "BlogPosting",
+        "articles": "BlogPosting",
+        "projects": "CreativeWork",
+        "newsletters": "BlogPosting",
         "pages": "WebPage",
     }.get(content_type, "WebPage")
 
@@ -75,6 +75,23 @@ def _default_jsonld(
         jsonld["headline"] = title
         if frontmatter.get("date"):
             jsonld["datePublished"] = _json_safe(frontmatter.get("date"))
+    elif schema_type == "BlogPosting":
+        jsonld["headline"] = title
+        jsonld["datePublished"] = _json_safe(frontmatter.get("date") or datetime.now().date())
+        jsonld["author"] = {
+            "@type": "Organization",
+            "name": config["site"]["title"],
+        }
+        jsonld["publisher"] = {
+            "@type": "Organization",
+            "name": config["site"]["title"],
+        }
+    elif schema_type == "CreativeWork":
+        jsonld["author"] = {
+            "@type": "Organization",
+            "name": config["site"]["title"],
+        }
+        jsonld["dateCreated"] = _json_safe(frontmatter.get("date") or frontmatter.get("year") or datetime.now().date())
 
     return jsonld
 
@@ -204,6 +221,10 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            # Collection indexes use list-page schemas and should not be checked
+            # against individual content item contracts.
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2450,6 +2471,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'comments_webhook_url': config.get('comments', {}).get('webhook_url', '') if comments_enabled else '',
             'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
             'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
+            'og_type': 'article' if content_type in {'posts', 'projects', 'newsletters'} else 'website',
         }
         
         # Add canonical URL
