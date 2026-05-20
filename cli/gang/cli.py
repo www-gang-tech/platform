@@ -132,6 +132,11 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            # Collection index pages have collection-level metadata and are not
+            # instances of the content type contract.
+            if html_file == type_path / 'index.html':
+                continue
+
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2385,6 +2390,48 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            page_description = context['description']
+            page_title = context['title']
+            canonical_url = context['canonical_url']
+            site_name = config['site']['title']
+            date_value = context.get('date') or build_time.date().isoformat()
+            date_string = date_value.isoformat() if hasattr(date_value, 'isoformat') else str(date_value)
+
+            if context['page_type'] == 'post':
+                context['jsonld'] = {
+                    '@context': 'https://schema.org',
+                    '@type': 'BlogPosting',
+                    'headline': page_title,
+                    'datePublished': date_string,
+                    'author': {'@type': 'Organization', 'name': site_name},
+                    'publisher': {'@type': 'Organization', 'name': site_name},
+                    'description': page_description,
+                    'url': canonical_url,
+                }
+                context['og_type'] = 'article'
+            elif context['page_type'] == 'project':
+                context['jsonld'] = {
+                    '@context': 'https://schema.org',
+                    '@type': 'CreativeWork',
+                    'name': page_title,
+                    'description': page_description,
+                    'author': {'@type': 'Organization', 'name': site_name},
+                    'dateCreated': date_string,
+                    'url': canonical_url,
+                }
+                context['og_type'] = 'article'
+            else:
+                context['jsonld'] = {
+                    '@context': 'https://schema.org',
+                    '@type': 'WebPage',
+                    'name': page_title,
+                    'url': canonical_url,
+                    'description': page_description,
+                }
+                context['og_type'] = 'website'
+        else:
+            context['og_type'] = 'article' if context['page_type'] in ('post', 'project') else 'website'
         
         # Select template
         if content_type == 'posts':
