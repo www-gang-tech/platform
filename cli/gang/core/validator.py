@@ -23,6 +23,11 @@ class ContractValidator:
             if isinstance(item, dict) and rule in item:
                 return True
         return False
+
+    def _allows_executable_js(self, html_path: Path) -> bool:
+        """Allow JS on generated utility pages while enforcing JS=0 on content pages."""
+        utility_sections = {'cart', 'products', 'search', 'studio'}
+        return any(part in utility_sections for part in html_path.parts)
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -193,7 +198,7 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_executable_js(html_path):
             soup = BeautifulSoup(content, 'html.parser')
             executable_scripts = []
             non_executable_types = {
