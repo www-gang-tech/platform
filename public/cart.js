@@ -21,10 +21,26 @@
         localStorage.setItem(CART_KEY, JSON.stringify(cart));
         updateCartCount();
     }
+
+    function toSafeNumber(value, fallback) {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function getCheckoutBase(form) {
+        try {
+            const action = form.getAttribute('action');
+            if (!action || action === '#') return '';
+            const url = new URL(action, window.location.href);
+            return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
+        } catch {
+            return '';
+        }
+    }
     
     function updateCartCount() {
         const cart = getCart();
-        const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+        const count = cart.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0);
         const badges = document.querySelectorAll('.cart-count');
         badges.forEach(badge => {
             badge.textContent = count;
@@ -38,19 +54,22 @@
         
         const form = e.target;
         const formData = new FormData(form);
+        const quantity = Math.max(1, Math.min(99, parseInt(formData.get('quantity') || '1', 10) || 1));
+        const price = toSafeNumber(form.dataset.price, 0);
         
         const item = {
-            id: form.dataset.variantId || Date.now().toString(),
+            id: form.dataset.variantId || form.dataset.sku || Date.now().toString(),
             name: form.dataset.productName || 'Product',
             variant: formData.get('color') && formData.get('size') 
                 ? `${formData.get('color')} / ${formData.get('size')}`
                 : '',
-            price: parseFloat(form.dataset.price || '0'),
+            price: price,
             currency: form.dataset.currency || 'USD',
-            quantity: parseInt(formData.get('quantity') || '1'),
+            quantity: quantity,
             image: form.dataset.image || '',
             url: form.dataset.productUrl || '',
-            sku: form.dataset.sku || ''
+            sku: form.dataset.sku || '',
+            checkoutBase: getCheckoutBase(form)
         };
         
         const cart = getCart();
@@ -74,7 +93,7 @@
         const item = cart.find(i => i.id === id && i.variant === variant);
         
         if (item) {
-            item.quantity = Math.max(1, Math.min(99, quantity));
+            item.quantity = Math.max(1, Math.min(99, parseInt(quantity, 10) || 1));
             saveCart(cart);
             renderCart();
         }
@@ -109,49 +128,100 @@
         if (cartSummary) cartSummary.style.display = 'block';
         container.style.display = 'block';
         
-        let html = '';
         let subtotal = 0;
+        container.textContent = '';
         
-        cart.forEach(item => {
-            const itemTotal = item.price * item.quantity;
+        cart.forEach((item, index) => {
+            const price = toSafeNumber(item.price, 0);
+            const quantity = Math.max(1, Math.min(99, parseInt(item.quantity, 10) || 1));
+            const itemTotal = price * quantity;
+            const currency = item.currency || 'USD';
             subtotal += itemTotal;
-            
-            html += `
-                <div class="cart-item">
-                    ${item.image ? `<img src="${item.image}" alt="${item.name}" width="80" height="80" class="cart-item-image">` : ''}
-                    <div class="cart-item-details">
-                        <h3 class="cart-item-name">${item.name}</h3>
-                        ${item.variant ? `<p class="cart-item-variant">${item.variant}</p>` : ''}
-                        ${item.sku ? `<p class="cart-item-sku">SKU: ${item.sku}</p>` : ''}
-                    </div>
-                    <div class="cart-item-quantity">
-                        <label for="qty-${item.id}-${item.variant}">Qty:</label>
-                        <input type="number" 
-                               id="qty-${item.id}-${item.variant}"
-                               value="${item.quantity}" 
-                               min="1" 
-                               max="99"
-                               onchange="updateCartQuantity('${item.id}', '${item.variant}', this.value)">
-                    </div>
-                    <div class="cart-item-price">
-                        <p>${item.currency} ${item.price.toFixed(2)}</p>
-                        <p class="cart-item-total">${item.currency} ${itemTotal.toFixed(2)}</p>
-                    </div>
-                    <button onclick="removeCartItem('${item.id}', '${item.variant}')" 
-                            class="cart-item-remove" 
-                            aria-label="Remove ${item.name}">
-                        ✕
-                    </button>
-                </div>
-            `;
+
+            const cartItem = document.createElement('div');
+            cartItem.className = 'cart-item';
+
+            if (item.image) {
+                const image = document.createElement('img');
+                image.src = item.image;
+                image.alt = item.name || 'Product';
+                image.width = 80;
+                image.height = 80;
+                image.className = 'cart-item-image';
+                cartItem.appendChild(image);
+            }
+
+            const details = document.createElement('div');
+            details.className = 'cart-item-details';
+
+            const name = document.createElement('h3');
+            name.className = 'cart-item-name';
+            name.textContent = item.name || 'Product';
+            details.appendChild(name);
+
+            if (item.variant) {
+                const variant = document.createElement('p');
+                variant.className = 'cart-item-variant';
+                variant.textContent = item.variant;
+                details.appendChild(variant);
+            }
+
+            if (item.sku) {
+                const sku = document.createElement('p');
+                sku.className = 'cart-item-sku';
+                sku.textContent = `SKU: ${item.sku}`;
+                details.appendChild(sku);
+            }
+
+            cartItem.appendChild(details);
+
+            const quantityContainer = document.createElement('div');
+            quantityContainer.className = 'cart-item-quantity';
+
+            const quantityId = `qty-${index}`;
+            const label = document.createElement('label');
+            label.htmlFor = quantityId;
+            label.textContent = 'Qty:';
+            quantityContainer.appendChild(label);
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = quantityId;
+            input.value = String(quantity);
+            input.min = '1';
+            input.max = '99';
+            input.addEventListener('change', () => updateQuantity(item.id, item.variant || '', input.value));
+            quantityContainer.appendChild(input);
+            cartItem.appendChild(quantityContainer);
+
+            const priceContainer = document.createElement('div');
+            priceContainer.className = 'cart-item-price';
+
+            const unitPrice = document.createElement('p');
+            unitPrice.textContent = `${currency} ${price.toFixed(2)}`;
+            priceContainer.appendChild(unitPrice);
+
+            const totalPrice = document.createElement('p');
+            totalPrice.className = 'cart-item-total';
+            totalPrice.textContent = `${currency} ${itemTotal.toFixed(2)}`;
+            priceContainer.appendChild(totalPrice);
+            cartItem.appendChild(priceContainer);
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'cart-item-remove';
+            removeButton.setAttribute('aria-label', `Remove ${item.name || 'product'}`);
+            removeButton.textContent = 'Remove';
+            removeButton.addEventListener('click', () => removeItem(item.id, item.variant || ''));
+            cartItem.appendChild(removeButton);
+
+            container.appendChild(cartItem);
         });
-        
-        container.innerHTML = html;
         
         // Update summary
         const subtotalEl = document.getElementById('cart-subtotal');
         if (subtotalEl) {
-            subtotalEl.textContent = `${cart[0].currency} ${subtotal.toFixed(2)}`;
+            subtotalEl.textContent = `${cart[0].currency || 'USD'} ${subtotal.toFixed(2)}`;
         }
     }
     
@@ -160,10 +230,19 @@
         const cart = getCart();
         if (cart.length === 0) return;
         
-        // Build Shopify cart URL
+        const checkoutBase = cart.find(item => item.checkoutBase)?.checkoutBase;
+        if (!checkoutBase) {
+            alert('Checkout is not configured for these cart items.');
+            return;
+        }
+
+        // Build Shopify cart URL on the merchant store domain.
         // Format: /cart/VARIANT_ID:QUANTITY,VARIANT_ID:QUANTITY
-        const cartItems = cart.map(item => `${item.id}:${item.quantity}`).join(',');
-        const checkoutUrl = `https://www.shopify.com/cart/${cartItems}`;
+        const cartItems = cart.map(item => {
+            const quantity = Math.max(1, Math.min(99, parseInt(item.quantity, 10) || 1));
+            return `${encodeURIComponent(item.id)}:${quantity}`;
+        }).join(',');
+        const checkoutUrl = `${checkoutBase}/cart/${cartItems}`;
         
         window.location.href = checkoutUrl;
     }

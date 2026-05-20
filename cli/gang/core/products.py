@@ -62,6 +62,7 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': variant.get('id'),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
@@ -114,6 +115,7 @@ class ProductSchema:
             'image': product.get('images', []),
             'offers': {
                 '@type': 'Offer',
+                'id': first_price.get('id'),
                 'price': str(first_price.get('unit_amount', 0) / 100),
                 'priceCurrency': first_price.get('currency', 'usd').upper(),
                 'availability': 'https://schema.org/InStock' if product.get('active') else 'https://schema.org/OutOfStock'
@@ -139,6 +141,7 @@ class ProductSchema:
             'image': [product.get('thumbnail_url')] if product.get('thumbnail_url') else [],
             'offers': {
                 '@type': 'Offer',
+                'id': product.get('id'),
                 'price': str(product.get('price', 0) / 100),
                 'priceCurrency': product.get('currency', 'USD'),
                 'availability': 'https://schema.org/InStock'

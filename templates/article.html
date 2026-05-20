@@ -34,6 +34,7 @@
     {% endif %}
 </article>
 
+{% if comments or comments_webhook_url %}
 <section id="comments" aria-label="Comments">
     <h2>Comments ({{ comments|length }})</h2>
     
@@ -46,13 +47,14 @@
                 <time datetime="{{ comment.date }}">{{ comment.date_formatted }}</time>
             </div>
             <div class="comment-content markdown-body">
-                {{ comment.content | safe }}
+                {{ comment.content }}
             </div>
         </li>
         {% endfor %}
     </ol>
     {% endif %}
-    
+
+    {% if comments_webhook_url %}
     <form 
         method="POST" 
         action="{{ comments_webhook_url }}" 
@@ -111,6 +113,8 @@
         <button type="submit">Submit Comment</button>
         <p class="form-status" aria-live="polite"></p>
     </form>
+    {% endif %}
 </section>
+{% endif %}
 {% endblock %}
 

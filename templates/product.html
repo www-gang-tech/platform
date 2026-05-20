@@ -82,7 +82,7 @@
                 
                 <!-- Product Form (works without JS, enhanced with JS) -->
                 <form class="product-form" 
-                      action="#" 
+                      action="{{ buy_url|default('#') }}" 
                       method="GET"
                       data-product-name="{{ title }}"
                       data-price="{{ price }}"
@@ -90,7 +90,7 @@
                       data-image="{{ product_image }}"
                       data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ sku }}">
+                      data-variant-id="{{ variant_id|default(sku) }}">
                     
                     {% if colors %}
                     <div class="form-group">

@@ -19,7 +19,14 @@
     
     // Get all variant data from hidden input
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            variants = JSON.parse(variantsData.textContent);
+        } catch {
+            variants = [];
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
@@ -37,6 +44,20 @@
         // Update price
         if (priceDisplay) {
             priceDisplay.textContent = `${variant.currency} ${variant.price}`;
+        }
+
+        // Keep the add-to-cart payload aligned with the selected variant.
+        if (variant.id) {
+            form.dataset.variantId = String(variant.id);
+        }
+        if (variant.price) {
+            form.dataset.price = String(variant.price);
+        }
+        if (variant.currency) {
+            form.dataset.currency = variant.currency;
+        }
+        if (variant.sku) {
+            form.dataset.sku = variant.sku;
         }
         
         // Update stock message

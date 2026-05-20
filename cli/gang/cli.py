@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate built pages against per-type YAML contracts"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2329,11 +2329,26 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        comments_config = config.get('comments', {})
+        comments_webhook_url = comments_config.get('webhook_url', '') if comments_config.get('enabled') else ''
+        if 'your-n8n.app' in comments_webhook_url:
+            comments_webhook_url = ''
+
+        comments = []
+        if comments_webhook_url and content_type in ('posts', 'products'):
+            try:
+                from core.comments import get_comments_for_build
+                comments = get_comments_for_build(content_path, slug, content_type.rstrip('s'))
+            except Exception as e:
+                click.echo(f"⚠️  Could not load comments for {md_file}: {e}")
+
+        description = frontmatter.get('summary') or config['site']['description']
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2363,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': comments,
+            'comments_webhook_url': comments_webhook_url,
         }
         
         # Treat articles as posts
@@ -2582,6 +2599,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': offer.get('id') or offer.get('sku', ''),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2601,6 +2619,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     first_offer = offers
                     colors_list = []
                     sizes_list = []
+
+                first_variant_id = ''
+                if variants_list:
+                    first_variant_id = variants_list[0].get('id') or variants_list[0].get('sku', '')
+                elif hasattr(first_offer, 'get'):
+                    first_variant_id = first_offer.get('id') or first_offer.get('sku', '')
                 
                 # Prepare template variables
                 brand_data = product.get('brand', '')
@@ -2623,6 +2647,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'colors': colors_list,
                     'sizes': sizes_list,
                     'sku': product.get('sku', ''),
+                    'variant_id': first_variant_id or product.get('sku', ''),
                     'brand': brand_name,
                     'category': product.get('category', ''),
                     'availability': first_offer.get('availability', 'InStock'),
@@ -3558,7 +3583,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3599,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
