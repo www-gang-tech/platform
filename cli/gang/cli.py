@@ -2127,6 +2127,26 @@ def _comments_enabled(config: Dict) -> bool:
     )
 
 
+def remove_duplicate_leading_h1(content_html: str, title: str) -> str:
+    """Avoid rendering both a template H1 and the same leading Markdown H1."""
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(content_html, 'html.parser')
+        first_element = soup.find(True)
+        if (
+            first_element
+            and first_element.name == 'h1'
+            and first_element.get_text(strip=True) == str(title).strip()
+        ):
+            first_element.decompose()
+            return str(soup)
+    except Exception:
+        pass
+
+    return content_html
+
+
 @cli.command()
 @click.option('--check-quality', is_flag=True, help='Run content quality checks before building')
 @click.option('--min-quality-score', type=int, default=85, help='Minimum quality score (default: 85)')
@@ -2332,9 +2352,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             frontmatter = {}
             body = content
         
+        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
+
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
+        content_html = remove_duplicate_leading_h1(content_html, title)
         
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
@@ -2357,7 +2380,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
+            'title': title,
             'description': description,
             'summary': frontmatter.get('summary', ''),
             'content': content_html,
