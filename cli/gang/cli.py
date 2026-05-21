@@ -2357,7 +2357,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
-        content_html = remove_duplicate_leading_h1(content_html, title)
+        if content_type in ('posts', 'articles', 'projects', 'newsletters', 'people'):
+            content_html = remove_duplicate_leading_h1(content_html, title)
         
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
