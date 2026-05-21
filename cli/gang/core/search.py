@@ -58,9 +58,17 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags if tag]
+        elif raw_tags:
+            tags = [str(raw_tags)]
+        else:
+            tags = []
+        raw_date = frontmatter.get('date', '')
+        date = raw_date.isoformat() if hasattr(raw_date, 'isoformat') else str(raw_date or '')
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +104,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +138,19 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        title = f"Search - {site.get('title', 'Site')}"
+        description = f"Search {site.get('title', 'the site')} content."
+        canonical_url = f"{site.get('url', '').rstrip('/')}/search/" if site.get('url') else '/search/'
+
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>__TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,19 +241,26 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <a href="/">Home</a>
+    </header>
+
+    <main>
+        <h1>Search</h1>
+        
+        <div class="search-box">
+            <label for="searchInput">Search content</label>
+            <input 
+                type="search" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats" aria-live="polite"></div>
+        <div id="results"></div>
+    </main>
     
     <script>
         let searchIndex = null;
@@ -355,6 +377,15 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    <footer>
+        <p>Search utility for this static site.</p>
+    </footer>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__TITLE__', title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', canonical_url)
+        )
 
