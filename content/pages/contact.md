@@ -29,7 +29,7 @@ New York, New York<br />10003-1502 US
 
 ### Social Media
 - **GitHub:** [@www-gang-tech](https://github.com/www-gang-tech)
-- **Instagram:** [@gang__tech](https://instagram.com/gang__tech)
+- **Instagram:** [@gang__tech](https://www.instagram.com/gang__tech)
 - **Twitter:** [@gang__tech](https://twitter.com/gang__tech)
 
 ## Office Hours

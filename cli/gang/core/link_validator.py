@@ -26,6 +26,15 @@ class LinkValidator:
         
         # Track all internal pages
         self.internal_pages: Set[str] = set()
+
+        # Social platforms often return bot-blocking responses to CI HEAD/GET checks
+        # while still serving normal browsers.
+        self.bot_blocking_hosts = {
+            'twitter.com',
+            'www.twitter.com',
+            'x.com',
+            'www.x.com',
+        }
         
     def scan_all_files(self) -> Dict[str, Any]:
         """Scan all markdown files and validate links"""
@@ -143,8 +152,20 @@ class LinkValidator:
                 status = self._check_external_link(url)
                 
                 if status['broken']:
+                    parsed = urlparse(url)
+                    bot_blocked = (
+                        parsed.netloc.lower() in self.bot_blocking_hosts
+                        and status['status_code'] in {401, 403}
+                    )
+                    if bot_blocked:
+                        result['warnings'].append({
+                            'file': result['file'],
+                            'type': 'bot_blocked_external',
+                            'url': url,
+                            'message': f"External profile blocked validation with HTTP {status['status_code']}"
+                        })
                     # If it's a git remote returning 404, it's likely private - warn instead of error
-                    if is_git_remote and status['status_code'] == 404:
+                    elif is_git_remote and status['status_code'] == 404:
                         result['warnings'].append({
                             'file': result['file'],
                             'type': 'private_repo',
