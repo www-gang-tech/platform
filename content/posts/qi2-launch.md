@@ -1,8 +1,14 @@
 ---
+date: '2025-10-12'
 jsonld: {}
 seo:
-  description: null
-  title: null
+  description: Qi2 adds guaranteed 15W wireless charging and magnetic alignment, making chargers easier to use across phones and accessories.
+  title: Qi2 Wireless Charging Launch: Magnetic Alignment Explained
+summary: Qi2 adds guaranteed 15W wireless charging and magnetic alignment, making chargers easier to use across phones and accessories.
+tags:
+- wireless charging
+- Qi2
+title: Qi2 Wireless Charging Launch: Magnetic Alignment Explained
 ---
 ## What's New in Qi2
 

@@ -82,6 +82,19 @@ def comments_enabled(config: Dict[str, Any]) -> bool:
         and not any(host in webhook_url for host in placeholder_hosts)
     )
 
+
+PUBLISHABLE_CONTENT_DIRS = ('posts', 'articles', 'pages', 'projects', 'newsletters')
+
+
+def build_markdown_files(content_path: Path) -> List[Path]:
+    """Return markdown files from content sections that the build publishes."""
+    md_files = []
+    for category_dir in PUBLISHABLE_CONTENT_DIRS:
+        category_path = content_path / category_dir
+        if category_path.exists():
+            md_files.extend(category_path.glob('*.md'))
+    return md_files
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -269,7 +282,16 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
     # Batch analysis mode
     if analyze_all:
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = build_markdown_files(content_path)
+        try:
+            from core.scheduler import ContentScheduler
+        except ImportError:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent))
+            from core.scheduler import ContentScheduler
+        scheduler = ContentScheduler(content_path)
+        schedule_result = scheduler.get_publishable_content(md_files)
+        md_files = [item['path'] for item in schedule_result['publishable']]
         
         if not md_files:
             click.echo("⚠️  No markdown files found", err=True)
@@ -2209,10 +2231,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Quality gate check
     if check_quality:
         from core.analyzer import ContentAnalyzer
+        from core.scheduler import ContentScheduler
         click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = build_markdown_files(content_path)
+        scheduler = ContentScheduler(content_path)
+        schedule_result = scheduler.get_publishable_content(md_files)
+        md_files = [item['path'] for item in schedule_result['publishable']]
         
         failed_files = []
         for md_file in md_files:
@@ -2323,13 +2349,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     scheduler = ContentScheduler(content_path)
     
-    # Manually collect .md files to avoid Click recursion issue
-    all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
-        category_path = content_path / category_dir
-        if category_path.exists():
-            for md_file in category_path.glob('*.md'):
-                all_md_files.append(md_file)
+    all_md_files = build_markdown_files(content_path)
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     
@@ -2506,9 +2526,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_newsletters
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2729,11 +2751,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.search import SearchIndexer
         from core.scheduler import ContentScheduler
         
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = publishable_files
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2756,12 +2774,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        publishable_paths = publishable_files
         
         # Get products
         aggregator = ProductAggregator(config)

@@ -1,16 +1,18 @@
 ---
-canonical_url: https://example.com/posts/qi2-launch/
+canonical_url: https://gang-platform.dev/newsletters/qi2-launch-newsletter/
 date: '2025-10-12'
 esp_provider: klaviyo
 jsonld: {}
 newsletter_id: qi2-launch
 sent_date: '2025-10-12T23:26:26.801464'
 seo:
-  description: null
-  title: null
-summary: ''
-tags: []
-title: Qi2 Launch
+  description: Qi2 adds guaranteed 15W wireless charging and magnetic alignment, making chargers easier to use across phones and accessories.
+  title: Qi2 Wireless Charging Launch Newsletter
+summary: Qi2 adds guaranteed 15W wireless charging and magnetic alignment, making chargers easier to use across phones and accessories.
+tags:
+- wireless charging
+- Qi2
+title: Qi2 Wireless Charging Launch Newsletter
 ---
 
 ## What's New in Qi2
