@@ -14,7 +14,7 @@ import markdown
 import time
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 @click.group()
@@ -42,6 +42,45 @@ def cli(ctx):
     
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
+
+
+def site_url(config: Dict[str, Any]) -> str:
+    """Return the configured site URL without a trailing slash."""
+    return config.get('site', {}).get('url', '').rstrip('/')
+
+
+def absolute_site_url(config: Dict[str, Any], path: str) -> str:
+    """Build an absolute URL for a site path."""
+    normalized_path = path if path.startswith('/') else f"/{path}"
+    base_url = site_url(config)
+    return f"{base_url}{normalized_path}" if base_url else normalized_path
+
+
+def page_description(frontmatter: Dict[str, Any], config: Dict[str, Any]) -> str:
+    """Return the first non-empty authored description or the site default."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    candidates = [
+        seo.get('description'),
+        frontmatter.get('description'),
+        frontmatter.get('summary'),
+        config.get('site', {}).get('description'),
+    ]
+    for candidate in candidates:
+        if candidate is not None and str(candidate).strip():
+            return str(candidate).strip()
+    return ''
+
+
+def comments_enabled(config: Dict[str, Any]) -> bool:
+    """Enable comments only when a real webhook is configured."""
+    comments_config = config.get('comments') or {}
+    webhook_url = str(comments_config.get('webhook_url') or '').strip()
+    placeholder_hosts = ('your-n8n.app', 'example.com')
+    return bool(
+        comments_config.get('enabled')
+        and webhook_url
+        and not any(host in webhook_url for host in placeholder_hosts)
+    )
 
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
@@ -91,10 +130,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -189,6 +228,7 @@ def optimize(ctx, force):
         if content.startswith('---'):
             parts = content.split('---', 2)
             frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = frontmatter or {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -672,11 +712,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2333,7 +2373,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': page_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2388,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments_enabled': comments_enabled(config),
+            'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', ''),
+            'comments': [],
         }
         
         # Treat articles as posts
@@ -2367,7 +2410,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             url = f"/{content_type}/{slug}/"
         
-        context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['canonical_url'] = absolute_site_url(config, url)
         
         # Select template
         if content_type == 'posts':
@@ -2508,6 +2551,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             plp_html = plp_template.render(
                 products=products,
                 site_title=config['site']['title'],
+                canonical_url=absolute_site_url(config, '/products/'),
                 year=datetime.now().year,
                 navigation=config.get('nav', {}).get('main', []),
                 build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -2611,7 +2655,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'site_title': config['site']['title'],
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
-                    'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'canonical_url': absolute_site_url(config, f"/products/{slug}/"),
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
@@ -2973,7 +3017,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         "@type": "WebSite",
         "name": config['site']['title'],
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": absolute_site_url(config, '/')
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
@@ -3004,6 +3048,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{absolute_site_url(config, '/')}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3036,6 +3081,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 
 def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
     """Create simple list page"""
+    collection_path = f"/{title.lower().replace(' ', '-')}/"
     items_html = ""
     for item in items:
         items_html += f'<li><a href="{item["url"]}">{item["title"]}</a>'
@@ -3050,7 +3096,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": absolute_site_url(config, collection_path)
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3126,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{absolute_site_url(config, collection_path)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3117,6 +3164,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     if content.startswith('---'):
         parts = content.split('---', 2)
         frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+        frontmatter = frontmatter or {}
         body = parts[2] if len(parts) > 2 else ''
     else:
         frontmatter = {}
@@ -3130,7 +3178,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = page_description(frontmatter, config)
     
     # Build time for footer
     build_time = datetime.now()
@@ -3574,7 +3622,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
