@@ -44,8 +44,7 @@ jobs:
       
       - name: Validate contracts
         id: validate
-        run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+        run: gang check --output validation-report.json
       
       - name: Upload validation report
         if: always()
@@ -84,8 +83,7 @@ jobs:
         run: npm install -g @lhci/cli@0.13.x
       
       - name: Run Lighthouse CI
-        run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+        run: lhci autorun --config=lighthouserc.json
       
       - name: Upload Lighthouse reports
         if: always()
@@ -100,6 +98,10 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            if (!fs.existsSync('.lighthouseci/manifest.json')) {
+              core.warning('No Lighthouse manifest was produced; skipping PR summary.');
+              return;
+            }
             const manifest = JSON.parse(fs.readFileSync('.lighthouseci/manifest.json', 'utf8'));
             const results = manifest.map(result => {
               const summary = result.summary;
@@ -145,13 +147,11 @@ jobs:
           # Start simple HTTP server in background
           npx http-server dist -p 8080 &
           SERVER_PID=$!
+          trap "kill $SERVER_PID 2>/dev/null || true" EXIT
           sleep 3
           
           # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
-          
-          # Cleanup
-          kill $SERVER_PID
+          axe http://localhost:8080 --exit
 
   deploy:
     name: Deploy to Cloudflare Pages
@@ -174,6 +174,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: platform
+          projectName: gang-platform
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}

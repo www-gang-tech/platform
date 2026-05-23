@@ -58,9 +58,15 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary', ''))
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags]
+        elif raw_tags:
+            tags = [str(raw_tags)]
+        else:
+            tags = []
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +102,13 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._normalize_date(frontmatter.get('date', '')),
         }
+    
+    def _normalize_date(self, value: Any) -> str:
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value) if value is not None else ''
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
