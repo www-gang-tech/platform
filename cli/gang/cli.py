@@ -62,6 +62,57 @@ def strip_leading_markdown_h1(body: str) -> str:
     return body
 
 
+def default_jsonld_for_content(content_type: str, context: Dict, config: Dict) -> Dict:
+    """Generate baseline JSON-LD when content frontmatter leaves it empty."""
+    site = config.get('site', {})
+    site_name = site.get('title', 'Site')
+    canonical_url = context.get('canonical_url')
+    description = context.get('description', site.get('description', ''))
+    date_value = context.get('date') or datetime.now().date().isoformat()
+    if hasattr(date_value, 'isoformat'):
+        date_value = date_value.isoformat()
+    
+    if content_type in ('posts', 'articles'):
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': context.get('title'),
+            'description': description,
+            'datePublished': str(date_value),
+            'author': {'@type': 'Organization', 'name': site_name},
+            'publisher': {'@type': 'Organization', 'name': site_name},
+            'url': canonical_url,
+        }
+    
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': context.get('title'),
+            'description': description,
+            'author': {'@type': 'Organization', 'name': site_name},
+            'dateCreated': str(date_value),
+            'url': canonical_url,
+        }
+    
+    if content_type == 'people':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': context.get('title'),
+            'description': description,
+            'url': canonical_url,
+        }
+    
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': context.get('title'),
+        'description': description,
+        'url': canonical_url,
+    }
+
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -178,6 +229,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2420,6 +2473,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = default_jsonld_for_content(content_type, context, config)
+        context['og_type'] = 'article' if content_type in ('posts', 'articles', 'projects') else 'website'
+        context['og_title'] = context['title']
+        context['og_description'] = context['description']
+        context['twitter_card'] = 'summary'
         
         # Select template
         if content_type == 'posts':

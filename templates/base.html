@@ -7,6 +7,10 @@
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+    <meta property="og:type" content="{{ og_type|default('website') }}">
+    <meta property="og:title" content="{{ og_title|default(title) }}">
+    <meta property="og:description" content="{{ og_description|default(description) }}">
+    <meta name="twitter:card" content="{{ twitter_card|default('summary') }}">
     
     <!-- JSON-LD Structured Data -->
     {% if jsonld %}
