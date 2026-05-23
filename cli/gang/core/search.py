@@ -152,6 +152,15 @@ class SearchIndexer:
     <title>Search - __SITE_TITLE__</title>
     <meta name="description" content="Search __SITE_TITLE__ content.">
     <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": "Search",
+      "description": "Search __SITE_TITLE__ content.",
+      "url": "__SITE_URL__/search/"
+    }
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
