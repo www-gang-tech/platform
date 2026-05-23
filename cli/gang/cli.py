@@ -2372,7 +2372,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': (
+                frontmatter.get('summary')
+                or frontmatter.get('description')
+                or (frontmatter.get('seo') or {}).get('description')
+                or config['site']['description']
+            ),
             'summary': frontmatter.get('summary', ''),
             'content': content_html,
             'year': datetime.now().year,

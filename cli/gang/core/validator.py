@@ -193,7 +193,7 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_executable_js(html_path):
             soup = BeautifulSoup(content, 'html.parser')
             executable_types = {
                 '',
@@ -217,6 +217,15 @@ class ContractValidator:
                 })
         
         return issues
+    
+    def _allows_executable_js(self, html_path: Path) -> bool:
+        """Allow JS for generated utility surfaces, while content pages stay JS-free."""
+        output_dir = Path(self.config.get('build', {}).get('output', './dist')).resolve()
+        try:
+            first_part = html_path.resolve().relative_to(output_dir).parts[0]
+        except (IndexError, ValueError):
+            return False
+        return first_part in {'cart', 'products', 'search', 'studio'}
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""

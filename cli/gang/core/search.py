@@ -141,12 +141,17 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = str(site.get('title', 'Site'))
+        site_url = str(site.get('url', '')).rstrip('/')
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__SITE_URL__/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -237,19 +242,26 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <a href="/">__SITE_TITLE__</a>
+    </header>
+
+    <main>
+        <h1>Search</h1>
+        
+        <div class="search-box">
+            <label for="searchInput">Search content</label>
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
     
     <script>
         let searchIndex = null;
@@ -366,6 +378,10 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    <footer>
+        <p><a href="/">Back to home</a></p>
+    </footer>
 </body>
 </html>'''
+        return html.replace('__SITE_TITLE__', site_title).replace('__SITE_URL__', site_url)
 
