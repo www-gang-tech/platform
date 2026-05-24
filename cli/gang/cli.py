@@ -43,6 +43,31 @@ def cli(ctx):
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
 
+
+def make_default_jsonld(content_type, title, description, canonical_url, date_value=None):
+    """Create baseline structured data for pages without authored JSON-LD."""
+    schema_type = {
+        'posts': 'Article',
+        'articles': 'Article',
+        'projects': 'Article',
+        'newsletters': 'Article',
+        'pages': 'WebPage',
+    }.get(content_type, 'WebPage')
+    data = {
+        '@context': 'https://schema.org',
+        '@type': schema_type,
+        'url': canonical_url,
+        'description': description,
+    }
+    if schema_type == 'Article':
+        data['headline'] = title
+        data['mainEntityOfPage'] = canonical_url
+        if date_value:
+            data['datePublished'] = date_value.isoformat() if hasattr(date_value, 'isoformat') else str(date_value)
+    else:
+        data['name'] = title
+    return data
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -1188,28 +1213,6 @@ def schedule(ctx):
     
     scheduler = ContentScheduler(content_path)
     
-    def make_default_jsonld(content_type, title, description, canonical_url, date_value=None):
-        schema_type = {
-            'posts': 'Article',
-            'articles': 'Article',
-            'projects': 'Article',
-            'newsletters': 'Article',
-            'pages': 'WebPage',
-        }.get(content_type, 'WebPage')
-        data = {
-            '@context': 'https://schema.org',
-            '@type': schema_type,
-            'url': canonical_url,
-            'description': description,
-        }
-        if schema_type == 'Article':
-            data['headline'] = title
-            data['mainEntityOfPage'] = canonical_url
-            if date_value:
-                data['datePublished'] = date_value.isoformat() if hasattr(date_value, 'isoformat') else str(date_value)
-        else:
-            data['name'] = title
-        return data
     summary = scheduler.get_scheduled_summary()
     report = scheduler.format_schedule_report(summary)
     
