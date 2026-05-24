@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2225,6 +2225,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     template_engine = TemplateEngine(templates_path)
     generators = OutputGenerators(config)
     optimizer = AIOptimizer(config)
+    comments_config = config.get('comments', {})
+    comments_webhook_url = str(comments_config.get('webhook_url') or '')
+    comments_enabled = (
+        bool(comments_config.get('enabled'))
+        and bool(comments_webhook_url)
+        and 'your-n8n.app' not in comments_webhook_url
+    )
     
     # Create dist directory
     dist_path = Path(config['build']['output'])
@@ -2333,7 +2340,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2355,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments_enabled': comments_enabled,
+            'comments': [],
+            'comments_webhook_url': comments_webhook_url if comments_enabled else '',
         }
         
         # Treat articles as posts
@@ -2376,6 +2386,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             template_name = 'article.html'  # Use article template for projects
         elif content_type == 'newsletters':
             template_name = 'newsletter.html'
+            context['issue_number'] = frontmatter.get('newsletter_id') or slug
+            context['sent_date'] = frontmatter.get('sent_date') or context['date_formatted']
         else:
             template_name = 'page.html'
         
@@ -2686,8 +2698,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
+        schedule_result = scheduler.get_publishable_content(publishable_files)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
         
@@ -3558,7 +3569,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3585,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3773,7 +3789,8 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result.get('images', result) if isinstance(result, dict) else result
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")

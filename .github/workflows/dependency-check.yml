@@ -39,16 +39,24 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
+            const vulnerabilities = [];
+            for (const dep of report.dependencies || []) {
+              for (const vuln of dep.vulns || []) {
+                vulnerabilities.push({ dependency: dep, vulnerability: vuln });
+              }
+            }
             
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
             
-            for (const vuln of vulnerabilities) {
-              body += `### ${vuln.name} ${vuln.version}\n`;
-              body += `- **Severity**: ${vuln.severity}\n`;
-              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
-              body += `- **Details**: ${vuln.description}\n\n`;
+            for (const item of vulnerabilities) {
+              const dep = item.dependency;
+              const vuln = item.vulnerability;
+              const fixes = (vuln.fix_versions || []).join(', ') || 'No fixed version reported';
+              body += `### ${dep.name} ${dep.version}\n`;
+              body += `- **Vulnerability**: ${vuln.id || vuln.aliases?.join(', ') || 'unknown'}\n`;
+              body += `- **Fix**: ${fixes}\n`;
+              body += `- **Details**: ${vuln.description || vuln.summary || 'No description provided'}\n\n`;
             }
             
             body += '**Action Required**: Run `gang update-deps --security-only` to fix these issues.\n';
