@@ -141,14 +141,28 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        jsonld = {
+            '@context': 'https://schema.org',
+            '@type': 'SearchResultsPage',
+            'name': 'Search',
+            'description': 'Search articles, projects, and pages.',
+            'url': canonical_url,
+        }
+        jsonld_str = json.dumps(jsonld, indent=2)
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
     <meta name="description" content="Search articles, projects, and pages.">
-    <link rel="canonical" href="/search/">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -379,4 +393,5 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return html.replace('__CANONICAL_URL__', canonical_url).replace('__JSONLD__', jsonld_str)
 

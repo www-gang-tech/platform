@@ -1187,6 +1187,29 @@ def schedule(ctx):
     content_path = Path(config['build']['content'])
     
     scheduler = ContentScheduler(content_path)
+    
+    def make_default_jsonld(content_type, title, description, canonical_url, date_value=None):
+        schema_type = {
+            'posts': 'Article',
+            'articles': 'Article',
+            'projects': 'Article',
+            'newsletters': 'Article',
+            'pages': 'WebPage',
+        }.get(content_type, 'WebPage')
+        data = {
+            '@context': 'https://schema.org',
+            '@type': schema_type,
+            'url': canonical_url,
+            'description': description,
+        }
+        if schema_type == 'Article':
+            data['headline'] = title
+            data['mainEntityOfPage'] = canonical_url
+            if date_value:
+                data['datePublished'] = date_value.isoformat() if hasattr(date_value, 'isoformat') else str(date_value)
+        else:
+            data['name'] = title
+        return data
     summary = scheduler.get_scheduled_summary()
     report = scheduler.format_schedule_report(summary)
     
@@ -2378,6 +2401,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context['jsonld']:
+            context['jsonld'] = make_default_jsonld(
+                content_type,
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                context['date'],
+            )
         
         # Select template
         if content_type == 'posts':
@@ -2662,6 +2693,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                canonical_url=f"{config['site']['url']}/cart/",
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
