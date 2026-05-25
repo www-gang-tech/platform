@@ -46,7 +46,7 @@
                 <time datetime="{{ comment.date }}">{{ comment.date_formatted }}</time>
             </div>
             <div class="comment-content markdown-body">
-                {{ comment.content | safe }}
+                {{ comment.content }}
             </div>
         </li>
         {% endfor %}

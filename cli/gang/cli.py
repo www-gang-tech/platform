@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate generated pages against YAML content contracts"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command('list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def media_list(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2329,11 +2329,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        description = get_meta_description(frontmatter, config['site']['description'])
+        
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2961,11 +2963,20 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
         return f"<footer>{footer_text}</footer>"
 
 
+def get_meta_description(frontmatter: Dict, fallback: str) -> str:
+    """Return the first non-empty description-like frontmatter value."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter, dict) else {}
+    seo_description = seo.get('description') if isinstance(seo, dict) else None
+    return frontmatter.get('summary') or frontmatter.get('description') or seo_description or fallback
+
+
 def create_index_simple(config: Dict, recent_posts: List, templates_path: Path = None) -> str:
     """Create simple index page"""
     posts_html = ""
     for post in recent_posts:
         posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
+    
+    site_url = config['site']['url'].rstrip('/')
     
     # Create JSON-LD structured data
     jsonld = {
@@ -2973,7 +2984,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         "@type": "WebSite",
         "name": config['site']['title'],
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": site_url
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
@@ -3004,6 +3015,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{site_url}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3043,6 +3055,10 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
     
+    site_url = config['site']['url'].rstrip('/')
+    collection_path = f"/{title.lower()}/"
+    canonical_url = f"{site_url}{collection_path}"
+    
     # Create JSON-LD structured data
     import json
     jsonld = {
@@ -3050,7 +3066,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3096,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3130,7 +3147,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = get_meta_description(frontmatter, config['site']['description'])
     
     # Build time for footer
     build_time = datetime.now()
@@ -4376,7 +4393,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': get_meta_description(frontmatter, config['site']['description']),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),

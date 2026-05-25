@@ -14,6 +14,11 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+        self.interactive_sections = {'cart', 'products', 'search'}
+    
+    def _allows_javascript(self, html_path: Path) -> bool:
+        """Return True for generated interactive utility pages."""
+        return any(part in self.interactive_sections for part in html_path.parts)
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -181,18 +186,34 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for JavaScript (structured data script tags are data, not executable JS)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_javascript(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            data_script_types = {
+                'application/ld+json',
+                'application/json',
+            }
+            scripts = []
+            inline_scripts = []
+            
+            for script in soup.find_all('script'):
+                script_type = (script.get('type') or '').strip().lower()
+                if script_type in data_script_types:
+                    continue
+                if script.get('src'):
+                    scripts.append(script)
+                else:
+                    inline_scripts.append(script)
             
             if scripts or inline_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
-                    'message': 'JavaScript detected, but budget is 0 bytes',
+                    'message': (
+                        'JavaScript detected, but budget is 0 bytes '
+                        f'({len(scripts)} external, {len(inline_scripts)} inline)'
+                    ),
                 })
         
         return issues

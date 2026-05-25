@@ -60,8 +60,17 @@ class SearchIndexer:
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, str):
+            tags = [raw_tags]
+        elif isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags]
+        else:
+            tags = []
         category = file_path.parent.name
+        date_value = frontmatter.get('date', '')
+        if hasattr(date_value, 'isoformat'):
+            date_value = date_value.isoformat()
         
         # Generate URL
         slug = file_path.stem
@@ -96,7 +105,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +139,15 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self';">
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__SITE_URL__/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,9 +238,15 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header role="banner">
+        <p><a href="/">__SITE_TITLE__</a></p>
+    </header>
+    
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput">Search content</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -239,6 +257,11 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +380,13 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        return (
+            html
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__SITE_URL__', site_url)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
