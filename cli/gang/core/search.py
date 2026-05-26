@@ -5,6 +5,7 @@ Generate search index and provide search functionality.
 
 from pathlib import Path
 from typing import Dict, List, Any
+from html import escape
 import json
 import re
 from datetime import date, datetime
@@ -142,8 +143,54 @@ class SearchIndexer:
         
         return text.strip()
     
-    def generate_search_page_html(self) -> str:
+    def generate_search_page_html(self, search_index: Dict[str, Any] = None) -> str:
         """Generate a standalone search page HTML"""
+        documents = (search_index or {}).get('documents', [])
+        items = []
+        for doc in documents:
+            title = escape(str(doc.get('title') or 'Untitled'))
+            url = escape(str(doc.get('url') or '#'))
+            description = escape(str(doc.get('description') or doc.get('content') or ''))
+            category = escape(str(doc.get('category') or 'content'))
+            items.append(
+                f'<li><a href="{url}">{title}</a>'
+                f'<p><span>{category}</span> {description}</p></li>'
+            )
+        results_html = '\n'.join(items) or '<li>No published content is indexed yet.</li>'
+        site = self.config.get('site', {})
+        site_title = escape(str(site.get('title', 'Site')))
+        site_url = str(site.get('url', '')).rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else '/search/'
+
+        return f'''<!DOCTYPE html>
+<html lang="{escape(str(site.get('language', 'en')))}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Index - {site_title}</title>
+    <meta name="description" content="Browse the published content index for {site_title}.">
+    <link rel="canonical" href="{escape(canonical_url)}">
+    <style>
+        body {{ font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 72ch; margin: 0 auto; padding: 2rem; }}
+        header, footer {{ color: #555; }}
+        ul {{ padding-left: 1.25rem; }}
+        li {{ margin: 0 0 1rem; }}
+        a {{ color: #0645ad; }}
+        span {{ color: #666; font-size: 0.9rem; text-transform: capitalize; }}
+    </style>
+</head>
+<body>
+    <header><p><a href="/">Home</a></p></header>
+    <main>
+        <h1>Search Index</h1>
+        <p>Browse published pages and posts. Use your browser's find command to search this static index.</p>
+        <ul>
+            {results_html}
+        </ul>
+    </main>
+    <footer><p>&copy; {datetime.now().year} {site_title}</p></footer>
+</body>
+</html>'''
         return '''<!DOCTYPE html>
 <html lang="en">
 <head>

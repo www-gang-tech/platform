@@ -145,6 +145,8 @@ def _run_page_contract_validation(config, dist_path: Path, verbose: bool = False
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file == type_path / 'index.html':
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -160,6 +162,49 @@ def _run_page_contract_validation(config, dist_path: Path, verbose: bool = False
     
     failed = [r for r in results if not r['valid']]
     return {'results': results, 'failed': failed, 'missing_contracts_dir': False}
+
+
+def _isoformat_value(value):
+    """Convert date-like frontmatter values to schema-friendly strings."""
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value) if value is not None else ''
+
+
+def _default_jsonld(config, frontmatter, content_type, canonical_url, title, description, build_time):
+    """Generate baseline JSON-LD when content frontmatter leaves it empty."""
+    site_title = config['site']['title']
+    site_url = config['site']['url']
+    if content_type in ('posts', 'newsletters'):
+        published = frontmatter.get('date') or frontmatter.get('publish_date') or build_time.date()
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'datePublished': _isoformat_value(published),
+            'author': {'@type': 'Organization', 'name': site_title},
+            'publisher': {'@type': 'Organization', 'name': site_title},
+            'description': description,
+            'url': canonical_url,
+        }
+    if content_type == 'projects':
+        created = frontmatter.get('date') or frontmatter.get('year') or build_time.date()
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': {'@type': 'Organization', 'name': site_title},
+            'dateCreated': _isoformat_value(created),
+            'url': canonical_url,
+        }
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'url': canonical_url or site_url,
+        'description': description,
+    }
 
 
 @cli.command('check-contracts')
@@ -2351,6 +2396,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        seo = frontmatter.get('seo') or {}
+        title = frontmatter.get('title') or seo.get('title') or md_file.stem.replace('-', ' ').title()
+        description = frontmatter.get('summary') or seo.get('description') or config['site']['description']
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2358,8 +2406,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2368,7 +2416,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2394,6 +2441,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = frontmatter.get('jsonld') or _default_jsonld(
+            config, frontmatter, content_type, context['canonical_url'], title, description, build_time
+        )
+        context['og_type'] = 'article' if content_type in ('posts', 'projects', 'newsletters') else 'website'
         
         # Select template
         if content_type == 'posts':
@@ -2725,7 +2776,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Write search page
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        search_page.write_text(indexer.generate_search_page_html(search_index))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
@@ -3028,6 +3079,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3069,12 +3121,13 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     
     # Create JSON-LD structured data
     import json
+    canonical_url = f"{config['site']['url']}/{title.lower().replace(' ', '-')}/"
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3104,6 +3157,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -4415,6 +4469,9 @@ def serve(ctx, port, host):
                         template_name = 'page.html'
                     
                     build_time = datetime.now()
+                    seo = frontmatter.get('seo') or {}
+                    title = frontmatter.get('title') or seo.get('title') or slug.replace('-', ' ').title()
+                    description = frontmatter.get('summary') or seo.get('description') or config['site']['description']
                     
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -4422,8 +4479,8 @@ def serve(ctx, port, host):
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
-                        'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'title': title,
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4432,7 +4489,6 @@ def serve(ctx, port, host):
                         'tags': frontmatter.get('tags', []),
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
-                        'jsonld': frontmatter.get('jsonld'),
                         'canonical_url': f"{config['site']['url']}{url}",
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
@@ -4440,6 +4496,10 @@ def serve(ctx, port, host):
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    context['jsonld'] = frontmatter.get('jsonld') or _default_jsonld(
+                        config, frontmatter, content_type, context['canonical_url'], title, description, build_time
+                    )
+                    context['og_type'] = 'article' if content_type in ('posts', 'projects', 'newsletters') else 'website'
                     
                     # Render HTML
                     try:
