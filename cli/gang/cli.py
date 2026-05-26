@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+from urllib.parse import unquote, urlsplit
 
 @click.group()
 @click.pass_context
@@ -91,28 +92,38 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
-@click.option('--verbose', is_flag=True, help='Show detailed validation results')
-@click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def _resolve_content_api_path(content_base: Path, file_path: str) -> Path:
+    """Resolve a studio API content path without allowing directory traversal."""
+    relative_path = unquote(urlsplit(file_path).path).lstrip('/')
+    if not relative_path:
+        raise ValueError("Missing content path")
+
+    content_path = (content_base / relative_path).resolve()
     try:
-        from core.contract_validator import ContractValidator
+        content_path.relative_to(content_base)
+    except ValueError as exc:
+        raise ValueError("Content path escapes content directory") from exc
+
+    return content_path
+
+
+def _run_page_contract_validation(config, dist_path: Path, verbose: bool = False):
+    """Validate generated pages against page-type contracts."""
+    try:
+        from core.contract_validator import ContractValidator as PageContractValidator
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
-        from core.contract_validator import ContractValidator
+        from core.contract_validator import ContractValidator as PageContractValidator
     
-    config = ctx.obj
-    dist_path = Path(config['build']['output'])
     contracts_dir = Path('contracts')
     
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        return {'results': [], 'failed': [], 'missing_contracts_dir': True}
     
-    validator = ContractValidator(contracts_dir)
+    validator = PageContractValidator(contracts_dir)
     
     click.echo("Score Validating site against contracts...\n")
     
@@ -121,8 +132,10 @@ def check(ctx, verbose):
     # Map dist paths to content types
     type_mapping = {
         'posts': 'post',
+        'articles': 'post',
         'pages': 'page',
         'projects': 'project',
+        'people': 'person',
         'products': 'product'
     }
     
@@ -142,13 +155,26 @@ def check(ctx, verbose):
                     for error in result['errors'][:3]:
                         click.echo(f"    • {error}")
     
-    # Generate Explain report
     report = validator.generate_explain_report(results)
     click.echo("\n" + report)
     
-    # Exit with error if any failures
     failed = [r for r in results if not r['valid']]
-    if failed:
+    return {'results': results, 'failed': failed, 'missing_contracts_dir': False}
+
+
+@cli.command('check-contracts')
+@click.option('--verbose', is_flag=True, help='Show detailed validation results')
+@click.pass_context
+def check_contracts(ctx, verbose):
+    """Validate generated pages against page-type contracts"""
+    config = ctx.obj
+    dist_path = Path(config['build']['output'])
+    if not dist_path.exists():
+        click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
+        ctx.exit(1)
+
+    contract_results = _run_page_contract_validation(config, dist_path, verbose)
+    if contract_results['missing_contracts_dir'] or contract_results['failed']:
         ctx.exit(1)
 
 @cli.command()
@@ -3541,24 +3567,25 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
+@click.option('--verbose', is_flag=True, help='Show detailed page-contract validation results')
 @click.pass_context
-def check(ctx, output):
+def check(ctx, output, verbose):
     """Validate Template Contracts and WCAG compliance"""
     try:
-        from core.validator import ContractValidator
+        from core.validator import ContractValidator as SiteContractValidator
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
-        from core.validator import ContractValidator
+        from core.validator import ContractValidator as SiteContractValidator
     
     click.echo("✅ Validating contracts...")
     config = ctx.obj
-    validator = ContractValidator(config)
+    validator = SiteContractValidator(config)
     
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3584,6 +3611,15 @@ def check(ctx, output):
                     icon = '🔴' if issue['severity'] == 'error' else '🟡'
                     click.echo(f"   {icon} [{issue['rule']}] {issue['message']}")
     
+    page_contract_results = _run_page_contract_validation(config, dist_path, verbose)
+    if page_contract_results['results']:
+        results['page_contracts'] = page_contract_results['results']
+        results['page_contract_summary'] = {
+            'total_files': len(page_contract_results['results']),
+            'failed': len(page_contract_results['failed']),
+            'passed': len(page_contract_results['results']) - len(page_contract_results['failed']),
+        }
+    
     # Save JSON report if requested
     if output:
         output_path = Path(output)
@@ -3592,7 +3628,7 @@ def check(ctx, output):
         click.echo(f"\n📄 Report saved to {output_path}")
     
     # Exit with error code if validation failed
-    if summary['failed'] > 0:
+    if summary['failed'] > 0 or page_contract_results['missing_contracts_dir'] or page_contract_results['failed']:
         ctx.exit(1)
 
 @cli.command()
@@ -3848,7 +3884,7 @@ def studio(ctx, port, host):
                         # Get specific content file
                         file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = _resolve_content_api_path(content_base, file_path)
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -3862,6 +3898,9 @@ def studio(ctx, port, host):
                         else:
                             click.echo(f"❌ File not found: {content_path}")
                             self.send_error(404)
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_error(400, str(e))
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
@@ -4087,7 +4126,7 @@ def studio(ctx, port, host):
                         # Get file path and content
                         file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = _resolve_content_api_path(content_base, file_path)
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4107,6 +4146,16 @@ def studio(ctx, port, host):
                             'path': str(content_path.relative_to(content_base))
                         }).encode())
                         
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Invalid content path',
+                            'message': str(e)
+                        }).encode())
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error saving file: {e}")

@@ -100,7 +100,17 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            bad_tabindex = []
+            for element in soup.find_all(attrs={'tabindex': True}):
+                try:
+                    if int(element.get('tabindex')) > 0:
+                        bad_tabindex.append(element)
+                except (TypeError, ValueError):
+                    issues.append({
+                        'severity': 'error',
+                        'rule': 'keyboard_nav',
+                        'message': f'Invalid tabindex value: {element.get("tabindex")}',
+                    })
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -186,7 +196,10 @@ class ContractValidator:
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
             scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if script.get('type', '').lower() != 'application/ld+json'
+            ]
             
             if scripts or inline_scripts:
                 issues.append({
