@@ -161,6 +161,13 @@ class SearchIndexer:
         site_title = escape(str(site.get('title', 'Site')))
         site_url = str(site.get('url', '')).rstrip('/')
         canonical_url = f"{site_url}/search/" if site_url else '/search/'
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'CollectionPage',
+            'name': 'Search Index',
+            'url': canonical_url,
+            'description': f"Browse the published content index for {site_title}.",
+        })
 
         return f'''<!DOCTYPE html>
 <html lang="{escape(str(site.get('language', 'en')))}">
@@ -170,6 +177,7 @@ class SearchIndexer:
     <title>Search Index - {site_title}</title>
     <meta name="description" content="Browse the published content index for {site_title}.">
     <link rel="canonical" href="{escape(canonical_url)}">
+    <script type="application/ld+json">{jsonld}</script>
     <style>
         body {{ font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 72ch; margin: 0 auto; padding: 2rem; }}
         header, footer {{ color: #555; }}
