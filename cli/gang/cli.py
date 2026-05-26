@@ -2709,13 +2709,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
         
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [
+            Path(file_path) if isinstance(file_path, str) else file_path
+            for file_path in publishable_files
+        ]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
