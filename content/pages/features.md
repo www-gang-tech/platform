@@ -2,6 +2,7 @@
 title: Features
 date: 2025-10-21
 summary: Complete list of GANG platform features and capabilities
+status: published
 ---
 
 # Platform Features

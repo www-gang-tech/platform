@@ -6,6 +6,7 @@ seo:
   description: null
   title: null
 summary: Get in touch with the GANG team
+status: published
 title: Contact
 ---
 

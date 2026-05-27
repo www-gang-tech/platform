@@ -9,6 +9,7 @@ seo:
   description: null
   title: null
 summary: ''
+status: published
 tags: []
 title: Qi2 Launch
 ---

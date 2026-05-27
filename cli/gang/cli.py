@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate built content against YAML contract files"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2268,18 +2268,20 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_posts = []
     all_projects = []
     all_newsletters = []
+    all_content = []
     
     # Parse markdown files
-    if profiler:
-        profiler.stage('process_content').__enter__()
+    process_content_start = time.time() if profiler else None
     
     # Filter content based on publish dates
     try:
         from core.scheduler import ContentScheduler
+        from core.comments import get_comments_for_build
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from core.scheduler import ContentScheduler
+        from core.comments import get_comments_for_build
     
     scheduler = ContentScheduler(content_path)
     
@@ -2333,16 +2335,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or frontmatter.get('description') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
             'date_formatted': str(frontmatter.get('date', '')),
+            'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
+            'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or slug,
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
+            'related': [],
+            'comments': get_comments_for_build(content_path, slug, content_type.rstrip('s')),
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', ''),
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2413,6 +2420,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         elif content_type == 'pages':
             all_pages.append(page_data)
     
+    if profiler and process_content_start is not None:
+        profiler.record_stage('process_content', time.time() - process_content_start)
+    
     # Create index page
     click.echo("🏠 Creating index page...")
     index_context = {
@@ -2456,22 +2466,16 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
     
-    # Generate outputs
-    click.echo("🗺️  Generating sitemap, feeds, etc...")
     all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
     if all_posts:
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
-    # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
-    
-    if profiler:
-        with profiler.stage('generate_outputs'):
-            generators.generate_all(dist_path, all_content, all_posts)
-    else:
-        generators.generate_all(dist_path, all_content, all_posts)
+    # Combine generated content for sitemap generation after all optional outputs
+    all_content = all_pages + all_posts + all_projects + all_newsletters
     
     # Generate redirect rules if any exist
     try:
@@ -2514,6 +2518,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 build_time_iso=datetime.now().isoformat()
             )
             (products_path / 'index.html').write_text(plp_html)
+            all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
             
             # Generate PDPs
             pdp_template = jinja_env.get_template('product.html')
@@ -2612,6 +2617,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'slug': slug,
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
@@ -2635,6 +2641,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
                 pdp_html = pdp_template.render(**pdp_context)
                 (pdp_dir / 'index.html').write_text(pdp_html)
+                all_content.append({
+                    'url': f"/products/{slug}/",
+                    'title': product.get('name', ''),
+                    'summary': product.get('description', ''),
+                    'type': 'product'
+                })
             
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
             
@@ -2686,7 +2698,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        all_md = []
+        for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
+            category_path = content_path / category_dir
+            if category_path.exists():
+                all_md.extend(list(category_path.glob('*.md')))
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
@@ -2702,10 +2718,19 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
         search_page.write_text(indexer.generate_search_page_html())
+        all_content.append({'url': '/search/', 'title': 'Search', 'type': 'search'})
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
+    
+    # Generate sitemap, robots, and feeds after every build output is known
+    click.echo("🗺️  Generating sitemap, feeds, etc...")
+    if profiler:
+        with profiler.stage('generate_outputs'):
+            generators.generate_all(dist_path, all_content, all_posts)
+    else:
+        generators.generate_all(dist_path, all_content, all_posts)
     
     # Generate AgentMap for AI agents
     try:
@@ -2714,7 +2739,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Get publishable content (convert Path objects to list)
         scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
+        all_md_files = []
+        for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
+            category_path = content_path / category_dir
+            if category_path.exists():
+                all_md_files.extend(list(category_path.glob('*.md')))
         schedule_result = scheduler.get_publishable_content(all_md_files)
         publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                             for item in schedule_result['publishable']]
@@ -2966,6 +2995,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     posts_html = ""
     for post in recent_posts:
         posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
+    canonical_url = f"{config['site']['url']}/"
     
     # Create JSON-LD structured data
     jsonld = {
@@ -2973,7 +3003,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         "@type": "WebSite",
         "name": config['site']['title'],
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
@@ -3004,6 +3034,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3042,6 +3073,13 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         if item.get('summary'):
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
+    list_paths = {
+        'Posts': '/posts/',
+        'Projects': '/projects/',
+        'Newsletters': '/newsletters/',
+        'Products': '/products/',
+    }
+    canonical_url = f"{config['site']['url']}{list_paths.get(title, '/')}"
     
     # Create JSON-LD structured data
     import json
@@ -3050,7 +3088,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3118,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3558,7 +3597,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     

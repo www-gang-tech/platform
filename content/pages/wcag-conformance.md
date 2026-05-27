@@ -6,6 +6,7 @@ seo:
   description: null
   title: null
 summary: Our commitment to web accessibility and WCAG 2.2 Level AA conformance
+status: published
 title: WCAG Conformance Statement
 ---
 

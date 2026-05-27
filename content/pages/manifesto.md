@@ -2,6 +2,7 @@
 title: "Manifesto"
 summary: "Our principles for building the web: semantic, accessible, fast, and AI-first"
 date: 2025-01-11
+status: published
 jsonld: {}
 seo:
   description: null

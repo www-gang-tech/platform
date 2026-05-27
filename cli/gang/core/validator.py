@@ -184,9 +184,19 @@ class ContractValidator:
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
+            interactive_sections = {'cart', 'products', 'search'}
+            if any(part in interactive_sections for part in html_path.parts):
+                return issues
+            
             soup = BeautifulSoup(content, 'html.parser')
             scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() not in {
+                    'application/ld+json',
+                    'application/json'
+                }
+            ]
             
             if scripts or inline_scripts:
                 issues.append({

@@ -3,6 +3,7 @@ jsonld: {}
 seo:
   description: null
   title: null
+status: published
 ---
 ## What's New in Qi2
 

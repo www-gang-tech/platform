@@ -60,21 +60,25 @@ class SearchIndexer:
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        tags = frontmatter.get('tags') or []
         category = file_path.parent.name
+        url_category = 'posts' if category == 'articles' else category
+        date_value = frontmatter.get('date', '')
+        if date_value and not isinstance(date_value, str):
+            date_value = str(date_value)
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if url_category == 'posts':
             url = f"/posts/{slug}/"
-        elif category == 'projects':
+        elif url_category == 'projects':
             url = f"/projects/{slug}/"
-        elif category == 'pages':
+        elif url_category == 'pages':
             url = f"/pages/{slug}/"
-        elif category == 'people':
+        elif url_category == 'people':
             url = f"/people/{slug}/"
         else:
-            url = f"/{category}/{slug}/"
+            url = f"/{url_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -96,7 +100,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:

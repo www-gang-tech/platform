@@ -6,6 +6,7 @@ seo:
   description: null
   title: null
 summary: Common questions about the GANG platform
+status: published
 title: Frequently Asked Questions
 ---
 

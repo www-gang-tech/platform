@@ -59,8 +59,8 @@ class ContentScheduler:
                 })
                 continue
             
-            # Get status
-            status = frontmatter.get('status', 'published')
+            # Match the configured content schema: files are drafts until published.
+            status = frontmatter.get('status', 'draft')
             
             # If status is draft, skip
             if status == 'draft':
