@@ -15,7 +15,7 @@ import time
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import date, datetime
 
 @click.group()
 @click.pass_context
@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2328,12 +2328,18 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        title = str(frontmatter.get('title') or md_file.stem.replace('-', ' ').title())
+        description = str(
+            frontmatter.get('description')
+            or frontmatter.get('summary')
+            or config['site']['description']
+        )
         
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2354,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': [],
+            'comments_enabled': comments_are_configured(config),
+            'comments_webhook_url': get_comments_webhook_url(config) or '',
         }
         
         # Treat articles as posts
@@ -2368,6 +2377,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = frontmatter.get('jsonld') or build_default_jsonld(
+            config=config,
+            page_type=context['page_type'],
+            title=title,
+            description=description,
+            canonical_url=context['canonical_url'],
+            published_date=frontmatter.get('date'),
+        )
         
         # Select template
         if content_type == 'posts':
@@ -2961,6 +2978,61 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
         return f"<footer>{footer_text}</footer>"
 
 
+def normalize_schema_date(value):
+    """Return ISO-like strings for YAML date/datetime values."""
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value) if value else None
+
+
+def build_default_jsonld(config: Dict, page_type: str, title: str, description: str,
+                         canonical_url: str, published_date=None) -> Dict:
+    """Generate fallback structured data when content omits authored JSON-LD."""
+    schema_type = 'WebPage'
+    if page_type in {'post', 'project', 'newsletter'}:
+        schema_type = 'Article'
+
+    jsonld = {
+        '@context': 'https://schema.org',
+        '@type': schema_type,
+        'name': title,
+        'description': description,
+        'url': canonical_url,
+    }
+
+    if schema_type == 'Article':
+        jsonld['headline'] = title
+        jsonld['author'] = {
+            '@type': 'Organization',
+            'name': config.get('site', {}).get('title', 'GANG'),
+            'url': config.get('site', {}).get('url', ''),
+        }
+        published = normalize_schema_date(published_date)
+        if published:
+            jsonld['datePublished'] = published
+
+    return jsonld
+
+
+def get_comments_webhook_url(config: Dict) -> Optional[str]:
+    """Return the comments webhook only when it is a real configured endpoint."""
+    comments_config = config.get('comments') or {}
+    webhook_url = str(comments_config.get('webhook_url') or '').strip()
+    if not webhook_url:
+        return None
+
+    placeholder_markers = ('your-n8n.app', 'example.com', '${')
+    if any(marker in webhook_url for marker in placeholder_markers):
+        return None
+
+    return webhook_url
+
+
+def comments_are_configured(config: Dict) -> bool:
+    comments_config = config.get('comments') or {}
+    return bool(comments_config.get('enabled') and get_comments_webhook_url(config))
+
+
 def create_index_simple(config: Dict, recent_posts: List, templates_path: Path = None) -> str:
     """Create simple index page"""
     posts_html = ""
@@ -3004,6 +3076,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3042,6 +3115,9 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         if item.get('summary'):
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
+
+    list_path = f"/{title.lower()}/"
+    canonical_url = f"{config['site']['url']}{list_path}"
     
     # Create JSON-LD structured data
     import json
@@ -3050,7 +3126,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3156,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3574,7 +3651,11 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            try:
+                display_path = Path(file_result['file']).relative_to(dist_path)
+            except ValueError:
+                display_path = Path(file_result['file'])
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
