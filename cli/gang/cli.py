@@ -43,6 +43,19 @@ def cli(ctx):
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
 
+
+def get_frontmatter_description(frontmatter: Dict, config: Dict) -> str:
+    """Return the best available page description for metadata."""
+    seo = frontmatter.get('seo') or {}
+    if not hasattr(seo, 'get'):
+        seo = {}
+    return (
+        frontmatter.get('summary')
+        or frontmatter.get('description')
+        or seo.get('description')
+        or config['site']['description']
+    )
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -2333,7 +2346,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': get_frontmatter_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2361,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': [],
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', ''),
+            'comments_enhancement': config.get('comments', {}).get('enhance_with_js', False),
         }
         
         # Treat articles as posts
@@ -2701,7 +2717,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Write search page
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        search_page.write_text(indexer.generate_search_page_html(search_index))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
@@ -3004,6 +3020,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url'].rstrip('/')}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3043,6 +3060,8 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
     
+    canonical_url = f"{config['site']['url'].rstrip('/')}/{title.lower()}/"
+    
     # Create JSON-LD structured data
     import json
     jsonld = {
@@ -3050,7 +3069,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3099,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3130,7 +3150,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = get_frontmatter_description(frontmatter, config)
     
     # Build time for footer
     build_time = datetime.now()
@@ -3773,10 +3793,11 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
+    stats = result['stats']
     
-    total_variants = sum(len(variants) for variants in image_map.values())
-    click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    click.echo(f"✅ Processed {stats['total_images']} images into {stats['total_variants']} variants")
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")
@@ -3797,8 +3818,23 @@ def studio(ctx, port, host):
         from http.server import HTTPServer, SimpleHTTPRequestHandler
         import json
         import threading
+        from urllib.parse import unquote
         
         config = ctx.obj
+
+        def resolve_studio_content_path(request_path):
+            """Resolve a Studio API content path under the configured content root."""
+            relative_path = request_path.replace('/api/content/', '', 1).split('?', 1)[0]
+            relative_path = unquote(relative_path)
+            content_base = Path(config['build']['content']).resolve()
+            content_path = (content_base / relative_path).resolve()
+            if content_path.suffix != '.md':
+                raise ValueError('Content path must point to a markdown file')
+            try:
+                content_path.relative_to(content_base)
+            except ValueError:
+                raise ValueError('Invalid content path')
+            return content_base, content_path
         
         class StudioHandler(SimpleHTTPRequestHandler):
             def log_message(self, format, *args):
@@ -3846,9 +3882,7 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = resolve_studio_content_path(self.path)
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -3862,6 +3896,9 @@ def studio(ctx, port, host):
                         else:
                             click.echo(f"❌ File not found: {content_path}")
                             self.send_error(404)
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_error(400, str(e))
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
@@ -4085,9 +4122,7 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/content/'):
                     try:
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = resolve_studio_content_path(self.path)
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4107,6 +4142,16 @@ def studio(ctx, port, host):
                             'path': str(content_path.relative_to(content_base))
                         }).encode())
                         
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Invalid content path',
+                            'message': str(e)
+                        }).encode())
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error saving file: {e}")
@@ -4376,7 +4421,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': get_frontmatter_description(frontmatter, config),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4392,6 +4437,9 @@ def serve(ctx, port, host):
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.
                         'slug': slug,
                         'user_authenticated': user_authenticated,
+                        'comments': [],
+                        'comments_webhook_url': config.get('comments', {}).get('webhook_url', ''),
+                        'comments_enhancement': config.get('comments', {}).get('enhance_with_js', False),
                     }
                     
                     # Render HTML

@@ -21,6 +21,21 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
 
 
+def resolve_content_file(file_path):
+    """Resolve an editor content path under CONTENT_DIR."""
+    if file_path.startswith('/') or Path(file_path).suffix:
+        raise ValueError('Invalid file path')
+
+    full_path = (CONTENT_DIR / (file_path + '.md')).resolve()
+    content_root = CONTENT_DIR.resolve()
+    try:
+        full_path.relative_to(content_root)
+    except ValueError:
+        raise ValueError('Invalid file path')
+
+    return full_path
+
+
 @app.route('/api/health')
 def health():
     """Health check endpoint"""
@@ -44,15 +59,45 @@ def auth_status():
     })
 
 
+@app.route('/api/content/list')
+def list_content():
+    """List all editable content files"""
+    content_files = []
+    
+    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products', 'people']:
+        type_dir = CONTENT_DIR / content_type
+        if type_dir.exists():
+            for md_file in type_dir.glob('*.md'):
+                # Parse frontmatter to get title
+                try:
+                    content = md_file.read_text(encoding='utf-8')
+                    if content.startswith('---'):
+                        parts = content.split('---', 2)
+                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
+                    else:
+                        title = md_file.stem.replace('-', ' ').title()
+                    
+                    content_files.append({
+                        'type': content_type,
+                        'slug': md_file.stem,
+                        'title': title,
+                        'path': content_type + "/" + md_file.stem,
+                        'url': "/" + content_type + "/" + md_file.stem + "/"
+                    })
+                except Exception as e:
+                    print("Error reading " + str(md_file) + ": " + str(e))
+    
+    return jsonify(content_files)
+
+
 @app.route('/api/content/<path:file_path>')
 def get_content(file_path):
     """Get markdown content for editing"""
-    # Ensure file_path is safe (no directory traversal)
-    if '..' in file_path or file_path.startswith('/'):
+    try:
+        full_path = resolve_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     if not full_path.exists():
         return jsonify({'error': 'File not found'}), 404
@@ -67,18 +112,16 @@ def get_content(file_path):
 @app.route('/api/content/<path:file_path>', methods=['PUT'])
 def save_content(file_path):
     """Save edited markdown content"""
-    # Ensure file_path is safe
-    if '..' in file_path or file_path.startswith('/'):
+    try:
+        full_path = resolve_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
     
     # Get content from request body
     content = request.get_data(as_text=True)
     
-    if not content:
+    if content is None:
         return jsonify({'error': 'No content provided'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     # Ensure parent directory exists
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,15 +197,13 @@ def validate_headings():
 def trigger_build():
     """Trigger git commit and build deployment"""
     try:
-        # Change to project root
-        os.chdir(PROJECT_ROOT)
-        
         # Check if there are changes to commit
         status = subprocess.run(
             ['git', 'status', '--porcelain', 'content/'],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            cwd=PROJECT_ROOT
         )
         
         if not status.stdout.strip():
@@ -174,7 +215,8 @@ def trigger_build():
         # Add content changes
         subprocess.run(
             ['git', 'add', 'content/'],
-            check=True
+            check=True,
+            cwd=PROJECT_ROOT
         )
         
         # Commit changes
@@ -185,7 +227,8 @@ def trigger_build():
             commit_message = 'Content update via in-place editor'
         subprocess.run(
             ['git', 'commit', '-m', commit_message],
-            check=True
+            check=True,
+            cwd=PROJECT_ROOT
         )
         
         # Rebuild the site
@@ -197,7 +240,8 @@ def trigger_build():
             capture_output=True,
             text=True,
             check=True,
-            env=env
+            env=env,
+            cwd=PROJECT_ROOT
         )
         print("✅ Site rebuilt successfully")
         
@@ -205,9 +249,17 @@ def trigger_build():
         auto_push = os.environ.get('AUTO_PUSH', 'false').lower() == 'true'
         
         if auto_push:
+            branch = subprocess.run(
+                ['git', 'branch', '--show-current'],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=PROJECT_ROOT
+            ).stdout.strip()
             subprocess.run(
-                ['git', 'push', 'origin', 'main'],
-                check=True
+                ['git', 'push', 'origin', branch],
+                check=True,
+                cwd=PROJECT_ROOT
             )
             return jsonify({
                 'status': 'building',
@@ -231,39 +283,6 @@ def trigger_build():
             'status': 'error',
             'message': str(e)
         }), 500
-
-
-@app.route('/api/content/list')
-def list_content():
-    """List all editable content files"""
-    content_files = []
-    
-    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products']:
-        type_dir = CONTENT_DIR / content_type
-        if type_dir.exists():
-            for md_file in type_dir.glob('*.md'):
-                # Parse frontmatter to get title
-                try:
-                    content = md_file.read_text(encoding='utf-8')
-                    if content.startswith('---'):
-                        parts = content.split('---', 2)
-                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-                        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-                    else:
-                        title = md_file.stem.replace('-', ' ').title()
-                    
-                    content_files.append({
-                        'type': content_type,
-                        'slug': md_file.stem,
-                        'title': title,
-                        'path': content_type + "/" + md_file.stem,
-                        'url': "/" + content_type + "/" + md_file.stem + "/"
-                    })
-                except Exception as e:
-                    print("Error reading " + str(md_file) + ": " + str(e))
-    
-    return jsonify(content_files)
-
 
 if __name__ == '__main__':
     # Use port 5001 to avoid conflict with macOS AirPlay Receiver

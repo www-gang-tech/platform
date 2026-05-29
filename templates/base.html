@@ -44,7 +44,9 @@
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
-    <!-- Comments System (progressive enhancement) -->
+    {% if comments_enhancement %}
+    <!-- Optional AJAX comments enhancement; forms work without JavaScript. -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>

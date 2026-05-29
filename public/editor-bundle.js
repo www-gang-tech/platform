@@ -6,9 +6,11 @@ class InPlaceEditor {
         this.overlay = null;
         this.editorElement = null;
         this.originalContent = '';
+        this.frontmatter = '';
         this.currentFile = '';
         this.floatingToolbar = null;
         this.isActive = false;
+        this.apiBase = window.GANG_API_BASE || 'http://localhost:5001';
     }
 
     async activate() {
@@ -19,12 +21,15 @@ class InPlaceEditor {
         
         try {
             // Fetch content from API
-            const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`);
+            const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`);
             if (!response.ok) {
                 throw new Error('Failed to load content: ' + response.status);
             }
             
-            this.originalContent = await response.text();
+            const markdown = await response.text();
+            const parsed = this.parseFrontmatter(markdown);
+            this.frontmatter = parsed.frontmatter;
+            this.originalContent = parsed.body;
             
             // Create and show editor overlay
             this.createOverlay();
@@ -250,7 +255,36 @@ class InPlaceEditor {
             .trim();
     }
 
+    parseFrontmatter(markdown) {
+        if (!markdown.startsWith('---')) {
+            return { frontmatter: '', body: markdown };
+        }
+
+        const closing = markdown.indexOf('\n---', 3);
+        if (closing === -1) {
+            return { frontmatter: '', body: markdown };
+        }
+
+        const endOfFence = markdown.indexOf('\n', closing + 4);
+        if (endOfFence === -1) {
+            return { frontmatter: markdown, body: '' };
+        }
+
+        return {
+            frontmatter: markdown.slice(0, endOfFence + 1),
+            body: markdown.slice(endOfFence + 1)
+        };
+    }
+
+    composeMarkdown(body) {
+        return this.frontmatter ? this.frontmatter + body : body;
+    }
+
     getContent() {
+        return this.composeMarkdown(this.getBodyContent());
+    }
+
+    getBodyContent() {
         return this.htmlToMarkdown(this.editorElement.innerHTML);
     }
 
@@ -258,7 +292,7 @@ class InPlaceEditor {
         try {
             const content = this.getContent();
             
-            const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`, {
+            const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'text/plain',
@@ -271,18 +305,20 @@ class InPlaceEditor {
             }
             
             this.showNotification('Content saved successfully', 'success');
+            return true;
             
         } catch (error) {
             console.error('Save failed:', error);
             this.showNotification('Failed to save: ' + error.message, 'error');
+            throw error;
         }
     }
 
     async validateContent() {
         try {
-            const content = this.getContent();
+            const content = this.getBodyContent();
             
-            const response = await fetch('http://localhost:5001/api/validate-headings', {
+            const response = await fetch(`${this.apiBase}/api/validate-headings`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -299,7 +335,8 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const message = result.message || (result.errors || []).join('; ') || 'Unknown validation error';
+                this.showNotification('Validation failed: ' + message, 'error');
             }
             
         } catch (error) {
@@ -314,10 +351,13 @@ class InPlaceEditor {
             await this.saveContent();
             
             // Then trigger build/deploy
-            const buildResponse = await fetch('http://localhost:5001/api/build', { 
+            const buildResponse = await fetch(`${this.apiBase}/api/build`, { 
                 method: 'POST' 
             });
             const buildResult = await buildResponse.json();
+            if (!buildResponse.ok || buildResult.status === 'error') {
+                throw new Error(buildResult.message || 'Build failed');
+            }
             
             if (buildResult.status === 'committed') {
                 this.showNotification('Changes committed and site rebuilt! Page will reload in 3 seconds...', 'success');
@@ -350,11 +390,10 @@ class InPlaceEditor {
     }
 
     getCurrentFilePath() {
-        const pageType = document.body.dataset.pageType || 'page';
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
         }
         
