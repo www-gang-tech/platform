@@ -16,6 +16,7 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+from urllib.parse import urlparse
 
 @click.group()
 @click.pass_context
@@ -2369,6 +2370,20 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
         
+        comments_config = config.get('comments', {})
+        comments_enabled = comments_config.get('enabled', False)
+        comments_supported = context['page_type'] in ('post', 'product')
+        context['comments'] = []
+        context['comments_webhook_url'] = comments_config.get('webhook_url', '') if comments_enabled and comments_supported else ''
+        if comments_enabled and comments_supported:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import get_comments_for_build
+            context['comments'] = get_comments_for_build(content_path, slug, context['page_type'])
+        
         # Select template
         if content_type == 'posts':
             template_name = 'post.html'
@@ -2508,6 +2523,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             plp_html = plp_template.render(
                 products=products,
                 site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                canonical_url=f"{config['site']['url']}/products/",
                 year=datetime.now().year,
                 navigation=config.get('nav', {}).get('main', []),
                 build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -2582,6 +2599,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': str(offer.get('id', '')),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2605,6 +2623,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 # Prepare template variables
                 brand_data = product.get('brand', '')
                 brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+                shopify_store_domain = ''
+                if product.get('_meta', {}).get('source') == 'shopify':
+                    shopify_store_domain = os.environ.get('SHOPIFY_STORE_URL') or config.get('shopify', {}).get('store_url', '')
+                    if not shopify_store_domain:
+                        shopify_store_domain = urlparse(first_offer.get('url', '')).netloc
+                    shopify_store_domain = shopify_store_domain.replace('https://', '').replace('http://', '').strip('/')
                 
                 pdp_context = {
                     'lang': config['site'].get('language', 'en'),
@@ -2612,6 +2636,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'slug': slug,
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
@@ -2619,6 +2644,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'recurring': None,
                     'content': product.get('description', ''),
                     'buy_url': first_offer.get('url', '#'),
+                    'variant_id': str(first_offer.get('id', '')),
+                    'shopify_store_domain': shopify_store_domain,
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
@@ -2645,11 +2672,16 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             build_time = datetime.now()
             build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
             build_time_iso = build_time.isoformat()
+            shopify_store_domain = (os.environ.get('SHOPIFY_STORE_URL') or config.get('shopify', {}).get('store_url', ''))
+            shopify_store_domain = shopify_store_domain.replace('https://', '').replace('http://', '').strip('/')
             
             cart_template = jinja_env.get_template('cart.html')
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                canonical_url=f"{config['site']['url']}/cart/",
+                shopify_store_domain=shopify_store_domain,
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -3805,6 +3837,45 @@ def studio(ctx, port, host):
                 # Suppress HTTP request logs
                 pass
             
+            def _send_json(self, status, payload):
+                self.send_response(status)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps(payload).encode())
+            
+            def _resolve_content_path(self):
+                """Resolve an API content path and ensure it stays under content/."""
+                from urllib.parse import unquote, urlparse
+                
+                request_path = urlparse(self.path).path
+                file_path = unquote(request_path.removeprefix('/api/content/')).lstrip('/')
+                candidate = Path(file_path)
+                if not file_path or candidate.is_absolute() or '..' in candidate.parts:
+                    raise ValueError('Invalid file path')
+                
+                content_base = Path(config['build']['content']).resolve()
+                content_path = (content_base / candidate).resolve()
+                try:
+                    content_path.relative_to(content_base)
+                except ValueError:
+                    raise ValueError('Invalid file path')
+                
+                return content_base, content_path
+            
+            def _write_authorized(self):
+                """Require an editor token unless the studio server is local-only."""
+                expected_token = os.environ.get('GANG_EDITOR_TOKEN') or os.environ.get('EDITOR_AUTH_TOKEN')
+                if expected_token:
+                    auth_header = self.headers.get('Authorization', '')
+                    bearer = f"Bearer {expected_token}"
+                    return auth_header == bearer or self.headers.get('X-Editor-Token') == expected_token
+                
+                if os.environ.get('EDITOR_MODE', '').lower() == 'true':
+                    return True
+                
+                return host in ('127.0.0.1', 'localhost', '::1')
+            
             def do_GET(self):
                 if self.path == '/api/content':
                     try:
@@ -3846,9 +3917,7 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        _, content_path = self._resolve_content_path()
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -3866,7 +3935,10 @@ def studio(ctx, port, host):
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
                         click.echo(traceback.format_exc())
-                        self.send_error(500)
+                        if isinstance(e, ValueError):
+                            self._send_json(400, {'error': str(e)})
+                        else:
+                            self.send_error(500)
                 
                 elif self.path == '/' or self.path == '/studio.html':
                     # Serve studio UI
@@ -3939,6 +4011,10 @@ def studio(ctx, port, host):
                 
                 elif self.path == '/api/rename-slug':
                     try:
+                        if not self._write_authorized():
+                            self._send_json(401, {'error': 'Unauthorized'})
+                            return
+                        
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
                         body = self.rfile.read(content_length)
@@ -4052,6 +4128,10 @@ def studio(ctx, port, host):
                 elif self.path == '/api/products/sync':
                     # Sync products from Shopify/Stripe/Gumroad
                     try:
+                        if not self._write_authorized():
+                            self._send_json(401, {'error': 'Unauthorized'})
+                            return
+                        
                         sys.path.insert(0, str(Path(__file__).parent))
                         from core.products import ProductAggregator
                         
@@ -4084,10 +4164,12 @@ def studio(ctx, port, host):
                 """Handle PUT requests"""
                 if self.path.startswith('/api/content/'):
                     try:
+                        if not self._write_authorized():
+                            self._send_json(401, {'error': 'Unauthorized'})
+                            return
+                        
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = self._resolve_content_path()
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4095,6 +4177,7 @@ def studio(ctx, port, host):
                         content = body.decode()
                         
                         # Save file
+                        content_path.parent.mkdir(parents=True, exist_ok=True)
                         content_path.write_text(content)
                         click.echo(f"✅ Saved file: {content_path}")
                         
@@ -4111,14 +4194,11 @@ def studio(ctx, port, host):
                         import traceback
                         click.echo(f"❌ Error saving file: {e}")
                         click.echo(traceback.format_exc())
-                        self.send_response(500)
-                        self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.end_headers()
-                        self.wfile.write(json.dumps({
+                        status = 400 if isinstance(e, ValueError) else 500
+                        self._send_json(status, {
                             'error': 'Failed to save',
                             'message': str(e)
-                        }).encode())
+                        })
                 else:
                     self.send_error(404)
             
@@ -4126,6 +4206,10 @@ def studio(ctx, port, host):
                 """Handle DELETE requests"""
                 if self.path.startswith('/api/redirects/'):
                     try:
+                        if not self._write_authorized():
+                            self._send_json(401, {'error': 'Unauthorized'})
+                            return
+                        
                         # Get redirect path
                         from_path = self.path.replace('/api/redirects', '')
                         
@@ -4394,6 +4478,20 @@ def serve(ctx, port, host):
                         'user_authenticated': user_authenticated,
                     }
                     
+                    comments_config = config.get('comments', {})
+                    comments_enabled = comments_config.get('enabled', False)
+                    comments_supported = context['page_type'] in ('post', 'product')
+                    context['comments'] = []
+                    context['comments_webhook_url'] = comments_config.get('webhook_url', '') if comments_enabled and comments_supported else ''
+                    if comments_enabled and comments_supported:
+                        try:
+                            from core.comments import get_comments_for_build
+                        except ImportError:
+                            import sys
+                            sys.path.insert(0, str(Path(__file__).parent))
+                            from core.comments import get_comments_for_build
+                        context['comments'] = get_comments_for_build(content_path, slug, context['page_type'])
+                    
                     # Render HTML
                     try:
                         html = template_engine.render(template_name, context)
@@ -4567,6 +4665,7 @@ def serve(ctx, port, host):
                                         size_part = parts[1].strip() if len(parts) > 1 else ''
                                     
                                     variants_list.append({
+                                        'id': str(offer.get('id', '')),
                                         'name': variant_name,
                                         'color': color_part,
                                         'size': size_part,
@@ -4589,6 +4688,12 @@ def serve(ctx, port, host):
                             # Prepare template variables
                             brand_data = product.get('brand', '')
                             brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+                            shopify_store_domain = ''
+                            if product.get('_meta', {}).get('source') == 'shopify':
+                                shopify_store_domain = os.environ.get('SHOPIFY_STORE_URL') or config.get('shopify', {}).get('store_url', '')
+                                if not shopify_store_domain:
+                                    shopify_store_domain = urlparse(first_offer.get('url', '')).netloc
+                                shopify_store_domain = shopify_store_domain.replace('https://', '').replace('http://', '').strip('/')
                             
                             pdp_context = {
                                 'lang': config['site'].get('language', 'en'),
@@ -4596,6 +4701,7 @@ def serve(ctx, port, host):
                                 'title': product.get('name', ''),
                                 'description': product.get('description', ''),
                                 'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                                'slug': slug,
                                 'product_image': images[0] if images else '',
                                 'product_images': images,
                                 'price': first_offer.get('price', '0'),
@@ -4603,6 +4709,8 @@ def serve(ctx, port, host):
                                 'recurring': None,
                                 'content': product.get('description', ''),
                                 'buy_url': first_offer.get('url', '#'),
+                                'variant_id': str(first_offer.get('id', '')),
+                                'shopify_store_domain': shopify_store_domain,
                                 'variants': variants_list,
                                 'colors': colors_list,
                                 'sizes': sizes_list,
@@ -4629,10 +4737,15 @@ def serve(ctx, port, host):
                         build_time = datetime.now()
                         build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
                         build_time_iso = build_time.isoformat()
+                        shopify_store_domain = (os.environ.get('SHOPIFY_STORE_URL') or config.get('shopify', {}).get('store_url', ''))
+                        shopify_store_domain = shopify_store_domain.replace('https://', '').replace('http://', '').strip('/')
                         cart_template = jinja_env.get_template('cart.html')
                         cart_html = cart_template.render(
                             year=datetime.now().year,
                             site_title=config['site']['title'],
+                            lang=config['site'].get('language', 'en'),
+                            canonical_url=f"{config['site']['url']}/cart/",
+                            shopify_store_domain=shopify_store_domain,
                             lighthouse_scores=True,
                             build_time=build_time_formatted,
                             build_time_iso=build_time_iso,

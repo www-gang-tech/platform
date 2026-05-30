@@ -34,6 +34,12 @@
         
         if (!variant) return;
         
+        // Keep the cart payload aligned with the selected Shopify variant.
+        form.dataset.variantId = variant.id || '';
+        form.dataset.price = variant.price || '0';
+        form.dataset.currency = variant.currency || form.dataset.currency || 'USD';
+        form.dataset.sku = variant.sku || form.dataset.sku || '';
+        
         // Update price
         if (priceDisplay) {
             priceDisplay.textContent = `${variant.currency} ${variant.price}`;

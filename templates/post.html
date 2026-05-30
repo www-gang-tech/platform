@@ -53,9 +53,10 @@
     </ol>
     {% endif %}
     
-    <form 
-        method="POST" 
-        action="{{ comments_webhook_url }}" 
+    {% if comments_webhook_url %}
+    <form
+        method="POST"
+        action="{{ comments_webhook_url }}"
         id="comment-form"
         class="comment-form"
     >
@@ -111,6 +112,12 @@
         <button type="submit">Submit Comment</button>
         <p class="form-status" aria-live="polite"></p>
     </form>
+    {% endif %}
 </section>
 {% endblock %}
 
+{% block scripts %}
+{% if comments_webhook_url %}
+<script src="/assets/comments.js" defer></script>
+{% endif %}
+{% endblock %}

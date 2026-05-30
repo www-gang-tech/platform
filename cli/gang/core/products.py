@@ -46,11 +46,15 @@ class ProductSchema:
             inventory_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
             inventory_management = variant.get('inventory_management')  # 'shopify' if tracked, None if not
             inventory_policy = variant.get('inventory_policy', 'deny')  # 'continue' allows selling when out of stock
+            explicit_availability = variant.get('available', variant.get('availableForSale'))
             
             # Determine availability:
+            # - If the API provides an explicit availability boolean, trust it
             # - If inventory not tracked: Always in stock
             # - If inventory tracked: Check quantity > 0 OR policy allows overselling
-            if inventory_management is None or inventory_management == '':
+            if explicit_availability is not None:
+                in_stock = bool(explicit_availability)
+            elif inventory_management is None or inventory_management == '':
                 # Not tracking inventory - always available
                 in_stock = True
             elif inventory_policy == 'continue':
@@ -62,6 +66,7 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': str(variant.get('id', '')),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
