@@ -17,6 +17,7 @@ class SearchIndexer:
     def __init__(self, content_path: Path, config: Dict[str, Any]):
         self.content_path = content_path
         self.config = config
+        self.site_url = config.get('site', {}).get('url', 'https://example.com')
     
     def build_search_index(self, content_files: List[Path]) -> Dict[str, Any]:
         """
