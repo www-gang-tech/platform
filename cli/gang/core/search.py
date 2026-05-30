@@ -86,6 +86,9 @@ class SearchIndexer:
         
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
+        date_val = frontmatter.get('date', '')
+        if date_val and not isinstance(date_val, str):
+            date_val = str(date_val)
         
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
@@ -96,7 +99,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_val,
         }
     
     def _clean_markdown(self, text: str) -> str:
