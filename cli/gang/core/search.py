@@ -133,12 +133,14 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -229,9 +231,16 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header role="banner">
+        <nav aria-label="Main navigation">
+            <a href="/">__SITE_TITLE__</a>
+        </nav>
+    </header>
+    <main id="content">
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput">Search the site</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -358,6 +367,16 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__SITE_TITLE__', self.config.get('site', {}).get('title', 'Site'))
+            .replace('__CANONICAL_URL__', f"{self.site_url}/search/")
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 

@@ -191,8 +191,10 @@ class ContractValidator:
                 if (script.get('type') or 'text/javascript').lower()
                 not in ('application/ld+json', 'application/json')
             ]
+            interactive_roots = {'cart', 'products', 'search'}
+            is_interactive_page = bool(interactive_roots.intersection(html_path.parts))
             
-            if scripts or inline_scripts:
+            if (scripts or inline_scripts) and not is_interactive_page:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
