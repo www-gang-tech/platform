@@ -2334,7 +2334,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2999,13 +2999,15 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     for post in recent_posts:
         posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
     
+    canonical_url = f"{config['site']['url']}/"
+    
     # Create JSON-LD structured data
     jsonld = {
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": config['site']['title'],
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
@@ -3036,6 +3038,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3075,6 +3078,9 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
     
+    canonical_path = f"/{title.lower().replace(' ', '-')}/"
+    canonical_url = f"{config['site']['url']}{canonical_path}"
+    
     # Create JSON-LD structured data
     import json
     jsonld = {
@@ -3082,7 +3088,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3112,6 +3118,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3162,7 +3169,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = frontmatter.get('summary') or config['site']['description']
     
     # Build time for footer
     build_time = datetime.now()
@@ -4460,7 +4467,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': frontmatter.get('summary') or config['site']['description'],
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
