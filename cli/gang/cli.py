@@ -2325,6 +2325,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
         
+        seo_data = frontmatter.get('seo') or {}
+        description = (
+            frontmatter.get('summary')
+            or frontmatter.get('description')
+            or seo_data.get('description')
+            or config['site']['description']
+        )
+        
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
@@ -2336,7 +2344,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
