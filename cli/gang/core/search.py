@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -96,8 +96,16 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._json_safe_date(frontmatter.get('date', '')),
         }
+
+    def _json_safe_date(self, value: Any) -> str:
+        """Convert YAML date/datetime values into JSON-safe strings."""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        return str(value) if value else ''
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -130,12 +138,22 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        lang = site.get('language', 'en')
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        year = datetime.now().year
+
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'self'; form-action 'self';">
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search published __SITE_TITLE__ content.">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,19 +244,28 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <p><a href="/">GANG</a></p>
+    </header>
+    <main>
+        <h1>Search</h1>
+        
+        <div class="search-box">
+            <label for="searchInput">Search content</label>
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats" aria-live="polite"></div>
+        <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +384,10 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html.replace('__LANG__', lang)
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__CANONICAL_URL__', canonical_url)
+            .replace('__YEAR__', str(year))
+        )
 

@@ -360,32 +360,44 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        configured_sources = False
         
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
+            configured_sources = True
             client = ShopifyClient(shopify_config[0], shopify_config[1])
             products['shopify'] = client.fetch_products()
         elif self.config.get('demo_mode', False):
             # Only use demo if explicitly enabled
+            configured_sources = True
             client = ShopifyClient('demo.myshopify.com', 'demo')
             products['shopify'] = client.fetch_products()
         
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
+            configured_sources = True
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
         
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
+            configured_sources = True
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        if not configured_sources:
+            cached = self.load_cache()
+            if cached and isinstance(cached.get('products'), dict):
+                return cached['products']
+            return products
+        
+        # Avoid replacing a useful cache with an empty response from a failed fetch.
+        if any(products.values()):
+            self._save_cache(products)
         
         return products
     

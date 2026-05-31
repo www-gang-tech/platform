@@ -183,12 +183,14 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_javascript(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -196,6 +198,21 @@ class ContractValidator:
                 })
         
         return issues
+
+    def _allows_javascript(self, html_path: Path) -> bool:
+        """Allow JS budgets for intentionally interactive generated pages."""
+        parts = html_path.parts
+        return any(part in {'cart', 'products', 'search'} for part in parts)
+
+    def _is_executable_script(self, script) -> bool:
+        """Ignore data-only script tags such as JSON-LD and JSON payloads."""
+        script_type = (script.get('type') or '').strip().lower()
+        data_script_types = {
+            'application/ld+json',
+            'application/json',
+            'application/feed+json',
+        }
+        return script_type not in data_script_types
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
