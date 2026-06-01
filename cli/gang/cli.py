@@ -2340,17 +2340,24 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        seo_data = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+        description = (
+            frontmatter.get('summary')
+            or seo_data.get('description')
+            or config['site']['description']
+        )
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
             'date_formatted': str(frontmatter.get('date', '')),
-            'summary': frontmatter.get('summary', ''),
+            'summary': frontmatter.get('summary') or description,
             'image': frontmatter.get('image', ''),
             'role': frontmatter.get('role', ''),
             'section': frontmatter.get('section', ''),
@@ -3084,6 +3091,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3133,6 +3141,8 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "url": config['site']['url']
     }
     jsonld_str = json.dumps(jsonld, indent=2)
+    list_slug = title.lower().replace(' ', '-')
+    canonical_url = f"{config['site']['url']}/{list_slug}/"
     
     # Build timestamp
     build_time = datetime.now()
@@ -3160,6 +3170,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
