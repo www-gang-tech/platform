@@ -14,6 +14,41 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+
+    def _is_positive_tabindex(self, value: Any) -> bool:
+        try:
+            return int(value) > 0
+        except (TypeError, ValueError):
+            return False
+
+    def _is_invalid_tabindex(self, value: Any) -> bool:
+        if value in (None, ''):
+            return False
+        try:
+            int(value)
+            return False
+        except (TypeError, ValueError):
+            return True
+
+    def _is_interactive_page(self, html_path: Path) -> bool:
+        dist_path = Path(self.config.get('build', {}).get('output', './dist')).resolve()
+        try:
+            rel_path = html_path.resolve().relative_to(dist_path)
+        except ValueError:
+            rel_path = html_path
+
+        first_segment = rel_path.parts[0] if rel_path.parts else ''
+        return first_segment in {'cart', 'products', 'search', 'studio'}
+
+    def _is_executable_script(self, script) -> bool:
+        script_type = (script.get('type') or '').strip().lower()
+        data_script_types = {
+            '',
+            'text/javascript',
+            'application/javascript',
+            'module',
+        }
+        return script.has_attr('src') or script_type in data_script_types
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -100,7 +135,15 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            invalid_tabindex = soup.find_all(attrs={'tabindex': self._is_invalid_tabindex})
+            if invalid_tabindex:
+                issues.append({
+                    'severity': 'error',
+                    'rule': 'keyboard_nav',
+                    'message': f'Found {len(invalid_tabindex)} elements with non-numeric tabindex values',
+                })
+
+            bad_tabindex = soup.find_all(attrs={'tabindex': self._is_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -183,12 +226,14 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._is_interactive_page(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if executable_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',

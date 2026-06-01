@@ -8,10 +8,14 @@ Integrates with the build system to include approved comments in templates.
 import os
 import yaml
 import hashlib
+import html
+import markdown
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
+from urllib.parse import urlparse
 import click
+from bs4 import BeautifulSoup
 
 
 class CommentsManager:
@@ -51,6 +55,7 @@ class CommentsManager:
                 if comment_data.get('status') == 'approved':
                     # Add formatted date for templates
                     comment_data['date_formatted'] = self._format_date(comment_data.get('date'))
+                    comment_data['content_html'] = self._render_comment_content(comment_data.get('content', ''))
                     # Add gravatar URL
                     comment_data['gravatar_url'] = self._get_gravatar_url(comment_data.get('author', {}).get('email_hash'))
                     comments.append(comment_data)
@@ -210,6 +215,34 @@ class CommentsManager:
         if not email_hash:
             return ""
         return f"https://www.gravatar.com/avatar/{email_hash}?s={size}&d=identicon"
+
+    def _render_comment_content(self, content: str) -> str:
+        """Render Markdown comments while stripping unsafe HTML and URL schemes."""
+        escaped = html.escape(str(content or ''))
+        rendered = markdown.markdown(escaped, extensions=['extra'])
+        soup = BeautifulSoup(rendered, 'html.parser')
+        allowed_tags = {'p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'a'}
+        allowed_attrs = {'a': {'href', 'title'}}
+
+        for tag in soup.find_all(True):
+            if tag.name not in allowed_tags:
+                tag.unwrap()
+                continue
+
+            allowed = allowed_attrs.get(tag.name, set())
+            for attr in list(tag.attrs):
+                if attr not in allowed:
+                    del tag.attrs[attr]
+
+            if tag.name == 'a':
+                href = tag.get('href', '')
+                parsed = urlparse(href)
+                if parsed.scheme and parsed.scheme not in {'http', 'https', 'mailto'}:
+                    del tag.attrs['href']
+                else:
+                    tag.attrs['rel'] = 'nofollow noopener noreferrer'
+
+        return str(soup)
     
     def validate_comment_data(self, comment_data: Dict[str, Any]) -> List[str]:
         """Validate comment data and return list of errors."""

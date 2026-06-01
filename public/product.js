@@ -71,6 +71,18 @@
         if (variant.url) {
             form.action = variant.url;
         }
+
+        if (variant.id) {
+            form.dataset.variantId = variant.id;
+        }
+
+        if (variant.price) {
+            form.dataset.price = variant.price;
+        }
+
+        if (variant.sku) {
+            form.dataset.sku = variant.sku;
+        }
     }
     
     // Listen for changes

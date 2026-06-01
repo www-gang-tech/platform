@@ -7,11 +7,11 @@
     
     <title>Shopping Cart - GANG</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ site_url }}/cart/">
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body data-shopify-store-domain="{{ shopify_store_domain|default('') }}">
     {% include "partials/header.html" %}
     
     <nav aria-label="Breadcrumb" class="breadcrumb">
@@ -44,7 +44,7 @@
                 Shipping and taxes calculated at checkout
             </p>
             
-            <button onclick="proceedToCheckout()" class="button" style="width: 100%;">
+            <button id="checkout-button" type="button" class="button" style="width: 100%;">
                 Proceed to Checkout →
             </button>
             

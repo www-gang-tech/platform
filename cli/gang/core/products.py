@@ -62,6 +62,8 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': str(variant.get('id', '')),
+                'variant_id': str(variant.get('id', '')),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',

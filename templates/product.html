@@ -39,7 +39,7 @@
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body data-shopify-store-domain="{{ shopify_store_domain|default('') }}">
     {% include "partials/header.html" %}
     
     <main>
@@ -90,7 +90,8 @@
                       data-image="{{ product_image }}"
                       data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ sku }}">
+                      data-variant-id="{{ variant_id }}"
+                      data-shopify-store-domain="{{ shopify_store_domain|default('') }}">
                     
                     {% if colors %}
                     <div class="form-group">

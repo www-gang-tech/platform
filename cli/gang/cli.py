@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate generated pages against contract files"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -110,7 +110,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -123,6 +123,7 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
+        'people': 'person',
         'products': 'product'
     }
     
@@ -2261,6 +2262,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+
+        # Cloudflare Pages reads security headers only from the deploy root.
+        headers_file = public_path / '_headers'
+        if headers_file.exists():
+            shutil.copy2(headers_file, dist_path / '_headers')
     
     # Build content
     content_path = Path(config['build']['content'])
@@ -2268,6 +2274,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_posts = []
     all_projects = []
     all_newsletters = []
+    all_people = []
     
     # Parse markdown files
     if profiler:
@@ -2285,7 +2292,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Manually collect .md files to avoid Click recursion issue
     all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
+    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people']:
         category_path = content_path / category_dir
         if category_path.exists():
             for md_file in category_path.glob('*.md'):
@@ -2321,6 +2328,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
+
+        if md_file.parent.name == 'people':
+            import re
+            content_html = re.sub(r'^\s*<h1[^>]*>.*?</h1>\s*', '', content_html, count=1, flags=re.DOTALL)
         
         # Prepare context for template
         build_time = datetime.now()
@@ -2339,6 +2350,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
             'date_formatted': str(frontmatter.get('date', '')),
+            'summary': frontmatter.get('summary', ''),
+            'image': frontmatter.get('image', ''),
+            'role': frontmatter.get('role', ''),
+            'section': frontmatter.get('section', ''),
+            'social_links': frontmatter.get('social_links', []),
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
@@ -2368,6 +2384,20 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+
+        comments_config = config.get('comments', {})
+        comments_enabled = bool(comments_config.get('enabled')) and content_type == 'posts'
+        context['comments_enabled'] = comments_enabled
+        context['comments_webhook_url'] = comments_config.get('webhook_url', '') if comments_enabled else ''
+        context['comments'] = []
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import get_comments_for_build
+            context['comments'] = get_comments_for_build(content_path, slug, context['page_type'])
         
         # Select template
         if content_type == 'posts':
@@ -2376,6 +2406,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             template_name = 'article.html'  # Use article template for projects
         elif content_type == 'newsletters':
             template_name = 'newsletter.html'
+        elif content_type == 'people':
+            template_name = 'person.html'
         else:
             template_name = 'page.html'
         
@@ -2401,6 +2433,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'type': content_type,
             'content_html': content_html,
             'tags': context['tags'],
+            'image': context['image'],
+            'role': context['role'],
+            'section': context['section'],
         }
         
         # Add to appropriate collection (no duplicates)
@@ -2410,6 +2445,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             all_projects.append(page_data)
         elif content_type == 'newsletters':
             all_newsletters.append(page_data)
+        elif content_type == 'people':
+            all_people.append(page_data)
         elif content_type == 'pages':
             all_pages.append(page_data)
     
@@ -2455,6 +2492,32 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
+
+    if all_people:
+        click.echo("📄 Creating people index...")
+        people_sections = {}
+        for person in sorted(all_people, key=lambda x: x.get('title', '')):
+            section = person.get('section') or 'People'
+            people_sections.setdefault(section, []).append(person)
+        people_html = template_engine.render('people-list.html', {
+            'site_title': config['site']['title'],
+            'lang': config['site']['language'],
+            'title': 'People',
+            'description': f"People featured on {config['site']['title']}",
+            'canonical_url': f"{config['site']['url']}/people/",
+            'year': datetime.now().year,
+            'navigation': config.get('nav', {}).get('main', []),
+            'sections': people_sections,
+            'page_type': 'people',
+            'category': 'people',
+            'slug': 'index',
+            'user_authenticated': False,
+            'comments_enabled': False,
+        })
+        page_size_bytes = len(people_html.encode('utf-8'))
+        people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+        (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+        (dist_path / 'people' / 'index.html').write_text(people_html)
     
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
@@ -2463,9 +2526,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_people:
+        all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_newsletters + all_people
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2488,7 +2553,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate product pages (only active products)
     try:
         from core.products import ProductAggregator
-        from jinja2 import Environment, FileSystemLoader
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
         
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
@@ -2498,7 +2563,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             # Setup Jinja2
             template_dir = Path(__file__).parent.parent.parent / 'templates'
-            jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+            jinja_env = Environment(
+                loader=FileSystemLoader(str(template_dir)),
+                autoescape=select_autoescape(['html', 'xml'])
+            )
+            shopify_store_domain = (
+                os.environ.get('SHOPIFY_STORE_URL')
+                or os.environ.get('SHOPIFY_STORE_DOMAIN')
+                or config.get('shopify', {}).get('store_url', '')
+                or config.get('shopify', {}).get('store_domain', '')
+            )
+            shopify_store_domain = shopify_store_domain.replace('https://', '').replace('http://', '').strip('/')
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -2582,6 +2657,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': offer.get('variant_id') or offer.get('id') or offer.get('sku', ''),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2616,6 +2692,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
                     'currency': first_offer.get('priceCurrency', 'USD'),
+                    'variant_id': first_offer.get('variant_id') or first_offer.get('id') or first_offer.get('sku', ''),
                     'recurring': None,
                     'content': product.get('description', ''),
                     'buy_url': first_offer.get('url', '#'),
@@ -2630,7 +2707,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'year': datetime.now().year,
                     'navigation': config.get('nav', {}).get('main', []),
                     'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                    'build_time_iso': datetime.now().isoformat()
+                    'build_time_iso': datetime.now().isoformat(),
+                    'shopify_store_domain': shopify_store_domain
                 }
                 
                 pdp_html = pdp_template.render(**pdp_context)
@@ -2653,7 +2731,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
-                description=config['site']['description']
+                description=config['site']['description'],
+                site_url=config['site']['url'],
+                shopify_store_domain=shopify_store_domain
             )
             (cart_dir / 'index.html').write_text(cart_html)
             
@@ -3558,7 +3638,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
