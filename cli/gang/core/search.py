@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
+import html
 from datetime import datetime
 import yaml
 
@@ -130,12 +131,21 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        lang = html.escape(str(site.get('language', 'en')))
+        site_title = html.escape(str(site.get('title', 'GANG')))
+        description = html.escape(f"Search content on {site.get('title', 'GANG')}")
+        canonical_url = html.escape(f"{str(site.get('url', '')).rstrip('/')}/search/")
+        year = datetime.now().year
+
+        page_html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +236,12 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <p><a href="/">__SITE_TITLE__</a></p>
+    </header>
+
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -240,6 +255,12 @@ class SearchIndexer:
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
     
+    </main>
+
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
+
     <script>
         let searchIndex = null;
         
@@ -357,4 +378,12 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            page_html
+            .replace('__LANG__', lang)
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', canonical_url)
+            .replace('__YEAR__', str(year))
+        )
 
