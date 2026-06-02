@@ -2261,6 +2261,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
+
+        seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+        description = (
+            frontmatter.get('summary')
+            or frontmatter.get('description')
+            or seo.get('description')
+        )
+        if not description:
+            import re
+            plain_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]*>', ' ', content_html)).strip()
+            description = plain_text[:160] if plain_text else config['site']['description']
         
         # Prepare context for template
         build_time = datetime.now()
@@ -2273,7 +2284,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -4305,6 +4316,17 @@ def serve(ctx, port, host):
                     
                     # Process external links to open in new tabs
                     content_html = process_external_links(content_html)
+
+                    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+                    description = (
+                        frontmatter.get('summary')
+                        or frontmatter.get('description')
+                        or seo.get('description')
+                    )
+                    if not description:
+                        import re
+                        plain_text = re.sub(r'\s+', ' ', re.sub(r'<[^>]*>', ' ', content_html)).strip()
+                        description = plain_text[:160] if plain_text else config['site']['description']
                     
                     # Prepare context
                     slug = md_file.stem
@@ -4330,7 +4352,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),

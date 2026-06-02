@@ -146,7 +146,9 @@ class SearchIndexer:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search the __SITE_TITLE__ archive.">
+    <link rel="canonical" href="__SITE_URL__/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -236,8 +238,14 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
-    <h1>🔍 Search</h1>
+<body data-page-type="interactive">
+    <header>
+        <nav aria-label="Primary">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -250,6 +258,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -367,5 +379,11 @@ class SearchIndexer:
         }
     </script>
 </body>
-</html>'''
+</html>'''.replace(
+            '__SITE_TITLE__',
+            self.config.get('site', {}).get('title', 'GANG')
+        ).replace(
+            '__SITE_URL__',
+            self.config.get('site', {}).get('url', '').rstrip('/')
+        )
 

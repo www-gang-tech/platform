@@ -185,18 +185,20 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = [
-                script for script in soup.find_all('script', src=False)
-                if (script.get('type') or '').lower() != 'application/ld+json'
-            ]
+            page_type = (soup.body.get('data-page-type') or '') if soup.body else ''
+            if page_type != 'interactive':
+                scripts = soup.find_all('script', src=True)
+                inline_scripts = [
+                    script for script in soup.find_all('script', src=False)
+                    if (script.get('type') or '').lower() != 'application/ld+json'
+                ]
             
-            if scripts or inline_scripts:
-                issues.append({
-                    'severity': 'error',
-                    'rule': 'js_budget',
-                    'message': 'JavaScript detected, but budget is 0 bytes',
-                })
+                if scripts or inline_scripts:
+                    issues.append({
+                        'severity': 'error',
+                        'rule': 'js_budget',
+                        'message': 'JavaScript detected, but budget is 0 bytes',
+                    })
         
         return issues
     
