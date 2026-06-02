@@ -92,66 +92,6 @@ def report(ctx, answerability, format):
             click.echo(f"\n✅ Answerability check passed!")
 
 @cli.command()
-@click.option('--verbose', is_flag=True, help='Show detailed validation results')
-@click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
-    try:
-        from core.contract_validator import ContractValidator
-    except ImportError:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        from core.contract_validator import ContractValidator
-    
-    config = ctx.obj
-    dist_path = Path(config['build']['output'])
-    contracts_dir = Path('contracts')
-    
-    if not contracts_dir.exists():
-        click.echo("❌ Contracts directory not found", err=True)
-        click.echo("   Expected: ./contracts/*.yml")
-        return
-    
-    validator = ContractValidator(contracts_dir)
-    
-    click.echo("Score Validating site against contracts...\n")
-    
-    results = []
-    
-    # Map dist paths to content types
-    type_mapping = {
-        'posts': 'post',
-        'pages': 'page',
-        'projects': 'project',
-        'products': 'product'
-    }
-    
-    for content_type_dir, contract_type in type_mapping.items():
-        type_path = dist_path / content_type_dir
-        if not type_path.exists():
-            continue
-        
-        for html_file in type_path.rglob('index.html'):
-            result = validator.validate_file(html_file, contract_type)
-            results.append(result)
-            
-            if verbose:
-                status = "✅" if result['valid'] else "❌"
-                click.echo(f"{status} {html_file.relative_to(dist_path)}")
-                if not result['valid'] and result['errors']:
-                    for error in result['errors'][:3]:
-                        click.echo(f"    • {error}")
-    
-    # Generate Explain report
-    report = validator.generate_explain_report(results)
-    click.echo("\n" + report)
-    
-    # Exit with error if any failures
-    failed = [r for r in results if not r['valid']]
-    if failed:
-        ctx.exit(1)
-
-@cli.command()
 @click.option('--force', is_flag=True, help='Force re-optimization of all files')
 @click.pass_context
 def optimize(ctx, force):
@@ -3541,8 +3481,9 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
+@click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, output):
+def check(ctx, output, verbose):
     """Validate Template Contracts and WCAG compliance"""
     try:
         from core.validator import ContractValidator
@@ -3573,16 +3514,23 @@ def check(ctx, output):
     # Print file details
     for file_result in results['files']:
         file_summary = file_result['summary']
-        if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+        if verbose or not file_summary['passed']:
+            icon = "✅" if file_summary['passed'] else "❌"
+            rel_path = Path(file_result['file'])
+            try:
+                rel_path = rel_path.relative_to(dist_path)
+            except ValueError:
+                pass
+            click.echo(f"\n{icon} {rel_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
-            
+
+        if not file_summary['passed']:
             # Show issues
             for category in ['semantic', 'accessibility', 'seo', 'budgets']:
                 issues = file_result[category]
                 for issue in issues:
-                    icon = '🔴' if issue['severity'] == 'error' else '🟡'
-                    click.echo(f"   {icon} [{issue['rule']}] {issue['message']}")
+                    issue_icon = '🔴' if issue['severity'] == 'error' else '🟡'
+                    click.echo(f"   {issue_icon} [{issue['rule']}] {issue['message']}")
     
     # Save JSON report if requested
     if output:
@@ -3773,10 +3721,14 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
+    stats = result['stats']
     
-    total_variants = sum(len(variants) for variants in image_map.values())
-    click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    click.echo(f"✅ Processed {stats['total_images']} images into {stats['total_variants']} variants")
+    if stats['total_images'] > 0:
+        savings_kb = stats['savings_bytes'] / 1024
+        click.echo(f"💾 Saved {savings_kb:.1f}KB ({stats['savings_percent']:.1f}% reduction)")
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")
