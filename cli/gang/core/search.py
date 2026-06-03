@@ -140,12 +140,14 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ articles, projects, and pages.">
+    <link rel="canonical" href="__CANONICAL_URL__">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -158,6 +160,24 @@ class SearchIndexer:
             margin: 0 auto;
         }
         h1 { margin-bottom: 2rem; font-size: 2rem; }
+        .site-header,
+        .site-footer {
+            margin-bottom: 2rem;
+        }
+        .site-footer {
+            margin-top: 3rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .visually-hidden {
+            clip: rect(0 0 0 0);
+            clip-path: inset(50%);
+            height: 1px;
+            overflow: hidden;
+            position: absolute;
+            white-space: nowrap;
+            width: 1px;
+        }
         .search-box {
             margin-bottom: 2rem;
             position: relative;
@@ -236,9 +256,14 @@ class SearchIndexer:
     </style>
 </head>
 <body>
+    <header class="site-header">
+        <a href="/">__SITE_TITLE__</a>
+    </header>
+    <main>
     <h1>🔍 Search</h1>
     
     <div class="search-box">
+        <label class="visually-hidden" for="searchInput">Search articles, projects, and pages</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -365,6 +390,20 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    </main>
+    <footer class="site-footer">
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
 </body>
 </html>'''
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        canonical_url = f"{site.get('url', '').rstrip('/')}/search/"
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__CANONICAL_URL__', canonical_url)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
