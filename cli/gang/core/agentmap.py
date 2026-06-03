@@ -48,7 +48,7 @@ class AgentMapGenerator:
             'endpoints': {
                 'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
-                'search': f"{self.site_url}/api/search.json",
+                'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
             },
             
@@ -60,7 +60,7 @@ class AgentMapGenerator:
             },
             
             'search': {
-                'endpoint': f"{self.site_url}/api/search.json",
+                'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
                 'parameters': ['q', 'category', 'limit'],
                 'description': 'Full-text search across all content'
@@ -86,20 +86,21 @@ class AgentMapGenerator:
         
         for file_path in content_files:
             category = file_path.parent.name
+            public_category = 'posts' if category == 'articles' else category
             
-            if category not in by_category:
-                by_category[category] = []
+            if public_category not in by_category:
+                by_category[public_category] = []
                 types.append({
-                    'type': category,
-                    'url': f"{self.site_url}/{category}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}.json"
+                    'type': public_category,
+                    'url': f"{self.site_url}/{public_category}/",
+                    'apiEndpoint': f"{self.site_url}/api/{public_category}.json"
                 })
             
             slug = file_path.stem
-            by_category[category].append({
+            by_category[public_category].append({
                 'slug': slug,
-                'url': f"{self.site_url}/{category}/{slug}/",
-                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json"
+                'url': f"{self.site_url}/{public_category}/{slug}/",
+                'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json"
             })
         
         return {

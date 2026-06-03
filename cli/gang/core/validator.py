@@ -14,6 +14,13 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+        self.non_executable_script_types = {
+            'application/ld+json',
+            'application/json',
+            'application/manifest+json',
+            'application/schema+json',
+            'application/importmap+json',
+        }
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -100,7 +107,7 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            bad_tabindex = soup.find_all(attrs={'tabindex': self._has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -109,6 +116,34 @@ class ContractValidator:
                 })
         
         return issues
+
+    def _has_positive_tabindex(self, value: str) -> bool:
+        """Return True only for valid positive tabindex values."""
+        if not value:
+            return False
+        try:
+            return int(value) > 0
+        except (TypeError, ValueError):
+            return False
+    
+    def _is_executable_script(self, script) -> bool:
+        """Separate executable JavaScript from JSON data script tags."""
+        script_type = (script.get('type') or '').strip().lower()
+        if script_type in self.non_executable_script_types:
+            return False
+        return True
+    
+    def _is_allowed_interactive_script(self, html_path: Path, soup: BeautifulSoup, script) -> bool:
+        """Allow JavaScript only on pages that are intentionally interactive."""
+        page_path = html_path.as_posix()
+        if any(segment in page_path for segment in ('/search/', '/cart/', '/products/')):
+            return True
+        
+        src = script.get('src') or ''
+        if src.endswith('/assets/comments.js') and soup.find('form', attrs={'id': 'comment-form'}):
+            return True
+        
+        return False
     
     def check_seo(self, html: str) -> List[Dict]:
         """Check SEO requirements"""
@@ -167,32 +202,38 @@ class ContractValidator:
                 'message': f'HTML size {html_size} bytes exceeds budget {html_budget} bytes',
             })
         
+        content = html_path.read_text(encoding='utf-8')
+        
         # Check inline CSS size
-        with open(html_path, 'r') as f:
-            content = f.read()
-            style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
-            css_size = sum(len(style) for style in style_tags)
-            css_budget = self.budgets.get('css', float('inf'))
-            
-            if css_size > css_budget:
-                issues.append({
-                    'severity': 'error',
-                    'rule': 'css_budget',
-                    'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
-                })
+        style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
+        css_size = sum(len(style) for style in style_tags)
+        css_budget = self.budgets.get('css', float('inf'))
+        
+        if css_size > css_budget:
+            issues.append({
+                'severity': 'error',
+                'rule': 'css_budget',
+                'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
+            })
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
+            disallowed_scripts = [
+                script for script in executable_scripts
+                if not self._is_allowed_interactive_script(html_path, soup, script)
+            ]
             
-            if scripts or inline_scripts:
+            if disallowed_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
-                    'message': 'JavaScript detected, but budget is 0 bytes',
+                    'message': f'JavaScript detected in {len(disallowed_scripts)} script tag(s), but budget is 0 bytes',
                 })
         
         return issues

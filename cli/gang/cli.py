@@ -13,6 +13,7 @@ import shutil
 import markdown
 import time
 import threading
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -2288,7 +2289,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
         category_path = content_path / category_dir
         if category_path.exists():
-            for md_file in category_path.glob('*.md'):
+            for md_file in category_path.rglob('*.md'):
                 all_md_files.append(md_file)
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
@@ -2322,6 +2323,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
         
+        seo_metadata = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+        description = (
+            frontmatter.get('summary')
+            or frontmatter.get('description')
+            or seo_metadata.get('description')
+            or config['site']['description']
+        )
+        
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
@@ -2333,7 +2342,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2356,6 +2365,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             # Update context to reflect the change
             context['page_type'] = 'post'
             context['category'] = 'posts'
+        
+        comments_config = config.get('comments', {})
+        comments_enabled = bool(comments_config.get('enabled')) and content_type == 'posts'
+        comments = []
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import get_comments_for_build
+            comments = get_comments_for_build(content_path, slug, 'post')
+        
+        context['comments_enabled'] = comments_enabled
+        context['comments'] = comments
+        context['comments_webhook_url'] = comments_config.get('webhook_url', '')
         
         # Add canonical URL
         if content_type == 'posts':
@@ -2435,7 +2459,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         newsletters_dir = dist_path / 'newsletters'
         newsletters_dir.mkdir(parents=True, exist_ok=True)
         
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
+        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path, '/newsletters/')
         page_size_bytes = len(newsletters_html.encode('utf-8'))
         newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (newsletters_dir / 'index.html').write_text(newsletters_html)
@@ -2443,7 +2467,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Create list pages
     # Always create posts index page, even if empty
     click.echo("📄 Creating posts index...")
-    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path, '/posts/')
     page_size_bytes = len(posts_html.encode('utf-8'))
     posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
@@ -2451,7 +2475,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     if all_projects:
         click.echo("📄 Creating projects index...")
-        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
+        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path, '/projects/')
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
@@ -2686,10 +2710,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = publishable_files
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2712,12 +2733,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        # Use the same content set rendered into HTML so generated APIs never
+        # advertise markdown files that do not have public pages.
+        publishable_paths = publishable_files
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -2977,6 +2995,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
+    canonical_url = f"{config['site']['url'].rstrip('/')}/"
     
     # Build timestamp
     build_time = datetime.now()
@@ -3004,6 +3023,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3034,7 +3054,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
+def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None, path: str = None) -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
@@ -3045,12 +3065,14 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     
     # Create JSON-LD structured data
     import json
+    path = path or f"/{title.lower()}/"
+    canonical_url = f"{config['site']['url'].rstrip('/')}{path}"
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3102,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3558,7 +3581,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     

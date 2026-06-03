@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -59,22 +59,26 @@ class SearchIndexer:
         
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        description = frontmatter.get('description') or frontmatter.get('summary') or ''
+        tags = frontmatter.get('tags') or []
+        if isinstance(tags, str):
+            tags = [tags]
+        tags = [str(tag) for tag in tags]
         category = file_path.parent.name
+        public_category = 'posts' if category == 'articles' else category
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if public_category == 'posts':
             url = f"/posts/{slug}/"
-        elif category == 'projects':
+        elif public_category == 'projects':
             url = f"/projects/{slug}/"
-        elif category == 'pages':
+        elif public_category == 'pages':
             url = f"/pages/{slug}/"
-        elif category == 'people':
+        elif public_category == 'people':
             url = f"/people/{slug}/"
         else:
-            url = f"/{category}/{slug}/"
+            url = f"/{public_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,12 +96,18 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': public_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._serialize_date(frontmatter.get('date', '')),
         }
+
+    def _serialize_date(self, value: Any) -> str:
+        """Convert YAML date/datetime values to JSON-safe strings."""
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value) if value is not None else ''
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
