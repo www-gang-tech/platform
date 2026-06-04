@@ -60,7 +60,11 @@ class SearchIndexer:
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        tags = frontmatter.get('tags') or []
+        if isinstance(tags, str):
+            tags = [tags]
+        else:
+            tags = [str(tag) for tag in tags]
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +100,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -136,6 +140,8 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search the GANG publishing archive.">
+    <link rel="canonical" href="/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,9 +232,16 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
+    <header>
+        <nav aria-label="Primary">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
+
     <div class="search-box">
+        <label for="searchInput">Search the archive</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -237,8 +250,12 @@ class SearchIndexer:
         >
     </div>
     
-    <div id="searchStats" class="search-stats"></div>
+    <div id="searchStats" class="search-stats" aria-live="polite"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p><a href="/sitemap/">Sitemap</a></p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -282,7 +299,7 @@ class SearchIndexer:
                     }
                     
                     // Exact match in content
-                    const regex = new RegExp(term, 'gi');
+                    const regex = new RegExp(escapeRegExp(term), 'gi');
                     const matches = (searchable.match(regex) || []).length;
                     score += matches;
                 }
@@ -333,6 +350,10 @@ class SearchIndexer:
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+        
+        function escapeRegExp(text) {
+            return text.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&');
         }
         
         // Debounced search
