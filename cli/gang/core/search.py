@@ -134,7 +134,7 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        return r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">

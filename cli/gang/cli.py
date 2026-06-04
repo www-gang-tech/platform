@@ -2329,11 +2329,19 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        seo_data = frontmatter.get('seo') or {}
+        description = (
+            frontmatter.get('description')
+            or seo_data.get('description')
+            or frontmatter.get('summary')
+            or config['site']['description']
+        )
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
