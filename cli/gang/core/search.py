@@ -64,17 +64,9 @@ class SearchIndexer:
         category = file_path.parent.name
         
         # Generate URL
-        slug = file_path.stem
-        if category == 'posts':
-            url = f"/posts/{slug}/"
-        elif category == 'projects':
-            url = f"/projects/{slug}/"
-        elif category == 'pages':
-            url = f"/pages/{slug}/"
-        elif category == 'people':
-            url = f"/people/{slug}/"
-        else:
-            url = f"/{category}/{slug}/"
+        slug = str(frontmatter.get('slug') or file_path.stem)
+        public_category = 'posts' if category == 'articles' else category
+        url = f"/{public_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,12 +84,19 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': public_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._date_to_string(frontmatter.get('date')),
         }
+    
+    def _date_to_string(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""

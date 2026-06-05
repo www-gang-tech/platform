@@ -85,7 +85,8 @@ class AgentMapGenerator:
         types = []
         
         for file_path in content_files:
-            category = file_path.parent.name
+            category = self._public_category(file_path.parent.name)
+            frontmatter = self._read_frontmatter(file_path)
             
             if category not in by_category:
                 by_category[category] = []
@@ -95,7 +96,7 @@ class AgentMapGenerator:
                     'apiEndpoint': f"{self.site_url}/api/{category}.json"
                 })
             
-            slug = file_path.stem
+            slug = str(frontmatter.get('slug') or file_path.stem)
             by_category[category].append({
                 'slug': slug,
                 'url': f"{self.site_url}/{category}/{slug}/",
@@ -130,6 +131,21 @@ class AgentMapGenerator:
                 platforms.add(source)
         
         return list(platforms)
+    
+    def _public_category(self, category: str) -> str:
+        return 'posts' if category == 'articles' else category
+    
+    def _read_frontmatter(self, file_path: Path) -> Dict[str, Any]:
+        import yaml
+        try:
+            content = file_path.read_text()
+            if content.startswith('---'):
+                parts = content.split('---', 2)
+                if len(parts) >= 3:
+                    return yaml.safe_load(parts[1]) or {}
+        except Exception:
+            pass
+        return {}
 
 
 class ContentAPIGenerator:
@@ -164,8 +180,8 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
-                category = file_path.parent.name
-                slug = file_path.stem
+                category = self._public_category(file_path.parent.name)
+                slug = str(frontmatter.get('slug') or file_path.stem)
                 
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
@@ -174,7 +190,7 @@ class ContentAPIGenerator:
                     'category': category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),
-                    'date': str(frontmatter.get('date', '')),
+                    'date': self._date_to_string(frontmatter.get('date')),
                     'tags': frontmatter.get('tags', [])
                 }
                 
@@ -214,8 +230,8 @@ class ContentAPIGenerator:
         import re
         content_text = re.sub('<[^<]+?>', '', content_html)
         
-        category = file_path.parent.name
-        slug = file_path.stem
+        category = self._public_category(file_path.parent.name)
+        slug = str(frontmatter.get('slug') or file_path.stem)
         
         return {
             'title': frontmatter.get('title', slug.replace('-', ' ').title()),
@@ -230,4 +246,14 @@ class ContentAPIGenerator:
             },
             'retrieved': datetime.now().isoformat()
         }
+    
+    def _public_category(self, category: str) -> str:
+        return 'posts' if category == 'articles' else category
+    
+    def _date_to_string(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
 

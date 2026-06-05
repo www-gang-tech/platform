@@ -22,8 +22,11 @@ class ContractValidator:
         contracts = {}
         
         for contract_file in self.contracts_dir.glob('*.yml'):
-            contract = yaml.safe_load(contract_file.read_text())
-            contracts[contract['type']] = contract
+            contract = yaml.safe_load(contract_file.read_text()) or {}
+            contract_type = contract.get('type')
+            if not contract_type:
+                continue
+            contracts[contract_type] = contract
         
         return contracts
     
@@ -149,23 +152,56 @@ class ContractValidator:
         required_type = jsonld_rules.get('required_type')
         required_props = jsonld_rules.get('required_props', [])
         
+        valid_items = []
         for script in jsonld_scripts:
             try:
                 data = json.loads(script.string)
-                
-                # Check @type
-                if required_type and data.get('@type') != required_type:
-                    errors.append(f"JSON-LD @type is '{data.get('@type')}', expected '{required_type}'")
-                
-                # Check required props
-                for prop in required_props:
-                    if prop not in data:
-                        errors.append(f"Missing required JSON-LD property: {prop}")
-                
+                valid_items.extend(self._flatten_jsonld(data))
             except json.JSONDecodeError:
                 errors.append("Invalid JSON-LD: failed to parse")
         
+        if errors:
+            return {'errors': errors}
+        
+        matching_items = [
+            item for item in valid_items
+            if not required_type or item.get('@type') == required_type
+        ]
+        
+        if required_type and not matching_items:
+            found_types = sorted({
+                str(item.get('@type'))
+                for item in valid_items
+                if item.get('@type') is not None
+            })
+            errors.append(
+                f"JSON-LD @type not found: expected '{required_type}'"
+                + (f", found {', '.join(found_types)}" if found_types else "")
+            )
+            return {'errors': errors}
+        
+        candidate_items = matching_items or valid_items
+        if required_props and not any(all(prop in item for prop in required_props) for item in candidate_items):
+            best_item = max(candidate_items, key=lambda item: sum(1 for prop in required_props if prop in item), default={})
+            missing = [prop for prop in required_props if prop not in best_item]
+            for prop in missing:
+                errors.append(f"Missing required JSON-LD property: {prop}")
+        
         return {'errors': errors}
+    
+    def _flatten_jsonld(self, data: Any) -> List[Dict[str, Any]]:
+        """Return all object nodes from JSON-LD dicts, arrays, and @graph."""
+        if isinstance(data, list):
+            items = []
+            for item in data:
+                items.extend(self._flatten_jsonld(item))
+            return items
+        if isinstance(data, dict):
+            graph = data.get('@graph')
+            if isinstance(graph, list):
+                return [data] + self._flatten_jsonld(graph)
+            return [data]
+        return []
     
     def _check_meta(self, soup: BeautifulSoup, meta_rules: Dict) -> Dict[str, List[str]]:
         """Check meta tags"""

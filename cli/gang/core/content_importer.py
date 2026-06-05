@@ -457,13 +457,22 @@ class SlugChecker:
         duplicates = {}
         
         # Scan all content types
-        for content_type in ['posts', 'pages', 'projects', 'newsletters', 'people']:
+        for content_type in ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue
             
             for md_file in type_path.glob('*.md'):
                 slug = md_file.stem
+                try:
+                    content = md_file.read_text()
+                    if content.startswith('---'):
+                        parts = content.split('---', 2)
+                        if len(parts) >= 3:
+                            frontmatter = yaml.safe_load(parts[1]) or {}
+                            slug = str(frontmatter.get('slug') or slug)
+                except Exception:
+                    pass
                 
                 if slug not in slug_map:
                     slug_map[slug] = []

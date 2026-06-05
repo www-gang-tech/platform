@@ -201,11 +201,21 @@ class LinkValidator:
         
         content_type = parts[0]  # posts, pages, projects, etc.
         slug = rel_path.stem
+        try:
+            content = md_file.read_text()
+            if content.startswith('---'):
+                frontmatter_parts = content.split('---', 2)
+                if len(frontmatter_parts) >= 3:
+                    frontmatter = yaml.safe_load(frontmatter_parts[1]) or {}
+                    slug = str(frontmatter.get('slug') or slug)
+        except Exception:
+            pass
         
-        if content_type in ['posts', 'projects', 'people']:
+        if content_type == 'articles':
+            content_type = 'posts'
+        
+        if content_type in ['posts', 'projects', 'people', 'pages', 'newsletters']:
             return f'/{content_type}/{slug}/'
-        elif content_type == 'pages':
-            return f'/pages/{slug}/'
         
         return None
     

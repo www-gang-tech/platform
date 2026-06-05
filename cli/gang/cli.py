@@ -43,6 +43,35 @@ def cli(ctx):
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
 
+
+def _frontmatter_slug(frontmatter: Dict, file_path: Path) -> str:
+    """Return the public slug for a content file."""
+    return str(frontmatter.get('slug') or file_path.stem)
+
+
+def _public_content_type(content_type: str) -> str:
+    """Map source content folders to their generated route folder."""
+    return 'posts' if content_type == 'articles' else content_type
+
+
+def _content_url(content_type: str, slug: str) -> str:
+    """Return the generated URL path for a content item."""
+    return f"/{_public_content_type(content_type)}/{slug}/"
+
+
+def _date_to_string(value) -> str:
+    """Normalize YAML date/datetime/scalar values for JSON and sorting."""
+    if value is None:
+        return ''
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+
+def _date_sort_key(item: Dict) -> str:
+    return _date_to_string(item.get('date'))
+
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -91,11 +120,8 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
-@click.option('--verbose', is_flag=True, help='Show detailed validation results')
-@click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def _run_type_contract_check(ctx, verbose=False) -> int:
+    """Validate generated pages against contracts/*.yml; return failure count."""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -108,13 +134,13 @@ def check(ctx, verbose):
     contracts_dir = Path('contracts')
     
     if not contracts_dir.exists():
-        click.echo("❌ Contracts directory not found", err=True)
+        click.echo("⚠️  Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        return 0
     
     validator = ContractValidator(contracts_dir)
     
-    click.echo("Score Validating site against contracts...\n")
+    click.echo("📄 Validating page type contracts...\n")
     
     results = []
     
@@ -148,8 +174,7 @@ def check(ctx, verbose):
     
     # Exit with error if any failures
     failed = [r for r in results if not r['valid']]
-    if failed:
-        ctx.exit(1)
+    return len(failed)
 
 @cli.command()
 @click.option('--force', is_flag=True, help='Force re-optimization of all files')
@@ -2232,27 +2257,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         shutil.rmtree(dist_path)
     dist_path.mkdir(parents=True, exist_ok=True)
     
-    # Optimize images if requested
-    if optimize_images:
-        from core.images import ImageProcessor
-        click.echo("🖼️  Optimizing images...")
-        
-        public_path = Path(config['build']['public'])
-        images_source = public_path / 'images' if (public_path / 'images').exists() else public_path
-        images_output = dist_path / 'assets' / 'images'
-        images_output.mkdir(parents=True, exist_ok=True)
-        
-        processor = ImageProcessor(config)
-        result = processor.process_all_images(images_source, images_output)
-        
-        stats = result['stats']
-        if stats['total_images'] > 0:
-            savings_kb = stats['savings_bytes'] / 1024
-            click.echo(f"  Best Practices Optimized {stats['total_images']} image(s) → {stats['total_variants']} variants")
-            click.echo(f"  💾 Saved {savings_kb:.1f}KB ({stats['savings_percent']:.1f}% reduction)")
-    
-    # Copy public assets
     public_path = Path(config['build']['public'])
+    
+    # Copy public assets before optional optimization so generated variants win
     if public_path.exists():
         if profiler:
             with profiler.stage('copy_assets'):
@@ -2261,6 +2268,27 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+    
+    # Optimize images if requested
+    image_processor = None
+    optimized_image_map = {}
+    if optimize_images:
+        from core.images import ImageProcessor
+        click.echo("🖼️  Optimizing images...")
+        
+        images_source = public_path / 'images' if (public_path / 'images').exists() else public_path
+        images_output = dist_path / 'assets' / 'images'
+        images_output.mkdir(parents=True, exist_ok=True)
+        
+        image_processor = ImageProcessor(config)
+        result = image_processor.process_all_images(images_source, images_output)
+        optimized_image_map = result['images']
+        
+        stats = result['stats']
+        if stats['total_images'] > 0:
+            savings_kb = stats['savings_bytes'] / 1024
+            click.echo(f"  Best Practices Optimized {stats['total_images']} image(s) → {stats['total_variants']} variants")
+            click.echo(f"  💾 Saved {savings_kb:.1f}KB ({stats['savings_percent']:.1f}% reduction)")
     
     # Build content
     content_path = Path(config['build']['content'])
@@ -2310,10 +2338,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         if content.startswith('---'):
             parts = content.split('---', 2)
             frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = frontmatter or {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
             body = content
+        
+        if image_processor and optimized_image_map:
+            body = image_processor.replace_images_in_markdown(body, optimized_image_map)
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
@@ -2324,7 +2356,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Prepare context for template
         build_time = datetime.now()
-        slug = md_file.stem
+        slug = _frontmatter_slug(frontmatter, md_file)
+        date_value = frontmatter.get('date')
+        content_type = _public_content_type(content_type)
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2337,8 +2371,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
-            'date': frontmatter.get('date'),
-            'date_formatted': str(frontmatter.get('date', '')),
+            'date': _date_to_string(date_value),
+            'date_formatted': _date_to_string(date_value),
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
@@ -2350,22 +2384,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'user_authenticated': user_authenticated,
         }
         
-        # Treat articles as posts
-        if content_type == 'articles':
-            content_type = 'posts'
-            # Update context to reflect the change
-            context['page_type'] = 'post'
-            context['category'] = 'posts'
-        
         # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
+        url = _content_url(content_type, slug)
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
         
@@ -2397,7 +2417,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'url': url,
             'title': context['title'],
             'summary': context['description'],
-            'date': context['date'],
+            'date': _date_to_string(date_value),
             'type': content_type,
             'content_html': content_html,
             'tags': context['tags'],
@@ -2422,10 +2442,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         'description': config['site']['description'],
         'year': datetime.now().year,
         'navigation': config.get('nav', {}).get('main', []),
-        'posts': sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5],
+        'posts': sorted(all_posts, key=_date_sort_key, reverse=True)[:5],
     }
     
-    index_html = create_index_simple(config, all_posts[:5], templates_path)
+    sorted_posts = sorted(all_posts, key=_date_sort_key, reverse=True)
+    index_html = create_index_simple(config, sorted_posts[:5], templates_path)
     page_size_bytes = len(index_html.encode('utf-8'))
     index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'index.html').write_text(index_html)
@@ -2435,7 +2456,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         newsletters_dir = dist_path / 'newsletters'
         newsletters_dir.mkdir(parents=True, exist_ok=True)
         
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
+        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=_date_sort_key, reverse=True), 'Newsletters', templates_path)
         page_size_bytes = len(newsletters_html.encode('utf-8'))
         newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (newsletters_dir / 'index.html').write_text(newsletters_html)
@@ -2443,7 +2464,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Create list pages
     # Always create posts index page, even if empty
     click.echo("📄 Creating posts index...")
-    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+    posts_html = create_list_page_simple(config, sorted(all_posts, key=_date_sort_key, reverse=True), 'Posts', templates_path)
     page_size_bytes = len(posts_html.encode('utf-8'))
     posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
@@ -2463,9 +2484,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_newsletters
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2683,13 +2706,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
         
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [Path(item) if isinstance(item, str) else item for item in publishable_files]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2712,12 +2730,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        # Reuse the same publishable files that were rendered above.
+        publishable_paths = [Path(item) if isinstance(item, str) else item for item in publishable_files]
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -2863,7 +2877,7 @@ def process_external_links(html: str) -> str:
     
     def replace_link(match):
         full_tag = match.group(0)
-        href = match.group(1)
+        href = match.group(2)
         
         # Skip internal links
         if href.startswith('/'):
@@ -3541,8 +3555,9 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
+@click.option('--verbose', is_flag=True, help='Show detailed page type contract results')
 @click.pass_context
-def check(ctx, output):
+def check(ctx, output, verbose):
     """Validate Template Contracts and WCAG compliance"""
     try:
         from core.validator import ContractValidator
@@ -3591,8 +3606,10 @@ def check(ctx, output):
             json.dump(results, f, indent=2)
         click.echo(f"\n📄 Report saved to {output_path}")
     
+    type_contract_failures = _run_type_contract_check(ctx, verbose=verbose)
+    
     # Exit with error code if validation failed
-    if summary['failed'] > 0:
+    if summary['failed'] > 0 or type_contract_failures > 0:
         ctx.exit(1)
 
 @cli.command()
@@ -3773,7 +3790,8 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")

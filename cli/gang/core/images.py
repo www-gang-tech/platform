@@ -130,7 +130,7 @@ class ImageProcessor:
         
         return '\n'.join(html)
     
-    def process_all_images(self, source_dir: Path, output_dir: Path) -> Dict[str, List[Dict]]:
+    def process_all_images(self, source_dir: Path, output_dir: Path) -> Dict[str, Any]:
         """Process all images in a directory"""
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -213,13 +213,20 @@ class ImageProcessor:
             if url.startswith('http://') or url.startswith('https://'):
                 return match.group(0)
             
-            # Check if we have variants for this image
-            # Extract filename from URL
-            filename = url.split('/')[-1]
+            # Check if we have variants for this image. The image map is keyed
+            # relative to the processed image root, while markdown can use
+            # /assets/images/foo.jpg, /images/foo.jpg, images/foo.jpg, or foo.jpg.
+            clean_url = url.split('#', 1)[0].split('?', 1)[0]
+            path = clean_url.lstrip('/')
+            candidates = [path, path.split('/')[-1]]
+            for prefix in ('assets/images/', 'images/'):
+                if path.startswith(prefix):
+                    candidates.append(path[len(prefix):])
             
-            if filename in image_map:
+            image_key = next((candidate for candidate in candidates if candidate in image_map), None)
+            if image_key:
                 # Generate <picture> element
-                return self.generate_picture_element(url, alt_text, image_map[filename])
+                return self.generate_picture_element(url, alt_text, image_map[image_key])
             
             return match.group(0)
         
