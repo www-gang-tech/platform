@@ -32,6 +32,12 @@ class ProductSchema:
         """Convert Shopify product to Schema.org"""
         variants = product.get('variants', [])
         first_variant = variants[0] if variants else {}
+        description_html = product.get('body_html', '')
+        try:
+            from bs4 import BeautifulSoup
+            description = BeautifulSoup(description_html, 'html.parser').get_text(' ', strip=True)
+        except Exception:
+            description = description_html
         
         # Get images
         images = [img.get('src') for img in product.get('images', [])]
@@ -62,6 +68,7 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': variant.get('id'),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
@@ -75,7 +82,7 @@ class ProductSchema:
             '@context': 'https://schema.org',
             '@type': 'Product',
             'name': product.get('title', ''),
-            'description': product.get('body_html', ''),
+            'description': description,
             'image': images,
             'offers': offers if len(offers) > 1 else offers[0] if offers else {
                 '@type': 'Offer',
@@ -360,29 +367,39 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        source_configured = False
         
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
+            source_configured = True
             client = ShopifyClient(shopify_config[0], shopify_config[1])
             products['shopify'] = client.fetch_products()
         elif self.config.get('demo_mode', False):
             # Only use demo if explicitly enabled
+            source_configured = True
             client = ShopifyClient('demo.myshopify.com', 'demo')
             products['shopify'] = client.fetch_products()
         
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
+            source_configured = True
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
         
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
+            source_configured = True
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
+        
+        if not source_configured:
+            cached = self.load_cache()
+            if cached and cached.get('products'):
+                return cached['products']
         
         # Cache results
         self._save_cache(products)

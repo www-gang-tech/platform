@@ -77,7 +77,7 @@
                 </div>
                 
                 <div class="product-description markdown-body">
-                    {{ content | safe }}
+                    {{ content }}
                 </div>
                 
                 <!-- Product Form (works without JS, enhanced with JS) -->
@@ -88,9 +88,10 @@
                       data-price="{{ price }}"
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
-                      data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-product-url="/products/{{ slug }}/"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ sku }}">
+                      data-variant-id="{{ variant_id }}"
+                      data-checkout-base-url="{{ checkout_base_url }}">
                     
                     {% if colors %}
                     <div class="form-group">

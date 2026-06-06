@@ -100,7 +100,15 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            def has_positive_tabindex(value):
+                if value is None:
+                    return False
+                try:
+                    return int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -183,10 +191,19 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        interactive_sections = {'products', 'cart', 'search'}
+        is_interactive_page = any(part in interactive_sections for part in html_path.parts)
+        if js_budget == 0 and not is_interactive_page:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            data_script_types = {'application/ld+json', 'application/json'}
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if (script.get('type') or '').lower() not in data_script_types
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() not in data_script_types
+            ]
             
             if scripts or inline_scripts:
                 issues.append({

@@ -62,11 +62,11 @@ class ContentScheduler:
             # Get status
             status = frontmatter.get('status', 'published')
             
-            # If status is draft, skip
-            if status == 'draft':
+            # Only published content should ship; "ready" means reviewed but not live.
+            if status in ('draft', 'ready'):
                 draft.append({
                     'path': file_path,
-                    'status': 'draft',
+                    'status': status,
                     'publish_date': None,
                     'title': frontmatter.get('title', file_path.stem)
                 })

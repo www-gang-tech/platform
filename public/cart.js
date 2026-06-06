@@ -50,7 +50,8 @@
             quantity: parseInt(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
             url: form.dataset.productUrl || '',
-            sku: form.dataset.sku || ''
+            sku: form.dataset.sku || '',
+            checkoutBaseUrl: form.dataset.checkoutBaseUrl || ''
         };
         
         const cart = getCart();
@@ -109,44 +110,94 @@
         if (cartSummary) cartSummary.style.display = 'block';
         container.style.display = 'block';
         
-        let html = '';
         let subtotal = 0;
+        container.textContent = '';
         
-        cart.forEach(item => {
+        cart.forEach((item, index) => {
             const itemTotal = item.price * item.quantity;
             subtotal += itemTotal;
-            
-            html += `
-                <div class="cart-item">
-                    ${item.image ? `<img src="${item.image}" alt="${item.name}" width="80" height="80" class="cart-item-image">` : ''}
-                    <div class="cart-item-details">
-                        <h3 class="cart-item-name">${item.name}</h3>
-                        ${item.variant ? `<p class="cart-item-variant">${item.variant}</p>` : ''}
-                        ${item.sku ? `<p class="cart-item-sku">SKU: ${item.sku}</p>` : ''}
-                    </div>
-                    <div class="cart-item-quantity">
-                        <label for="qty-${item.id}-${item.variant}">Qty:</label>
-                        <input type="number" 
-                               id="qty-${item.id}-${item.variant}"
-                               value="${item.quantity}" 
-                               min="1" 
-                               max="99"
-                               onchange="updateCartQuantity('${item.id}', '${item.variant}', this.value)">
-                    </div>
-                    <div class="cart-item-price">
-                        <p>${item.currency} ${item.price.toFixed(2)}</p>
-                        <p class="cart-item-total">${item.currency} ${itemTotal.toFixed(2)}</p>
-                    </div>
-                    <button onclick="removeCartItem('${item.id}', '${item.variant}')" 
-                            class="cart-item-remove" 
-                            aria-label="Remove ${item.name}">
-                        ✕
-                    </button>
-                </div>
-            `;
+
+            const cartItem = document.createElement('div');
+            cartItem.className = 'cart-item';
+
+            if (item.image) {
+                const image = document.createElement('img');
+                image.src = item.image;
+                image.alt = item.name;
+                image.width = 80;
+                image.height = 80;
+                image.className = 'cart-item-image';
+                cartItem.appendChild(image);
+            }
+
+            const details = document.createElement('div');
+            details.className = 'cart-item-details';
+
+            const name = document.createElement('h3');
+            name.className = 'cart-item-name';
+            name.textContent = item.name;
+            details.appendChild(name);
+
+            if (item.variant) {
+                const variant = document.createElement('p');
+                variant.className = 'cart-item-variant';
+                variant.textContent = item.variant;
+                details.appendChild(variant);
+            }
+
+            if (item.sku) {
+                const sku = document.createElement('p');
+                sku.className = 'cart-item-sku';
+                sku.textContent = `SKU: ${item.sku}`;
+                details.appendChild(sku);
+            }
+
+            cartItem.appendChild(details);
+
+            const quantity = document.createElement('div');
+            quantity.className = 'cart-item-quantity';
+
+            const quantityId = `qty-${index}`;
+            const quantityLabel = document.createElement('label');
+            quantityLabel.htmlFor = quantityId;
+            quantityLabel.textContent = 'Qty:';
+            quantity.appendChild(quantityLabel);
+
+            const quantityInput = document.createElement('input');
+            quantityInput.type = 'number';
+            quantityInput.id = quantityId;
+            quantityInput.value = item.quantity;
+            quantityInput.min = '1';
+            quantityInput.max = '99';
+            quantityInput.addEventListener('change', () => {
+                updateQuantity(item.id, item.variant, parseInt(quantityInput.value || '1'));
+            });
+            quantity.appendChild(quantityInput);
+            cartItem.appendChild(quantity);
+
+            const price = document.createElement('div');
+            price.className = 'cart-item-price';
+
+            const unitPrice = document.createElement('p');
+            unitPrice.textContent = `${item.currency} ${item.price.toFixed(2)}`;
+            price.appendChild(unitPrice);
+
+            const totalPrice = document.createElement('p');
+            totalPrice.className = 'cart-item-total';
+            totalPrice.textContent = `${item.currency} ${itemTotal.toFixed(2)}`;
+            price.appendChild(totalPrice);
+            cartItem.appendChild(price);
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'cart-item-remove';
+            removeButton.setAttribute('aria-label', `Remove ${item.name}`);
+            removeButton.textContent = 'x';
+            removeButton.addEventListener('click', () => removeItem(item.id, item.variant));
+            cartItem.appendChild(removeButton);
+
+            container.appendChild(cartItem);
         });
-        
-        container.innerHTML = html;
         
         // Update summary
         const subtotalEl = document.getElementById('cart-subtotal');
@@ -160,10 +211,18 @@
         const cart = getCart();
         if (cart.length === 0) return;
         
+        const checkoutBaseUrl = cart.find(item => item.checkoutBaseUrl)?.checkoutBaseUrl ||
+            document.body?.dataset.checkoutBaseUrl;
+
+        if (!checkoutBaseUrl) {
+            alert('Checkout is unavailable for this cart.');
+            return;
+        }
+
         // Build Shopify cart URL
         // Format: /cart/VARIANT_ID:QUANTITY,VARIANT_ID:QUANTITY
-        const cartItems = cart.map(item => `${item.id}:${item.quantity}`).join(',');
-        const checkoutUrl = `https://www.shopify.com/cart/${cartItems}`;
+        const cartItems = cart.map(item => `${encodeURIComponent(item.id)}:${item.quantity}`).join(',');
+        const checkoutUrl = `${checkoutBaseUrl.replace(/\/$/, '')}/cart/${cartItems}`;
         
         window.location.href = checkoutUrl;
     }

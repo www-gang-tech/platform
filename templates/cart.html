@@ -7,11 +7,11 @@
     
     <title>Shopping Cart - GANG</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ site_url }}/cart/">
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body data-checkout-base-url="{{ checkout_base_url|default('') }}">
     {% include "partials/header.html" %}
     
     <nav aria-label="Breadcrumb" class="breadcrumb">

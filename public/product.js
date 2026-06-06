@@ -70,6 +70,20 @@
         // Update form action to point to correct variant URL
         if (variant.url) {
             form.action = variant.url;
+            try {
+                form.dataset.checkoutBaseUrl = new URL(variant.url).origin;
+            } catch {
+                // Keep the build-time checkout base URL if the variant URL is relative or invalid.
+            }
+        }
+
+        // Keep cart data in sync with the selected variant.
+        form.dataset.variantId = variant.id || variant.sku || form.dataset.variantId || '';
+        form.dataset.sku = variant.sku || form.dataset.sku || '';
+        form.dataset.price = variant.price || form.dataset.price || '0';
+
+        if (variant.image_index !== undefined && productImages[variant.image_index]) {
+            form.dataset.image = productImages[variant.image_index].getAttribute('src') || form.dataset.image || '';
         }
     }
     
