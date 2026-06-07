@@ -96,7 +96,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -136,6 +136,8 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search across published GANG content.">
+    <link rel="canonical" href="/search/">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +228,13 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Primary">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +247,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;

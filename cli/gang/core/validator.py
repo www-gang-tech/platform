@@ -15,6 +15,11 @@ class ContractValidator:
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
     
+    def _allows_javascript(self, html_path: Path) -> bool:
+        """Interactive utility pages are allowed to ship local JavaScript."""
+        interactive_sections = {'cart', 'products', 'search'}
+        return bool(interactive_sections.intersection(html_path.parts))
+    
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
         issues = []
@@ -181,12 +186,19 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for JavaScript (should be 0 on read-only content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_javascript(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            data_script_types = {'application/ld+json', 'application/json'}
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if script.get('type', '').lower() not in data_script_types
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if script.get('type', '').lower() not in data_script_types
+            ]
             
             if scripts or inline_scripts:
                 issues.append({
