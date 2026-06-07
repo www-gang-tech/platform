@@ -2328,6 +2328,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
+        if content_type == 'people':
+            import re
+            content_html = re.sub(r'^\s*<h1\b[^>]*>.*?</h1>\s*', '', content_html, count=1, flags=re.DOTALL)
         
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
@@ -2801,7 +2804,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             }
             (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2))
         
-        click.echo(f"🤖 Generated AgentMap with {len(publishable_paths)} content items")
+        click.echo(f"🤖 Generated AgentMap with {len(publishable_files)} content items")
     except Exception as e:
         click.echo(f"⚠️  Could not generate AgentMap: {e}")
     
