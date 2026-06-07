@@ -2390,6 +2390,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = build_default_jsonld(content_type, context, config, url)
+        context['og_type'] = 'article' if content_type in ('posts', 'projects', 'newsletters') else 'website'
         
         # Select template
         if content_type == 'posts':
@@ -3164,6 +3167,54 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
 </html>"""
     
     return html
+
+
+def build_default_jsonld(content_type: str, context: Dict, config: Dict, url: str) -> Dict:
+    """Build minimal contract-compliant JSON-LD when content frontmatter omits it."""
+    site_url = config['site']['url']
+    canonical_url = f"{site_url}{url}"
+    description = context.get('description') or config['site']['description']
+    title = context.get('title') or config['site']['title']
+    
+    if content_type == 'posts':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'datePublished': str(context.get('date') or context.get('build_time_iso') or ''),
+            'author': {'@type': 'Organization', 'name': config['site']['title']},
+            'publisher': {'@type': 'Organization', 'name': config['site']['title']},
+            'description': description,
+            'url': canonical_url,
+        }
+    
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': {'@type': 'Organization', 'name': config['site']['title']},
+            'dateCreated': str(context.get('date') or context.get('build_time_iso') or ''),
+            'url': canonical_url,
+        }
+    
+    if content_type == 'people':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': title,
+            'url': canonical_url,
+            'description': description,
+        }
+    
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'url': canonical_url,
+        'description': description,
+    }
 
 
 def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
