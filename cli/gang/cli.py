@@ -91,11 +91,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('contract-check')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate content pages against page-type contracts"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -672,11 +672,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command('list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2348,6 +2348,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments': [],
+            'comments_enabled': False,
+            'comments_script_enabled': False,
+            'comments_webhook_url': '',
         }
         
         # Treat articles as posts
@@ -2368,6 +2372,20 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+
+        comments_config = config.get('comments', {})
+        comments_enabled = bool(comments_config.get('enabled')) and content_type == 'posts'
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import get_comments_for_build
+
+            context['comments'] = get_comments_for_build(content_path, slug, 'post')
+            context['comments_enabled'] = True
+            context['comments_webhook_url'] = comments_config.get('webhook_url', '')
         
         # Select template
         if content_type == 'posts':
@@ -3540,9 +3558,10 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
     return html
 
 @cli.command()
+@click.option('--verbose', is_flag=True, help='Show per-file validation results')
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
-def check(ctx, output):
+def check(ctx, verbose, output):
     """Validate Template Contracts and WCAG compliance"""
     try:
         from core.validator import ContractValidator
@@ -3573,16 +3592,20 @@ def check(ctx, output):
     # Print file details
     for file_result in results['files']:
         file_summary = file_result['summary']
-        if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
-            click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
-            
-            # Show issues
-            for category in ['semantic', 'accessibility', 'seo', 'budgets']:
-                issues = file_result[category]
-                for issue in issues:
-                    icon = '🔴' if issue['severity'] == 'error' else '🟡'
-                    click.echo(f"   {icon} [{issue['rule']}] {issue['message']}")
+        if file_summary['passed']:
+            if verbose:
+                click.echo(f"  ✅ {Path(file_result['file']).relative_to(dist_path)}")
+            continue
+
+        click.echo(f"\n❌ {Path(file_result['file']).relative_to(dist_path)}")
+        click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
+        
+        # Show issues
+        for category in ['semantic', 'accessibility', 'seo', 'budgets']:
+            issues = file_result[category]
+            for issue in issues:
+                icon = '🔴' if issue['severity'] == 'error' else '🟡'
+                click.echo(f"   {icon} [{issue['rule']}] {issue['message']}")
     
     # Save JSON report if requested
     if output:

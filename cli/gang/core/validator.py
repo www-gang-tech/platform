@@ -186,9 +186,15 @@ class ContractValidator:
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
             scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() not in {
+                    'application/ld+json',
+                    'application/json',
+                }
+            ]
             
-            if scripts or inline_scripts:
+            if scripts or executable_inline_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
