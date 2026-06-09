@@ -133,6 +133,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2369,6 +2371,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = context.get('jsonld') or build_default_jsonld(config, content_type, context, url)
+        context['og_type'] = 'article' if content_type in ('posts', 'projects', 'newsletters') else 'website'
         
         # Select template
         if content_type == 'posts':
@@ -2692,11 +2696,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_index_file = dist_path / 'search-index.json'
         search_index_file.write_text(json.dumps(search_index))
         
-        # Write search page
-        search_page = dist_path / 'search' / 'index.html'
-        search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
-        
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
@@ -2877,6 +2876,57 @@ def process_external_links(html: str) -> str:
     # Pattern: <a href="http(s)://..."
     pattern = r'<a\s+([^>]*href=["\']?(https?://[^"\'>\s]+)["\']?[^>]*?)>'
     return re.sub(pattern, lambda m: replace_link(m), html)
+
+
+def schema_date(value) -> str:
+    """Return a JSON-LD-safe ISO date string."""
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    if value:
+        return str(value)
+    return ''
+
+
+def build_default_jsonld(config: Dict, content_type: str, context: Dict, url: str) -> Dict:
+    """Build minimal structured data when content frontmatter omits it."""
+    site = config.get('site', {})
+    site_title = site.get('title', 'GANG')
+    site_url = site.get('url', '').rstrip('/')
+    canonical_url = f"{site_url}{url}"
+    description = context.get('description') or site.get('description', '')
+    title = context.get('title', '')
+    published = schema_date(context.get('date')) or schema_date(context.get('build_time_iso'))
+
+    if content_type == 'projects':
+        return {
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            "name": title,
+            "description": description,
+            "url": canonical_url,
+            "author": {"@type": "Organization", "name": site_title},
+            "dateCreated": published,
+        }
+
+    if content_type in ('posts', 'newsletters'):
+        return {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "description": description,
+            "url": canonical_url,
+            "datePublished": published,
+            "author": {"@type": "Organization", "name": site_title},
+            "publisher": {"@type": "Organization", "name": site_title},
+        }
+
+    return {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": title,
+        "description": description,
+        "url": canonical_url,
+    }
 
 
 def format_bytes(bytes_size: int) -> str:
