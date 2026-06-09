@@ -46,8 +46,9 @@ def cli(ctx):
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
+@click.option('--out', 'out_dir', type=click.Path(file_okay=False, dir_okay=True), default='reports', show_default=True, help='Directory for generated reports')
 @click.pass_context
-def report(ctx, answerability, format):
+def report(ctx, answerability, format, out_dir):
     """Generate reports on content quality and structure"""
     
     if answerability:
@@ -60,8 +61,8 @@ def report(ctx, answerability, format):
         
         config = ctx.obj
         dist_path = Path(config['build']['output'])
-        reports_dir = Path('reports')
-        reports_dir.mkdir(exist_ok=True)
+        reports_dir = Path(out_dir)
+        reports_dir.mkdir(parents=True, exist_ok=True)
         
         click.echo("Score Analyzing answerability...\n")
         
@@ -91,11 +92,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate built pages against contracts/*.yml specifications"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -3716,7 +3717,7 @@ def update_deps(ctx, check_only, security_only):
     click.echo("\n💡 Tip: Enable Dependabot in .github/dependabot.yml for automated PRs")
 
 @cli.command()
-@click.argument('source_dir', type=click.Path(exists=True))
+@click.argument('source_dir', type=click.Path(exists=True), required=False)
 @click.option('--output', '-o', type=click.Path(), help='Output directory for processed images')
 @click.option('--analyze', is_flag=True, help='Analyze image usage in content')
 @click.option('--check-alt', is_flag=True, help='Check for missing alt text')
@@ -3770,16 +3771,31 @@ def image(ctx, source_dir, output, analyze, check_alt):
     
     # Regular image processing
     click.echo("🖼️  Processing images...")
-    source_path = Path(source_dir)
+    if source_dir:
+        source_path = Path(source_dir)
+    else:
+        public_path = Path(config['build'].get('public', './public'))
+        source_path = public_path / 'images' if (public_path / 'images').exists() else public_path
+
+    if not source_path.exists():
+        click.echo(f"ℹ️  No image source directory found at {source_path}; skipping image processing")
+        return
+
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result.get('images', {})
+    stats = result.get('stats', {})
     
-    total_variants = sum(len(variants) for variants in image_map.values())
-    click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    total_images = stats.get('total_images', len(image_map))
+    total_variants = stats.get('total_variants', sum(len(variants) for variants in image_map.values()))
+    click.echo(f"✅ Processed {total_images} images into {total_variants} variants")
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")
+        if not variants:
+            click.echo("    - no responsive variants generated")
+            continue
         for variant in variants:
             size_kb = variant['size'] / 1024
             click.echo(f"    - {variant['width']}w {variant['format']}: {size_kb:.1f}KB")
