@@ -4,8 +4,10 @@
       "staticDistDir": "./dist",
       "numberOfRuns": 3,
       "maxAutodiscoverUrls": 10,
+      "chromeFlags": "--no-sandbox --disable-dev-shm-usage",
       "settings": {
         "preset": "desktop",
+        "disableFullPageScreenshot": true,
         "throttling": {
           "rttMs": 40,
           "throughputKbps": 10240,
