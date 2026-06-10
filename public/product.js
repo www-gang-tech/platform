@@ -32,12 +32,27 @@
             return colorMatch && sizeMatch;
         });
         
-        if (!variant) return;
+        if (!variant) {
+            if (stockMessage) {
+                stockMessage.textContent = 'Variant unavailable';
+                stockMessage.style.color = '#dc3545';
+            }
+            if (buyButton) {
+                buyButton.disabled = true;
+                buyButton.style.opacity = '0.5';
+                buyButton.style.cursor = 'not-allowed';
+            }
+            return;
+        }
         
         // Update price
         if (priceDisplay) {
             priceDisplay.textContent = `${variant.currency} ${variant.price}`;
         }
+        form.dataset.price = variant.price;
+        form.dataset.currency = variant.currency;
+        form.dataset.variantId = variant.id || variant.sku || '';
+        form.dataset.sku = variant.sku || '';
         
         // Update stock message
         const inStock = variant.availability === 'https://schema.org/InStock' || 

@@ -61,7 +61,8 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
-        category = file_path.parent.name
+        source_category = file_path.parent.name
+        category = 'posts' if source_category == 'articles' else source_category
         
         # Generate URL
         slug = file_path.stem
