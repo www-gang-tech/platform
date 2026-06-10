@@ -61,6 +61,49 @@ def _content_description(frontmatter: Dict, fallback: str) -> str:
             return str(value)
     return ''
 
+
+def _date_iso(date_value) -> str:
+    """Return an ISO date string for structured data."""
+    if not date_value:
+        return ''
+    if hasattr(date_value, 'isoformat'):
+        return date_value.isoformat()
+    return str(date_value)
+
+
+def _default_jsonld(content_type: str, context: Dict, config: Dict) -> Dict:
+    """Generate contract-compliant fallback JSON-LD for rendered content."""
+    site_name = config['site']['title']
+    canonical_url = context['canonical_url']
+    if content_type == 'posts':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': context['title'],
+            'datePublished': _date_iso(context.get('date')) or context['build_time_iso'],
+            'author': {'@type': 'Organization', 'name': site_name},
+            'publisher': {'@type': 'Organization', 'name': site_name},
+            'description': context['description'],
+            'url': canonical_url,
+        }
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': context['title'],
+            'description': context['description'],
+            'author': {'@type': 'Organization', 'name': site_name},
+            'dateCreated': _date_iso(context.get('date')) or context['build_time_iso'],
+            'url': canonical_url,
+        }
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': context['title'],
+        'url': canonical_url,
+        'description': context['description'],
+    }
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -176,6 +219,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file == type_path / 'index.html':
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2406,6 +2451,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'comments_enabled': comments_enabled,
             'comments': comments,
             'comments_webhook_url': comments_config.get('webhook_url', ''),
+            'og_type': 'article' if content_type == 'posts' else 'website',
+            'og_title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
+            'og_description': _content_description(frontmatter, config['site']['description']),
+            'twitter_card': 'summary',
             # In-place editor context
             'page_type': page_type,  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2417,6 +2466,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         url = _content_url(source_content_type, slug)
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = _default_jsonld(content_type, context, config)
         
         # Select template
         if content_type == 'posts':
