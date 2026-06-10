@@ -85,7 +85,7 @@ class AgentMapGenerator:
         types = []
         
         for file_path in content_files:
-            category = file_path.parent.name
+            category = self._output_category(file_path.parent.name)
             
             if category not in by_category:
                 by_category[category] = []
@@ -106,6 +106,10 @@ class AgentMapGenerator:
             'types': types,
             'by_category': by_category
         }
+
+    def _output_category(self, category: str) -> str:
+        """Return the generated public category for a source folder."""
+        return 'posts' if category == 'articles' else category
     
     def _build_navigation(self, content_map: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Build main navigation structure"""
@@ -164,7 +168,7 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
-                category = file_path.parent.name
+                category = self._output_category(file_path.parent.name)
                 slug = file_path.stem
                 
                 item = {
@@ -185,6 +189,10 @@ class ContentAPIGenerator:
         
         return index
     
+    def _output_category(self, category: str) -> str:
+        """Return the generated public category for a source folder."""
+        return 'posts' if category == 'articles' else category
+
     def generate_single_content_api(
         self,
         file_path: Path,
@@ -214,7 +222,7 @@ class ContentAPIGenerator:
         import re
         content_text = re.sub('<[^<]+?>', '', content_html)
         
-        category = file_path.parent.name
+        category = self._output_category(file_path.parent.name)
         slug = file_path.stem
         
         return {

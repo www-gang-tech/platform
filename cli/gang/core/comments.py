@@ -17,15 +17,15 @@ import click
 class CommentsManager:
     """Manages comment files and operations."""
     
-    def __init__(self, content_path: Path):
+    def __init__(self, content_path: Path, create_dirs: bool = True):
         self.content_path = content_path
         self.comments_path = content_path / "comments"
         self.posts_comments_path = self.comments_path / "posts"
         self.products_comments_path = self.comments_path / "products"
         
-        # Ensure directories exist
-        self.posts_comments_path.mkdir(parents=True, exist_ok=True)
-        self.products_comments_path.mkdir(parents=True, exist_ok=True)
+        if create_dirs:
+            self.posts_comments_path.mkdir(parents=True, exist_ok=True)
+            self.products_comments_path.mkdir(parents=True, exist_ok=True)
     
     def get_comments_for_page(self, page_slug: str, page_type: str) -> List[Dict[str, Any]]:
         """Get all approved comments for a specific page."""
@@ -254,7 +254,7 @@ class CommentsManager:
 
 def get_comments_for_build(content_path: Path, page_slug: str, page_type: str) -> List[Dict[str, Any]]:
     """Get comments for a specific page during build process."""
-    manager = CommentsManager(content_path)
+    manager = CommentsManager(content_path, create_dirs=False)
     return manager.get_comments_for_page(page_slug, page_type)
 
 

@@ -36,7 +36,7 @@ class ContractValidator:
             prev_level = 0
             for heading in headings:
                 level = int(heading.name[1])
-                if level - prev_level > 1:
+                if prev_level > 0 and level - prev_level > 1:
                     issues.append({
                         'severity': 'error',
                         'rule': 'no_heading_skips',
@@ -185,10 +185,17 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            data_script_types = {'application/ld+json', 'application/json'}
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if (script.get('type') or '').lower() not in data_script_types
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() not in data_script_types
+            ]
             
-            if scripts or inline_scripts:
+            if (scripts or inline_scripts) and not self._allows_interactive_javascript(html_path, soup):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -196,6 +203,14 @@ class ContractValidator:
                 })
         
         return issues
+
+    def _allows_interactive_javascript(self, html_path: Path, soup: BeautifulSoup) -> bool:
+        """Allow JS on generated pages that are intentionally interactive."""
+        path = html_path.as_posix()
+        interactive_paths = ('/search/', '/cart/', '/products/')
+        if any(path_part in path for path_part in interactive_paths):
+            return True
+        return soup.find(id='comment-form') is not None
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""

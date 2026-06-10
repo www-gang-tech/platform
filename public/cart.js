@@ -32,6 +32,20 @@
         });
     }
     
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[char]));
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
     // Add to cart from product page
     function addToCart(e) {
         e.preventDefault();
@@ -112,34 +126,35 @@
         let html = '';
         let subtotal = 0;
         
-        cart.forEach(item => {
-            const itemTotal = item.price * item.quantity;
+        cart.forEach((item, index) => {
+            const price = Number.isFinite(Number(item.price)) ? Number(item.price) : 0;
+            const quantity = Number.isFinite(Number(item.quantity)) ? Number(item.quantity) : 1;
+            const itemTotal = price * quantity;
             subtotal += itemTotal;
             
             html += `
-                <div class="cart-item">
-                    ${item.image ? `<img src="${item.image}" alt="${item.name}" width="80" height="80" class="cart-item-image">` : ''}
+                <div class="cart-item" data-cart-index="${index}">
+                    ${item.image ? `<img src="${escapeAttr(item.image)}" alt="${escapeAttr(item.name)}" width="80" height="80" class="cart-item-image">` : ''}
                     <div class="cart-item-details">
-                        <h3 class="cart-item-name">${item.name}</h3>
-                        ${item.variant ? `<p class="cart-item-variant">${item.variant}</p>` : ''}
-                        ${item.sku ? `<p class="cart-item-sku">SKU: ${item.sku}</p>` : ''}
+                        <h3 class="cart-item-name">${escapeHtml(item.name)}</h3>
+                        ${item.variant ? `<p class="cart-item-variant">${escapeHtml(item.variant)}</p>` : ''}
+                        ${item.sku ? `<p class="cart-item-sku">SKU: ${escapeHtml(item.sku)}</p>` : ''}
                     </div>
                     <div class="cart-item-quantity">
-                        <label for="qty-${item.id}-${item.variant}">Qty:</label>
-                        <input type="number" 
-                               id="qty-${item.id}-${item.variant}"
-                               value="${item.quantity}" 
-                               min="1" 
+                        <label for="qty-${index}">Qty:</label>
+                        <input type="number"
+                               id="qty-${index}"
+                               value="${quantity}"
+                               min="1"
                                max="99"
-                               onchange="updateCartQuantity('${item.id}', '${item.variant}', this.value)">
+                               class="cart-item-quantity-input">
                     </div>
                     <div class="cart-item-price">
-                        <p>${item.currency} ${item.price.toFixed(2)}</p>
-                        <p class="cart-item-total">${item.currency} ${itemTotal.toFixed(2)}</p>
+                        <p>${escapeHtml(item.currency)} ${price.toFixed(2)}</p>
+                        <p class="cart-item-total">${escapeHtml(item.currency)} ${itemTotal.toFixed(2)}</p>
                     </div>
-                    <button onclick="removeCartItem('${item.id}', '${item.variant}')" 
-                            class="cart-item-remove" 
-                            aria-label="Remove ${item.name}">
+                    <button class="cart-item-remove"
+                            aria-label="Remove ${escapeAttr(item.name)}">
                         ✕
                     </button>
                 </div>
@@ -147,6 +162,23 @@
         });
         
         container.innerHTML = html;
+        container.querySelectorAll('.cart-item').forEach((itemEl, index) => {
+            const item = cart[index];
+            const quantityInput = itemEl.querySelector('.cart-item-quantity-input');
+            const removeButton = itemEl.querySelector('.cart-item-remove');
+
+            if (quantityInput) {
+                quantityInput.addEventListener('change', () => {
+                    updateQuantity(item.id, item.variant, parseInt(quantityInput.value || '1', 10));
+                });
+            }
+
+            if (removeButton) {
+                removeButton.addEventListener('click', () => {
+                    removeItem(item.id, item.variant);
+                });
+            }
+        });
         
         // Update summary
         const subtotalEl = document.getElementById('cart-subtotal');
@@ -160,10 +192,21 @@
         const cart = getCart();
         if (cart.length === 0) return;
         
+        const checkoutButton = document.querySelector('[data-checkout-base]');
+        let checkoutBase = checkoutButton?.dataset.checkoutBase?.trim() || '';
+        if (!checkoutBase) {
+            alert('Checkout is not configured for this store yet.');
+            return;
+        }
+        if (!/^https?:\/\//i.test(checkoutBase)) {
+            checkoutBase = `https://${checkoutBase}`;
+        }
+        checkoutBase = checkoutBase.replace(/\/$/, '');
+
         // Build Shopify cart URL
         // Format: /cart/VARIANT_ID:QUANTITY,VARIANT_ID:QUANTITY
-        const cartItems = cart.map(item => `${item.id}:${item.quantity}`).join(',');
-        const checkoutUrl = `https://www.shopify.com/cart/${cartItems}`;
+        const cartItems = cart.map(item => `${encodeURIComponent(item.id)}:${item.quantity}`).join(',');
+        const checkoutUrl = `${checkoutBase}/cart/${cartItems}`;
         
         window.location.href = checkoutUrl;
     }

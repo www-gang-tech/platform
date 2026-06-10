@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import subprocess
 import json
 import base64
+from html import escape
 
 
 class ImagePipeline:
@@ -163,8 +164,10 @@ class ImagePipeline:
         lazy = '' if is_lcp else ' loading="lazy"'
         decode = ' decoding="async"' if not is_lcp else ''
         
+        fallback_alt = Path(data["original"]).stem.replace('-', ' ').replace('_', ' ').strip()
+        alt_text = escape(data.get('alt') or fallback_alt, quote=True)
         html += f'  <img src="{formats.get("jpg", data["original"])}"'
-        html += f' alt="TODO: Add alt text"'
+        html += f' alt="{alt_text}"'
         html += f'{lazy}{decode}>\n'
         html += '</picture>'
         

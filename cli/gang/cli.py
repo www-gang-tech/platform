@@ -17,6 +17,93 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 
+
+def _content_output_category(category: str) -> str:
+    """Return the generated output category for a source content folder."""
+    return 'posts' if category == 'articles' else category
+
+
+def _content_url(category: str, slug: str) -> str:
+    """Return the canonical generated URL for a content item."""
+    output_category = _content_output_category(category)
+    if output_category in ['posts', 'projects', 'people', 'newsletters']:
+        return f"/{output_category}/{slug}/"
+    if output_category == 'pages':
+        return f"/pages/{slug}/"
+    return f"/{output_category}/{slug}/"
+
+
+def _format_display_date(date_value) -> str:
+    """Format dates consistently for templates."""
+    if not date_value:
+        return ''
+    if hasattr(date_value, 'strftime'):
+        return date_value.strftime('%B %d, %Y')
+    if isinstance(date_value, str):
+        try:
+            normalized = date_value.replace('Z', '+00:00')
+            return datetime.fromisoformat(normalized).strftime('%B %d, %Y')
+        except ValueError:
+            return date_value
+    return str(date_value)
+
+
+def _content_description(frontmatter: Dict, fallback: str) -> str:
+    """Return the best available non-empty description for a content item."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    for value in (
+        frontmatter.get('summary'),
+        frontmatter.get('description'),
+        seo.get('description'),
+        fallback,
+    ):
+        if value:
+            return str(value)
+    return ''
+
+
+def _date_iso(date_value) -> str:
+    """Return an ISO date string for structured data."""
+    if not date_value:
+        return ''
+    if hasattr(date_value, 'isoformat'):
+        return date_value.isoformat()
+    return str(date_value)
+
+
+def _default_jsonld(content_type: str, context: Dict, config: Dict) -> Dict:
+    """Generate contract-compliant fallback JSON-LD for rendered content."""
+    site_name = config['site']['title']
+    canonical_url = context['canonical_url']
+    if content_type == 'posts':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': context['title'],
+            'datePublished': _date_iso(context.get('date')) or context['build_time_iso'],
+            'author': {'@type': 'Organization', 'name': site_name},
+            'publisher': {'@type': 'Organization', 'name': site_name},
+            'description': context['description'],
+            'url': canonical_url,
+        }
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': context['title'],
+            'description': context['description'],
+            'author': {'@type': 'Organization', 'name': site_name},
+            'dateCreated': _date_iso(context.get('date')) or context['build_time_iso'],
+            'url': canonical_url,
+        }
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': context['title'],
+        'url': canonical_url,
+        'description': context['description'],
+    }
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -91,11 +178,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate generated pages against page-type contracts"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -132,6 +219,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file == type_path / 'index.html':
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2302,8 +2391,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo(f"📝 {len(schedule_result['draft'])} draft post(s) excluded")
     
     click.echo(f"📝 Processing {len(publishable_files)} publishable content file(s)...")
+    comments_config = config.get('comments', {})
+    comments_manager = None
+    if comments_config.get('enabled'):
+        try:
+            from core.comments import CommentsManager
+            comments_manager = CommentsManager(content_path, create_dirs=False)
+        except ImportError:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent))
+            from core.comments import CommentsManager
+            comments_manager = CommentsManager(content_path, create_dirs=False)
+
     for md_file in publishable_files:
-        content_type = md_file.parent.name
+        source_content_type = md_file.parent.name
+        content_type = _content_output_category(source_content_type)
         
         # Parse markdown with frontmatter
         content = md_file.read_text()
@@ -2325,6 +2427,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        page_type = content_type.rstrip('s')
+        comments_enabled = bool(comments_config.get('enabled')) and page_type == 'post'
+        comments = comments_manager.get_comments_for_page(slug, page_type) if comments_enabled and comments_manager else []
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2333,41 +2438,36 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': _content_description(frontmatter, config['site']['description']),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
-            'date_formatted': str(frontmatter.get('date', '')),
+            'date_formatted': _format_display_date(frontmatter.get('date')),
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
+            'comments_enabled': comments_enabled,
+            'comments': comments,
+            'comments_webhook_url': comments_config.get('webhook_url', ''),
+            'og_type': 'article' if content_type == 'posts' else 'website',
+            'og_title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
+            'og_description': _content_description(frontmatter, config['site']['description']),
+            'twitter_card': 'summary',
             # In-place editor context
-            'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
+            'page_type': page_type,  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
-        
-        # Treat articles as posts
-        if content_type == 'articles':
-            content_type = 'posts'
-            # Update context to reflect the change
-            context['page_type'] = 'post'
-            context['category'] = 'posts'
-        
+
         # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
+        url = _content_url(source_content_type, slug)
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = _default_jsonld(content_type, context, config)
         
         # Select template
         if content_type == 'posts':
@@ -2463,9 +2563,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_newsletters
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2488,7 +2590,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate product pages (only active products)
     try:
         from core.products import ProductAggregator
-        from jinja2 import Environment, FileSystemLoader
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
         
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
@@ -2498,7 +2600,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             # Setup Jinja2
             template_dir = Path(__file__).parent.parent.parent / 'templates'
-            jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+            jinja_env = Environment(
+                loader=FileSystemLoader(str(template_dir)),
+                autoescape=select_autoescape(['html', 'xml'])
+            )
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -2590,6 +2695,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             'availability': offer.get('availability', 'InStock'),
                             'url': offer.get('url', '#'),
                             'sku': offer.get('sku', ''),
+                            'id': offer.get('id') or offer.get('variant_id') or offer.get('variantId') or offer.get('sku', ''),
                             'image_index': color_to_image.get(color_part, 0) if color_part else 0
                         })
                     
@@ -2612,6 +2718,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'product_url': f"/products/{slug}/",
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
@@ -2623,6 +2730,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'colors': colors_list,
                     'sizes': sizes_list,
                     'sku': product.get('sku', ''),
+                    'variant_id': first_offer.get('id') or first_offer.get('variant_id') or first_offer.get('variantId') or product.get('sku', ''),
                     'brand': brand_name,
                     'category': product.get('category', ''),
                     'availability': first_offer.get('availability', 'InStock'),
@@ -2650,6 +2758,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                site_url=config['site']['url'],
+                shopify_store_url=os.environ.get('SHOPIFY_STORE_URL', config.get('shopify', {}).get('store_url', '')),
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -2683,13 +2793,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
-        
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [Path(path) for path in publishable_files]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2711,13 +2815,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     try:
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
-        
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        publishable_paths = [Path(path) for path in publishable_files]
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -3004,6 +3102,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3053,6 +3152,8 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "url": config['site']['url']
     }
     jsonld_str = json.dumps(jsonld, indent=2)
+    collection_slug = title.lower().replace(' ', '-')
+    canonical_url = f"{config['site']['url'].rstrip('/')}/{collection_slug}/"
     
     # Build timestamp
     build_time = datetime.now()
@@ -3080,6 +3181,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3558,7 +3660,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
