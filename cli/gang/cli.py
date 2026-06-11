@@ -89,7 +89,43 @@ def _default_jsonld(config: Dict[str, Any], content_type: str, context: Dict[str
             data["sameAs"] = same_as
         return data
 
-    article_types = {"posts", "projects", "newsletters"}
+    author = context.get("author") or {
+        "@type": "Organization",
+        "name": site.get("title", "Site"),
+        "url": site_url,
+    }
+    publisher = {
+        "@type": "Organization",
+        "name": site.get("title", "Site"),
+        "url": site_url,
+    }
+    
+    if content_type == "posts":
+        return _json_safe({
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "url": canonical_url,
+            "description": description,
+            "datePublished": context.get("date") or context.get("build_time_iso"),
+            "author": author,
+            "publisher": publisher,
+            "inLanguage": site.get("language", "en"),
+        })
+    
+    if content_type == "projects":
+        return _json_safe({
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            "name": title,
+            "url": canonical_url,
+            "description": description,
+            "author": author,
+            "dateCreated": context.get("date") or context.get("year") or context.get("build_time_iso"),
+            "inLanguage": site.get("language", "en"),
+        })
+    
+    article_types = {"newsletters"}
     data = {
         "@context": "https://schema.org",
         "@type": "Article" if content_type in article_types else "WebPage",
@@ -225,6 +261,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2494,6 +2532,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         comments_enabled = _comments_enabled(config) and content_type in {'posts', 'projects'}
         context['comments_enabled'] = comments_enabled
         context['comments_webhook_url'] = comments_webhook_url if comments_enabled else ''
+        context['og_type'] = 'article' if content_type in {'posts', 'projects', 'newsletters'} else 'profile' if content_type == 'people' else 'website'
         
         jsonld = frontmatter.get('jsonld')
         context['jsonld'] = _json_safe(jsonld) if jsonld else _default_jsonld(config, content_type, context, url)
