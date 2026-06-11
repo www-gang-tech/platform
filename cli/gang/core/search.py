@@ -130,12 +130,30 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
+        site = self.config.get('site', {})
+        lang = site.get('language', 'en')
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        description = f"Search {site_title} content."
+        jsonld = {
+            "@context": "https://schema.org",
+            "@type": "SearchAction",
+            "target": f"{site_url}/search/?q={{search_term_string}}" if site_url else "/search/?q={search_term_string}",
+            "query-input": "required name=search_term_string",
+        }
+        jsonld_str = json.dumps(jsonld, indent=2)
         return '''<!DOCTYPE html>
-<html lang="en">
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +244,15 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -355,6 +381,10 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    </main>
+    <footer>
+        <p>&copy; __SITE_TITLE__</p>
+    </footer>
 </body>
-</html>'''
+</html>'''.replace('__LANG__', lang).replace('__SITE_TITLE__', site_title).replace('__DESCRIPTION__', description).replace('__CANONICAL_URL__', canonical_url).replace('__JSONLD__', jsonld_str)
 
