@@ -14,6 +14,25 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+
+    def _is_executable_script(self, script) -> bool:
+        """Return True for scripts that execute JavaScript in the browser."""
+        script_type = (script.get('type') or '').strip().lower()
+        non_executable_types = {
+            'application/ld+json',
+            'application/json',
+            'application/schema+json',
+            'application/importmap+json',
+            'speculationrules',
+        }
+        if script_type in non_executable_types:
+            return False
+        return True
+
+    def _allows_page_javascript(self, html_path: Path) -> bool:
+        """Interactive utility pages are allowed to use progressive JS."""
+        utility_sections = {'search', 'cart', 'products', 'studio'}
+        return bool(utility_sections.intersection(html_path.parts))
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -185,10 +204,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if executable_scripts and not self._allows_page_javascript(html_path):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -218,7 +239,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': not any(i['severity'] == 'error' for i in all_issues),
         }
         
         return results

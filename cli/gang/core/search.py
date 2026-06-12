@@ -39,6 +39,22 @@ class SearchIndexer:
                 continue
         
         return index
+
+    def _string_or_empty(self, value: Any) -> str:
+        """Convert optional frontmatter values into JSON-safe strings."""
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Return frontmatter tags as a list of strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [self._string_or_empty(tag) for tag in tags if self._string_or_empty(tag)]
+        return [self._string_or_empty(tags)] if self._string_or_empty(tags) else []
     
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
@@ -58,9 +74,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._string_or_empty(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = self._string_or_empty(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +112,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._string_or_empty(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +146,29 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = self._string_or_empty(site.get('title') or 'GANG')
+        site_url = self._string_or_empty(site.get('url') or '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else '/search/'
+        description = f"Search {site_title} articles, projects, and pages."
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchAction',
+            'target': f"{canonical_url}?q={{search_term_string}}",
+            'query-input': 'required name=search_term_string',
+        }, indent=2)
+
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -143,11 +176,34 @@ class SearchIndexer:
             line-height: 1.6;
             color: #1a1a1a;
             background: #fff;
+        }
+        header,
+        main,
+        footer {
             padding: 2rem;
             max-width: 800px;
             margin: 0 auto;
         }
+        header,
+        footer {
+            color: #666;
+        }
+        header a {
+            color: #0066cc;
+            text-decoration: none;
+        }
         h1 { margin-bottom: 2rem; font-size: 2rem; }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
         .search-box {
             margin-bottom: 2rem;
             position: relative;
@@ -226,9 +282,14 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <a href="/">__SITE_TITLE__</a>
+    </header>
+    <main id="content">
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput" class="visually-hidden">Search query</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -239,6 +300,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +422,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+
+        return (html
+                .replace('__SITE_TITLE__', site_title)
+                .replace('__DESCRIPTION__', description)
+                .replace('__CANONICAL_URL__', canonical_url)
+                .replace('__JSONLD__', jsonld)
+                .replace('__YEAR__', str(datetime.now().year)))
 
