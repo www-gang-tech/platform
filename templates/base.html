@@ -7,6 +7,11 @@
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+    {% if og_type %}<meta property="og:type" content="{{ og_type }}">{% endif %}
+    {% if og_title %}<meta property="og:title" content="{{ og_title }}">{% endif %}
+    {% if og_description %}<meta property="og:description" content="{{ og_description }}">{% endif %}
+    {% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}
+    {% if twitter_card %}<meta name="twitter:card" content="{{ twitter_card }}">{% endif %}
     
     <!-- JSON-LD Structured Data -->
     {% if jsonld %}
@@ -44,7 +49,9 @@
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
+    {% if comments_enabled %}
     <!-- Comments System (progressive enhancement) -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>

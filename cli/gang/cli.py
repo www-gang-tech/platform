@@ -43,6 +43,115 @@ def cli(ctx):
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
 
+
+def _string_or_empty(value) -> str:
+    """Return a stripped string for frontmatter values that may be null."""
+    if value is None:
+        return ''
+    return str(value).strip()
+
+
+def _excerpt_from_html(html: str, max_length: int = 200) -> str:
+    """Build a compact plain-text excerpt from rendered Markdown HTML."""
+    import re
+
+    text = re.sub(r'<[^>]+>', ' ', html)
+    text = re.sub(r'\s+', ' ', text).strip()
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rsplit(' ', 1)[0].rstrip('.,;:') + '...'
+
+
+def _metadata_description(frontmatter: Dict, content_html: str, fallback: str) -> str:
+    """Choose a non-empty description from SEO fields, summary, body, or site config."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    candidates = [
+        seo.get('description'),
+        frontmatter.get('description'),
+        frontmatter.get('summary'),
+        frontmatter.get('excerpt'),
+        _excerpt_from_html(content_html),
+        fallback,
+    ]
+
+    for candidate in candidates:
+        description = _string_or_empty(candidate)
+        if description:
+            return description
+    return ''
+
+
+def _usable_comments_webhook_url(config: Dict) -> str:
+    """Return a configured comment webhook URL, excluding docs placeholders."""
+    comments = config.get('comments') or {}
+    if not comments.get('enabled'):
+        return ''
+
+    webhook_url = _string_or_empty(comments.get('webhook_url'))
+    if not webhook_url:
+        return ''
+
+    placeholder_tokens = ('your-n8n.app', 'example.com', '${')
+    if any(token in webhook_url for token in placeholder_tokens):
+        return ''
+
+    return webhook_url
+
+
+def _iso_string(value, fallback: str = '') -> str:
+    """Serialize dates and optional values safely for metadata."""
+    if value is None:
+        return fallback
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return _string_or_empty(value) or fallback
+
+
+def _default_jsonld(content_type: str, context: Dict, config: Dict) -> Dict:
+    """Generate contract-compliant JSON-LD when frontmatter omits it."""
+    site = config.get('site', {})
+    site_title = _string_or_empty(site.get('title') or 'GANG')
+    canonical_url = _string_or_empty(context.get('canonical_url'))
+    description = _string_or_empty(context.get('description') or site.get('description'))
+    title = _string_or_empty(context.get('title'))
+    date_value = _iso_string(context.get('date'), context.get('build_time_iso', ''))
+    publisher = {
+        '@type': 'Organization',
+        'name': site_title,
+        'url': site.get('url', ''),
+    }
+
+    if content_type in ('posts', 'articles'):
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'datePublished': date_value,
+            'author': publisher,
+            'publisher': publisher,
+            'url': canonical_url,
+        }
+
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': publisher,
+            'dateCreated': date_value,
+            'url': canonical_url,
+        }
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'description': description,
+        'url': canonical_url,
+    }
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -91,10 +200,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -110,7 +219,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -132,6 +241,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -672,11 +783,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2325,6 +2436,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        description = _metadata_description(frontmatter, content_html, config['site']['description'])
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2333,7 +2445,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2368,6 +2480,23 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = _default_jsonld(content_type, context, config)
+        context['og_type'] = 'article' if content_type in ('posts', 'articles') else 'website'
+        context['og_title'] = context['title']
+        context['og_description'] = context['description']
+        context['twitter_card'] = 'summary'
+        comments_webhook_url = _usable_comments_webhook_url(config)
+        comments = []
+        if context['page_type'] in ('post', 'product'):
+            try:
+                from core.comments import get_comments_for_build
+                comments = get_comments_for_build(content_path, slug, context['page_type'])
+            except Exception as e:
+                click.echo(f"⚠️  Could not load comments for {slug}: {e}")
+        context['comments'] = comments
+        context['comments_webhook_url'] = comments_webhook_url
+        context['comments_enabled'] = bool(comments_webhook_url and context['page_type'] in ('post', 'product'))
         
         # Select template
         if content_type == 'posts':
@@ -2683,13 +2812,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
         
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [Path(item) if isinstance(item, str) else item for item in publishable_files]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2712,12 +2836,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        # Use the same publishable set that was rendered for the static site.
+        publishable_paths = [Path(item) if isinstance(item, str) else item for item in publishable_files]
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -3558,7 +3678,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3694,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -4368,6 +4493,7 @@ def serve(ctx, port, host):
                         template_name = 'page.html'
                     
                     build_time = datetime.now()
+                    description = _metadata_description(frontmatter, content_html, config['site']['description'])
                     
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -4376,7 +4502,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4393,6 +4519,23 @@ def serve(ctx, port, host):
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    if not context.get('jsonld'):
+                        context['jsonld'] = _default_jsonld(content_type, context, config)
+                    context['og_type'] = 'article' if content_type in ('posts', 'articles') else 'website'
+                    context['og_title'] = context['title']
+                    context['og_description'] = context['description']
+                    context['twitter_card'] = 'summary'
+                    comments_webhook_url = _usable_comments_webhook_url(config)
+                    comments = []
+                    if context['page_type'] in ('post', 'product'):
+                        try:
+                            from core.comments import get_comments_for_build
+                            comments = get_comments_for_build(content_path, slug, context['page_type'])
+                        except Exception as e:
+                            click.echo(f"⚠️  Could not load comments for {slug}: {e}")
+                    context['comments'] = comments
+                    context['comments_webhook_url'] = comments_webhook_url
+                    context['comments_enabled'] = bool(comments_webhook_url and context['page_type'] in ('post', 'product'))
                     
                     # Render HTML
                     try:

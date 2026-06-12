@@ -34,6 +34,7 @@
     {% endif %}
 </article>
 
+{% if comments or comments_enabled %}
 <section id="comments" aria-label="Comments">
     <h2>Comments ({{ comments|length }})</h2>
     
@@ -52,7 +53,7 @@
         {% endfor %}
     </ol>
     {% endif %}
-    
+    {% if comments_enabled %}
     <form 
         method="POST" 
         action="{{ comments_webhook_url }}" 
@@ -111,6 +112,8 @@
         <button type="submit">Submit Comment</button>
         <p class="form-status" aria-live="polite"></p>
     </form>
+    {% endif %}
 </section>
+{% endif %}
 {% endblock %}
 
