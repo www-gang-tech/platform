@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -87,6 +87,10 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        raw_date = frontmatter.get('date', '')
+        if isinstance(raw_date, (date, datetime)):
+            raw_date = raw_date.isoformat()
+
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +100,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': raw_date,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +134,30 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'GANG')
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        description = f"Search {site_title} content."
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchResultsPage",
+            "name": "Search",
+            "description": description,
+            "url": canonical_url,
+        }, indent=2)
+
         return '''<!DOCTYPE html>
-<html lang="en">
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -223,12 +245,30 @@ class SearchIndexer:
             background: #ffeb3b;
             padding: 0 2px;
         }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
     </style>
 </head>
 <body>
+    <header>
+        <nav aria-label="Primary">
+            <a href="/">__SITE_TITLE__</a>
+        </nav>
+    </header>
+    <main>
     <h1>🔍 Search</h1>
     
     <div class="search-box">
+        <label for="searchInput" class="visually-hidden">Search query</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -355,6 +395,15 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
 </body>
-</html>'''
+</html>'''.replace('__LANG__', site.get('language', 'en')) \
+            .replace('__SITE_TITLE__', site_title) \
+            .replace('__DESCRIPTION__', description) \
+            .replace('__CANONICAL_URL__', canonical_url) \
+            .replace('__JSONLD__', jsonld) \
+            .replace('__YEAR__', str(datetime.now().year))
 

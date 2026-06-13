@@ -2144,6 +2144,69 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     click.echo("🔨 Building site...")
     config = ctx.obj
+    comments_config = config.get('comments', {})
+    comments_webhook_url = str(comments_config.get('webhook_url') or '').strip()
+    comments_enabled = bool(comments_config.get('enabled') and comments_webhook_url)
+    placeholder_webhooks = ('your-n8n.app', 'example.com', 'localhost')
+    if any(placeholder in comments_webhook_url for placeholder in placeholder_webhooks):
+        comments_enabled = False
+
+    def build_default_jsonld(content_type: str, context: Dict, url_path: str) -> Dict:
+        site = config.get('site', {})
+        site_title = site.get('title', '')
+        absolute_url = f"{site.get('url', '').rstrip('/')}{url_path}"
+        description = context.get('description') or site.get('description', '')
+        author = {
+            "@type": "Organization",
+            "name": site_title,
+        }
+        date_value = context.get('date')
+        if hasattr(date_value, 'isoformat'):
+            date_value = date_value.isoformat()
+        elif date_value is None:
+            date_value = ''
+
+        if content_type == 'posts':
+            schema = {
+                "@context": "https://schema.org",
+                "@type": "BlogPosting",
+                "headline": context.get('title', ''),
+                "description": description,
+                "datePublished": str(date_value),
+                "author": author,
+                "publisher": author,
+                "url": absolute_url,
+            }
+        elif content_type == 'projects':
+            schema = {
+                "@context": "https://schema.org",
+                "@type": "CreativeWork",
+                "name": context.get('title', ''),
+                "description": description,
+                "author": author,
+                "dateCreated": str(date_value),
+                "url": absolute_url,
+            }
+        elif content_type == 'newsletters':
+            schema = {
+                "@context": "https://schema.org",
+                "@type": "Article",
+                "headline": context.get('title', ''),
+                "description": description,
+                "datePublished": str(date_value),
+                "author": author,
+                "url": absolute_url,
+            }
+        else:
+            schema = {
+                "@context": "https://schema.org",
+                "@type": "WebPage",
+                "name": context.get('title', ''),
+                "description": description,
+                "url": absolute_url,
+            }
+
+        return {key: value for key, value in schema.items() if value != ''}
     
     # Slug uniqueness check (enabled by default)
     if check_slugs:
@@ -2333,7 +2396,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or frontmatter.get('description') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2342,12 +2405,16 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'jsonld': None,
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'related': [],
+            'comments': [],
+            'comments_enabled': comments_enabled,
+            'comments_webhook_url': comments_webhook_url if comments_enabled else '',
         }
         
         # Treat articles as posts
@@ -2368,6 +2435,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        authored_jsonld = frontmatter.get('jsonld')
+        context['jsonld'] = authored_jsonld if authored_jsonld else build_default_jsonld(content_type, context, url)
         
         # Select template
         if content_type == 'posts':
@@ -2686,10 +2755,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [Path(path) if isinstance(path, str) else path for path in publishable_files]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2713,11 +2779,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.products import ProductAggregator
         
         # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        publishable_paths = [Path(path) if isinstance(path, str) else path for path in publishable_files]
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -2966,6 +3028,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     posts_html = ""
     for post in recent_posts:
         posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
+    canonical_url = config['site']['url'].rstrip('/') + '/'
     
     # Create JSON-LD structured data
     jsonld = {
@@ -2973,7 +3036,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         "@type": "WebSite",
         "name": config['site']['title'],
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     import json
     jsonld_str = json.dumps(jsonld, indent=2)
@@ -3004,6 +3067,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3042,6 +3106,8 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         if item.get('summary'):
             items_html += f'<p>{item["summary"]}</p>'
         items_html += '</li>\n'
+    path = '/' + title.lower().replace(' ', '-').strip('/') + '/'
+    canonical_url = config['site']['url'].rstrip('/') + path
     
     # Create JSON-LD structured data
     import json
@@ -3050,7 +3116,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3146,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3558,7 +3625,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3641,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3773,10 +3845,12 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
+    stats = result['stats']
     
-    total_variants = sum(len(variants) for variants in image_map.values())
-    click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
+    total_variants = stats['total_variants']
+    click.echo(f"✅ Processed {stats['total_images']} images into {total_variants} variants")
     
     for original, variants in image_map.items():
         click.echo(f"  {original}:")
