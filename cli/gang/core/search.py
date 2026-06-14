@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
+import html
 from datetime import datetime
 import yaml
 
@@ -39,6 +40,20 @@ class SearchIndexer:
                 continue
         
         return index
+
+    def _stringify_metadata_value(self, value: Any, default: str = '') -> str:
+        if value is None:
+            return default
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if item is not None]
+        return [str(value)]
     
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
@@ -58,9 +73,14 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify_metadata_value(
+            frontmatter.get('title'),
+            file_path.stem.replace('-', ' ').title(),
+        )
+        description = self._stringify_metadata_value(
+            frontmatter.get('description') or frontmatter.get('summary'),
+        )
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +116,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify_metadata_value(frontmatter.get('date')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +150,29 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = html.escape(site.get('title', 'GANG'))
+        site_description = html.escape(site.get('description', 'Search site content.'))
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else '/search/'
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchAction',
+            'target': f"{canonical_url}?q={{search_term_string}}",
+            'query-input': 'required name=search_term_string',
+        }, indent=2)
+
+        template = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +263,12 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <a href="/">__SITE_TITLE__</a>
+    </header>
+    <main>
+    <h1>Search</h1>
+    <p>__SITE_DESCRIPTION__</p>
     
     <div class="search-box">
         <input 
@@ -239,6 +281,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +403,12 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            template
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__SITE_DESCRIPTION__', site_description)
+            .replace('__CANONICAL_URL__', html.escape(canonical_url))
+            .replace('__JSONLD__', jsonld)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
