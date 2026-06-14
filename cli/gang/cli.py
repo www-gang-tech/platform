@@ -51,7 +51,8 @@ def _stringify_metadata_value(value, default=''):
         return default
     if hasattr(value, 'isoformat'):
         return value.isoformat()
-    return str(value)
+    text = str(value)
+    return text if text.strip() else default
 
 
 def _normalize_tags(value):
