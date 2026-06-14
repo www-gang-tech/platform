@@ -124,6 +124,31 @@ def _default_jsonld(config: Dict, content_type: str, title: str, description: st
         'url': canonical_url or site_url,
     }
 
+
+def _collect_publishable_content_files(config: Dict) -> List[Path]:
+    """Collect markdown files that the static build is expected to render."""
+    try:
+        from core.scheduler import ContentScheduler
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.scheduler import ContentScheduler
+
+    content_path = Path(config['build']['content'])
+    all_md_files = []
+    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people']:
+        category_path = content_path / category_dir
+        if category_path.exists():
+            for md_file in category_path.glob('*.md'):
+                all_md_files.append(md_file)
+
+    scheduler = ContentScheduler(content_path)
+    schedule_result = scheduler.get_publishable_content(all_md_files)
+    return [
+        Path(item['path']) if isinstance(item['path'], str) else item['path']
+        for item in schedule_result['publishable']
+    ]
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -317,7 +342,7 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
     # Batch analysis mode
     if analyze_all:
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = _collect_publishable_content_files(config)
         
         if not md_files:
             click.echo("⚠️  No markdown files found", err=True)
@@ -2259,8 +2284,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.analyzer import ContentAnalyzer
         click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
-        content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = _collect_publishable_content_files(config)
         
         failed_files = []
         for md_file in md_files:
