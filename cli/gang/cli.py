@@ -11,6 +11,7 @@ import hashlib
 import json
 import shutil
 import markdown
+import re
 import time
 import threading
 from pathlib import Path
