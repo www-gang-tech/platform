@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 import yaml
 
 
@@ -61,6 +61,9 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
+        if not isinstance(tags, list):
+            tags = [tags]
+        tags = [str(tag) for tag in tags]
         category = file_path.parent.name
         
         # Generate URL
@@ -85,6 +88,8 @@ class SearchIndexer:
             description = paragraphs[0][:200] + '...' if paragraphs else ''
         
         # Create searchable content (title is weighted more)
+        title = str(title)
+        description = str(description or '')
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
         return {
@@ -96,8 +101,20 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._json_safe(frontmatter.get('date', '')),
         }
+    
+    def _json_safe(self, value: Any) -> Any:
+        """Convert parsed YAML values into JSON-serializable data."""
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(key): self._json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(item) for item in value]
+        return value
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -130,12 +147,27 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'GANG')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search articles, projects, and pages on {site_title}."
+        jsonld = {
+            "@context": "https://schema.org",
+            "@type": "SearchAction",
+            "target": f"{site_url}/search/?q={{search_term_string}}",
+            "query-input": "required name=search_term_string",
+        }
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,9 +258,16 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Primary">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput">Search content</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -239,6 +278,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +400,13 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', f"{site_url}/search/")
+            .replace('__JSONLD__', json.dumps(jsonld, indent=2))
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
