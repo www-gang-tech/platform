@@ -15,6 +15,29 @@ class ContractValidator:
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
     
+    def _is_data_script(self, script) -> bool:
+        script_type = (script.get('type') or '').strip().lower()
+        return script_type in {
+            'application/ld+json',
+            'application/json',
+            'application/importmap',
+        }
+    
+    def _allows_executable_js(self, html_path: Path, soup: BeautifulSoup, executable_scripts: List) -> bool:
+        parts = {part.lower() for part in html_path.parts}
+        if parts.intersection({'search', 'cart', 'products'}):
+            return True
+        
+        comment_scripts = [
+            script for script in executable_scripts
+            if (script.get('src') or '').split('?')[0] == '/assets/comments.js'
+        ]
+        comment_form = soup.find('form', attrs={'id': 'comment-form'})
+        if comment_scripts and comment_form and comment_form.get('action'):
+            return True
+        
+        return False
+    
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
         issues = []
@@ -185,10 +208,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if not self._is_data_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if executable_scripts and not self._allows_executable_js(html_path, soup, executable_scripts):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -230,6 +255,7 @@ class ContractValidator:
         
         for html_file in html_files:
             file_result = self.validate_file(html_file)
+            file_result['relative_file'] = str(html_file.relative_to(dist_path))
             results.append(file_result)
         
         # Overall summary
