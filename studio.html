@@ -538,7 +538,7 @@
                         <div class="content-item-name">${file.name}</div>
                         <div class="content-item-type">${file.type}</div>
                     `;
-                    item.onclick = () => loadFile(file.path);
+                    item.onclick = () => loadFile(file.path, item);
                     listEl.appendChild(item);
                 });
             } catch (e) {
@@ -548,7 +548,7 @@
         }
         
         // Load specific file
-        async function loadFile(path) {
+        async function loadFile(path, selectedItem) {
             if (!editor) return;
             
             try {
@@ -562,7 +562,9 @@
                 document.querySelectorAll('.content-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                event.target.closest('.content-item').classList.add('active');
+                if (selectedItem) {
+                    selectedItem.classList.add('active');
+                }
                 
                 // Enable rename button when a file is loaded
                 document.getElementById('renameSlugBtn').disabled = false;

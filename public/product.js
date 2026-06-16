@@ -19,7 +19,14 @@
     
     // Get all variant data from hidden input
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            variants = JSON.parse(variantsData.textContent);
+        } catch {
+            variants = [];
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
@@ -32,7 +39,18 @@
             return colorMatch && sizeMatch;
         });
         
-        if (!variant) return;
+        if (!variant) {
+            if (stockMessage) {
+                stockMessage.textContent = 'Select an available option';
+                stockMessage.style.color = '#dc3545';
+            }
+            if (buyButton) {
+                buyButton.disabled = true;
+                buyButton.style.opacity = '0.5';
+                buyButton.style.cursor = 'not-allowed';
+            }
+            return;
+        }
         
         // Update price
         if (priceDisplay) {
@@ -70,6 +88,17 @@
         // Update form action to point to correct variant URL
         if (variant.url) {
             form.action = variant.url;
+            form.dataset.checkoutUrl = variant.url;
+        }
+        
+        // Keep cart.js in sync with the selected variant.
+        form.dataset.variantId = String(variant.id || variant.sku || variant.name || form.dataset.variantId || '');
+        form.dataset.price = String(variant.price || '0');
+        form.dataset.currency = variant.currency || form.dataset.currency || 'USD';
+        form.dataset.sku = variant.sku || '';
+        
+        if (variant.image_index !== undefined && productImages[variant.image_index]) {
+            form.dataset.image = productImages[variant.image_index].getAttribute('src') || form.dataset.image || '';
         }
     }
     
@@ -88,7 +117,8 @@
     // Quantity validation
     if (quantityInput) {
         quantityInput.addEventListener('input', function() {
-            const val = parseInt(this.value);
+            const val = parseInt(this.value, 10);
+            if (Number.isNaN(val)) return;
             if (val < 1) this.value = 1;
             if (val > 99) this.value = 99;
         });

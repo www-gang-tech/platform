@@ -60,12 +60,17 @@ class ProductSchema:
                 # Inventory tracked and no overselling - check quantity
                 in_stock = inventory_qty > 0
             
+            product_url = product.get('url')
+            variant_id = variant.get('id')
+            offer_url = f"{product_url}?variant={variant_id}" if product_url and variant_id else product_url
+            
             offers.append({
                 '@type': 'Offer',
+                'id': variant_id,
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
-                'url': f"{product.get('url')}?variant={variant.get('id')}",
+                'url': offer_url,
                 'sku': variant.get('sku', ''),
                 'name': variant.get('title', ''),
                 'inventory_quantity': inventory_qty  # Include for debugging
