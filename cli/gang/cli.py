@@ -91,10 +91,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command('check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -267,6 +267,10 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
             click.echo("\n" + "=" * 60)
             click.echo("📊 SUMMARY REPORT")
             click.echo("=" * 60)
+            
+            if not all_analyses:
+                click.echo("No files could be analyzed successfully.", err=True)
+                ctx.exit(1)
             
             total_words = sum(a['readability']['word_count'] for a in all_analyses)
             avg_grade = sum(a['readability']['grade_level'] for a in all_analyses) / len(all_analyses)
@@ -672,11 +676,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command('list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2052,12 +2056,13 @@ def generate_agentmap(ctx):
     agentmap = generator.generate(publishable, products if products else None)
     
     # Write AgentMap
+    dist_path.mkdir(parents=True, exist_ok=True)
     agentmap_file = dist_path / 'agentmap.json'
     agentmap_file.write_text(json.dumps(agentmap, indent=2))
     
     # Generate Content API
     api_dir = dist_path / 'api'
-    api_dir.mkdir(exist_ok=True)
+    api_dir.mkdir(parents=True, exist_ok=True)
     
     api_generator = ContentAPIGenerator(site_url)
     content_index = api_generator.generate_content_index(publishable, content_path)
@@ -2269,39 +2274,44 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_projects = []
     all_newsletters = []
     
-    # Parse markdown files
+    def collect_publishable_files():
+        # Filter content based on publish dates
+        try:
+            from core.scheduler import ContentScheduler
+        except ImportError:
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent))
+            from core.scheduler import ContentScheduler
+        
+        scheduler = ContentScheduler(content_path)
+        
+        # Manually collect .md files to avoid Click recursion issue
+        all_md_files = []
+        for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
+            category_path = content_path / category_dir
+            if category_path.exists():
+                for md_file in category_path.glob('*.md'):
+                    all_md_files.append(md_file)
+        
+        schedule_result = scheduler.get_publishable_content(all_md_files)
+        
+        publishable_files = [item['path'] for item in schedule_result['publishable']]
+        
+        # Show scheduling info if there are scheduled items
+        if schedule_result['scheduled']:
+            click.echo(f"🕐 {len(schedule_result['scheduled'])} post(s) scheduled for future")
+        if schedule_result['draft']:
+            click.echo(f"📝 {len(schedule_result['draft'])} draft post(s) excluded")
+        
+        click.echo(f"📝 Processing {len(publishable_files)} publishable content file(s)...")
+        return scheduler, publishable_files
+    
     if profiler:
-        profiler.stage('process_content').__enter__()
+        with profiler.stage('process_content'):
+            scheduler, publishable_files = collect_publishable_files()
+    else:
+        scheduler, publishable_files = collect_publishable_files()
     
-    # Filter content based on publish dates
-    try:
-        from core.scheduler import ContentScheduler
-    except ImportError:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        from core.scheduler import ContentScheduler
-    
-    scheduler = ContentScheduler(content_path)
-    
-    # Manually collect .md files to avoid Click recursion issue
-    all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
-        category_path = content_path / category_dir
-        if category_path.exists():
-            for md_file in category_path.glob('*.md'):
-                all_md_files.append(md_file)
-    
-    schedule_result = scheduler.get_publishable_content(all_md_files)
-    
-    publishable_files = [item['path'] for item in schedule_result['publishable']]
-    
-    # Show scheduling info if there are scheduled items
-    if schedule_result['scheduled']:
-        click.echo(f"🕐 {len(schedule_result['scheduled'])} post(s) scheduled for future")
-    if schedule_result['draft']:
-        click.echo(f"📝 {len(schedule_result['draft'])} draft post(s) excluded")
-    
-    click.echo(f"📝 Processing {len(publishable_files)} publishable content file(s)...")
     for md_file in publishable_files:
         content_type = md_file.parent.name
         
@@ -2333,7 +2343,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2368,6 +2378,22 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        
+        comments_config = config.get('comments', {})
+        comments_enabled = bool(comments_config.get('enabled')) and content_type == 'posts'
+        context['comments_enabled'] = comments_enabled
+        context['comments_webhook_url'] = comments_config.get('webhook_url', '')
+        context['comments'] = []
+        
+        if comments_enabled:
+            try:
+                from core.comments import CommentsManager
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import CommentsManager
+            
+            context['comments'] = CommentsManager(content_path).get_comments_for_page(slug, 'post')
         
         # Select template
         if content_type == 'posts':
@@ -2582,6 +2608,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': offer.get('id') or offer.get('sku', ''),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2605,6 +2632,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 # Prepare template variables
                 brand_data = product.get('brand', '')
                 brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+                product_url = f"/products/{slug}/"
                 
                 pdp_context = {
                     'lang': config['site'].get('language', 'en'),
@@ -2612,13 +2640,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'product_url': product_url,
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
                     'currency': first_offer.get('priceCurrency', 'USD'),
                     'recurring': None,
                     'content': product.get('description', ''),
-                    'buy_url': first_offer.get('url', '#'),
+                    'buy_url': first_offer.get('url') or '#',
+                    'variant_id': first_offer.get('id') or first_offer.get('sku', product.get('sku', '')),
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
@@ -2650,6 +2680,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                site_url=config['site']['url'].rstrip('/'),
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -3004,6 +3035,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url'].rstrip('/')}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3034,7 +3066,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
+def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None, canonical_path: str = None) -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
@@ -3045,12 +3077,16 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     
     # Create JSON-LD structured data
     import json
+    if canonical_path is None:
+        canonical_path = f"/{title.lower().replace(' ', '-')}/"
+    canonical_url = f"{config['site']['url'].rstrip('/')}{canonical_path}"
+    
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3116,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3796,6 +3833,7 @@ def studio(ctx, port, host):
     try:
         from http.server import HTTPServer, SimpleHTTPRequestHandler
         import json
+        import sys
         import threading
         
         config = ctx.obj

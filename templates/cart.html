@@ -7,7 +7,7 @@
     
     <title>Shopping Cart - GANG</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ site_url }}/cart/">
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -25,7 +25,7 @@
         <h1>Cart</h1>
         
         <!-- Empty cart message -->
-        <div id="cart-empty" style="display: none; text-align: center; padding: 3rem 0;">
+        <div id="cart-empty" style="text-align: center; padding: 3rem 0;">
             <p style="font-size: 1.2rem; color: var(--color-muted); margin-bottom: 1rem;">Your cart is empty</p>
             <a href="/products/" class="button">Continue Shopping</a>
         </div>

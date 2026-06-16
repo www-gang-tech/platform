@@ -62,7 +62,6 @@
             });
             
             if (response.ok) {
-                const result = await response.json();
                 showStatus(status, '✓ Comment submitted! It will appear after approval.', 'success');
                 form.reset();
                 resetButton(button);
