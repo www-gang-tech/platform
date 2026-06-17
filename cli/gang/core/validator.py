@@ -14,6 +14,7 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+        self.interactive_page_dirs = {'cart', 'products', 'search'}
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -153,6 +154,22 @@ class ContractValidator:
         
         return issues
     
+    def _allows_javascript(self, html_path: Path) -> bool:
+        """Return true for generated utility pages that intentionally need JS."""
+        return any(part in self.interactive_page_dirs for part in html_path.parts)
+    
+    def _is_executable_script(self, script) -> bool:
+        """Data-only script tags, like JSON-LD, do not count against JS budget."""
+        script_type = (script.get('type') or 'text/javascript').strip().lower()
+        return script_type in {
+            '',
+            'text/javascript',
+            'application/javascript',
+            'module',
+            'text/ecmascript',
+            'application/ecmascript',
+        }
+    
     def check_budgets(self, html_path: Path) -> List[Dict]:
         """Check performance budgets"""
         issues = []
@@ -183,12 +200,11 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_javascript(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            scripts = [script for script in soup.find_all('script') if self._is_executable_script(script)]
             
-            if scripts or inline_scripts:
+            if scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',

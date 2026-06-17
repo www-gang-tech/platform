@@ -40,6 +40,7 @@
     <main>
         <h1>Products</h1>
         
+        {% if products %}
         <div class="grid grid-2">
             {% for product in products %}
             <article class="product-card">
@@ -68,6 +69,9 @@
             </article>
             {% endfor %}
         </div>
+        {% else %}
+        <p>No products are currently available.</p>
+        {% endif %}
     </main>
     
     {% include "partials/footer.html" %}
