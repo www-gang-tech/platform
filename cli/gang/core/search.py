@@ -130,12 +130,28 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        lang = self.config.get('site', {}).get('language', 'en')
+        site_title = self.config.get('site', {}).get('title', 'Site')
+        site_url = self.config.get('site', {}).get('url', '').rstrip('/')
+        description = 'Search articles, projects, pages, and people.'
+        
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SearchAction",
+        "name": "Search",
+        "target": "__SITE_URL__/search/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+    }
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +242,13 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">__SITE_TITLE__</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +261,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +383,10 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html.replace('__LANG__', lang)
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__SITE_URL__', site_url)
+            .replace('__DESCRIPTION__', description)
+        )
 
