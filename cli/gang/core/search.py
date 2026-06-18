@@ -250,20 +250,28 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <label for="searchInput" class="visually-hidden">Search site</label>
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <a href="/">GANG</a>
+    </header>
+    <main>
+        <h1>Search</h1>
+
+        <div class="search-box">
+            <label for="searchInput" class="visually-hidden">Search site</label>
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
+    <footer>
+        <p><a href="/">Back to home</a></p>
+    </footer>
     
     <script>
         let searchIndex = null;
