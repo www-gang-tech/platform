@@ -11,17 +11,17 @@ jobs:
         with: { node-version: 20 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: npm ci || true
-      - run: pip install -e ./cli/gang || true
+      - run: if [ -f package-lock.json ]; then npm ci; fi
+      - run: pip install -e ./cli/gang
       - name: Build & audit
         run: |
           gang optimize
-          gang image
+          gang image public --check-alt
           gang build
           gang check
           gang audit
       - name: Answerability report
-        run: gang report --answerability --out reports
+        run: gang report --answerability
       - name: CrUX snapshot
         run: node scripts/crux_snapshot.js
         env:
@@ -29,6 +29,7 @@ jobs:
       - name: Archive fresh URLs
         run: node scripts/archive.js
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nightly-reports

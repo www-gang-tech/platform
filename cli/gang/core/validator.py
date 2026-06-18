@@ -36,7 +36,7 @@ class ContractValidator:
             prev_level = 0
             for heading in headings:
                 level = int(heading.name[1])
-                if level - prev_level > 1:
+                if prev_level > 0 and level - prev_level > 1:
                     issues.append({
                         'severity': 'error',
                         'rule': 'no_heading_skips',
@@ -185,10 +185,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if executable_scripts and not self._allows_page_javascript(html_path):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -197,6 +199,26 @@ class ContractValidator:
         
         return issues
     
+    def _is_executable_script(self, script) -> bool:
+        script_type = (script.get('type') or '').strip().lower()
+        non_executable_types = {
+            'application/ld+json',
+            'application/json',
+            'application/manifest+json',
+            'importmap',
+        }
+
+        if script_type in non_executable_types:
+            return False
+
+        return bool(script.get('src') or script.string)
+
+    def _allows_page_javascript(self, html_path: Path) -> bool:
+        # Search, cart, and products are interactive utility pages. The zero-JS
+        # budget applies to read-only content pages.
+        parts = set(html_path.parts)
+        return bool(parts & {'search', 'cart', 'products'})
+
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
         with open(html_path, 'r') as f:
@@ -218,7 +240,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

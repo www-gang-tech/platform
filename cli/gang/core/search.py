@@ -60,8 +60,9 @@ class SearchIndexer:
         # Extract metadata
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
-        category = file_path.parent.name
+        tags = self._normalize_tags(frontmatter.get('tags', []))
+        source_category = file_path.parent.name
+        category = 'posts' if source_category == 'articles' else source_category
         
         # Generate URL
         slug = file_path.stem
@@ -96,9 +97,16 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag) for tag in tags if tag]
+        return [str(tags)]
+
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
         # Remove code blocks
@@ -136,6 +144,11 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search published GANG content.">
+    <link rel="canonical" href="/search/">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"WebPage","name":"Search","url":"/search/","description":"Search published GANG content."}
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -223,22 +236,42 @@ class SearchIndexer:
             background: #ffeb3b;
             padding: 0 2px;
         }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <a href="/">GANG</a>
+    </header>
+    <main>
+        <h1>Search</h1>
+
+        <div class="search-box">
+            <label for="searchInput" class="visually-hidden">Search site</label>
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
+    <footer>
+        <p><a href="/">Back to home</a></p>
+    </footer>
     
     <script>
         let searchIndex = null;
