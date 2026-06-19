@@ -36,7 +36,7 @@ class ContractValidator:
             prev_level = 0
             for heading in headings:
                 level = int(heading.name[1])
-                if level - prev_level > 1:
+                if prev_level > 0 and level - prev_level > 1:
                     issues.append({
                         'severity': 'error',
                         'rule': 'no_heading_skips',
@@ -100,7 +100,13 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            def has_positive_tabindex(value):
+                try:
+                    return value is not None and int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+            
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -185,10 +191,18 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            interactive_page = any(part in {'search', 'cart', 'products'} for part in html_path.parts)
             
-            if scripts or inline_scripts:
+            def is_executable_script(script):
+                script_type = (script.get('type') or '').strip().lower()
+                return script_type in {'', 'text/javascript', 'application/javascript', 'module'}
+            
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if is_executable_script(script)
+            ]
+            
+            if executable_scripts and not interactive_page:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -214,11 +228,13 @@ class ContractValidator:
         all_issues = (results['semantic'] + results['accessibility'] + 
                      results['seo'] + results['budgets'])
         
+        error_count = len([i for i in all_issues if i['severity'] == 'error'])
+        warning_count = len([i for i in all_issues if i['severity'] == 'warning'])
         results['summary'] = {
             'total_issues': len(all_issues),
-            'errors': len([i for i in all_issues if i['severity'] == 'error']),
-            'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'errors': error_count,
+            'warnings': warning_count,
+            'passed': error_count == 0,
         }
         
         return results

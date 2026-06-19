@@ -87,6 +87,10 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        date_value = frontmatter.get('date', '')
+        if date_value and not isinstance(date_value, str):
+            date_value = str(date_value)
+        
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +100,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +134,31 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search {site_title} content."
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchResultsPage',
+            'name': 'Search',
+            'url': f"{site_url}/search/",
+            'description': description,
+        }, indent=2)
+        
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self';">
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
+    <link rel="stylesheet" href="/assets/style.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,19 +249,32 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+        </nav>
+    </header>
     
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
+    <main>
+        <h1>Search</h1>
+        
+        <div class="search-box">
+            <label for="searchInput">Search articles, projects, people, and pages</label>
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats" aria-live="polite"></div>
+        <div id="results"></div>
+    </main>
     
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +393,13 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__SITE_URL__', site_url)
+            .replace('__JSONLD__', jsonld)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
