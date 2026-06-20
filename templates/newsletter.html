@@ -8,6 +8,11 @@
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     <link rel="canonical" href="{{ canonical_url }}">
+    {% if jsonld is not none %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -33,7 +38,7 @@
     <main style="max-width: 65ch; margin: 0 auto;">
         <div class="newsletter-header">
             <p class="newsletter-meta">
-                Newsletter #{{ issue_number }} · Sent on {{ sent_date }}
+                Newsletter #{{ issue_number|default(newsletter_id, true)|default(slug, true) }} · Sent on {{ sent_date }}
             </p>
             <h1>{{ title }}</h1>
         </div>
