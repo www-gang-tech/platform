@@ -61,6 +61,12 @@ class SearchIndexer:
         title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
         description = frontmatter.get('description') or frontmatter.get('summary', '')
         tags = frontmatter.get('tags', [])
+        if tags is None:
+            tags = []
+        elif isinstance(tags, str):
+            tags = [tags]
+        else:
+            tags = [str(tag) for tag in tags]
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +102,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:

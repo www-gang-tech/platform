@@ -3,13 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' https: data:; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' http://localhost:8000 http://localhost:5001; base-uri 'self'; form-action 'self' https: https://*.n8n.app https://*.n8n.io;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://localhost:5001; base-uri 'self'; form-action 'self' https: https://*.n8n.app https://*.n8n.io;">
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
     
     <!-- JSON-LD Structured Data -->
-    {% if jsonld %}
+    <meta property="og:type" content="{{ 'article' if page_type == 'post' else 'website' }}">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description }}">
+    {% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}
+    <meta name="twitter:card" content="summary">
+
+    {% if jsonld is not none %}
     <script type="application/ld+json">
     {{ jsonld | tojson }}
     </script>
@@ -19,7 +25,6 @@
     <link rel="preload" href="/assets/style.css" as="style">
     
     <link rel="stylesheet" href="/assets/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     {% if user_authenticated %}
     <!-- Editor resources (only for authenticated users) -->
@@ -39,12 +44,14 @@
     {% if user_authenticated %}
     <!-- In-Place Editor (only for authenticated users) -->
             <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
-                <i class="fa-solid fa-pen"></i> Edit
+                Edit
             </button>
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
+    {% if comments_enabled %}
     <!-- Comments System (progressive enhancement) -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>
