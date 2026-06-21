@@ -14,6 +14,21 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+        self.javascript_allowed_paths = {'cart', 'products', 'search'}
+    
+    def _allows_javascript(self, html_path: Path) -> bool:
+        """Return True for interactive utility pages where JS is expected."""
+        return any(part in self.javascript_allowed_paths for part in html_path.parts)
+    
+    def _is_executable_script(self, script) -> bool:
+        """Data-only scripts such as JSON-LD do not count against the JS budget."""
+        script_type = (script.get('type') or '').strip().lower()
+        data_script_types = {
+            'application/ld+json',
+            'application/json',
+            'application/schema+json',
+        }
+        return script_type not in data_script_types
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -185,10 +200,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if scripts and not self._allows_javascript(html_path):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -214,11 +231,13 @@ class ContractValidator:
         all_issues = (results['semantic'] + results['accessibility'] + 
                      results['seo'] + results['budgets'])
         
+        error_count = len([i for i in all_issues if i['severity'] == 'error'])
+        warning_count = len([i for i in all_issues if i['severity'] == 'warning'])
         results['summary'] = {
             'total_issues': len(all_issues),
-            'errors': len([i for i in all_issues if i['severity'] == 'error']),
-            'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'errors': error_count,
+            'warnings': warning_count,
+            'passed': error_count == 0,
         }
         
         return results
