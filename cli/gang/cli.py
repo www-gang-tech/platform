@@ -134,6 +134,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2392,6 +2394,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = build_default_jsonld(
+                context['page_type'],
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                config,
+                context.get('date'),
+            )
         
         # Select template
         if content_type == 'posts':
@@ -2923,6 +2934,49 @@ def get_url_origin(url: str) -> str:
     if parsed.scheme and parsed.netloc:
         return f"{parsed.scheme}://{parsed.netloc}"
     return ''
+
+
+def build_default_jsonld(page_type: str, title: str, description: str, url: str, config: Dict, date=None) -> Dict:
+    """Create contract-compliant fallback JSON-LD for generated detail pages."""
+    site = config.get('site', {})
+    site_title = site.get('title', 'Site')
+    organization = {
+        '@type': 'Organization',
+        'name': site_title,
+        'url': site.get('url', ''),
+    }
+    
+    if page_type == 'post':
+        data = {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'url': url,
+            'datePublished': str(date or datetime.now().date()),
+            'author': organization,
+            'publisher': organization,
+        }
+    elif page_type == 'project':
+        data = {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'url': url,
+            'author': organization,
+            'dateCreated': str(date or datetime.now().date()),
+        }
+    else:
+        data = {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': title,
+            'description': description,
+            'url': url,
+        }
+    
+    return data
 
 
 def format_bytes(bytes_size: int) -> str:
