@@ -89,8 +89,9 @@
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
                       data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-checkout-base-url="{{ checkout_base_url }}"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ sku }}">
+                      data-variant-id="{{ variant_id }}">
                     
                     {% if colors %}
                     <div class="form-group">

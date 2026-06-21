@@ -62,6 +62,7 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': variant.get('id'),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
@@ -180,7 +181,12 @@ class ShopifyClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('products', [])
+            products = data.get('products', [])
+            for product in products:
+                handle = product.get('handle')
+                if handle and not product.get('url'):
+                    product['url'] = f"https://{self.store_url}/products/{handle}"
+            return products
         
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")

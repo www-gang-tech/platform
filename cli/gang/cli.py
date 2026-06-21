@@ -13,9 +13,11 @@ import shutil
 import markdown
 import time
 import threading
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 
 @click.group()
 @click.pass_context
@@ -91,10 +93,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -132,6 +134,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -672,11 +676,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2333,7 +2337,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': frontmatter.get('summary') or frontmatter.get('description') or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2357,6 +2361,28 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             context['page_type'] = 'post'
             context['category'] = 'posts'
         
+        comments_config = config.get('comments', {})
+        comments_webhook_url = comments_config.get('webhook_url', '')
+        comments_enabled = (
+            comments_config.get('enabled', False)
+            and bool(comments_webhook_url)
+            and 'your-n8n.' not in comments_webhook_url
+        )
+        comments = []
+        if comments_enabled and context['page_type'] == 'post':
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import get_comments_for_build
+            comments = get_comments_for_build(content_path, slug, context['page_type'])
+        
+        context.update({
+            'comments_enabled': comments_enabled,
+            'comments': comments,
+            'comments_webhook_url': comments_webhook_url if comments_enabled else '',
+        })
+        
         # Add canonical URL
         if content_type == 'posts':
             url = f"/posts/{slug}/"
@@ -2368,6 +2394,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = build_default_jsonld(
+                context['page_type'],
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                config,
+                context.get('date'),
+            )
         
         # Select template
         if content_type == 'posts':
@@ -2582,6 +2617,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': offer.get('id', offer.get('sku', '')),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2619,10 +2655,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'recurring': None,
                     'content': product.get('description', ''),
                     'buy_url': first_offer.get('url', '#'),
+                    'checkout_base_url': get_url_origin(first_offer.get('url', '')),
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
-                    'sku': product.get('sku', ''),
+                    'sku': first_offer.get('sku') or product.get('sku', ''),
+                    'variant_id': first_offer.get('id') or first_offer.get('sku') or product.get('sku', ''),
                     'brand': brand_name,
                     'category': product.get('category', ''),
                     'availability': first_offer.get('availability', 'InStock'),
@@ -2648,8 +2686,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             cart_template = jinja_env.get_template('cart.html')
             cart_html = cart_template.render(
+                lang=config['site'].get('language', 'en'),
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                canonical_url=f"{config['site']['url']}/cart/",
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -2686,7 +2726,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.scheduler import ContentScheduler
         
         scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
+        all_md = [md_file for md_file in content_path.rglob('*.md')]
         schedule_result = scheduler.get_publishable_content(all_md)
         publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
                       for item in schedule_result['publishable']]
@@ -2696,7 +2736,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Write search index
         search_index_file = dist_path / 'search-index.json'
-        search_index_file.write_text(json.dumps(search_index))
+        search_index_file.write_text(json.dumps(search_index, default=str))
         
         # Write search page
         search_page = dist_path / 'search' / 'index.html'
@@ -2883,6 +2923,60 @@ def process_external_links(html: str) -> str:
     # Pattern: <a href="http(s)://..."
     pattern = r'<a\s+([^>]*href=["\']?(https?://[^"\'>\s]+)["\']?[^>]*?)>'
     return re.sub(pattern, lambda m: replace_link(m), html)
+
+
+def get_url_origin(url: str) -> str:
+    """Return scheme + host for absolute URLs, or an empty string."""
+    try:
+        parsed = urlparse(url or '')
+    except Exception:
+        return ''
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return ''
+
+
+def build_default_jsonld(page_type: str, title: str, description: str, url: str, config: Dict, date=None) -> Dict:
+    """Create contract-compliant fallback JSON-LD for generated detail pages."""
+    site = config.get('site', {})
+    site_title = site.get('title', 'Site')
+    organization = {
+        '@type': 'Organization',
+        'name': site_title,
+        'url': site.get('url', ''),
+    }
+    
+    if page_type == 'post':
+        data = {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'url': url,
+            'datePublished': str(date or datetime.now().date()),
+            'author': organization,
+            'publisher': organization,
+        }
+    elif page_type == 'project':
+        data = {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'url': url,
+            'author': organization,
+            'dateCreated': str(date or datetime.now().date()),
+        }
+    else:
+        data = {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': title,
+            'description': description,
+            'url': url,
+        }
+    
+    return data
 
 
 def format_bytes(bytes_size: int) -> str:
@@ -3801,6 +3895,16 @@ def studio(ctx, port, host):
         config = ctx.obj
         
         class StudioHandler(SimpleHTTPRequestHandler):
+            def resolve_content_path(self):
+                content_base = Path(config['build']['content']).resolve()
+                file_path = unquote(self.path.replace('/api/content/', '', 1)).lstrip('/')
+                content_path = (content_base / file_path).resolve()
+                try:
+                    content_path.relative_to(content_base)
+                except ValueError:
+                    return None, content_base
+                return content_path, content_base
+            
             def log_message(self, format, *args):
                 # Suppress HTTP request logs
                 pass
@@ -3846,9 +3950,10 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path, content_base = self.resolve_content_path()
+                        if content_path is None:
+                            self.send_error(400, "Invalid content path")
+                            return
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -4085,9 +4190,10 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/content/'):
                     try:
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path, content_base = self.resolve_content_path()
+                        if content_path is None:
+                            self.send_error(400, "Invalid content path")
+                            return
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
