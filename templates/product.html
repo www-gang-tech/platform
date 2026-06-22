@@ -42,7 +42,7 @@
 <body>
     {% include "partials/header.html" %}
     
-    <main>
+    <main role="main" id="content">
         <div class="product-container">
             <div class="product-gallery">
                 {% if product_images %}
@@ -88,7 +88,7 @@
                       data-price="{{ price }}"
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
-                      data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-product-url="/products/{{ slug }}/"
                       data-sku="{{ sku }}"
                       data-variant-id="{{ sku }}">
                     

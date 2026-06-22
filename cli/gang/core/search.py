@@ -87,6 +87,12 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        date_value = frontmatter.get('date', '')
+        if hasattr(date_value, 'isoformat'):
+            date_value = date_value.isoformat()
+        elif date_value:
+            date_value = str(date_value)
+        
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +102,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +136,36 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        lang = site.get('language', 'en')
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search {site_title} content."
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': 'Search',
+            'url': canonical_url,
+            'description': description,
+            'potentialAction': {
+                '@type': 'SearchAction',
+                'target': f"{canonical_url}?q={{search_term_string}}",
+                'query-input': 'required name=search_term_string',
+            },
+        }, indent=2)
+        
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,19 +256,31 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header role="banner">
+        <nav role="navigation" aria-label="Main navigation">
+            <a href="/">__SITE_TITLE__</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+            <a href="/pages/about/">About</a>
+        </nav>
+    </header>
     
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <main role="main" id="content">
+        <h1>Search</h1>
+        
+        <div class="search-box">
+            <label for="searchInput">Search articles, projects, pages, and people</label>
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
     
     <script>
         let searchIndex = null;
@@ -355,6 +397,16 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
 </body>
 </html>'''
+        return (html
+                .replace('__LANG__', lang)
+                .replace('__SITE_TITLE__', site_title)
+                .replace('__DESCRIPTION__', description)
+                .replace('__CANONICAL_URL__', canonical_url)
+                .replace('__JSONLD__', jsonld)
+                .replace('__YEAR__', str(datetime.now().year)))
 
