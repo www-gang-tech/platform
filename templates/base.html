@@ -19,7 +19,6 @@
     <link rel="preload" href="/assets/style.css" as="style">
     
     <link rel="stylesheet" href="/assets/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     {% if user_authenticated %}
     <!-- Editor resources (only for authenticated users) -->
@@ -39,12 +38,14 @@
     {% if user_authenticated %}
     <!-- In-Place Editor (only for authenticated users) -->
             <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
-                <i class="fa-solid fa-pen"></i> Edit
+                Edit
             </button>
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
+    {% if comments_enabled %}
     <!-- Comments System (progressive enhancement) -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>

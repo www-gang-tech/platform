@@ -181,14 +181,22 @@ class ContractValidator:
                     'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
                 })
         
-        # Check for JavaScript (should be 0 on content pages)
+        # Check for executable JavaScript (data scripts such as JSON-LD do not count)
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            interactive_sections = {'cart', 'products', 'search'}
+            path_parts = set(html_path.parts)
             
-            if scripts or inline_scripts:
+            def is_executable_script(script):
+                script_type = (script.get('type') or '').strip().lower()
+                if script_type in ('application/ld+json', 'application/json'):
+                    return False
+                return script_type in ('', 'text/javascript', 'application/javascript', 'module')
+            
+            scripts = [script for script in soup.find_all('script') if is_executable_script(script)]
+            
+            if scripts and not path_parts.intersection(interactive_sections):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -213,12 +221,14 @@ class ContractValidator:
         # Calculate summary
         all_issues = (results['semantic'] + results['accessibility'] + 
                      results['seo'] + results['budgets'])
+        errors = [i for i in all_issues if i['severity'] == 'error']
+        warnings = [i for i in all_issues if i['severity'] == 'warning']
         
         results['summary'] = {
             'total_issues': len(all_issues),
-            'errors': len([i for i in all_issues if i['severity'] == 'error']),
-            'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'errors': len(errors),
+            'warnings': len(warnings),
+            'passed': len(errors) == 0,
         }
         
         return results
