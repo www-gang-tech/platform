@@ -360,9 +360,23 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
+        stripe_key = os.environ.get('STRIPE_SECRET_KEY')
+        gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
+        has_configured_source = bool(
+            (shopify_config[0] and shopify_config[1])
+            or self.config.get('demo_mode', False)
+            or (stripe_key and stripe_key != 'demo')
+            or (gumroad_token and gumroad_token != 'demo')
+        )
+
+        if not has_configured_source:
+            cached = self.load_cache()
+            if cached and isinstance(cached.get('products'), dict):
+                return cached['products']
+            return products
         
         # Shopify
-        shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
             client = ShopifyClient(shopify_config[0], shopify_config[1])
@@ -373,13 +387,11 @@ class ProductAggregator:
             products['shopify'] = client.fetch_products()
         
         # Stripe - only if explicitly configured
-        stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
         
         # Gumroad - only if explicitly configured
-        gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
