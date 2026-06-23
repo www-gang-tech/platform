@@ -57,10 +57,16 @@ class SearchIndexer:
                 except:
                     pass
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        # Extract metadata in JSON-serializable forms.
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags if tag is not None]
+        elif raw_tags:
+            tags = [str(raw_tags)]
+        else:
+            tags = []
         category = file_path.parent.name
         
         # Generate URL
@@ -87,6 +93,14 @@ class SearchIndexer:
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
         
+        date_value = frontmatter.get('date', '')
+        if hasattr(date_value, 'isoformat'):
+            date_value = date_value.isoformat()
+        elif date_value is None:
+            date_value = ''
+        else:
+            date_value = str(date_value)
+
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,7 +110,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': date_value,
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +144,30 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search content on {site_title}"
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchResultsPage",
+            "name": "Search",
+            "description": description,
+            "url": canonical_url,
+        }, indent=2)
+
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +258,11 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <a href="/">__SITE_TITLE__</a>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -355,6 +391,17 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    </main>
+    <footer>
+        <p>&copy; __SITE_TITLE__</p>
+    </footer>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', canonical_url)
+            .replace('__JSONLD__', jsonld)
+        )
 
