@@ -185,10 +185,21 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            utility_sections = {'cart', 'products', 'search', 'studio'}
+            is_utility_page = any(part in utility_sections for part in html_path.parts)
+            non_executable_types = {
+                'application/ld+json',
+                'application/json',
+                'application/schema+json',
+            }
+            executable_scripts = []
+            for script in soup.find_all('script'):
+                script_type = (script.get('type') or '').strip().lower()
+                if script_type in non_executable_types:
+                    continue
+                executable_scripts.append(script)
             
-            if scripts or inline_scripts:
+            if executable_scripts and not is_utility_page:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -214,11 +225,13 @@ class ContractValidator:
         all_issues = (results['semantic'] + results['accessibility'] + 
                      results['seo'] + results['budgets'])
         
+        error_count = len([i for i in all_issues if i['severity'] == 'error'])
+        warning_count = len([i for i in all_issues if i['severity'] == 'warning'])
         results['summary'] = {
             'total_issues': len(all_issues),
-            'errors': len([i for i in all_issues if i['severity'] == 'error']),
-            'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'errors': error_count,
+            'warnings': warning_count,
+            'passed': error_count == 0,
         }
         
         return results

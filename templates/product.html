@@ -82,13 +82,13 @@
                 
                 <!-- Product Form (works without JS, enhanced with JS) -->
                 <form class="product-form" 
-                      action="#" 
+                      action="{{ buy_url }}" 
                       method="GET"
                       data-product-name="{{ title }}"
                       data-price="{{ price }}"
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
-                      data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-product-url="{{ canonical_url }}"
                       data-sku="{{ sku }}"
                       data-variant-id="{{ sku }}">
                     
