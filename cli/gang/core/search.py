@@ -141,12 +141,27 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'GANG')
+        site_url = site.get('url', 'https://example.com')
+        description = 'Search articles, projects, and pages.'
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchResultsPage',
+            'name': 'Search',
+            'url': f'{site_url}/search/',
+            'description': description,
+        })
+        
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">__JSONLD__</script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -237,7 +252,13 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">__SITE_TITLE__</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -250,6 +271,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -368,4 +393,9 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (html
+                .replace('__SITE_TITLE__', site_title)
+                .replace('__DESCRIPTION__', description)
+                .replace('__CANONICAL_URL__', f'{site_url}/search/')
+                .replace('__JSONLD__', jsonld))
 
