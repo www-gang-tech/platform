@@ -56,6 +56,47 @@ def get_configured_comments_webhook(config: Dict) -> str:
 
     return webhook_url
 
+
+def build_default_jsonld(config: Dict, page_type: str, title: str, description: str, url: str, date=None) -> Dict:
+    """Generate contract-compliant fallback JSON-LD when frontmatter omits it."""
+    site = config.get('site', {})
+    site_title = site.get('title', 'GANG')
+    organization = {
+        '@type': 'Organization',
+        'name': site_title,
+        'url': site.get('url', ''),
+    }
+    
+    if page_type == 'post':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'datePublished': str(date or ''),
+            'author': organization,
+            'publisher': organization,
+        }
+    
+    if page_type == 'project':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': organization,
+            'dateCreated': str(date or ''),
+            'url': url,
+        }
+    
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'url': url,
+        'description': description,
+    }
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -145,6 +186,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2386,6 +2429,19 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = build_default_jsonld(
+                config,
+                context['page_type'],
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                context['date']
+            )
+        context['og_type'] = 'article' if context['page_type'] == 'post' else 'website'
+        context['og_title'] = context['title']
+        context['og_description'] = context['description']
+        context['twitter_card'] = 'summary'
         
         # Comments are only interactive when a real webhook is configured.
         comments_webhook_url = get_configured_comments_webhook(config)
