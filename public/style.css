@@ -93,6 +93,8 @@ body {
   --borderColor-default: #d1d9e0;
   --borderColor-muted: #d1d9e0b3;
   --borderColor-neutral-muted: #d1d9e0b3;
+  --color-muted: var(--fgColor-muted);
+  --color-border: var(--borderColor-default);
   --borderColor-accent-emphasis: #0969da;
   --borderColor-success-emphasis: #1a7f37;
   --borderColor-attention-emphasis: #9a6700;

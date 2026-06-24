@@ -22,10 +22,6 @@ class CommentsManager:
         self.comments_path = content_path / "comments"
         self.posts_comments_path = self.comments_path / "posts"
         self.products_comments_path = self.comments_path / "products"
-        
-        # Ensure directories exist
-        self.posts_comments_path.mkdir(parents=True, exist_ok=True)
-        self.products_comments_path.mkdir(parents=True, exist_ok=True)
     
     def get_comments_for_page(self, page_slug: str, page_type: str) -> List[Dict[str, Any]]:
         """Get all approved comments for a specific page."""
@@ -110,6 +106,8 @@ class CommentsManager:
         """Update the status of a comment."""
         # Find the comment file
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
+            if not comments_dir.exists():
+                continue
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
                     comment_file = page_dir / f"{comment_id}.yml"
@@ -134,6 +132,8 @@ class CommentsManager:
         """Delete a comment file."""
         # Find and delete the comment file
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
+            if not comments_dir.exists():
+                continue
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
                     comment_file = page_dir / f"{comment_id}.yml"
@@ -152,6 +152,8 @@ class CommentsManager:
         comments = []
         
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
+            if not comments_dir.exists():
+                continue
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
                     for comment_file in page_dir.glob("comment-*.yml"):
