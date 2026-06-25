@@ -4,11 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    
+
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     <link rel="canonical" href="{{ canonical_url }}">
-    
+    <meta property="og:type" content="{{ og_type|default('article') }}">
+    <meta property="og:title" content="{{ og_title|default(title) }}">
+    <meta property="og:description" content="{{ og_description|default(description) }}">
+    <meta property="og:url" content="{{ og_url|default(canonical_url) }}">
+    <meta name="twitter:card" content="{{ twitter_card|default('summary') }}">
+
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
+
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>

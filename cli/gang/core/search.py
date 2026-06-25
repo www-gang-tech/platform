@@ -8,6 +8,7 @@ from typing import Dict, List, Any
 import json
 import re
 from datetime import datetime
+from html import escape
 import yaml
 
 
@@ -58,9 +59,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +97,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date', '')),
         }
+
+    def _stringify(self, value: Any) -> str:
+        """Convert frontmatter values to JSON-safe strings."""
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        """Normalize tag frontmatter to a list of strings."""
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [self._stringify(tag) for tag in tags if self._stringify(tag)]
+        return [self._stringify(tags)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -130,12 +147,29 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
+        site = self.config.get('site', {})
+        site_title = escape(site.get('title', 'GANG'))
+        site_description = escape(site.get('description', 'Search site content.'))
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = escape(f"{site_url}/search/" if site_url else "/search/")
+        year = datetime.now().year
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': 'Search',
+            'url': canonical_url,
+            'description': f"Search {site_title} content.",
+        }, ensure_ascii=False)
+
         return '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - ''' + site_title + '''</title>
+    <meta name="description" content="''' + site_description + '''">
+    <link rel="canonical" href="''' + canonical_url + '''">
+    <script type="application/ld+json">''' + jsonld + '''</script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,9 +260,14 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <a href="/">''' + site_title + '''</a>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput">Search content</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -239,6 +278,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; ''' + str(year) + ''' ''' + site_title + '''.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
