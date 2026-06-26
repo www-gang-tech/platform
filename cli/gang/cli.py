@@ -11,11 +11,109 @@ import hashlib
 import json
 import shutil
 import markdown
+import sys
 import time
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+from urllib.parse import unquote, urlsplit
+
+
+PLACEHOLDER_COMMENT_WEBHOOK_HOSTS = ('your-n8n.app', 'your-n8n.io')
+
+
+def comments_are_usable(config: Dict) -> bool:
+    """Return true only when comments have a real configured webhook."""
+    comments_config = config.get('comments', {})
+    webhook_url = str(comments_config.get('webhook_url', '')).strip()
+
+    if not comments_config.get('enabled') or not webhook_url:
+        return False
+
+    return not any(host in webhook_url for host in PLACEHOLDER_COMMENT_WEBHOOK_HOSTS)
+
+
+def resolve_content_api_path(content_base: Path, requested_path: str) -> Path:
+    """Resolve a Studio content API path and keep it inside content_base."""
+    base = Path(content_base).resolve()
+    decoded_path = unquote(urlsplit(requested_path).path).lstrip('/')
+    resolved_path = (base / decoded_path).resolve()
+
+    if resolved_path != base and base not in resolved_path.parents:
+        raise ValueError("Requested content path is outside the content directory")
+
+    return resolved_path
+
+
+def content_description(frontmatter: Dict, config: Dict) -> str:
+    """Pick a non-empty description from SEO, summary, or site defaults."""
+    seo = frontmatter.get('seo') or {}
+    return (
+        seo.get('description')
+        or frontmatter.get('description')
+        or frontmatter.get('summary')
+        or config['site']['description']
+    )
+
+
+def default_jsonld_for_content(
+    content_type: str,
+    title: str,
+    description: str,
+    canonical_url: str,
+    date_value,
+    config: Dict,
+) -> Dict:
+    """Generate minimal structured data when content frontmatter omits it."""
+    base = {
+        "@context": "https://schema.org",
+        "url": canonical_url,
+        "description": description,
+    }
+    site_title = config['site']['title']
+    date_string = str(date_value or datetime.now().date())
+
+    if content_type == 'posts':
+        return {
+            **base,
+            "@type": "BlogPosting",
+            "headline": title,
+            "datePublished": date_string,
+            "author": {"@type": "Organization", "name": site_title},
+            "publisher": {"@type": "Organization", "name": site_title},
+        }
+
+    if content_type == 'projects':
+        return {
+            **base,
+            "@type": "CreativeWork",
+            "name": title,
+            "dateCreated": date_string,
+            "author": {"@type": "Organization", "name": site_title},
+        }
+
+    if content_type == 'people':
+        return {
+            **base,
+            "@type": "Person",
+            "name": title,
+        }
+
+    if content_type == 'newsletters':
+        return {
+            **base,
+            "@type": "Article",
+            "headline": title,
+            "datePublished": date_string,
+            "publisher": {"@type": "Organization", "name": site_title},
+        }
+
+    return {
+        **base,
+        "@type": "WebPage",
+        "name": title,
+    }
 
 @click.group()
 @click.pass_context
@@ -91,10 +189,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -110,7 +208,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -123,7 +221,8 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
-        'products': 'product'
+        'products': 'product',
+        'people': 'person',
     }
     
     for content_type_dir, contract_type in type_mapping.items():
@@ -132,6 +231,10 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            # Collection indexes have CollectionPage semantics, not detail-page contracts.
+            if html_file.parent == type_path:
+                continue
+
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -672,11 +775,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2333,7 +2436,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': content_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2343,6 +2446,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
+            'related': frontmatter.get('related', []),
+            'comments': [],
+            'comments_enabled': comments_are_usable(config),
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', ''),
+            'og_type': 'article' if content_type in ('posts', 'articles', 'newsletters') else 'website',
+            'twitter_card': 'summary',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2368,6 +2477,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context['jsonld']:
+            context['jsonld'] = default_jsonld_for_content(
+                content_type,
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                context['date'],
+                config,
+            )
         
         # Select template
         if content_type == 'posts':
@@ -3130,7 +3248,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = content_description(frontmatter, config)
     
     # Build time for footer
     build_time = datetime.now()
@@ -3558,7 +3676,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3692,13 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3773,9 +3897,11 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
+    stats = result['stats']
     
-    total_variants = sum(len(variants) for variants in image_map.values())
+    total_variants = stats['total_variants']
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
     
     for original, variants in image_map.items():
@@ -3846,13 +3972,17 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        file_path = self.path.replace('/api/content/', '', 1)
+                        content_path = resolve_content_api_path(content_base, file_path)
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
-                        if content_path.exists():
+                        if content_path.exists() and content_path.is_file():
+                            if content_path.suffix != '.md':
+                                self.send_error(400, "Only markdown content files can be read")
+                                return
+
                             content = content_path.read_text()
                             self.send_response(200)
                             self.send_header('Content-type', 'text/plain')
@@ -3862,6 +3992,9 @@ def studio(ctx, port, host):
                         else:
                             click.echo(f"❌ File not found: {content_path}")
                             self.send_error(404)
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_error(403, str(e))
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
@@ -4085,9 +4218,13 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/content/'):
                     try:
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        file_path = self.path.replace('/api/content/', '', 1)
+                        content_path = resolve_content_api_path(content_base, file_path)
+
+                        if content_path.suffix != '.md':
+                            self.send_error(400, "Only markdown content files can be saved")
+                            return
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4107,6 +4244,16 @@ def studio(ctx, port, host):
                             'path': str(content_path.relative_to(content_base))
                         }).encode())
                         
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_response(403)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Invalid content path',
+                            'message': str(e)
+                        }).encode())
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error saving file: {e}")
@@ -4376,7 +4523,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': content_description(frontmatter, config),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4387,12 +4534,23 @@ def serve(ctx, port, host):
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
                         'canonical_url': f"{config['site']['url']}{url}",
+                        'og_type': 'article' if content_type in ('posts', 'articles', 'newsletters') else 'website',
+                        'twitter_card': 'summary',
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    if not context['jsonld']:
+                        context['jsonld'] = default_jsonld_for_content(
+                            content_type,
+                            context['title'],
+                            context['description'],
+                            context['canonical_url'],
+                            context['date'],
+                            config,
+                        )
                     
                     # Render HTML
                     try:
