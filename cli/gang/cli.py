@@ -45,6 +45,76 @@ def resolve_content_api_path(content_base: Path, requested_path: str) -> Path:
 
     return resolved_path
 
+
+def content_description(frontmatter: Dict, config: Dict) -> str:
+    """Pick a non-empty description from SEO, summary, or site defaults."""
+    seo = frontmatter.get('seo') or {}
+    return (
+        seo.get('description')
+        or frontmatter.get('description')
+        or frontmatter.get('summary')
+        or config['site']['description']
+    )
+
+
+def default_jsonld_for_content(
+    content_type: str,
+    title: str,
+    description: str,
+    canonical_url: str,
+    date_value,
+    config: Dict,
+) -> Dict:
+    """Generate minimal structured data when content frontmatter omits it."""
+    base = {
+        "@context": "https://schema.org",
+        "url": canonical_url,
+        "description": description,
+    }
+    site_title = config['site']['title']
+    date_string = str(date_value or datetime.now().date())
+
+    if content_type == 'posts':
+        return {
+            **base,
+            "@type": "BlogPosting",
+            "headline": title,
+            "datePublished": date_string,
+            "author": {"@type": "Organization", "name": site_title},
+            "publisher": {"@type": "Organization", "name": site_title},
+        }
+
+    if content_type == 'projects':
+        return {
+            **base,
+            "@type": "CreativeWork",
+            "name": title,
+            "dateCreated": date_string,
+            "author": {"@type": "Organization", "name": site_title},
+        }
+
+    if content_type == 'people':
+        return {
+            **base,
+            "@type": "Person",
+            "name": title,
+        }
+
+    if content_type == 'newsletters':
+        return {
+            **base,
+            "@type": "Article",
+            "headline": title,
+            "datePublished": date_string,
+            "publisher": {"@type": "Organization", "name": site_title},
+        }
+
+    return {
+        **base,
+        "@type": "WebPage",
+        "name": title,
+    }
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -705,11 +775,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2366,7 +2436,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': content_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2405,6 +2475,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context['jsonld']:
+            context['jsonld'] = default_jsonld_for_content(
+                content_type,
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                context['date'],
+                config,
+            )
         
         # Select template
         if content_type == 'posts':
@@ -3167,7 +3246,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = content_description(frontmatter, config)
     
     # Build time for footer
     build_time = datetime.now()
@@ -4442,7 +4521,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': content_description(frontmatter, config),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -4459,6 +4538,15 @@ def serve(ctx, port, host):
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    if not context['jsonld']:
+                        context['jsonld'] = default_jsonld_for_content(
+                            content_type,
+                            context['title'],
+                            context['description'],
+                            context['canonical_url'],
+                            context['date'],
+                            config,
+                        )
                     
                     # Render HTML
                     try:
