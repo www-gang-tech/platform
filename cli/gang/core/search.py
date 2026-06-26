@@ -146,12 +146,26 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_url = site.get('url', '').rstrip('/')
+        canonical_url = f"{site_url}/search/" if site_url else "/search/"
+        description = "Search articles, projects, and pages."
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchAction",
+            "target": f"{canonical_url}?q={{search_term_string}}",
+            "query-input": "required name=search_term_string",
+        })
+
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">__JSONLD__</script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -239,22 +253,44 @@ class SearchIndexer:
             background: #ffeb3b;
             padding: 0 2px;
         }
+        header, main, footer {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        header {
+            margin-bottom: 2rem;
+        }
+        footer {
+            margin-top: 3rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <h1>Search</h1>
+        <p>Search articles, projects, and pages.</p>
+    </header>
+
+    <main>
+        <div class="search-box">
+            <label for="searchInput">Search query</label>
+            <input 
+                type="text" 
+                id="searchInput" 
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        
+        <div id="searchStats" class="search-stats" aria-live="polite"></div>
+        <div id="results"></div>
+    </main>
+
+    <footer>
+        <p>Search index generated from published static content.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -373,4 +409,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+
+        return (
+            html
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', canonical_url)
+            .replace('__JSONLD__', jsonld)
+        )
 
