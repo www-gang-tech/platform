@@ -2450,6 +2450,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'comments': [],
             'comments_enabled': comments_are_usable(config),
             'comments_webhook_url': config.get('comments', {}).get('webhook_url', ''),
+            'og_type': 'article' if content_type in ('posts', 'articles', 'newsletters') else 'website',
+            'twitter_card': 'summary',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -4532,6 +4534,8 @@ def serve(ctx, port, host):
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
                         'canonical_url': f"{config['site']['url']}{url}",
+                        'og_type': 'article' if content_type in ('posts', 'articles', 'newsletters') else 'website',
+                        'twitter_card': 'summary',
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
                         'category': content_type,  # 'posts', 'pages', 'projects', etc.

@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -13,6 +14,7 @@ sys.path.insert(0, str(CLI_ROOT))
 
 from cli import cli as gang_cli  # noqa: E402
 from cli import comments_are_usable, resolve_content_api_path  # noqa: E402
+from core.search import SearchIndexer  # noqa: E402
 from core.validator import ContractValidator  # noqa: E402
 
 
@@ -111,6 +113,30 @@ class ValidatorRegressionTests(unittest.TestCase):
             result = self._validator().validate_file(html_path)
 
             self.assertTrue(result["summary"]["passed"])
+
+
+class SearchRegressionTests(unittest.TestCase):
+    def test_frontmatter_dates_are_serialized_as_strings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            content_root = Path(tmp) / "content"
+            post_dir = content_root / "posts"
+            post_dir.mkdir(parents=True)
+            post_path = post_dir / "dated-post.md"
+            post_path.write_text(
+                "---\n"
+                "title: Dated Post\n"
+                "date: 2026-06-26\n"
+                "tags: launch\n"
+                "---\n\n"
+                "Body copy."
+            )
+
+            index = SearchIndexer(content_root, {}).build_search_index([post_path])
+
+            json.dumps(index)
+            document = index["documents"][0]
+            self.assertEqual(document["date"], date(2026, 6, 26).isoformat())
+            self.assertEqual(document["tags"], ["launch"])
 
 
 if __name__ == "__main__":
