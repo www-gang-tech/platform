@@ -92,10 +92,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -107,6 +107,10 @@ def check(ctx, verbose):
     config = ctx.obj
     dist_path = Path(config['build']['output'])
     contracts_dir = Path('contracts')
+    
+    if not dist_path.exists():
+        click.echo("❌ dist/ directory not found. Run 'gang build' first.", err=True)
+        ctx.exit(1)
     
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
@@ -124,6 +128,7 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
+        'people': 'person',
         'products': 'product'
     }
     
@@ -133,6 +138,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2482,6 +2489,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'build_time_iso': build_time.isoformat(),
             'jsonld': jsonld,
             'canonical_url': f"{config['site']['url'].rstrip('/')}{url}",
+            'og_type': 'article' if content_type == 'posts' else 'website',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
