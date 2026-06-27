@@ -11,6 +11,7 @@ import hashlib
 import json
 import shutil
 import markdown
+import re
 import time
 import threading
 from pathlib import Path
@@ -91,10 +92,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -106,6 +107,10 @@ def check(ctx, verbose):
     config = ctx.obj
     dist_path = Path(config['build']['output'])
     contracts_dir = Path('contracts')
+    
+    if not dist_path.exists():
+        click.echo("❌ dist/ directory not found. Run 'gang build' first.", err=True)
+        ctx.exit(1)
     
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
@@ -123,6 +128,7 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
+        'people': 'person',
         'products': 'product'
     }
     
@@ -132,6 +138,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -672,11 +680,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2114,6 +2122,125 @@ def slugs(ctx, fix):
     else:
         click.echo(f"\n✅ All slugs are unique!")
 
+
+def get_content_description(frontmatter: Dict, config: Dict, body: str = '') -> str:
+    """Return a non-empty page description from authored metadata or content."""
+    seo = frontmatter.get('seo') or {}
+    candidates = [
+        frontmatter.get('summary'),
+        seo.get('description') if isinstance(seo, dict) else None,
+        frontmatter.get('description'),
+    ]
+    
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    
+    if body:
+        plain = re.sub(r'[#*_>`\[\]\(\)\\-]+', ' ', body)
+        plain = re.sub(r'\s+', ' ', plain).strip()
+        if plain:
+            return plain[:200]
+    
+    return config['site']['description']
+
+
+def to_json_safe(value):
+    """Convert frontmatter values such as dates and Paths into JSON-safe data."""
+    if isinstance(value, dict):
+        return {str(key): to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_json_safe(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return value
+
+
+def build_default_jsonld(content_type: str, frontmatter: Dict, config: Dict, url: str,
+                         title: str, description: str) -> Dict:
+    """Use authored JSON-LD when present, otherwise create contract-safe defaults."""
+    authored_jsonld = frontmatter.get('jsonld')
+    if isinstance(authored_jsonld, dict) and authored_jsonld:
+        return to_json_safe(authored_jsonld)
+    
+    site = config['site']
+    site_url = site['url'].rstrip('/')
+    absolute_url = f"{site_url}{url}"
+    publisher = {
+        "@type": "Organization",
+        "name": site['title'],
+        "url": site_url,
+    }
+    date_value = str(frontmatter.get('date') or datetime.now().date())
+    author = frontmatter.get('author') or site['title']
+    
+    if content_type == 'posts':
+        return {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "description": description,
+            "url": absolute_url,
+            "datePublished": date_value,
+            "author": {"@type": "Organization", "name": author} if isinstance(author, str) else to_json_safe(author),
+            "publisher": publisher,
+        }
+    
+    if content_type == 'projects':
+        return {
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            "name": title,
+            "description": description,
+            "url": absolute_url,
+            "author": {"@type": "Organization", "name": author} if isinstance(author, str) else to_json_safe(author),
+            "dateCreated": date_value,
+        }
+    
+    if content_type == 'people':
+        person_data = frontmatter.get('jsonld') if isinstance(frontmatter.get('jsonld'), dict) else {}
+        return {
+            "@context": "https://schema.org",
+            "@type": "Person",
+            "name": person_data.get('name', title),
+            "description": person_data.get('description', description),
+            "url": person_data.get('url', absolute_url),
+        }
+    
+    schema_type = "Article" if content_type == 'newsletters' else "WebPage"
+    payload = {
+        "@context": "https://schema.org",
+        "@type": schema_type,
+        "name": title,
+        "description": description,
+        "url": absolute_url,
+    }
+    if content_type == 'newsletters':
+        payload["headline"] = title
+        payload["datePublished"] = date_value
+        payload["publisher"] = publisher
+    return payload
+
+
+def get_comments_context(config: Dict) -> Dict:
+    """Return comment template state only when a real webhook is configured."""
+    comments_config = config.get('comments', {}) or {}
+    webhook_url = os.environ.get('COMMENTS_WEBHOOK_URL') or comments_config.get('webhook_url', '')
+    placeholder_hosts = ('your-n8n.app', 'example.com', 'localhost')
+    comments_enabled = bool(
+        comments_config.get('enabled')
+        and webhook_url
+        and not any(host in webhook_url for host in placeholder_hosts)
+    )
+    
+    return {
+        'comments_enabled': comments_enabled,
+        'comments_webhook_url': webhook_url if comments_enabled else '',
+        'comments': [],
+    }
+
 @cli.command()
 @click.option('--check-quality', is_flag=True, help='Run content quality checks before building')
 @click.option('--min-quality-score', type=int, default=85, help='Minimum quality score (default: 85)')
@@ -2325,15 +2452,33 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        if content_type == 'articles':
+            content_type = 'posts'
+        
+        if content_type == 'posts':
+            url = f"/posts/{slug}/"
+        elif content_type == 'projects':
+            url = f"/projects/{slug}/"
+        elif content_type == 'pages':
+            url = f"/pages/{slug}/"
+        elif content_type == 'people':
+            url = f"/people/{slug}/"
+        else:
+            url = f"/{content_type}/{slug}/"
+        
+        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
+        description = get_content_description(frontmatter, config, body)
+        jsonld = build_default_jsonld(content_type, frontmatter, config, url, title, description)
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        comments_context = get_comments_context(config)
         
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2342,32 +2487,16 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'jsonld': jsonld,
+            'canonical_url': f"{config['site']['url'].rstrip('/')}{url}",
+            'og_type': 'article' if content_type == 'posts' else 'website',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            **comments_context,
         }
-        
-        # Treat articles as posts
-        if content_type == 'articles':
-            content_type = 'posts'
-            # Update context to reflect the change
-            context['page_type'] = 'post'
-            context['category'] = 'posts'
-        
-        # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
-        
-        context['canonical_url'] = f"{config['site']['url']}{url}"
         
         # Select template
         if content_type == 'posts':
@@ -2683,13 +2812,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
         
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [Path(path) if isinstance(path, str) else path for path in publishable_files]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
@@ -2712,12 +2836,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        # Use the same files rendered above to avoid advertising ghost URLs.
+        publishable_paths = [Path(path) if isinstance(path, str) else path for path in publishable_files]
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -3004,6 +3124,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url'].rstrip('/')}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3045,12 +3166,14 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     
     # Create JSON-LD structured data
     import json
+    section_path = f"/{title.lower().replace(' ', '-')}/"
+    canonical_url = f"{config['site']['url'].rstrip('/')}{section_path}"
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3203,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>

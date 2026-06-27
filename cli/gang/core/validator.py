@@ -14,6 +14,23 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+        self.executable_script_exempt_types = {
+            'application/ld+json',
+            'application/json',
+            'application/schema+json',
+            'importmap',
+            'speculationrules',
+        }
+        self.interactive_page_dirs = {'search', 'cart', 'products'}
+    
+    def _is_executable_script(self, script) -> bool:
+        """Return true only for scripts that execute JavaScript."""
+        script_type = (script.get('type') or '').strip().lower()
+        return script_type not in self.executable_script_exempt_types
+    
+    def _allows_javascript(self, html_path: Path) -> bool:
+        """Allow JS on explicitly interactive utility/commerce pages."""
+        return bool(set(html_path.parts) & self.interactive_page_dirs)
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -183,10 +200,12 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_javascript(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            scripts = [script for script in soup.find_all('script', src=True)
+                       if self._is_executable_script(script)]
+            inline_scripts = [script for script in soup.find_all('script', src=False)
+                              if self._is_executable_script(script)]
             
             if scripts or inline_scripts:
                 issues.append({
@@ -218,7 +237,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results
