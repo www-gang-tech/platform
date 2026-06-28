@@ -58,23 +58,24 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        tags = [str(tag) for tag in (frontmatter.get('tags') or [])]
         category = file_path.parent.name
+        output_category = 'posts' if category == 'articles' else category
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if output_category == 'posts':
             url = f"/posts/{slug}/"
-        elif category == 'projects':
+        elif output_category == 'projects':
             url = f"/projects/{slug}/"
-        elif category == 'pages':
+        elif output_category == 'pages':
             url = f"/pages/{slug}/"
-        elif category == 'people':
+        elif output_category == 'people':
             url = f"/people/{slug}/"
         else:
-            url = f"/{category}/{slug}/"
+            url = f"/{output_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,11 +93,11 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': output_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
