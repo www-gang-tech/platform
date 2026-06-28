@@ -28,6 +28,11 @@ def _is_executable_script(script) -> bool:
         return False
     return script_type in EXECUTABLE_SCRIPT_TYPES or script.get('src') is not None
 
+
+def _allows_executable_js(html_path: Path) -> bool:
+    route_parts = set(html_path.parts)
+    return bool(route_parts.intersection({'search', 'cart', 'products'}))
+
 class ContractValidator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -209,7 +214,7 @@ class ContractValidator:
                 if _is_executable_script(script)
             ]
             
-            if executable_scripts:
+            if executable_scripts and not _allows_executable_js(html_path):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
