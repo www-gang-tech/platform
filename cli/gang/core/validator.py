@@ -239,7 +239,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': not any(i['severity'] == 'error' for i in all_issues),
         }
         
         return results
