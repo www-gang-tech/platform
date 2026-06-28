@@ -57,6 +57,10 @@ class ContractValidator:
         # Validate JSON-LD
         jsonld_result = self._check_jsonld(soup, contract.get('jsonld', {}))
         errors.extend(jsonld_result['errors'])
+
+        # Validate accessibility
+        accessibility_result = self._check_accessibility(soup, contract.get('accessibility', {}))
+        errors.extend(accessibility_result['errors'])
         
         # Validate meta tags
         meta_result = self._check_meta(soup, contract.get('meta', {}))
@@ -152,19 +156,56 @@ class ContractValidator:
         for script in jsonld_scripts:
             try:
                 data = json.loads(script.string)
+                schema_items = self._jsonld_items(data)
                 
                 # Check @type
-                if required_type and data.get('@type') != required_type:
-                    errors.append(f"JSON-LD @type is '{data.get('@type')}', expected '{required_type}'")
+                if required_type and not any(item.get('@type') == required_type for item in schema_items):
+                    found_types = [item.get('@type') for item in schema_items if item.get('@type')]
+                    errors.append(f"JSON-LD @type is '{', '.join(found_types) or 'missing'}', expected '{required_type}'")
                 
                 # Check required props
                 for prop in required_props:
-                    if prop not in data:
+                    if not any(prop in item for item in schema_items):
                         errors.append(f"Missing required JSON-LD property: {prop}")
                 
             except json.JSONDecodeError:
                 errors.append("Invalid JSON-LD: failed to parse")
         
+        return {'errors': errors}
+
+    def _jsonld_items(self, data: Any) -> List[Dict[str, Any]]:
+        """Return schema objects from single, array, or @graph JSON-LD payloads."""
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            graph = data.get('@graph')
+            if isinstance(graph, list):
+                context = data.get('@context')
+                items = []
+                for item in graph:
+                    if isinstance(item, dict):
+                        if context and '@context' not in item:
+                            item = {'@context': context, **item}
+                        items.append(item)
+                return items
+            return [data]
+        return []
+
+    def _check_accessibility(self, soup: BeautifulSoup, accessibility_rules: Dict) -> Dict[str, List[str]]:
+        """Check accessibility rules defined in page-type contracts."""
+        errors = []
+        required_alt_coverage = accessibility_rules.get('alt_coverage')
+
+        if required_alt_coverage is not None:
+            images = soup.find_all('img')
+            if images:
+                images_with_alt = [img for img in images if img.get('alt') is not None]
+                coverage = (len(images_with_alt) / len(images)) * 100
+                if coverage < required_alt_coverage:
+                    errors.append(
+                        f"Alt text coverage {coverage:.1f}% below required {required_alt_coverage}%"
+                    )
+
         return {'errors': errors}
     
     def _check_meta(self, soup: BeautifulSoup, meta_rules: Dict) -> Dict[str, List[str]]:

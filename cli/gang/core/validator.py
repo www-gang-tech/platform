@@ -9,6 +9,25 @@ import re
 from typing import List, Dict, Any
 from pathlib import Path
 
+
+EXECUTABLE_SCRIPT_TYPES = {
+    '',
+    'text/javascript',
+    'application/javascript',
+    'application/ecmascript',
+    'text/ecmascript',
+    'module',
+}
+
+
+def _is_executable_script(script) -> bool:
+    script_type = (script.get('type') or '').strip().lower()
+    if script_type == 'module':
+        return True
+    if script_type in {'application/ld+json', 'application/json'}:
+        return False
+    return script_type in EXECUTABLE_SCRIPT_TYPES or script.get('src') is not None
+
 class ContractValidator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -185,10 +204,12 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            executable_scripts = [
+                script for script in soup.find_all('script')
+                if _is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if executable_scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
