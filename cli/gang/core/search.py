@@ -58,23 +58,24 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        tags = [str(tag) for tag in (frontmatter.get('tags') or [])]
         category = file_path.parent.name
+        output_category = 'posts' if category == 'articles' else category
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if output_category == 'posts':
             url = f"/posts/{slug}/"
-        elif category == 'projects':
+        elif output_category == 'projects':
             url = f"/projects/{slug}/"
-        elif category == 'pages':
+        elif output_category == 'pages':
             url = f"/pages/{slug}/"
-        elif category == 'people':
+        elif output_category == 'people':
             url = f"/people/{slug}/"
         else:
-            url = f"/{category}/{slug}/"
+            url = f"/{output_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,11 +93,11 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': output_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +131,30 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site_title = self.config.get('site', {}).get('title', 'Site')
+        site_url = self.config.get('site', {}).get('url', '').rstrip('/')
+        search_url = f"{site_url}/search/" if site_url else "/search/"
+        description = f"Search {site_title} content."
+        year = str(datetime.now().year)
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchResultsPage",
+            "name": "Search",
+            "description": description,
+            "url": search_url,
+        })
+
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SEARCH_URL__">
+    <script type="application/ld+json">
+    __JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,9 +245,17 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">__SITE_TITLE__</a>
+        </nav>
+    </header>
+
+    <main id="content">
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput">Search query</label>
         <input 
             type="text" 
             id="searchInput" 
@@ -239,6 +266,11 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +389,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+
+        return (html
+                .replace('__SITE_TITLE__', site_title)
+                .replace('__DESCRIPTION__', description)
+                .replace('__SEARCH_URL__', search_url)
+                .replace('__JSONLD__', jsonld)
+                .replace('__YEAR__', year))
 

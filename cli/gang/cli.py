@@ -43,6 +43,109 @@ def cli(ctx):
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
 
+
+def _first_non_empty(*values):
+    """Return the first non-empty frontmatter/config value."""
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return ''
+
+
+def _content_description(frontmatter: Dict, config: Dict) -> str:
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    return str(_first_non_empty(
+        seo.get('description'),
+        frontmatter.get('summary'),
+        frontmatter.get('description'),
+        config['site'].get('description', '')
+    ))
+
+
+def _json_safe(value):
+    return json.loads(json.dumps(value, default=str))
+
+
+def _default_jsonld(config: Dict, content_type: str, frontmatter: Dict, title: str, description: str, canonical_url: str, body: str) -> Dict:
+    site = config.get('site', {})
+    site_title = site.get('title', 'Site')
+    author_name = frontmatter.get('author') or site_title
+    published = str(frontmatter.get('date') or datetime.now().date())
+    modified = str(frontmatter.get('updated') or frontmatter.get('date') or datetime.now().date())
+
+    if content_type == 'posts':
+        schema = {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'url': canonical_url,
+            'datePublished': published,
+            'dateModified': modified,
+            'author': {'@type': 'Person', 'name': author_name},
+            'publisher': {'@type': 'Organization', 'name': site_title},
+            'wordCount': len(body.split()),
+        }
+    elif content_type == 'projects':
+        schema = {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'url': canonical_url,
+            'author': {'@type': 'Person', 'name': author_name},
+            'dateCreated': str(frontmatter.get('date') or frontmatter.get('year') or datetime.now().date()),
+        }
+    elif content_type == 'people':
+        schema = {
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': title,
+            'description': description,
+            'url': canonical_url,
+        }
+    else:
+        schema = {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': title,
+            'description': description,
+            'url': canonical_url,
+        }
+
+    if frontmatter.get('image'):
+        schema['image'] = frontmatter['image']
+    if frontmatter.get('tags'):
+        schema['keywords'] = frontmatter['tags']
+
+    return schema
+
+
+def _content_jsonld(config: Dict, content_type: str, frontmatter: Dict, title: str, description: str, canonical_url: str, body: str):
+    authored_jsonld = frontmatter.get('jsonld')
+    if authored_jsonld:
+        return _json_safe(authored_jsonld)
+    return _default_jsonld(config, content_type, frontmatter, title, description, canonical_url, body)
+
+
+def _comments_webhook_url(config: Dict) -> str:
+    comments = config.get('comments', {})
+    if not comments.get('enabled'):
+        return ''
+
+    webhook_url = str(comments.get('webhook_url') or '').strip()
+    if webhook_url.startswith('${') and webhook_url.endswith('}'):
+        webhook_url = os.environ.get(webhook_url[2:-1], '').strip()
+
+    placeholders = ('your-n8n.app', 'example.com', 'localhost')
+    if not webhook_url or any(placeholder in webhook_url for placeholder in placeholders):
+        return ''
+
+    return webhook_url
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -91,10 +194,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -110,7 +213,10 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
+    if not dist_path.exists():
+        click.echo("❌ dist/ directory not found. Run 'gang build' first.", err=True)
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -132,6 +238,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -672,11 +780,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2333,7 +2441,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': _content_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2342,7 +2450,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'issue_number': frontmatter.get('issue_number', frontmatter.get('issue', '')),
+            'sent_date': frontmatter.get('sent_date', frontmatter.get('date', '')),
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2368,6 +2477,30 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['og_type'] = 'article' if content_type in {'posts', 'projects', 'newsletters'} else 'website'
+        context['jsonld'] = _content_jsonld(
+            config,
+            content_type,
+            frontmatter,
+            context['title'],
+            context['description'],
+            context['canonical_url'],
+            body,
+        )
+
+        comments_url = _comments_webhook_url(config)
+        comments_enabled = content_type == 'posts' and bool(comments_url)
+        context['comments_enabled'] = comments_enabled
+        context['comments_webhook_url'] = comments_url
+        context['comments'] = []
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent))
+                from core.comments import get_comments_for_build
+            context['comments'] = get_comments_for_build(content_path, slug, context['page_type'])
         
         # Select template
         if content_type == 'posts':
@@ -3558,7 +3691,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3773,7 +3906,8 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
