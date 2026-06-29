@@ -64,34 +64,61 @@ jobs:
               print("No product data")
               exit(1)
           
+          def extract_value(data, path):
+              """Resolve simple dotted paths with [0] indexes and [*] wildcards."""
+              def walk(value, parts):
+                  if not parts:
+                      return value
+                  
+                  part = parts[0]
+                  rest = parts[1:]
+                  
+                  if part == '*':
+                      if not isinstance(value, list):
+                          return None
+                      values = [walk(item, rest) for item in value]
+                      return [item for item in values if item is not None]
+                  
+                  if isinstance(value, list):
+                      if part.isdigit():
+                          index = int(part)
+                          if index >= len(value):
+                              return None
+                          return walk(value[index], rest)
+                      return None
+                  
+                  if not isinstance(value, dict):
+                      return None
+                  
+                  return walk(value.get(part), rest)
+              
+              parts = path.replace('[', '.').replace(']', '').split('.')
+              return walk(data, parts)
+          
+          def transform_value(value, mapping):
+              transform = mapping.get('transform')
+              if value is not None and transform in {'strip_html', 'html_to_markdown'}:
+                  return BeautifulSoup(str(value), 'html.parser').get_text()
+              if value is not None and transform == 'to_schema_availability':
+                  return 'InStock' if value else 'OutOfStock'
+              return value
+          
           # Apply mappings
           front_matter = {}
           for key, mapping in schema['mappings'].items():
-              source = mapping['source']
-              # Simple JSONPath evaluation (production would use jsonpath_ng)
-              value = product
-              for part in source.replace('[', '.').replace(']', '').split('.'):
-                  if part.startswith('*'):
-                      continue
-                  if part.isdigit():
-                      value = value[int(part)] if isinstance(value, list) else value
-                  else:
-                      value = value.get(part) if isinstance(value, dict) else None
-                  if value is None:
-                      break
-              
-              # Apply transforms
-              if value and mapping.get('transform') == 'strip_html':
-                  value = BeautifulSoup(str(value), 'html.parser').get_text()[:mapping.get('max_length', 1000)]
-              elif value and mapping.get('transform') == 'to_schema_availability':
-                  value = 'InStock' if value else 'OutOfStock'
+              source = mapping['shopify_field']
+              frontmatter_field = mapping.get('frontmatter_field', key)
+              value = extract_value(product, source)
+              if value is None and 'default' in mapping:
+                  value = mapping['default']
+              value = transform_value(value, mapping)
               
               if value is not None:
-                  front_matter[key] = value
+                  front_matter[frontmatter_field] = value
           
           # Generate front-matter file
-          handle = front_matter.get('handle', 'unknown')
-          content_dir = Path('content/shop')
+          handle = front_matter.get('slug') or product.get('handle') or 'unknown'
+          content_dir = Path('content/products')
           content_dir.mkdir(parents=True, exist_ok=True)
           
           output_file = content_dir / f"{handle}.md"
@@ -100,7 +127,7 @@ jobs:
               f.write('---\n')
               yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
               f.write('---\n\n')
-              f.write(front_matter.get('summary', ''))
+              f.write(front_matter.get('description', ''))
           
           print(f"Generated: {output_file}")
           

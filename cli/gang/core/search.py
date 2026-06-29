@@ -57,10 +57,10 @@ class SearchIndexer:
                 except:
                     pass
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        # Extract metadata and coerce YAML-native values to JSON-safe primitives.
+        title = self._stringify(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date', '')),
         }
+    
+    def _stringify(self, value: Any) -> str:
+        """Convert frontmatter scalars, including dates, into JSON-safe strings."""
+        if value is None:
+            return ''
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+    
+    def _normalize_tags(self, value: Any) -> List[str]:
+        """Normalize tags to a list of strings for indexing and JSON output."""
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [self._stringify(item) for item in value if item is not None]
+        return [self._stringify(value)]
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -130,12 +146,29 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search {site_title} content"
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchAction',
+            'name': f"{site_title} Search",
+            'target': f"{site_url}/search/?q={{search_term_string}}",
+            'query-input': 'required name=search_term_string',
+        }, indent=2)
+        
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -225,8 +258,14 @@ class SearchIndexer:
         }
     </style>
 </head>
-<body>
-    <h1>🔍 Search</h1>
+<body data-page-type="search">
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">__SITE_TITLE__</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +278,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +400,13 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__SITE_URL__', site_url)
+            .replace('__JSONLD__', jsonld)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 

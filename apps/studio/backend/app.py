@@ -233,6 +233,7 @@ def trigger_build():
         }), 500
 
 
+@app.route('/api/content')
 @app.route('/api/content/list')
 def list_content():
     """List all editable content files"""
