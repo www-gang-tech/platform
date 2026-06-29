@@ -132,6 +132,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file == type_path / 'index.html':
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2325,6 +2327,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        description = content_description(frontmatter, config)
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2333,7 +2336,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2348,6 +2351,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments_enabled': comments_enabled(config),
+            'comments': [],
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', ''),
         }
         
         # Treat articles as posts
@@ -2368,6 +2374,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        if not context.get('jsonld'):
+            context['jsonld'] = default_jsonld(content_type, context['title'], description, context['canonical_url'], frontmatter, config)
+        context.update(social_meta(content_type, context['title'], description, context['canonical_url']))
         
         # Select template
         if content_type == 'posts':
@@ -2650,6 +2659,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                site_url=config['site']['url'],
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -2886,6 +2896,82 @@ def format_bytes(bytes_size: int) -> str:
         return f"{bytes_size / (1024 * 1024):.2f}MB"
 
 
+def content_description(frontmatter: Dict, config: Dict) -> str:
+    """Return the best available page description."""
+    for value in (
+        frontmatter.get('summary'),
+        frontmatter.get('description'),
+        frontmatter.get('seo', {}).get('description') if isinstance(frontmatter.get('seo'), dict) else None,
+        config['site'].get('description'),
+    ):
+        if value:
+            return str(value)
+    return ''
+
+
+def comments_enabled(config: Dict) -> bool:
+    """Enable comments only when a real webhook is configured."""
+    comments = config.get('comments', {})
+    webhook_url = str(comments.get('webhook_url', ''))
+    if not comments.get('enabled') or not webhook_url.startswith('https://'):
+        return False
+    placeholders = ('your-n8n.app', 'example.com', 'localhost')
+    return not any(placeholder in webhook_url for placeholder in placeholders)
+
+
+def default_jsonld(content_type: str, title: str, description: str, url: str, frontmatter: Dict, config: Dict) -> Dict:
+    """Build contract-compliant fallback JSON-LD for rendered content."""
+    site_title = config['site']['title']
+    site_url = config['site']['url']
+    date_value = frontmatter.get('date') or datetime.now().date().isoformat()
+    date_str = date_value.isoformat() if hasattr(date_value, 'isoformat') else str(date_value)
+    
+    if content_type in ('posts', 'articles'):
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'datePublished': date_str,
+            'author': {'@type': 'Organization', 'name': frontmatter.get('author', site_title)},
+            'publisher': {'@type': 'Organization', 'name': site_title, 'url': site_url},
+            'mainEntityOfPage': {'@type': 'WebPage', '@id': url},
+        }
+    
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': {'@type': 'Organization', 'name': frontmatter.get('author', site_title)},
+            'dateCreated': date_str,
+            'url': url,
+        }
+    
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'description': description,
+        'url': url,
+    }
+
+
+def social_meta(content_type: str, title: str, description: str, url: str) -> Dict[str, str]:
+    """Build default Open Graph and Twitter metadata."""
+    og_type = 'article' if content_type in ('posts', 'articles', 'projects', 'newsletters') else 'website'
+    return {
+        'og_type': og_type,
+        'og_title': title,
+        'og_description': description,
+        'og_url': url,
+        'twitter_card': 'summary',
+        'twitter_title': title,
+        'twitter_description': description,
+    }
+
+
 def render_header(config: Dict, templates_path: Path = None) -> str:
     """Render header partial template from HTML file"""
     from jinja2 import Environment, FileSystemLoader
@@ -2995,6 +3081,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{config['site']['url']}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3027,6 +3114,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 
 def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
     """Create simple list page"""
+    collection_path = title.lower().replace(' ', '-')
+    canonical_url = f"{config['site']['url']}/{collection_path}/"
     items_html = ""
     for item in items:
         items_html += f'<li><a href="{item["url"]}">{item["title"]}</a>'
@@ -3041,7 +3130,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3071,6 +3160,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{canonical_url}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -4630,6 +4720,7 @@ def serve(ctx, port, host):
                         cart_html = cart_template.render(
                             year=datetime.now().year,
                             site_title=config['site']['title'],
+                            site_url=config['site']['url'],
                             lighthouse_scores=True,
                             build_time=build_time_formatted,
                             build_time_iso=build_time_iso,
