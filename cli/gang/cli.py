@@ -74,6 +74,67 @@ def get_content_description(frontmatter: Dict, config: Dict) -> str:
             return str(value).strip()
     return ''
 
+def metadata_string(value, default: str = '') -> str:
+    if value is None or value == '':
+        return default
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+def get_jsonld_context(frontmatter: Dict, config: Dict, content_type: str,
+                       url: str, title: str, description: str) -> Dict:
+    """Use authored JSON-LD when present, otherwise generate contract-safe defaults."""
+    authored = frontmatter.get('jsonld')
+    if isinstance(authored, dict) and authored:
+        return authored
+
+    absolute_url = f"{config['site']['url']}{url}"
+    site_title = config['site']['title']
+    date_value = metadata_string(frontmatter.get('date') or frontmatter.get('sent_date'))
+    organization = {
+        '@type': 'Organization',
+        'name': site_title,
+        'url': config['site']['url'],
+    }
+
+    if content_type == 'posts':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'datePublished': date_value,
+            'author': organization,
+            'publisher': organization,
+            'description': description,
+            'url': absolute_url,
+        }
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': organization,
+            'dateCreated': date_value or metadata_string(frontmatter.get('year')),
+            'url': absolute_url,
+        }
+    if content_type == 'people':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': title,
+            'url': absolute_url,
+            'description': description,
+        }
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'url': absolute_url,
+        'description': description,
+    }
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -165,6 +226,8 @@ def check_contracts(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2375,7 +2438,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'jsonld': None,
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2402,6 +2465,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             url = f"/{content_type}/{slug}/"
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['jsonld'] = get_jsonld_context(
+            frontmatter,
+            config,
+            content_type,
+            url,
+            context['title'],
+            context['description'],
+        )
         
         # Select template
         if content_type == 'posts':
@@ -4424,7 +4495,14 @@ def serve(ctx, port, host):
                         'tags': frontmatter.get('tags', []),
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
-                        'jsonld': frontmatter.get('jsonld'),
+                        'jsonld': get_jsonld_context(
+                            frontmatter,
+                            config,
+                            content_type,
+                            url,
+                            frontmatter.get('title', slug.replace('-', ' ').title()),
+                            get_content_description(frontmatter, config),
+                        ),
                         'canonical_url': f"{config['site']['url']}{url}",
                         # In-place editor context
                         'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
