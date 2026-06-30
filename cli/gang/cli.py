@@ -60,6 +60,20 @@ def get_comments_context(config: Dict) -> Dict:
         'comments': [],
     }
 
+def get_content_description(frontmatter: Dict, config: Dict) -> str:
+    """Choose a non-empty meta description from content metadata or site defaults."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    candidates = [
+        seo.get('description') if seo else None,
+        frontmatter.get('description'),
+        frontmatter.get('summary'),
+        config['site'].get('description'),
+    ]
+    for value in candidates:
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ''
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -2352,7 +2366,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': get_content_description(frontmatter, config),
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -4401,7 +4415,7 @@ def serve(ctx, port, host):
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'description': get_content_description(frontmatter, config),
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
