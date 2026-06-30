@@ -39,6 +39,22 @@ class SearchIndexer:
                 continue
         
         return index
+
+    def _string_value(self, value: Any, default: str = '') -> str:
+        """Coerce frontmatter values to JSON-safe strings."""
+        if value is None:
+            return default
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+
+    def _normalize_tags(self, value: Any) -> List[str]:
+        """Coerce tags frontmatter to a list of strings."""
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [self._string_value(tag) for tag in value if tag is not None]
+        return [self._string_value(value)]
     
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
@@ -58,9 +74,12 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._string_value(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._string_value(
+            frontmatter.get('description') or frontmatter.get('summary'),
+            ''
+        )
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +115,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._string_value(frontmatter.get('date'), ''),
         }
     
     def _clean_markdown(self, text: str) -> str:

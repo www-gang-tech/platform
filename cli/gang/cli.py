@@ -43,6 +43,23 @@ def cli(ctx):
     with open(config_path) as f:
         ctx.obj = yaml.safe_load(f)
 
+def get_comments_context(config: Dict) -> Dict:
+    """Return template-safe comment settings for the current site config."""
+    comments_config = config.get('comments', {}) or {}
+    webhook_url = str(comments_config.get('webhook_url') or '').strip()
+    is_placeholder = (
+        not webhook_url
+        or 'your-n8n.' in webhook_url
+        or webhook_url.startswith('${')
+    )
+    enabled = bool(comments_config.get('enabled') and not is_placeholder)
+
+    return {
+        'comments_enabled': enabled,
+        'comments_webhook_url': webhook_url if enabled else '',
+        'comments': [],
+    }
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -91,10 +108,10 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
@@ -121,9 +138,11 @@ def check(ctx, verbose):
     # Map dist paths to content types
     type_mapping = {
         'posts': 'post',
+        'articles': 'post',
         'pages': 'page',
         'projects': 'project',
-        'products': 'product'
+        'products': 'product',
+        'people': 'person',
     }
     
     for content_type_dir, contract_type in type_mapping.items():
@@ -672,11 +691,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -2349,6 +2368,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
+        context.update(get_comments_context(config))
         
         # Treat articles as posts
         if content_type == 'articles':
@@ -3574,7 +3594,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -4393,6 +4418,7 @@ def serve(ctx, port, host):
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                     }
+                    context.update(get_comments_context(config))
                     
                     # Render HTML
                     try:

@@ -14,6 +14,31 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+
+    def _rule_names(self, section: str) -> List[str]:
+        """Return configured rule names, tolerating empty dict entries."""
+        names = []
+        for item in self.contracts.get(section, []):
+            if isinstance(item, str):
+                names.append(item)
+            elif isinstance(item, dict):
+                names.extend(item.keys())
+        return names
+
+    def _is_executable_script(self, script) -> bool:
+        script_type = (script.get('type') or '').strip().lower()
+        non_executable_types = {
+            'application/ld+json',
+            'application/json',
+            'application/manifest+json',
+            'importmap',
+            'speculationrules',
+        }
+        return script_type not in non_executable_types
+
+    def _allows_executable_js(self, html_path: Path) -> bool:
+        """Interactive utility pages can ship JS; read-only content pages cannot."""
+        return bool({'cart', 'products', 'search', 'studio'} & set(html_path.parts))
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -87,8 +112,7 @@ class ContractValidator:
                     })
         
         # Check color contrast (basic check for inline styles)
-        if 'color_contrast' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                 for item in self.contracts.get('accessibility', [])]:
+        if 'color_contrast' in self._rule_names('accessibility'):
             elements_with_style = soup.find_all(style=True)
             for elem in elements_with_style:
                 style = elem.get('style', '')
@@ -98,9 +122,14 @@ class ContractValidator:
                     pass
         
         # Check keyboard navigation (check for tabindex misuse)
-        if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+        if 'keyboard_nav' in self._rule_names('accessibility'):
+            bad_tabindex = []
+            for elem in soup.find_all(attrs={'tabindex': True}):
+                try:
+                    if int(elem.get('tabindex')) > 0:
+                        bad_tabindex.append(elem)
+                except (TypeError, ValueError):
+                    continue
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -116,8 +145,7 @@ class ContractValidator:
         soup = BeautifulSoup(html, 'html.parser')
         
         # Check meta description
-        if 'meta_description' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                   for item in self.contracts.get('seo', [])]:
+        if 'meta_description' in self._rule_names('seo'):
             meta_desc = soup.find('meta', attrs={'name': 'description'})
             if not meta_desc or not meta_desc.get('content'):
                 issues.append({
@@ -127,8 +155,7 @@ class ContractValidator:
                 })
         
         # Check canonical URL
-        if 'canonical_url' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                for item in self.contracts.get('seo', [])]:
+        if 'canonical_url' in self._rule_names('seo'):
             canonical = soup.find('link', attrs={'rel': 'canonical'})
             if not canonical:
                 issues.append({
@@ -138,8 +165,7 @@ class ContractValidator:
                 })
         
         # Check valid JSON-LD
-        if 'valid_jsonld' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('seo', [])]:
+        if 'valid_jsonld' in self._rule_names('seo'):
             jsonld_scripts = soup.find_all('script', attrs={'type': 'application/ld+json'})
             for script in jsonld_scripts:
                 try:
@@ -183,12 +209,14 @@ class ContractValidator:
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
-        if js_budget == 0:
+        if js_budget == 0 and not self._allows_executable_js(html_path):
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            scripts = [
+                script for script in soup.find_all('script')
+                if self._is_executable_script(script)
+            ]
             
-            if scripts or inline_scripts:
+            if scripts:
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -218,7 +246,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results
