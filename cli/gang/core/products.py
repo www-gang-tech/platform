@@ -384,8 +384,21 @@ class ProductAggregator:
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        has_products = any(products.values())
+        has_live_credentials = bool(
+            (shopify_config[0] and shopify_config[1]) or
+            (stripe_key and stripe_key != 'demo') or
+            (gumroad_token and gumroad_token != 'demo')
+        )
+        
+        if not has_products and not has_live_credentials:
+            cached = self.load_cache()
+            cached_products = cached.get('products') if cached else None
+            if cached_products:
+                return cached_products
+        
+        if has_products or has_live_credentials or not self.products_cache_file.exists():
+            self._save_cache(products)
         
         return products
     
