@@ -9,6 +9,7 @@ import yaml
 import os
 import hashlib
 import json
+import builtins
 import shutil
 import markdown
 import time
@@ -26,7 +27,7 @@ def json_safe(value):
     """Convert YAML/Python values into JSON-serializable primitives."""
     if isinstance(value, dict):
         return {str(k): json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (builtins.list, tuple, set)):
         return [json_safe(v) for v in value]
     if hasattr(value, 'isoformat'):
         return value.isoformat()
@@ -783,11 +784,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
