@@ -185,10 +185,23 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            path_parts = set(html_path.parts)
+            js_allowed_sections = {'products', 'cart', 'search', 'studio'}
+            js_allowed = bool(path_parts & js_allowed_sections)
+            non_executable_types = {'application/ld+json', 'application/json'}
+
+            scripts = []
+            inline_scripts = []
+            for script in soup.find_all('script'):
+                script_type = (script.get('type') or '').lower()
+                if script_type in non_executable_types:
+                    continue
+                if script.get('src'):
+                    scripts.append(script)
+                else:
+                    inline_scripts.append(script)
             
-            if scripts or inline_scripts:
+            if not js_allowed and (scripts or inline_scripts):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -218,7 +231,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

@@ -11,6 +11,17 @@ from datetime import datetime
 import yaml
 
 
+def _json_safe(value):
+    """Convert YAML-derived values into JSON-safe primitives."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return value
+
+
 class SearchIndexer:
     """Generate search index for static site"""
     
@@ -58,9 +69,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        tags = [str(tag) for tag in (frontmatter.get('tags') or [])]
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +107,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': _json_safe(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -136,6 +147,17 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search articles, projects, people, and pages.">
+    <link rel="canonical" href="/search/">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": "Search",
+      "url": "/search/",
+      "description": "Search articles, projects, people, and pages."
+    }
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +248,13 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +267,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>Search this site.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
