@@ -147,6 +147,17 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search articles, projects, people, and pages.">
+    <link rel="canonical" href="/search/">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": "Search",
+      "url": "/search/",
+      "description": "Search articles, projects, people, and pages."
+    }
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -237,7 +248,13 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -250,6 +267,10 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer>
+        <p>Search this site.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
