@@ -329,7 +329,7 @@ class ContentSyndicator:
                 frontmatter['syndicated'][platform] = result['url']
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False).strip()}\n---\n{body.lstrip()}"
         file_path.write_text(new_content)
         
         return True

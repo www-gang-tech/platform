@@ -39,16 +39,27 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
+            const dependencies = Array.isArray(report) ? report : (report.dependencies || []);
+            const vulnerabilities = dependencies.flatMap(dep =>
+              (dep.vulns || []).map(vuln => ({ dep, vuln }))
+            );
+            
+            if (vulnerabilities.length === 0) {
+              core.warning('pip-audit reported a non-zero exit but no vulnerabilities were parsed.');
+              return;
+            }
             
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
             
-            for (const vuln of vulnerabilities) {
-              body += `### ${vuln.name} ${vuln.version}\n`;
-              body += `- **Severity**: ${vuln.severity}\n`;
-              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
-              body += `- **Details**: ${vuln.description}\n\n`;
+            for (const { dep, vuln } of vulnerabilities) {
+              const fixes = vuln.fix_versions && vuln.fix_versions.length
+                ? vuln.fix_versions.join(', ')
+                : 'No fixed version reported';
+              body += `### ${dep.name} ${dep.version}\n`;
+              body += `- **Advisory**: ${vuln.id || 'Unknown'}\n`;
+              body += `- **Fix**: ${fixes}\n`;
+              body += `- **Details**: ${vuln.description || 'No description provided'}\n\n`;
             }
             
             body += '**Action Required**: Run `gang update-deps --security-only` to fix these issues.\n';

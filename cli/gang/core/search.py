@@ -58,9 +58,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._json_safe(frontmatter.get('date', '')),
         }
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
+
+    def _json_safe(self, value: Any) -> Any:
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {str(k): self._json_safe(v) for k, v in value.items()}
+        return value
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
@@ -130,12 +146,28 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search {site_title} content."
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchResultsPage",
+            "name": "Search",
+            "description": description,
+            "url": f"{site_url}/search/"
+        }, indent=2)
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +258,17 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+            <a href="/products/">Products</a>
+        </nav>
+    </header>
+
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +281,11 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +404,13 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', f"{site_url}/search/")
+            .replace('__JSONLD__', jsonld)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 

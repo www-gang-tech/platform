@@ -7,6 +7,7 @@ GANG CLI - Single binary for all build operations
 import click
 import yaml
 import os
+import sys
 import hashlib
 import json
 import shutil
@@ -14,8 +15,136 @@ import markdown
 import time
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
+from urllib.parse import unquote
+
+
+CONTENT_TYPES = ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people']
+
+
+def _dump_frontmatter(frontmatter: Dict[str, Any], body: str) -> str:
+    """Write frontmatter with stable separators so Markdown never joins `---`."""
+    dumped = yaml.dump(frontmatter, default_flow_style=False).strip()
+    return f"---\n{dumped}\n---\n{body.lstrip()}"
+
+
+def _json_safe(value: Any) -> Any:
+    """Normalize YAML-loaded values so generated JSON can always serialize."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def _normalize_tags(tags: Any) -> List[str]:
+    if tags is None:
+        return []
+    if isinstance(tags, (list, tuple, set)):
+        return [str(tag) for tag in tags if tag is not None]
+    return [str(tags)]
+
+
+def _site_url(config: Dict[str, Any]) -> str:
+    return config.get('site', {}).get('url', '').rstrip('/')
+
+
+def _content_url(content_type: str, slug: str) -> str:
+    if content_type == 'articles':
+        content_type = 'posts'
+    if content_type == 'posts':
+        return f"/posts/{slug}/"
+    if content_type == 'projects':
+        return f"/projects/{slug}/"
+    if content_type == 'pages':
+        return f"/pages/{slug}/"
+    return f"/{content_type}/{slug}/"
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or value == '' or value == {}
+
+
+def _has_real_comments_config(config: Dict[str, Any]) -> bool:
+    comments = config.get('comments', {})
+    webhook = str(comments.get('webhook_url', '') or '')
+    placeholder_hosts = ('your-n8n.app', 'example.com', 'localhost')
+    return bool(comments.get('enabled') and webhook.startswith('https://') and not any(host in webhook for host in placeholder_hosts))
+
+
+def _build_jsonld(config: Dict[str, Any], content_type: str, slug: str, frontmatter: Dict[str, Any], description: str) -> Dict[str, Any]:
+    authored = frontmatter.get('jsonld')
+    if isinstance(authored, dict) and authored.get('@type'):
+        return _json_safe(authored)
+
+    site = config.get('site', {})
+    site_url = _site_url(config)
+    url = f"{site_url}{_content_url(content_type, slug)}"
+    title = str(frontmatter.get('title') or slug.replace('-', ' ').title())
+    date_value = _json_safe(frontmatter.get('date') or frontmatter.get('publish_date') or datetime.now().date())
+    publisher = {
+        "@type": "Organization",
+        "name": site.get('title', 'Site'),
+        "url": site_url,
+    }
+
+    if content_type in ('posts', 'articles'):
+        return {
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": title,
+            "description": description,
+            "url": url,
+            "datePublished": date_value,
+            "author": frontmatter.get('author') or publisher,
+            "publisher": publisher,
+        }
+    if content_type == 'projects':
+        return {
+            "@context": "https://schema.org",
+            "@type": "CreativeWork",
+            "name": title,
+            "description": description,
+            "url": url,
+            "dateCreated": date_value,
+            "author": frontmatter.get('author') or publisher,
+        }
+    if content_type == 'people':
+        return {
+            "@context": "https://schema.org",
+            "@type": "Person",
+            "name": title,
+            "description": description,
+            "url": url,
+        }
+    if content_type == 'newsletters':
+        return {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": title,
+            "description": description,
+            "url": url,
+            "datePublished": date_value,
+            "publisher": publisher,
+        }
+    return {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": title,
+        "description": description,
+        "url": url,
+    }
+
+
+def _strip_leading_h1(body: str) -> str:
+    """Templates with their own H1 should not duplicate a leading Markdown H1."""
+    import re
+    return re.sub(r'^\s*#\s+.+?(?:\r?\n)+', '', body, count=1)
 
 @click.group()
 @click.pass_context
@@ -91,11 +220,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate generated pages against YAML page-type contracts"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -110,7 +239,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -123,7 +252,9 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
-        'products': 'product'
+        'products': 'product',
+        'people': 'person',
+        'newsletters': 'newsletter'
     }
     
     for content_type_dir, contract_type in type_mapping.items():
@@ -132,6 +263,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -201,7 +334,7 @@ def optimize(ctx, force):
         
         if optimized != frontmatter:
             # Write back with optimized frontmatter
-            new_content = f"---\n{yaml.dump(optimized, default_flow_style=False)}---\n{body}"
+            new_content = _dump_frontmatter(optimized, body)
             md_file.write_text(new_content)
             optimized_count += 1
             click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
@@ -672,11 +805,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -1980,7 +2113,7 @@ def list_products(ctx, format):
         click.echo("No products cached. Run 'gang products sync' first.")
         return
     
-    products = aggregator.get_normalized_products()
+    products = aggregator.normalize_products(cache.get('products', {}))
     
     if format == 'json':
         import json
@@ -2034,16 +2167,15 @@ def generate_agentmap(ctx):
     
     # Manually collect .md files to avoid Click recursion
     all_md_files = []
-    for category_dir in ['posts', 'pages', 'projects']:
+    for category_dir in CONTENT_TYPES:
         category_path = content_path / category_dir
         if category_path.exists():
-            all_md_files.extend(list(category_path.glob('*.md')))
+            all_md_files.extend([f for f in category_path.glob('*.md') if not f.name.startswith('.')])
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     publishable = [item['path'] for item in schedule_result['publishable']]
     
-    # Get products if available
-    config['demo_mode'] = True
+    # Get products if available; do not force demo products in production output.
     aggregator = ProductAggregator(config)
     products = aggregator.get_normalized_products()
     
@@ -2053,7 +2185,7 @@ def generate_agentmap(ctx):
     
     # Write AgentMap
     agentmap_file = dist_path / 'agentmap.json'
-    agentmap_file.write_text(json.dumps(agentmap, indent=2))
+    agentmap_file.write_text(json.dumps(agentmap, indent=2, default=str))
     
     # Generate Content API
     api_dir = dist_path / 'api'
@@ -2062,10 +2194,15 @@ def generate_agentmap(ctx):
     api_generator = ContentAPIGenerator(site_url)
     content_index = api_generator.generate_content_index(publishable, content_path)
     
-    (api_dir / 'content.json').write_text(json.dumps(content_index, indent=2))
+    (api_dir / 'content.json').write_text(json.dumps(content_index, indent=2, default=str))
     
     if products:
-        (api_dir / 'products.json').write_text(json.dumps(products, indent=2))
+        products_api = {
+            'products': products,
+            'count': len(products),
+            'generated': datetime.now().isoformat()
+        }
+        (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2, default=str))
     
     click.echo(f"✅ Generated AgentMap with {len(publishable)} content items")
     if products:
@@ -2261,6 +2398,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+        for root_file in ('_headers', '_redirects'):
+            source_file = public_path / root_file
+            if source_file.exists():
+                shutil.copy2(source_file, dist_path / root_file)
     
     # Build content
     content_path = Path(config['build']['content'])
@@ -2268,6 +2409,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_posts = []
     all_projects = []
     all_newsletters = []
+    all_people = []
     
     # Parse markdown files
     if profiler:
@@ -2285,11 +2427,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Manually collect .md files to avoid Click recursion issue
     all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
+    for category_dir in CONTENT_TYPES:
         category_path = content_path / category_dir
         if category_path.exists():
             for md_file in category_path.glob('*.md'):
-                all_md_files.append(md_file)
+                if md_file.suffix == '.md' and not md_file.name.startswith('.'):
+                    all_md_files.append(md_file)
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     
@@ -2310,6 +2453,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         if content.startswith('---'):
             parts = content.split('---', 2)
             frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = frontmatter or {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -2317,7 +2461,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
-        content_html = md.convert(body)
+        body_for_render = _strip_leading_h1(body) if content_type in ('posts', 'articles', 'projects', 'newsletters', 'people') else body
+        content_html = md.convert(body_for_render)
         
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
@@ -2329,20 +2474,35 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+        description = frontmatter.get('summary') or frontmatter.get('description') or seo.get('description') or config['site']['description']
+        comments_enabled = _has_real_comments_config(config) and content_type in ('posts', 'articles')
+        comments = []
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+                comments = get_comments_for_build(content_path, slug, 'post')
+            except Exception as e:
+                click.echo(f"⚠️  Could not load comments for {slug}: {e}")
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
             'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'description': description,
+            'summary': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
             'date_formatted': str(frontmatter.get('date', '')),
-            'tags': frontmatter.get('tags', []),
+            'tags': _normalize_tags(frontmatter.get('tags', [])),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'jsonld': _build_jsonld(config, content_type, slug, frontmatter, str(description)),
+            'comments_enabled': comments_enabled,
+            'comments': comments,
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', '') if comments_enabled else '',
             # In-place editor context
             'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
             'category': content_type,  # 'posts', 'pages', 'projects', etc.
@@ -2358,14 +2518,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             context['category'] = 'posts'
         
         # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
+        url = _content_url(content_type, slug)
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
         
@@ -2376,6 +2529,20 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             template_name = 'article.html'  # Use article template for projects
         elif content_type == 'newsletters':
             template_name = 'newsletter.html'
+            context['issue_number'] = frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or slug
+            context['sent_date'] = frontmatter.get('sent_date') or frontmatter.get('date') or ''
+            context['breadcrumbs'] = [
+                {'label': 'Home', 'url': '/'},
+                {'label': 'Newsletters', 'url': '/newsletters/'},
+                {'label': context['title'], 'url': url},
+            ]
+        elif content_type == 'people':
+            template_name = 'person.html'
+            context.update({
+                'image': frontmatter.get('image', ''),
+                'role': frontmatter.get('role', ''),
+                'social_links': frontmatter.get('social_links', []),
+            })
         else:
             template_name = 'page.html'
         
@@ -2412,6 +2579,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             all_newsletters.append(page_data)
         elif content_type == 'pages':
             all_pages.append(page_data)
+        elif content_type == 'people':
+            all_people.append(page_data)
     
     # Create index page
     click.echo("🏠 Creating index page...")
@@ -2435,7 +2604,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         newsletters_dir = dist_path / 'newsletters'
         newsletters_dir.mkdir(parents=True, exist_ok=True)
         
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
+        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path, '/newsletters/')
         page_size_bytes = len(newsletters_html.encode('utf-8'))
         newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (newsletters_dir / 'index.html').write_text(newsletters_html)
@@ -2443,7 +2612,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Create list pages
     # Always create posts index page, even if empty
     click.echo("📄 Creating posts index...")
-    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path, '/posts/')
     page_size_bytes = len(posts_html.encode('utf-8'))
     posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
@@ -2451,10 +2620,18 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     if all_projects:
         click.echo("📄 Creating projects index...")
-        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
+        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path, '/projects/')
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
+
+    if all_people:
+        click.echo("📄 Creating people index...")
+        people_html = create_list_page_simple(config, all_people, 'People', templates_path, '/people/')
+        page_size_bytes = len(people_html.encode('utf-8'))
+        people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+        (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+        (dist_path / 'people' / 'index.html').write_text(people_html)
     
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
@@ -2463,9 +2640,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
+    if all_people:
+        all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_newsletters + all_people
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2507,7 +2688,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             plp_template = jinja_env.get_template('products-list.html')
             plp_html = plp_template.render(
                 products=products,
+                lang=config['site'].get('language', 'en'),
                 site_title=config['site']['title'],
+                canonical_url=f"{_site_url(config)}/products/",
                 year=datetime.now().year,
                 navigation=config.get('nav', {}).get('main', []),
                 build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -2611,7 +2794,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'site_title': config['site']['title'],
                     'title': product.get('name', ''),
                     'description': product.get('description', ''),
-                    'canonical_url': f"{config['site']['url']}/products/{slug}/",
+                    'canonical_url': f"{_site_url(config)}/products/{slug}/",
+                    'slug': slug,
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
@@ -2648,8 +2832,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             cart_template = jinja_env.get_template('cart.html')
             cart_html = cart_template.render(
+                lang=config['site'].get('language', 'en'),
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                canonical_url=f"{_site_url(config)}/cart/",
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
@@ -2685,18 +2871,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.search import SearchIndexer
         from core.scheduler import ContentScheduler
         
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
+        publishable = [Path(item) for item in publishable_files]
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable)
         
         # Write search index
         search_index_file = dist_path / 'search-index.json'
-        search_index_file.write_text(json.dumps(search_index))
+        search_index_file.write_text(json.dumps(search_index, default=str))
         
         # Write search page
         search_page = dist_path / 'search' / 'index.html'
@@ -2712,12 +2894,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        # Reuse the same publishable files as the HTML build to avoid ghost URLs.
+        publishable_paths = [Path(item) for item in publishable_files]
         
         # Get products
         aggregator = ProductAggregator(config)
@@ -2730,7 +2908,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Write AgentMap
         agentmap_file = dist_path / 'agentmap.json'
-        agentmap_file.write_text(json.dumps(agentmap, indent=2))
+        agentmap_file.write_text(json.dumps(agentmap, indent=2, default=str))
         
         # Generate Content API
         api_generator = ContentAPIGenerator(site_url)
@@ -2738,7 +2916,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         api_dir = dist_path / 'api'
         api_dir.mkdir(parents=True, exist_ok=True)
-        (api_dir / 'content.json').write_text(json.dumps(content_api, indent=2))
+        (api_dir / 'content.json').write_text(json.dumps(content_api, indent=2, default=str))
         
         # Generate products API
         if products:
@@ -2747,7 +2925,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 'count': len(products),
                 'generated': datetime.now().isoformat()
             }
-            (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2))
+            (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2, default=str))
         
         click.echo(f"🤖 Generated AgentMap with {len(publishable_paths)} content items")
     except Exception as e:
@@ -3004,6 +3182,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{_site_url(config)}/">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3034,7 +3213,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
+def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None, path: str = '/') -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
@@ -3050,7 +3229,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": f"{_site_url(config)}{path}"
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3080,6 +3259,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    <link rel="canonical" href="{_site_url(config)}{path}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3117,6 +3297,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     if content.startswith('---'):
         parts = content.split('---', 2)
         frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+        frontmatter = frontmatter or {}
         body = parts[2] if len(parts) > 2 else ''
     else:
         frontmatter = {}
@@ -3130,7 +3311,11 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     body_html = process_external_links(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    description = frontmatter.get('summary') or frontmatter.get('description') or config['site']['description']
+    slug = md_file.stem
+    url = _content_url(content_type, slug)
+    canonical_url = f"{_site_url(config)}{url}"
+    jsonld_str = json.dumps(_build_jsonld(config, content_type, slug, frontmatter, str(description)), indent=2, default=str)
     
     # Build time for footer
     build_time = datetime.now()
@@ -3149,6 +3334,10 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'self'; form-action 'self';">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{description}">
+    <link rel="canonical" href="{canonical_url}">
+    <script type="application/ld+json">
+{jsonld_str}
+    </script>
     <style>
         :root {{
             --max-width: 65ch;
@@ -3558,7 +3747,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3763,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3773,7 +3967,8 @@ def image(ctx, source_dir, output, analyze, check_alt):
     source_path = Path(source_dir)
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
-    image_map = processor.process_all_images(source_path, output_path)
+    result = processor.process_all_images(source_path, output_path)
+    image_map = result['images']
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
@@ -3806,6 +4001,13 @@ def studio(ctx, port, host):
                 pass
             
             def do_GET(self):
+                def resolve_content_path(rel_path: str) -> Path:
+                    content_base = Path(config['build']['content']).resolve()
+                    requested = (content_base / unquote(rel_path)).resolve()
+                    if not requested.is_relative_to(content_base):
+                        raise PermissionError("Requested content path is outside the content directory")
+                    return requested
+
                 if self.path == '/api/content':
                     try:
                         # List all content files
@@ -3847,8 +4049,7 @@ def studio(ctx, port, host):
                     try:
                         # Get specific content file
                         file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = resolve_content_path(file_path)
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -3862,6 +4063,8 @@ def studio(ctx, port, host):
                         else:
                             click.echo(f"❌ File not found: {content_path}")
                             self.send_error(404)
+                    except PermissionError:
+                        self.send_error(403)
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
@@ -4087,7 +4290,10 @@ def studio(ctx, port, host):
                         # Get file path and content
                         file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = (content_base / unquote(file_path)).resolve()
+                        if not content_path.is_relative_to(content_base):
+                            self.send_error(403)
+                            return
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])

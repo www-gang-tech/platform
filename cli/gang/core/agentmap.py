@@ -48,7 +48,7 @@ class AgentMapGenerator:
             'endpoints': {
                 'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
-                'search': f"{self.site_url}/api/search.json",
+                'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
             },
             
@@ -60,10 +60,10 @@ class AgentMapGenerator:
             },
             
             'search': {
-                'endpoint': f"{self.site_url}/api/search.json",
+                'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
-                'parameters': ['q', 'category', 'limit'],
-                'description': 'Full-text search across all content'
+                'parameters': [],
+                'description': 'Static search document index for client-side or agent-side search'
             }
         }
         
@@ -85,21 +85,21 @@ class AgentMapGenerator:
         types = []
         
         for file_path in content_files:
-            category = file_path.parent.name
+            category = self._public_category(file_path.parent.name)
             
             if category not in by_category:
                 by_category[category] = []
                 types.append({
                     'type': category,
                     'url': f"{self.site_url}/{category}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}.json"
+                    'apiEndpoint': f"{self.site_url}/api/content.json"
                 })
             
             slug = file_path.stem
             by_category[category].append({
                 'slug': slug,
                 'url': f"{self.site_url}/{category}/{slug}/",
-                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json"
+                'apiEndpoint': f"{self.site_url}/api/content.json"
             })
         
         return {
@@ -119,6 +119,9 @@ class AgentMapGenerator:
             })
         
         return nav
+
+    def _public_category(self, category: str) -> str:
+        return 'posts' if category == 'articles' else category
     
     def _detect_platforms(self, products: List[Dict[str, Any]]) -> List[str]:
         """Detect which platforms are being used"""
@@ -164,13 +167,13 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
-                category = file_path.parent.name
+                category = 'posts' if file_path.parent.name == 'articles' else file_path.parent.name
                 slug = file_path.stem
                 
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
                     'url': f"{self.site_url}/{category}/{slug}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
+                    'apiEndpoint': f"{self.site_url}/api/content.json",
                     'category': category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),

@@ -213,12 +213,13 @@ class ImageProcessor:
             if url.startswith('http://') or url.startswith('https://'):
                 return match.group(0)
             
-            # Check if we have variants for this image
-            # Extract filename from URL
-            filename = url.split('/')[-1]
-            
-            if filename in image_map:
+            lookup_key = url.lstrip('/')
+            if lookup_key in image_map:
                 # Generate <picture> element
+                return self.generate_picture_element(url, alt_text, image_map[lookup_key])
+            
+            filename = url.split('/')[-1]
+            if filename in image_map:
                 return self.generate_picture_element(url, alt_text, image_map[filename])
             
             return match.group(0)

@@ -360,32 +360,43 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        attempted_live_fetch = False
         
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
+            attempted_live_fetch = True
             client = ShopifyClient(shopify_config[0], shopify_config[1])
             products['shopify'] = client.fetch_products()
         elif self.config.get('demo_mode', False):
             # Only use demo if explicitly enabled
+            attempted_live_fetch = True
             client = ShopifyClient('demo.myshopify.com', 'demo')
             products['shopify'] = client.fetch_products()
         
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
+            attempted_live_fetch = True
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
         
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
+            attempted_live_fetch = True
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        if self._has_products(products):
+            self._save_cache(products)
+        else:
+            cache = self.load_cache()
+            if cache and isinstance(cache.get('products'), dict):
+                return cache['products']
+            if attempted_live_fetch:
+                self._save_cache(products)
         
         return products
     
@@ -395,6 +406,10 @@ class ProductAggregator:
         status_filter: 'all', 'active', 'draft', 'archived'
         """
         all_products = self.fetch_all()
+        return self.normalize_products(all_products, status_filter)
+    
+    def normalize_products(self, all_products: Dict[str, List[Dict[str, Any]]], status_filter: str = 'all') -> List[Dict[str, Any]]:
+        """Normalize a fetched or cached product collection to Schema.org."""
         normalized = []
         
         for source, products in all_products.items():
@@ -413,6 +428,9 @@ class ProductAggregator:
                     normalized.append(norm_product)
         
         return normalized
+    
+    def _has_products(self, products: Dict[str, List[Dict[str, Any]]]) -> bool:
+        return any(bool(items) for items in products.values())
     
     def _save_cache(self, products: Dict[str, Any]):
         """Save products to cache file"""
