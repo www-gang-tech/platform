@@ -146,12 +146,28 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search {site_title} content."
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchResultsPage",
+            "name": "Search",
+            "description": description,
+            "url": f"{site_url}/search/"
+        }, indent=2)
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__CANONICAL_URL__">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -242,7 +258,17 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+            <a href="/products/">Products</a>
+        </nav>
+    </header>
+
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -255,6 +281,11 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -373,4 +404,13 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('__LANG__', site.get('language', 'en'))
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__DESCRIPTION__', description)
+            .replace('__CANONICAL_URL__', f"{site_url}/search/")
+            .replace('__JSONLD__', jsonld)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 
