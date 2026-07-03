@@ -58,9 +58,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,8 +96,24 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._json_safe(frontmatter.get('date', '')),
         }
+
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
+
+    def _json_safe(self, value: Any) -> Any:
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {str(k): self._json_safe(v) for k, v in value.items()}
+        return value
     
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""

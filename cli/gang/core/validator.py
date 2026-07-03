@@ -100,7 +100,13 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            def has_positive_tabindex(value):
+                try:
+                    return value is not None and int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -141,9 +147,22 @@ class ContractValidator:
         if 'valid_jsonld' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('seo', [])]:
             jsonld_scripts = soup.find_all('script', attrs={'type': 'application/ld+json'})
+            if not jsonld_scripts:
+                issues.append({
+                    'severity': 'error',
+                    'rule': 'valid_jsonld',
+                    'message': 'Missing JSON-LD markup',
+                })
             for script in jsonld_scripts:
                 try:
-                    json.loads(script.string)
+                    data = json.loads(script.string)
+                    nodes = data if isinstance(data, list) else [data]
+                    if not nodes or any(not isinstance(node, dict) or not node.get('@type') or not node.get('@context') for node in nodes):
+                        issues.append({
+                            'severity': 'error',
+                            'rule': 'valid_jsonld',
+                            'message': 'JSON-LD missing @context or @type',
+                        })
                 except (json.JSONDecodeError, TypeError):
                     issues.append({
                         'severity': 'error',
@@ -185,8 +204,18 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            path_parts = set(html_path.parts)
+            js_allowed_sections = {'products', 'cart', 'search', 'studio'}
+            if path_parts.intersection(js_allowed_sections):
+                return issues
+
+            def is_executable_script(script):
+                script_type = (script.get('type') or 'text/javascript').lower()
+                data_types = {'application/ld+json', 'application/json'}
+                return script_type not in data_types
+
+            scripts = [script for script in soup.find_all('script', src=True) if is_executable_script(script)]
+            inline_scripts = [script for script in soup.find_all('script', src=False) if is_executable_script(script)]
             
             if scripts or inline_scripts:
                 issues.append({
@@ -218,7 +247,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

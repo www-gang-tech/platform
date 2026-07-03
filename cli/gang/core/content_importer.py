@@ -392,12 +392,13 @@ Respond with just the alt text, no quotes or formatting."""
         
         # Create markdown content
         import yaml
-        frontmatter_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
+        frontmatter_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
         
         markdown_content = f"""---
-{frontmatter_str}---
+{frontmatter_str}
+---
 
-{content}
+{content.lstrip()}
 """
         
         # Determine file path
