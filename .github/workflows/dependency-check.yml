@@ -39,15 +39,22 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
+            const vulnerabilities = (report.dependencies || [])
+              .flatMap((dependency) => (dependency.vulns || []).map((vuln) => ({
+                name: dependency.name,
+                version: dependency.version,
+                id: vuln.id,
+                description: vuln.description,
+                fix_versions: vuln.fix_versions || [],
+              })));
             
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
             
             for (const vuln of vulnerabilities) {
               body += `### ${vuln.name} ${vuln.version}\n`;
-              body += `- **Severity**: ${vuln.severity}\n`;
-              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
+              body += `- **ID**: ${vuln.id}\n`;
+              body += `- **Fix**: ${vuln.fix_versions.length ? `Upgrade to ${vuln.fix_versions.join(', ')}` : 'No fixed version reported'}\n`;
               body += `- **Details**: ${vuln.description}\n\n`;
             }
             

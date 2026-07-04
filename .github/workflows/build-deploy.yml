@@ -45,7 +45,7 @@ jobs:
       - name: Validate contracts
         id: validate
         run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+          gang check --output validation-report.json
       
       - name: Upload validation report
         if: always()
@@ -85,7 +85,7 @@ jobs:
       
       - name: Run Lighthouse CI
         run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+          lhci autorun --config=lighthouserc.json
       
       - name: Upload Lighthouse reports
         if: always()
@@ -147,8 +147,18 @@ jobs:
           SERVER_PID=$!
           sleep 3
           
-          # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
+          # Run axe on all generated index pages
+          URLS=$(python3 - <<'PY'
+          from pathlib import Path
+          urls = []
+          for page in sorted(Path('dist').rglob('index.html')):
+              rel = page.parent.relative_to('dist')
+              path = '/' if str(rel) == '.' else f'/{rel.as_posix()}/'
+              urls.append(f'http://localhost:8080{path}')
+          print(' '.join(urls))
+          PY
+          )
+          axe $URLS --exit
           
           # Cleanup
           kill $SERVER_PID
@@ -174,6 +184,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: platform
+          projectName: gang-platform
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
