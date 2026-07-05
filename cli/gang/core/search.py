@@ -58,14 +58,20 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
         tags = frontmatter.get('tags', [])
         category = file_path.parent.name
+        if isinstance(tags, (list, tuple, set)):
+            tags = [str(tag) for tag in tags if tag is not None]
+        elif tags:
+            tags = [str(tags)]
+        else:
+            tags = []
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if category in ('posts', 'articles'):
             url = f"/posts/{slug}/"
         elif category == 'projects':
             url = f"/projects/{slug}/"
@@ -92,11 +98,11 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': 'posts' if category == 'articles' else category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +136,26 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
+        site_url = self.config.get('site', {}).get('url', '').rstrip('/')
+        site_title = self.config.get('site', {}).get('title', 'GANG')
+        description = 'Search articles, projects, pages, and people.'
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchAction',
+            'target': f'{site_url}/search/?q={{search_term_string}}',
+            'query-input': 'required name=search_term_string'
+        }, indent=2)
         return '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - ''' + site_title + '''</title>
+    <meta name="description" content="''' + description + '''">
+    <link rel="canonical" href="''' + site_url + '''/search/">
+    <script type="application/ld+json">
+''' + jsonld + '''
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +246,9 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header role="banner"><a href="/">''' + site_title + '''</a></header>
+    <main role="main">
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -240,6 +262,8 @@ class SearchIndexer:
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
     
+    </main>
+    <footer role="contentinfo"><p><a href="/sitemap/">Sitemap</a></p></footer>
     <script>
         let searchIndex = null;
         
