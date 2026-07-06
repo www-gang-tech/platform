@@ -2816,6 +2816,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             cart_template = jinja_env.get_template('cart.html')
             cart_html = cart_template.render(
+                lang=config['site'].get('language', 'en'),
+                site_url=config['site']['url'].rstrip('/'),
                 year=datetime.now().year,
                 site_title=config['site']['title'],
                 lighthouse_scores=True,
@@ -4807,6 +4809,8 @@ def serve(ctx, port, host):
                         build_time_iso = build_time.isoformat()
                         cart_template = jinja_env.get_template('cart.html')
                         cart_html = cart_template.render(
+                            lang=config['site'].get('language', 'en'),
+                            site_url=config['site']['url'].rstrip('/'),
                             year=datetime.now().year,
                             site_title=config['site']['title'],
                             lighthouse_scores=True,
