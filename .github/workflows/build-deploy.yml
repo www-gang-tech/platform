@@ -44,8 +44,7 @@ jobs:
       
       - name: Validate contracts
         id: validate
-        run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+        run: gang check --output validation-report.json
       
       - name: Upload validation report
         if: always()
@@ -84,8 +83,7 @@ jobs:
         run: npm install -g @lhci/cli@0.13.x
       
       - name: Run Lighthouse CI
-        run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+        run: lhci autorun --config=lighthouserc.json
       
       - name: Upload Lighthouse reports
         if: always()
@@ -95,7 +93,7 @@ jobs:
           path: .lighthouseci/
       
       - name: Comment PR with results
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && hashFiles('.lighthouseci/manifest.json') != ''
         uses: actions/github-script@v7
         with:
           script: |
@@ -147,8 +145,9 @@ jobs:
           SERVER_PID=$!
           sleep 3
           
-          # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
+          # Run axe on all generated index pages
+          URLS=$(find dist -name index.html -print | sed 's#^dist##; s#/index.html$#/#; s#^$#/#; s#^#http://localhost:8080#')
+          axe $URLS --exit
           
           # Cleanup
           kill $SERVER_PID
@@ -174,6 +173,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: platform
+          projectName: gang-platform
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}

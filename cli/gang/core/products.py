@@ -384,8 +384,9 @@ class ProductAggregator:
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        # Cache only real non-empty fetches; offline runs should preserve the last useful cache.
+        if any(products.values()):
+            self._save_cache(products)
         
         return products
     
@@ -395,6 +396,10 @@ class ProductAggregator:
         status_filter: 'all', 'active', 'draft', 'archived'
         """
         all_products = self.fetch_all()
+        if not any(all_products.values()):
+            cached = self.load_cache()
+            if cached and isinstance(cached.get('products'), dict):
+                all_products = cached['products']
         normalized = []
         
         for source, products in all_products.items():

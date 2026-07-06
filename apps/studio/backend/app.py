@@ -21,6 +21,20 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
 
 
+def resolve_content_path(file_path: str):
+    """Resolve a content API path and reject traversal outside CONTENT_DIR."""
+    if file_path.startswith('/'):
+        return None
+
+    content_base = CONTENT_DIR.resolve()
+    candidate = (content_base / (file_path + '.md')).resolve()
+    try:
+        candidate.relative_to(content_base)
+    except ValueError:
+        return None
+    return candidate
+
+
 @app.route('/api/health')
 def health():
     """Health check endpoint"""
@@ -47,12 +61,9 @@ def auth_status():
 @app.route('/api/content/<path:file_path>')
 def get_content(file_path):
     """Get markdown content for editing"""
-    # Ensure file_path is safe (no directory traversal)
-    if '..' in file_path or file_path.startswith('/'):
-        return jsonify({'error': 'Invalid file path'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
+    full_path = resolve_content_path(file_path)
+    if full_path is None:
+        return jsonify({'error': 'Invalid file path'}), 403
     
     if not full_path.exists():
         return jsonify({'error': 'File not found'}), 404
@@ -67,18 +78,15 @@ def get_content(file_path):
 @app.route('/api/content/<path:file_path>', methods=['PUT'])
 def save_content(file_path):
     """Save edited markdown content"""
-    # Ensure file_path is safe
-    if '..' in file_path or file_path.startswith('/'):
-        return jsonify({'error': 'Invalid file path'}), 400
-    
     # Get content from request body
     content = request.get_data(as_text=True)
     
     if not content:
         return jsonify({'error': 'No content provided'}), 400
     
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
+    full_path = resolve_content_path(file_path)
+    if full_path is None:
+        return jsonify({'error': 'Invalid file path'}), 403
     
     # Ensure parent directory exists
     full_path.parent.mkdir(parents=True, exist_ok=True)
