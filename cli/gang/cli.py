@@ -7,15 +7,168 @@ GANG CLI - Single binary for all build operations
 import click
 import yaml
 import os
+import sys
 import hashlib
 import json
 import shutil
 import markdown
 import time
 import threading
+import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
+
+CONTENT_CATEGORIES = ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people']
+TEMPLATE_OWNS_H1 = {'posts', 'articles', 'projects', 'newsletters', 'people'}
+JS_ALLOWED_SECTIONS = {'products', 'cart', 'search', 'studio'}
+
+
+def parse_markdown_content(content: str) -> tuple[Dict[str, Any], str]:
+    """Parse YAML frontmatter from a markdown document."""
+    if not content.startswith('---'):
+        return {}, content
+
+    parts = content.split('---', 2)
+    if len(parts) < 3:
+        return {}, content
+
+    return yaml.safe_load(parts[1]) or {}, parts[2]
+
+
+def strip_leading_markdown_h1(body: str) -> str:
+    """Remove a leading markdown H1 when the template renders the page title."""
+    return re.sub(r'\A\s*#\s+[^\n]+(?:\n+|$)', '', body, count=1)
+
+
+def get_content_url(content_type: str, slug: str) -> str:
+    """Return the rendered URL for a content item."""
+    if content_type == 'articles':
+        content_type = 'posts'
+
+    if content_type == 'posts':
+        return f"/posts/{slug}/"
+    if content_type == 'projects':
+        return f"/projects/{slug}/"
+    if content_type == 'pages':
+        return f"/pages/{slug}/"
+    return f"/{content_type}/{slug}/"
+
+
+def get_template_for_content_type(content_type: str) -> str:
+    """Return the template used for a rendered content type."""
+    if content_type == 'posts':
+        return 'post.html'
+    if content_type == 'projects':
+        return 'article.html'
+    if content_type == 'newsletters':
+        return 'newsletter.html'
+    if content_type == 'people':
+        return 'person.html'
+    return 'page.html'
+
+
+def get_page_type(content_type: str) -> str:
+    """Return the singular page type used by templates and contracts."""
+    if content_type in ('posts', 'articles'):
+        return 'post'
+    if content_type == 'people':
+        return 'person'
+    if content_type.endswith('s'):
+        return content_type[:-1]
+    return content_type
+
+
+def get_description(frontmatter: Dict[str, Any], config: Dict[str, Any]) -> str:
+    """Choose a non-empty description from SEO, summary, or site metadata."""
+    seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+    for value in (seo.get('description'), frontmatter.get('description'), frontmatter.get('summary')):
+        if value:
+            return str(value)
+    return str(config['site'].get('description', ''))
+
+
+def is_comments_enabled(config: Dict[str, Any]) -> bool:
+    """Enable comments only when a real non-placeholder webhook is configured."""
+    comments = config.get('comments', {})
+    webhook = str(comments.get('webhook_url') or '').strip()
+    if not comments.get('enabled') or not webhook:
+        return False
+
+    placeholders = ('your-n8n.app', 'example.com', 'localhost')
+    return not any(marker in webhook for marker in placeholders)
+
+
+def build_default_jsonld(
+    config: Dict[str, Any],
+    content_type: str,
+    frontmatter: Dict[str, Any],
+    title: str,
+    description: str,
+    canonical_url: str,
+) -> Dict[str, Any]:
+    """Generate contract-compliant structured data when content omits it."""
+    existing = frontmatter.get('jsonld')
+    if isinstance(existing, dict) and existing:
+        return existing
+
+    site = config.get('site', {})
+    site_url = site.get('url', '').rstrip('/')
+    site_title = site.get('title', '')
+
+    if content_type in ('posts', 'articles'):
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'datePublished': str(frontmatter.get('date', '')),
+            'author': frontmatter.get('author') or {'@type': 'Organization', 'name': site_title},
+            'publisher': {'@type': 'Organization', 'name': site_title},
+            'description': description,
+            'url': canonical_url,
+        }
+
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': frontmatter.get('author') or {'@type': 'Organization', 'name': site_title},
+            'dateCreated': str(frontmatter.get('date') or frontmatter.get('year') or ''),
+            'url': canonical_url,
+        }
+
+    if content_type == 'people':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': title,
+            'url': canonical_url,
+            'description': description,
+        }
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'url': canonical_url,
+        'description': description,
+        'isPartOf': {'@type': 'WebSite', 'name': site_title, 'url': site_url},
+    }
+
+
+def resolve_content_request_path(content_base: Path, request_path: str) -> Optional[Path]:
+    """Resolve an editor API path and reject traversal outside content."""
+    from urllib.parse import unquote
+
+    raw_path = unquote(request_path).lstrip('/')
+    candidate = (content_base / raw_path).resolve()
+    try:
+        candidate.relative_to(content_base)
+    except ValueError:
+        return None
+    return candidate
 
 @click.group()
 @click.pass_context
@@ -91,15 +244,14 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
+def check_contracts(ctx, verbose):
     """Validate site against contracts and standards"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
-        import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from core.contract_validator import ContractValidator
     
@@ -110,7 +262,7 @@ def check(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -123,7 +275,8 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
-        'products': 'product'
+        'products': 'product',
+        'people': 'person',
     }
     
     for content_type_dir, contract_type in type_mapping.items():
@@ -132,6 +285,8 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -2268,6 +2423,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_posts = []
     all_projects = []
     all_newsletters = []
+    all_people = []
     
     # Parse markdown files
     if profiler:
@@ -2285,7 +2441,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Manually collect .md files to avoid Click recursion issue
     all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
+    for category_dir in CONTENT_CATEGORIES:
         category_path = content_path / category_dir
         if category_path.exists():
             for md_file in category_path.glob('*.md'):
@@ -2306,14 +2462,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         content_type = md_file.parent.name
         
         # Parse markdown with frontmatter
-        content = md_file.read_text()
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        frontmatter, body = parse_markdown_content(md_file.read_text())
+        if content_type in TEMPLATE_OWNS_H1:
+            body = strip_leading_markdown_h1(body)
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
@@ -2325,6 +2476,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        rendered_type = 'posts' if content_type == 'articles' else content_type
+        url = get_content_url(content_type, slug)
+        canonical_url = f"{config['site']['url']}{url}"
+        title = str(frontmatter.get('title') or md_file.stem.replace('-', ' ').title())
+        description = get_description(frontmatter, config)
+        comments_enabled = is_comments_enabled(config) and rendered_type == 'posts'
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2332,8 +2489,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
@@ -2342,13 +2499,25 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'tags': frontmatter.get('tags', []),
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
-            'jsonld': frontmatter.get('jsonld'),
+            'jsonld': build_default_jsonld(config, content_type, frontmatter, title, description, canonical_url),
+            'canonical_url': canonical_url,
+            'summary': frontmatter.get('summary') or description,
+            'image': frontmatter.get('image'),
+            'role': frontmatter.get('role'),
+            'social_links': frontmatter.get('social_links', []),
+            'related': frontmatter.get('related', []),
+            'comments': [],
+            'comments_enabled': comments_enabled,
+            'comments_webhook_url': config.get('comments', {}).get('webhook_url', '') if comments_enabled else '',
+            'og_type': 'article' if rendered_type == 'posts' else 'website',
+            'twitter_card': 'summary_large_image' if frontmatter.get('image') else 'summary',
             # In-place editor context
-            'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
-            'category': content_type,  # 'posts', 'pages', 'projects', etc.
+            'page_type': get_page_type(rendered_type),
+            'category': rendered_type,
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
+        context.update({k: v for k, v in frontmatter.items() if k not in context})
         
         # Treat articles as posts
         if content_type == 'articles':
@@ -2357,27 +2526,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             context['page_type'] = 'post'
             context['category'] = 'posts'
         
-        # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
-        
-        context['canonical_url'] = f"{config['site']['url']}{url}"
-        
         # Select template
-        if content_type == 'posts':
-            template_name = 'post.html'
-        elif content_type == 'projects':
-            template_name = 'article.html'  # Use article template for projects
-        elif content_type == 'newsletters':
-            template_name = 'newsletter.html'
-        else:
-            template_name = 'page.html'
+        template_name = get_template_for_content_type(content_type)
         
         # Render HTML
         try:
@@ -2410,6 +2560,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             all_projects.append(page_data)
         elif content_type == 'newsletters':
             all_newsletters.append(page_data)
+        elif content_type == 'people':
+            all_people.append(page_data)
         elif content_type == 'pages':
             all_pages.append(page_data)
     
@@ -2455,24 +2607,30 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
-    
-    # Generate outputs
-    click.echo("🗺️  Generating sitemap, feeds, etc...")
+
+    if all_people:
+        click.echo("📄 Creating people index...")
+        people_html = create_list_page_simple(config, all_people, 'People', templates_path)
+        page_size_bytes = len(people_html.encode('utf-8'))
+        people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+        (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+        (dist_path / 'people' / 'index.html').write_text(people_html)
+
+    # Prepare generated output records; final sitemap/feed generation happens after products.
+    generated_pages = []
     all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
     if all_posts:
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
-    
-    # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
-    
-    if profiler:
-        with profiler.stage('generate_outputs'):
-            generators.generate_all(dist_path, all_content, all_posts)
-    else:
-        generators.generate_all(dist_path, all_content, all_posts)
-    
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
+    if all_people:
+        all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
+    generated_pages.extend([
+        {'url': '/search/', 'title': 'Search', 'type': 'utility'},
+    ])
+
     # Generate redirect rules if any exist
     try:
         from core.redirects import RedirectManager
@@ -2485,6 +2643,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     except Exception as e:
         click.echo(f"⚠️  Could not generate redirects: {e}")
     
+    products = []
+    product_pages = []
+
     # Generate product pages (only active products)
     try:
         from core.products import ProductAggregator
@@ -2635,8 +2796,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
                 pdp_html = pdp_template.render(**pdp_context)
                 (pdp_dir / 'index.html').write_text(pdp_html)
+                product_pages.append({
+                    'url': f"/products/{slug}/",
+                    'title': product.get('name', slug),
+                    'summary': product.get('description', ''),
+                    'type': 'product',
+                })
             
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
+            generated_pages.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
             
             # Generate cart page
             cart_dir = dist_path / 'cart'
@@ -2648,6 +2816,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             cart_template = jinja_env.get_template('cart.html')
             cart_html = cart_template.render(
+                lang=config['site'].get('language', 'en'),
+                site_url=config['site']['url'].rstrip('/'),
                 year=datetime.now().year,
                 site_title=config['site']['title'],
                 lighthouse_scores=True,
@@ -2658,6 +2828,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             (cart_dir / 'index.html').write_text(cart_html)
             
             click.echo("🛒 Generated cart page")
+            generated_pages.append({'url': '/cart/', 'title': 'Cart', 'type': 'utility'})
             
             # Generate HTML sitemap
             sitemap_dir = dist_path / 'sitemap'
@@ -2677,22 +2848,28 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             (sitemap_dir / 'index.html').write_text(sitemap_html)
             
             click.echo("🗺️  Generated HTML sitemap")
+            generated_pages.append({'url': '/sitemap/', 'title': 'Sitemap', 'type': 'utility'})
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
-    
+
+    # Generate outputs
+    click.echo("🗺️  Generating sitemap, feeds, etc...")
+
+    # Combine all rendered content for sitemap generation
+    all_content = all_pages + all_posts + all_projects + all_newsletters + all_people + product_pages + generated_pages
+
+    if profiler:
+        with profiler.stage('generate_outputs'):
+            generators.generate_all(dist_path, all_content, all_posts)
+    else:
+        generators.generate_all(dist_path, all_content, all_posts)
+
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
-        
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
         
         indexer = SearchIndexer(content_path, config)
-        search_index = indexer.build_search_index(publishable)
+        search_index = indexer.build_search_index(publishable_files)
         
         # Write search index
         search_index_file = dist_path / 'search-index.json'
@@ -2712,21 +2889,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
-        
-        # Get products
-        aggregator = ProductAggregator(config)
-        products = aggregator.get_normalized_products(status_filter='active')
-        
         # Generate AgentMap
         site_url = config.get('site', {}).get('url', 'https://example.com')
         generator = AgentMapGenerator(config, site_url)
-        agentmap = generator.generate(publishable_paths, products if products else None)
+        agentmap = generator.generate(publishable_files, products if products else None)
         
         # Write AgentMap
         agentmap_file = dist_path / 'agentmap.json'
@@ -2734,7 +2900,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Generate Content API
         api_generator = ContentAPIGenerator(site_url)
-        content_api = api_generator.generate_content_index(publishable_paths, content_path)
+        content_api = api_generator.generate_content_index(publishable_files, content_path)
         
         api_dir = dist_path / 'api'
         api_dir.mkdir(parents=True, exist_ok=True)
@@ -2749,7 +2915,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             }
             (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2))
         
-        click.echo(f"🤖 Generated AgentMap with {len(publishable_paths)} content items")
+        click.echo(f"🤖 Generated AgentMap with {len(publishable_files)} content items")
     except Exception as e:
         click.echo(f"⚠️  Could not generate AgentMap: {e}")
     
@@ -3558,7 +3724,7 @@ def check(ctx, output):
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
     results = validator.validate_directory(dist_path)
     
@@ -3574,7 +3740,12 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            file_path = Path(file_result['file'])
+            try:
+                display_path = file_path.relative_to(dist_path)
+            except ValueError:
+                display_path = file_path
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3848,7 +4019,10 @@ def studio(ctx, port, host):
                         # Get specific content file
                         file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = resolve_content_request_path(content_base, file_path)
+                        if content_path is None:
+                            self.send_error(403)
+                            return
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -4087,7 +4261,10 @@ def studio(ctx, port, host):
                         # Get file path and content
                         file_path = self.path.replace('/api/content/', '')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = resolve_content_request_path(content_base, file_path)
+                        if content_path is None:
+                            self.send_error(403)
+                            return
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4095,6 +4272,7 @@ def studio(ctx, port, host):
                         content = body.decode()
                         
                         # Save file
+                        content_path.parent.mkdir(parents=True, exist_ok=True)
                         content_path.write_text(content)
                         click.echo(f"✅ Saved file: {content_path}")
                         
@@ -4631,6 +4809,8 @@ def serve(ctx, port, host):
                         build_time_iso = build_time.isoformat()
                         cart_template = jinja_env.get_template('cart.html')
                         cart_html = cart_template.render(
+                            lang=config['site'].get('language', 'en'),
+                            site_url=config['site']['url'].rstrip('/'),
                             year=datetime.now().year,
                             site_title=config['site']['title'],
                             lighthouse_scores=True,

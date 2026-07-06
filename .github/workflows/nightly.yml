@@ -11,17 +11,17 @@ jobs:
         with: { node-version: 20 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: npm ci || true
-      - run: pip install -e ./cli/gang || true
+      - run: pip install -r requirements.txt
+      - run: pip install -e ./cli/gang
       - name: Build & audit
         run: |
-          gang optimize
-          gang image
+          gang image public --check-alt
           gang build
-          gang check
+          gang check --output validation-report.json
+          gang check-contracts --verbose
           gang audit
       - name: Answerability report
-        run: gang report --answerability --out reports
+        run: gang report --answerability --format html
       - name: CrUX snapshot
         run: node scripts/crux_snapshot.js
         env:
@@ -35,3 +35,4 @@ jobs:
           path: |
             runs/**/*.json
             reports/**
+            validation-report.json
