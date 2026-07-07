@@ -40,6 +40,21 @@ class SearchIndexer:
         
         return index
     
+    def _stringify(self, value: Any, default: str = '') -> str:
+        if value is None:
+            return default
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+    
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [self._stringify(tag) for tag in tags if self._stringify(tag)]
+        text = self._stringify(tags)
+        return [text] if text else []
+    
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
         content = file_path.read_text()
@@ -58,9 +73,9 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary', ''))
+        tags = self._normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
@@ -96,7 +111,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +145,26 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', 'https://example.com').rstrip('/')
+        description = 'Search all published content on this site.'
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchResultsPage',
+            'name': 'Search',
+            'description': description,
+            'url': f'{site_url}/search/',
+        })
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - {site_title}</title>
+    <meta name="description" content="{description}">
+    <link rel="canonical" href="{site_url}/search/">
+    <script type="application/ld+json">{jsonld}</script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,6 +255,8 @@ class SearchIndexer:
     </style>
 </head>
 <body>
+    <header><a href="/">{site_title}</a></header>
+    <main>
     <h1>🔍 Search</h1>
     
     <div class="search-box">
@@ -240,6 +271,8 @@ class SearchIndexer:
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
     
+    </main>
+    <footer><p>&copy; {site_title}</p></footer>
     <script>
         let searchIndex = null;
         
@@ -357,4 +390,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('{site_title}', site_title)
+            .replace('{description}', description)
+            .replace('{site_url}', site_url)
+            .replace('{jsonld}', jsonld)
+        )
 
