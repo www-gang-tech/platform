@@ -30,7 +30,13 @@ jobs:
       - name: Check for security vulnerabilities
         id: audit
         run: |
-          pip-audit -r requirements.txt --format=json > audit-report.json || echo "VULNERABILITIES_FOUND=true" >> $GITHUB_ENV
+          set +e
+          pip-audit -r requirements.txt --format=json > audit-report.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "VULNERABILITIES_FOUND=true" >> "$GITHUB_ENV"
+          fi
       
       - name: Create issue if vulnerabilities found
         if: env.VULNERABILITIES_FOUND == 'true'
@@ -39,16 +45,17 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
+            const vulnerabilities = (report.dependencies || [])
+              .flatMap(dep => (dep.vulns || []).map(vuln => ({ dep, vuln })));
             
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
             
-            for (const vuln of vulnerabilities) {
-              body += `### ${vuln.name} ${vuln.version}\n`;
-              body += `- **Severity**: ${vuln.severity}\n`;
-              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
-              body += `- **Details**: ${vuln.description}\n\n`;
+            for (const { dep, vuln } of vulnerabilities) {
+              body += `### ${dep.name} ${dep.version}\n`;
+              body += `- **Vulnerability**: ${vuln.id || 'unknown'}\n`;
+              body += `- **Fix**: Upgrade to ${(vuln.fix_versions || []).join(', ') || 'see advisory'}\n`;
+              body += `- **Details**: ${vuln.description || vuln.aliases?.join(', ') || 'No description provided'}\n\n`;
             }
             
             body += '**Action Required**: Run `gang update-deps --security-only` to fix these issues.\n';
@@ -67,4 +74,8 @@ jobs:
         with:
           name: security-audit-report
           path: audit-report.json
+
+      - name: Fail if vulnerabilities found
+        if: env.VULNERABILITIES_FOUND == 'true'
+        run: exit 1
 
