@@ -17,6 +17,7 @@
           "deviceScaleFactor": 3
         },
         "formFactor": "mobile",
+        "disableFullPageScreenshot": true,
         "onlyCategories": [
           "performance",
           "accessibility",
