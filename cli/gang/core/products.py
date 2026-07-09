@@ -384,8 +384,14 @@ class ProductAggregator:
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        has_fetched_products = any(products_for_source for products_for_source in products.values())
+        if has_fetched_products:
+            self._save_cache(products)
+        else:
+            cached = self.load_cache()
+            cached_products = cached.get('products') if cached else None
+            if cached_products:
+                return cached_products
         
         return products
     

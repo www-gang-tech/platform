@@ -58,23 +58,27 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
+        title = str(frontmatter.get('title', file_path.stem.replace('-', ' ').title()))
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
         tags = frontmatter.get('tags', [])
+        if not isinstance(tags, list):
+            tags = [tags]
+        tags = [str(tag) for tag in tags]
         category = file_path.parent.name
+        public_category = 'posts' if category == 'articles' else category
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if public_category == 'posts':
             url = f"/posts/{slug}/"
-        elif category == 'projects':
+        elif public_category == 'projects':
             url = f"/projects/{slug}/"
-        elif category == 'pages':
+        elif public_category == 'pages':
             url = f"/pages/{slug}/"
-        elif category == 'people':
+        elif public_category == 'people':
             url = f"/people/{slug}/"
         else:
-            url = f"/{category}/{slug}/"
+            url = f"/{public_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,11 +96,11 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': public_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +134,27 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        language = site.get('language', 'en')
+        jsonld = json.dumps({
+            "@context": "https://schema.org",
+            "@type": "SearchAction",
+            "target": f"{site_url}/search/?q={{search_term_string}}",
+            "query-input": "required name=search_term_string"
+        })
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="Search __SITE_TITLE__ content.">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+    __JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +245,9 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header><a href="/">__SITE_TITLE__</a></header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +260,8 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer><p>&copy; __SITE_TITLE__</p></footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +380,11 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html
+            .replace('<html lang="en">', f'<html lang="{language}">')
+            .replace('__SITE_TITLE__', site_title)
+            .replace('__SITE_URL__', site_url)
+            .replace('__JSONLD__', jsonld)
+        )
 

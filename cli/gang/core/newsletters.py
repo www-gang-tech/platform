@@ -90,7 +90,8 @@ class NewsletterManager:
         }
         
         # Write file
-        newsletter_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False).strip()
+        newsletter_content = f"---\n{frontmatter_yaml}\n---\n{content}"
         file_path.write_text(newsletter_content)
         
         return {
@@ -149,7 +150,8 @@ class NewsletterManager:
             frontmatter['recipients'] = result.get('recipients', 0)
             
             # Update file
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+            frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False).strip()
+            new_content = f"---\n{frontmatter_yaml}\n---\n{body}"
             file_path.write_text(new_content)
             
             # Add to archive
@@ -190,7 +192,8 @@ class NewsletterManager:
         frontmatter['scheduled_for'] = send_date.isoformat()
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False).strip()
+        new_content = f"---\n{frontmatter_yaml}\n---\n{body}"
         file_path.write_text(new_content)
         
         return {

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +8,11 @@
     <title>Sitemap - {{ site_title }}</title>
     <meta name="description" content="Complete sitemap of all pages, posts, projects, and products">
     <link rel="canonical" href="{{ site_url }}/sitemap/">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -66,7 +71,7 @@
             <h2>Products</h2>
             <ul class="unstyled">
                 {% for product in products %}
-                <li><a href="/products/{{ product._meta.slug or product._meta.handle }}/">{{ product.name }}</a></li>
+                <li><a href="/products/{{ product._meta.safe_slug }}/">{{ product.name }}</a></li>
                 {% endfor %}
             </ul>
         </section>

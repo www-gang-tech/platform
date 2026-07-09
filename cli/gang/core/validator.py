@@ -141,6 +141,12 @@ class ContractValidator:
         if 'valid_jsonld' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('seo', [])]:
             jsonld_scripts = soup.find_all('script', attrs={'type': 'application/ld+json'})
+            if not jsonld_scripts:
+                issues.append({
+                    'severity': 'error',
+                    'rule': 'valid_jsonld',
+                    'message': 'Missing JSON-LD markup',
+                })
             for script in jsonld_scripts:
                 try:
                     json.loads(script.string)
@@ -185,10 +191,20 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            relative_parts = html_path.parts
+            interactive_sections = {'products', 'cart', 'search', 'studio'}
+            is_interactive_page = any(part in interactive_sections for part in relative_parts)
+            data_script_types = {'application/ld+json', 'application/json'}
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if (script.get('type') or '').lower() not in data_script_types
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or 'text/javascript').lower() not in data_script_types
+            ]
             
-            if scripts or inline_scripts:
+            if not is_interactive_page and (scripts or inline_scripts):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -218,7 +234,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

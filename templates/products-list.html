@@ -43,7 +43,7 @@
         <div class="grid grid-2">
             {% for product in products %}
             <article class="product-card">
-                <a href="/products/{{ product._meta.slug or product._meta.handle }}/">
+                <a href="/products/{{ product._meta.safe_slug }}/">
                     {% if product.image %}
                         {% if product.image is string %}
                         <img src="{{ product.image }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +7,12 @@
     
     <title>Shopping Cart - GANG</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ canonical_url }}">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -45,7 +50,7 @@
             </p>
             
             <button onclick="proceedToCheckout()" class="button" style="width: 100%;">
-                Proceed to Checkout →
+                Proceed to Checkout
             </button>
             
             <p style="text-align: center; margin-top: 1rem;">
