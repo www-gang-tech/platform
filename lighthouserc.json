@@ -5,7 +5,6 @@
       "numberOfRuns": 3,
       "maxAutodiscoverUrls": 10,
       "settings": {
-        "preset": "mobile",
         "throttling": {
           "rttMs": 40,
           "throughputKbps": 10240,
