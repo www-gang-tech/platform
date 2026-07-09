@@ -298,6 +298,17 @@ b, strong {
     color: var(--fgColor-accent);
     text-decoration: none;
   }
+
+  .markdown-body a {
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+  }
+
+  .markdown-body li > a {
+    display: inline-block;
+    min-height: 44px;
+    padding: 0.25rem 0;
+  }
   
   abbr[title] {
     border-bottom: none;

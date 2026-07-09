@@ -152,6 +152,7 @@ class SearchIndexer:
     <title>Search - __SITE_TITLE__</title>
     <meta name="description" content="Search __SITE_TITLE__ content.">
     <link rel="canonical" href="__SITE_URL__/search/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <script type="application/ld+json">
     __JSONLD__
     </script>
