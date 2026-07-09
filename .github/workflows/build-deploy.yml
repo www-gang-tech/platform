@@ -45,7 +45,8 @@ jobs:
       - name: Validate contracts
         id: validate
         run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+          gang check --output validation-report.json
+          gang check-contracts --verbose
       
       - name: Upload validation report
         if: always()
@@ -85,7 +86,7 @@ jobs:
       
       - name: Run Lighthouse CI
         run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+          lhci autorun --config=lighthouserc.json
       
       - name: Upload Lighthouse reports
         if: always()
@@ -142,16 +143,20 @@ jobs:
       
       - name: Run axe accessibility tests
         run: |
-          # Start simple HTTP server in background
           npx http-server dist -p 8080 &
           SERVER_PID=$!
+          trap "kill $SERVER_PID" EXIT
           sleep 3
-          
-          # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
-          
-          # Cleanup
-          kill $SERVER_PID
+
+          python3 - <<'PY' > axe-urls.txt
+          from pathlib import Path
+          for page in sorted(Path('dist').rglob('index.html')):
+              rel = page.parent.relative_to('dist')
+              url_path = '/' if str(rel) == '.' else '/' + str(rel).strip('/') + '/'
+              print(f'http://localhost:8080{url_path}')
+          PY
+
+          xargs -a axe-urls.txt axe --exit
 
   deploy:
     name: Deploy to Cloudflare Pages
@@ -174,6 +179,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: platform
+          projectName: gang-platform
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}

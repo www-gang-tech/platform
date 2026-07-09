@@ -219,7 +219,8 @@ class ContentScheduler:
             if publish_date:
                 frontmatter['publish_date'] = publish_date.isoformat()
             
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+            frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False).strip()
+            new_content = f"---\n{frontmatter_yaml}\n---\n{content}"
             file_path.write_text(new_content)
             return True
         
@@ -244,7 +245,8 @@ class ContentScheduler:
         
         # Write back
         body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False).strip()
+        new_content = f"---\n{frontmatter_yaml}\n---\n{body}"
         file_path.write_text(new_content)
         
         return True

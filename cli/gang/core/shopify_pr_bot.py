@@ -10,6 +10,7 @@ import yaml
 import subprocess
 from datetime import datetime
 import os
+import re
 
 
 class ShopifyPRBot:
@@ -67,37 +68,42 @@ class ShopifyPRBot:
         return frontmatter
     
     def _extract_field(self, data: Dict, field_path: str) -> Any:
-        """Extract nested field using dot notation"""
-        
-        parts = field_path.split('.')
-        value = data
-        
-        for part in parts:
-            if '[' in part:
-                # Array access: variants[0] or images[*]
-                key = part.split('[')[0]
-                index = part.split('[')[1].rstrip(']')
-                
-                if key in value:
-                    if index == '*':
-                        # Get all items
-                        return value[key]
-                    elif index.isdigit():
-                        # Get specific index
-                        idx = int(index)
-                        if idx < len(value[key]):
-                            value = value[key][idx]
-                        else:
-                            return None
-                else:
-                    return None
-            else:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    return None
-        
-        return value
+        """Extract nested fields such as variants[0].price or images[*].src."""
+
+        def read_part(value: Any, part: str) -> Any:
+            if '[' not in part:
+                if isinstance(value, dict):
+                    return value.get(part)
+                return None
+
+            key = part.split('[', 1)[0]
+            index = part.split('[', 1)[1].rstrip(']')
+            if not isinstance(value, dict) or key not in value:
+                return None
+
+            items = value[key]
+            if not isinstance(items, list):
+                return None
+            if index == '*':
+                return items
+            if index.isdigit() and int(index) < len(items):
+                return items[int(index)]
+            return None
+
+        values = [data]
+        for part in field_path.split('.'):
+            next_values = []
+            for value in values:
+                extracted = read_part(value, part)
+                if isinstance(extracted, list):
+                    next_values.extend(extracted)
+                elif extracted is not None:
+                    next_values.append(extracted)
+            if not next_values:
+                return None
+            values = next_values
+
+        return values if len(values) > 1 else values[0]
     
     def _apply_transform(self, value: Any, transform: str) -> Any:
         """Apply transformation to value"""
@@ -134,13 +140,16 @@ class ShopifyPRBot:
         frontmatter = self.convert_to_frontmatter(product_data)
         
         # Get slug
-        slug = frontmatter.get('slug', 'unknown')
+        slug = str(frontmatter.get('slug', 'unknown')).strip().lower()
+        if not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', slug):
+            raise ValueError(f"Unsafe product slug: {slug}")
         
         # Create file path
         products_dir = self.content_path / 'products'
         products_dir.mkdir(exist_ok=True)
         
-        file_path = products_dir / f"{slug}.md"
+        file_path = (products_dir / f"{slug}.md").resolve()
+        file_path.relative_to(products_dir.resolve())
         
         # Generate markdown content
         content_lines = ['---']
