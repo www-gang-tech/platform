@@ -187,6 +187,20 @@ def write_frontmatter(frontmatter: Dict[str, Any], body: str) -> str:
     dumped = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
     return f"---\n{dumped}\n---\n{body.lstrip()}"
 
+
+def write_favicon(dist_path: Path) -> None:
+    """Generate root favicon files so browsers do not request a missing favicon.ico."""
+    favicon_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#111"/><text x="16" y="22" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="700" fill="#fff">G</text></svg>"""
+    (dist_path / 'favicon.svg').write_text(favicon_svg)
+    try:
+        from PIL import Image, ImageDraw
+        image = Image.new('RGBA', (32, 32), (17, 17, 17, 255))
+        draw = ImageDraw.Draw(image)
+        draw.text((16, 16), 'G', anchor='mm', fill=(255, 255, 255, 255))
+        image.save(dist_path / 'favicon.ico', format='ICO')
+    except Exception:
+        (dist_path / 'favicon.ico').write_text(favicon_svg)
+
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
 @click.option('--format', type=click.Choice(['json', 'html']), default='html')
@@ -2379,6 +2393,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     if dist_path.exists():
         shutil.rmtree(dist_path)
     dist_path.mkdir(parents=True, exist_ok=True)
+    write_favicon(dist_path)
     
     # Optimize images if requested
     if optimize_images:
@@ -2919,8 +2934,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
             js_content = js_file.read_text()
             js_original += len(js_content)
-            # Remove single-line comments (but preserve URLs)
-            js_content = re.sub(r'(?<!["\'/])//[^\n]*', '', js_content)
+            # Remove full-line comments only; inline stripping corrupts URLs/template literals.
+            js_content = re.sub(r'(^|\n)\s*//[^\n]*', r'\1', js_content)
             # Remove multi-line comments
             js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
             # Remove extra whitespace (but not all - preserve some for safety)
@@ -4514,6 +4529,7 @@ def serve(ctx, port, host):
                 if dist_path.exists():
                     shutil.rmtree(dist_path)
                 dist_path.mkdir(parents=True, exist_ok=True)
+                write_favicon(dist_path)
                 
                 # Initialize systems
                 template_engine = TemplateEngine(templates_path)

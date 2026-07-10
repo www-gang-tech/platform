@@ -298,6 +298,22 @@ b, strong {
     color: var(--fgColor-accent);
     text-decoration: none;
   }
+
+  .markdown-body a {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+
+  .markdown-body li {
+    margin-block: 0.5rem;
+  }
+
+  .markdown-body li a {
+    display: inline-block;
+    min-height: 44px;
+    padding-block: 0.35rem;
+  }
   
   abbr[title] {
     border-bottom: none;
