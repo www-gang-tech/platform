@@ -48,7 +48,7 @@ class AgentMapGenerator:
             'endpoints': {
                 'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
-                'search': f"{self.site_url}/api/search.json",
+                'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
             },
             
@@ -60,7 +60,7 @@ class AgentMapGenerator:
             },
             
             'search': {
-                'endpoint': f"{self.site_url}/api/search.json",
+                'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
                 'parameters': ['q', 'category', 'limit'],
                 'description': 'Full-text search across all content'
@@ -85,7 +85,8 @@ class AgentMapGenerator:
         types = []
         
         for file_path in content_files:
-            category = file_path.parent.name
+            source_category = file_path.parent.name
+            category = 'posts' if source_category == 'articles' else source_category
             
             if category not in by_category:
                 by_category[category] = []
@@ -99,7 +100,7 @@ class AgentMapGenerator:
             by_category[category].append({
                 'slug': slug,
                 'url': f"{self.site_url}/{category}/{slug}/",
-                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json"
+                'apiEndpoint': f"{self.site_url}/api/content.json"
             })
         
         return {
@@ -164,18 +165,26 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
-                category = file_path.parent.name
+                source_category = file_path.parent.name
+                category = 'posts' if source_category == 'articles' else source_category
                 slug = file_path.stem
+                raw_tags = frontmatter.get('tags', [])
+                if isinstance(raw_tags, (list, tuple, set)):
+                    tags = [str(tag) for tag in raw_tags if str(tag).strip()]
+                elif raw_tags:
+                    tags = [str(raw_tags)]
+                else:
+                    tags = []
                 
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
                     'url': f"{self.site_url}/{category}/{slug}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
+                    'apiEndpoint': f"{self.site_url}/api/content.json",
                     'category': category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),
                     'date': str(frontmatter.get('date', '')),
-                    'tags': frontmatter.get('tags', [])
+                    'tags': tags
                 }
                 
                 index['items'].append(item)
@@ -214,7 +223,8 @@ class ContentAPIGenerator:
         import re
         content_text = re.sub('<[^<]+?>', '', content_html)
         
-        category = file_path.parent.name
+        source_category = file_path.parent.name
+        category = 'posts' if source_category == 'articles' else source_category
         slug = file_path.stem
         
         return {

@@ -148,24 +148,63 @@ class ContractValidator:
         
         required_type = jsonld_rules.get('required_type')
         required_props = jsonld_rules.get('required_props', [])
+        required_in_offers = jsonld_rules.get('required_in_offers', [])
+        all_nodes = []
+        matching_nodes = []
         
         for script in jsonld_scripts:
             try:
                 data = json.loads(script.string)
-                
-                # Check @type
-                if required_type and data.get('@type') != required_type:
-                    errors.append(f"JSON-LD @type is '{data.get('@type')}', expected '{required_type}'")
-                
-                # Check required props
-                for prop in required_props:
-                    if prop not in data:
-                        errors.append(f"Missing required JSON-LD property: {prop}")
-                
+                nodes = self._jsonld_nodes(data)
+                all_nodes.extend(nodes)
+                matching_nodes.extend([
+                    node for node in self._jsonld_nodes(data)
+                    if not required_type or self._node_has_type(node, required_type)
+                ])
             except json.JSONDecodeError:
                 errors.append("Invalid JSON-LD: failed to parse")
-        
+
+        if required_type and not matching_nodes:
+            errors.append(f"Missing JSON-LD @type: {required_type}")
+            return {'errors': errors}
+
+        nodes_to_check = matching_nodes or all_nodes
+        for node in nodes_to_check[:1]:
+            for prop in required_props:
+                if prop not in node:
+                    errors.append(f"Missing required JSON-LD property: {prop}")
+            if required_in_offers:
+                offers = node.get('offers', [])
+                if isinstance(offers, dict):
+                    offers = [offers]
+                if not offers:
+                    errors.append("Missing required JSON-LD offers")
+                for offer in offers:
+                    for prop in required_in_offers:
+                        if prop not in offer:
+                            errors.append(f"Missing required JSON-LD offers property: {prop}")
+
         return {'errors': errors}
+
+    def _jsonld_nodes(self, data: Any) -> List[Dict[str, Any]]:
+        """Flatten common JSON-LD containers into object nodes."""
+        if isinstance(data, list):
+            nodes = []
+            for item in data:
+                nodes.extend(self._jsonld_nodes(item))
+            return nodes
+        if isinstance(data, dict):
+            graph = data.get('@graph')
+            if isinstance(graph, list):
+                return self._jsonld_nodes(graph)
+            return [data]
+        return []
+
+    def _node_has_type(self, node: Dict[str, Any], required_type: str) -> bool:
+        node_type = node.get('@type')
+        if isinstance(node_type, list):
+            return required_type in node_type
+        return node_type == required_type
     
     def _check_meta(self, soup: BeautifulSoup, meta_rules: Dict) -> Dict[str, List[str]]:
         """Check meta tags"""
@@ -189,6 +228,9 @@ class ContractValidator:
             elif meta_name.startswith('twitter:'):
                 if not soup.find('meta', attrs={'name': meta_name}):
                     errors.append(f"Missing Twitter Card tag: {meta_name}")
+            elif ':' in meta_name:
+                if not soup.find('meta', attrs={'property': meta_name}):
+                    errors.append(f"Missing meta property: {meta_name}")
         
         return {'errors': errors}
     

@@ -58,23 +58,30 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        raw_tags = frontmatter.get('tags', [])
+        if isinstance(raw_tags, (list, tuple, set)):
+            tags = [str(tag) for tag in raw_tags if str(tag).strip()]
+        elif raw_tags:
+            tags = [str(raw_tags)]
+        else:
+            tags = []
         category = file_path.parent.name
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        output_category = 'posts' if category == 'articles' else category
+        if output_category == 'posts':
             url = f"/posts/{slug}/"
-        elif category == 'projects':
+        elif output_category == 'projects':
             url = f"/projects/{slug}/"
-        elif category == 'pages':
+        elif output_category == 'pages':
             url = f"/pages/{slug}/"
-        elif category == 'people':
+        elif output_category == 'people':
             url = f"/people/{slug}/"
         else:
-            url = f"/{category}/{slug}/"
+            url = f"/{output_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,11 +99,11 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': output_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': frontmatter.get('date', '').isoformat() if hasattr(frontmatter.get('date', ''), 'isoformat') else str(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +137,29 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'GANG')
+        site_url = site.get('url', '').rstrip('/')
+        lang = site.get('language', 'en')
+        description = 'Search articles, projects, pages, newsletters, and people.'
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': 'Search',
+            'description': description,
+            'url': f'{site_url}/search/' if site_url else '/search/',
+        }, indent=4)
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,19 +250,27 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
+    <header>
+        <a href="/">__SITE_TITLE__</a>
+        <nav aria-label="Main navigation"><a href="/">Home</a></nav>
+    </header>
+    <main>
+        <h1>Search</h1>
+        <div class="search-box">
+            <label for="searchInput">Search content</label>
+            <input
+                type="text"
+                id="searchInput"
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
     
     <script>
         let searchIndex = null;
@@ -357,4 +389,12 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (
+            html.replace('__LANG__', str(lang))
+            .replace('__SITE_TITLE__', str(site_title))
+            .replace('__DESCRIPTION__', description)
+            .replace('__SITE_URL__', site_url)
+            .replace('__JSONLD__', jsonld)
+            .replace('__YEAR__', str(datetime.now().year))
+        )
 

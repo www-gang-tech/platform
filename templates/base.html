@@ -7,6 +7,13 @@
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+    <meta property="og:type" content="{{ og_type|default('website') }}">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description }}">
+    {% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{ title }}">
+    <meta name="twitter:description" content="{{ description }}">
     
     <!-- JSON-LD Structured Data -->
     {% if jsonld %}
@@ -19,12 +26,12 @@
     <link rel="preload" href="/assets/style.css" as="style">
     
     <link rel="stylesheet" href="/assets/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     {% if user_authenticated %}
     <!-- Editor resources (only for authenticated users) -->
     <link rel="preload" href="/assets/editor.css" as="style">
     <link rel="stylesheet" href="/assets/editor.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     {% endif %}
 </head>
 <body data-page-type="{{ page_type|default('page') }}" data-category="{{ category|default('') }}" data-slug="{{ slug|default('') }}">
@@ -44,7 +51,9 @@
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
+    {% if comments_enabled %}
     <!-- Comments System (progressive enhancement) -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>
