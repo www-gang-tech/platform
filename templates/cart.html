@@ -1,13 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang|default('en') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     
-    <title>Shopping Cart - GANG</title>
+    <title>Shopping Cart - {{ site_title }}</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ canonical_url|default(site_url ~ '/cart/') }}">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": "Shopping Cart",
+        "description": "Your shopping cart",
+        "url": "{{ canonical_url|default(site_url ~ '/cart/') }}"
+    }
+    </script>
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>

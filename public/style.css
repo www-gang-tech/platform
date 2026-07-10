@@ -298,6 +298,22 @@ b, strong {
     color: var(--fgColor-accent);
     text-decoration: none;
   }
+
+  .markdown-body a {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+
+  .markdown-body li {
+    margin-block: 0.5rem;
+  }
+
+  .markdown-body li a {
+    display: inline-block;
+    min-height: 44px;
+    padding-block: 0.35rem;
+  }
   
   abbr[title] {
     border-bottom: none;
@@ -454,12 +470,15 @@ b, strong {
 
   .nav-container nav {
     display: flex;
-    gap: 1.25em;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .nav-container a {
-    padding: 0rem 0;
-    display: block;
+    align-items: center;
+    display: inline-flex;
+    min-height: 44px;
+    padding: 0.625rem 0.5rem;
   }
   
   table {
