@@ -470,12 +470,15 @@ b, strong {
 
   .nav-container nav {
     display: flex;
-    gap: 1.25em;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .nav-container a {
-    padding: 0rem 0;
-    display: block;
+    align-items: center;
+    display: inline-flex;
+    min-height: 44px;
+    padding: 0.625rem 0.5rem;
   }
   
   table {
