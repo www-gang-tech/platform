@@ -9,6 +9,7 @@ from datetime import datetime
 import json
 import os
 import hashlib
+from core.frontmatter import dump_frontmatter
 
 
 class ContentSyndicator:
@@ -52,7 +53,6 @@ class ContentSyndicator:
         """
         
         import yaml
-from core.frontmatter import dump_frontmatter
         
         content = file_path.read_text()
         
