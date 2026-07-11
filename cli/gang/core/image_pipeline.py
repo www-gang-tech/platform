@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import subprocess
 import json
 import base64
+from core.frontmatter import dump_frontmatter
 
 
 class ImagePipeline:
@@ -184,7 +185,6 @@ class ImagePipeline:
             return
         
         import yaml
-from core.frontmatter import dump_frontmatter
         frontmatter = yaml.safe_load(parts[1])
         
         # Add/update images array
