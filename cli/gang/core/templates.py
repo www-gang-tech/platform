@@ -19,6 +19,7 @@ class TemplateEngine:
         
         # Add custom filters
         self.env.filters['formatdate'] = self._format_date
+        self.env.filters['date'] = self._format_date
     
     def _format_date(self, date_str: str, format: str = '%B %d, %Y') -> str:
         """Format date string"""
