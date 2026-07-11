@@ -184,6 +184,7 @@ class ImagePipeline:
             return
         
         import yaml
+from core.frontmatter import dump_frontmatter
         frontmatter = yaml.safe_load(parts[1])
         
         # Add/update images array
@@ -205,8 +206,7 @@ class ImagePipeline:
         image_entry['focal_point'] = list(focal_point)
         
         # Write back
-        new_frontmatter = yaml.dump(frontmatter, default_flow_style=False)
-        new_content = f"---\n{new_frontmatter}---{parts[2]}"
+        new_content = dump_frontmatter(frontmatter, parts[2])
         md_file.write_text(new_content)
 
 
