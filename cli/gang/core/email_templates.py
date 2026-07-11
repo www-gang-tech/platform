@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import re
 from datetime import datetime
+from core.frontmatter import dump_frontmatter
 
 
 class EmailTemplateGenerator:
@@ -343,7 +344,6 @@ class EmailOrchestrator:
         Creates a markdown file in content/newsletters/
         """
         import yaml
-from core.frontmatter import dump_frontmatter
         
         # Read original post
         content = post_path.read_text()
