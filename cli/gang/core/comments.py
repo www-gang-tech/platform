@@ -8,6 +8,7 @@ Integrates with the build system to include approved comments in templates.
 import os
 import yaml
 import hashlib
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
@@ -27,15 +28,33 @@ class CommentsManager:
         self.posts_comments_path.mkdir(parents=True, exist_ok=True)
         self.products_comments_path.mkdir(parents=True, exist_ok=True)
     
+    def _comments_dir_for_page(self, page_slug: str, page_type: str) -> Optional[Path]:
+        """Resolve a comments directory while preventing path traversal."""
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", page_slug or ""):
+            raise ValueError("Invalid page slug")
+        
+        if page_type == "post":
+            base_dir = self.posts_comments_path
+        elif page_type == "product":
+            base_dir = self.products_comments_path
+        else:
+            return None
+        
+        target_dir = (base_dir / page_slug).resolve()
+        base_resolved = base_dir.resolve()
+        if target_dir != base_resolved and base_resolved not in target_dir.parents:
+            raise ValueError("Comment path escapes comments directory")
+        return target_dir
+    
     def get_comments_for_page(self, page_slug: str, page_type: str) -> List[Dict[str, Any]]:
         """Get all approved comments for a specific page."""
         comments = []
         
-        if page_type == "post":
-            comments_dir = self.posts_comments_path / page_slug
-        elif page_type == "product":
-            comments_dir = self.products_comments_path / page_slug
-        else:
+        try:
+            comments_dir = self._comments_dir_for_page(page_slug, page_type)
+        except ValueError:
+            return comments
+        if comments_dir is None:
             return comments
         
         if not comments_dir.exists():
@@ -88,12 +107,8 @@ class CommentsManager:
             'parent_id': None
         }
         
-        # Determine target directory
-        if page_type == "post":
-            target_dir = self.posts_comments_path / page_slug
-        elif page_type == "product":
-            target_dir = self.products_comments_path / page_slug
-        else:
+        target_dir = self._comments_dir_for_page(page_slug, page_type)
+        if target_dir is None:
             raise ValueError(f"Unsupported page type: {page_type}")
         
         # Create directory if it doesn't exist

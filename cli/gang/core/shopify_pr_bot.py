@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 import json
 import yaml
 import subprocess
+from core.frontmatter import dump_frontmatter
 from datetime import datetime
 import os
 
@@ -142,14 +143,7 @@ class ShopifyPRBot:
         
         file_path = products_dir / f"{slug}.md"
         
-        # Generate markdown content
-        content_lines = ['---']
-        content_lines.append(yaml.dump(frontmatter, default_flow_style=False))
-        content_lines.append('---')
-        content_lines.append('')
-        content_lines.append(frontmatter.get('description', ''))
-        
-        content = '\n'.join(content_lines)
+        content = dump_frontmatter(frontmatter, frontmatter.get('description', ''))
         
         file_path.write_text(content)
         
