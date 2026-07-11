@@ -343,6 +343,7 @@ class EmailOrchestrator:
         Creates a markdown file in content/newsletters/
         """
         import yaml
+from core.frontmatter import dump_frontmatter
         
         # Read original post
         content = post_path.read_text()
@@ -367,10 +368,7 @@ class EmailOrchestrator:
             'tags': frontmatter.get('tags', [])
         }
         
-        # Create newsletter content
-        newsletter_content = f"""---
-{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False)}---
-{body}
+        newsletter_body = f"""{body}
 
 ---
 
@@ -378,6 +376,7 @@ class EmailOrchestrator:
 
 [View archive of all newsletters](/newsletters/)
 """
+        newsletter_content = dump_frontmatter(newsletter_frontmatter, newsletter_body)
         
         # Save to newsletters directory
         newsletters_dir = content_dir / 'newsletters'
