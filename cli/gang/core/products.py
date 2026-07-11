@@ -360,11 +360,13 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        attempted_live_fetch = False
         
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
+            attempted_live_fetch = True
             client = ShopifyClient(shopify_config[0], shopify_config[1])
             products['shopify'] = client.fetch_products()
         elif self.config.get('demo_mode', False):
@@ -375,17 +377,25 @@ class ProductAggregator:
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
+            attempted_live_fetch = True
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
         
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
+            attempted_live_fetch = True
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        if any(products.values()):
+            self._save_cache(products)
+        else:
+            cached_products = self._cached_products()
+            if cached_products is not None:
+                return cached_products
+            if attempted_live_fetch:
+                self._save_cache(products)
         
         return products
     
@@ -430,4 +440,19 @@ class ProductAggregator:
             except:
                 return None
         return None
+    
+    def _cached_products(self) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+        cache = self.load_cache()
+        if not cache:
+            return None
+        products = cache.get('products')
+        if not isinstance(products, dict):
+            return None
+        if not any(products.get(source) for source in ('shopify', 'stripe', 'gumroad')):
+            return None
+        return {
+            'shopify': products.get('shopify', []),
+            'stripe': products.get('stripe', []),
+            'gumroad': products.get('gumroad', []),
+        }
 
