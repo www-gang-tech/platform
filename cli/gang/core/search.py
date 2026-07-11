@@ -40,6 +40,23 @@ class SearchIndexer:
         
         return index
     
+    def _published_category(self, category: str) -> str:
+        """Map source folders to generated URL folders."""
+        return 'posts' if category == 'articles' else category
+    
+    def _as_string(self, value: Any, fallback: str = '') -> str:
+        if value is None:
+            return fallback
+        text = str(value).strip()
+        return text if text else fallback
+    
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        if tags is None:
+            return []
+        if type(tags).__name__ in ('list', 'tuple', 'set'):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
+    
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
         content = file_path.read_text()
@@ -58,23 +75,14 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
-        category = file_path.parent.name
+        title = self._as_string(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._as_string(frontmatter.get('description') or frontmatter.get('summary'), '')
+        tags = self._normalize_tags(frontmatter.get('tags', []))
+        category = self._published_category(file_path.parent.name)
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
-            url = f"/posts/{slug}/"
-        elif category == 'projects':
-            url = f"/projects/{slug}/"
-        elif category == 'pages':
-            url = f"/pages/{slug}/"
-        elif category == 'people':
-            url = f"/people/{slug}/"
-        else:
-            url = f"/{category}/{slug}/"
+        url = f"/{category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -96,7 +104,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._as_string(frontmatter.get('date'), ''),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -136,6 +144,11 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search content across this site">
+    <link rel="canonical" href="/search/">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"SearchResultsPage","name":"Search","url":"/search/"}
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +239,11 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation"><a href="/">Home</a></nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -239,6 +256,8 @@ class SearchIndexer:
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer><p>Search index generated at build time.</p></footer>
     
     <script>
         let searchIndex = null;
