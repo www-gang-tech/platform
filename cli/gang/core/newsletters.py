@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
+from core.frontmatter import dump_frontmatter
 import os
 import re
 
@@ -90,7 +91,7 @@ class NewsletterManager:
         }
         
         # Write file
-        newsletter_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+        newsletter_content = dump_frontmatter(frontmatter, content)
         file_path.write_text(newsletter_content)
         
         return {
@@ -149,7 +150,7 @@ class NewsletterManager:
             frontmatter['recipients'] = result.get('recipients', 0)
             
             # Update file
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+            new_content = dump_frontmatter(frontmatter, body)
             file_path.write_text(new_content)
             
             # Add to archive
@@ -190,7 +191,7 @@ class NewsletterManager:
         frontmatter['scheduled_for'] = send_date.isoformat()
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return {
