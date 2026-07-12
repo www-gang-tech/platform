@@ -2895,8 +2895,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
 
             js_content = js_file.read_text()
             js_original += len(js_content)
-            # Remove single-line comments (but preserve URLs)
-            js_content = re.sub(r'(?<!["\'/])//[^\n]*', '', js_content)
+            # Remove full-line comments only; inline `//` can be part of URLs
+            # or template literals and must be preserved.
+            js_content = re.sub(r'(?m)^\s*//[^\n]*(?:\n|$)', '', js_content)
             # Remove multi-line comments
             js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
             # Remove extra whitespace (but not all - preserve some for safety)
@@ -3135,6 +3136,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <script type="application/ld+json">
 {jsonld_str}
     </script>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/style.css">
     <style>
         /* Page-specific: unstyled list */
@@ -3214,6 +3216,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <script type="application/ld+json">
 {jsonld_str}
     </script>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/style.css">
     <style>
         /* Page-specific: unstyled list */

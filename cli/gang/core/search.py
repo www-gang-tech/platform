@@ -158,6 +158,7 @@ class SearchIndexer:
     <script type="application/ld+json">
 __JSONLD__
     </script>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
