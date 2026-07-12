@@ -13,11 +13,11 @@ import yaml
 
 class SearchIndexer:
     """Generate search index for static site"""
-    
+
     def __init__(self, content_path: Path, config: Dict[str, Any]):
         self.content_path = content_path
         self.config = config
-    
+
     def build_search_index(self, content_files: List[Path]) -> Dict[str, Any]:
         """
         Build a search index from all publishable content.
@@ -28,7 +28,7 @@ class SearchIndexer:
             'generated': datetime.now().isoformat(),
             'documents': []
         }
-        
+
         for file_path in content_files:
             try:
                 doc = self._index_file(file_path)
@@ -37,17 +37,17 @@ class SearchIndexer:
             except Exception as e:
                 # Skip files that can't be indexed
                 continue
-        
+
         return index
-    
+
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
         content = file_path.read_text()
-        
+
         # Parse frontmatter
         frontmatter = {}
         body = content
-        
+
         if content.startswith('---'):
             parts = content.split('---', 2)
             if len(parts) >= 3:
@@ -56,13 +56,13 @@ class SearchIndexer:
                     body = parts[2]
                 except:
                     pass
-        
+
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = self._stringify(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._stringify(frontmatter.get('description') or frontmatter.get('summary'), '')
+        tags = [self._stringify(tag) for tag in (frontmatter.get('tags') or [])]
         category = file_path.parent.name
-        
+
         # Generate URL
         slug = file_path.stem
         if category == 'posts':
@@ -75,18 +75,18 @@ class SearchIndexer:
             url = f"/people/{slug}/"
         else:
             url = f"/{category}/{slug}/"
-        
+
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
-        
+
         # Extract first paragraph as excerpt if no description
         if not description:
             paragraphs = [p.strip() for p in clean_text.split('\n\n') if p.strip()]
             description = paragraphs[0][:200] + '...' if paragraphs else ''
-        
+
         # Create searchable content (title is weighted more)
         searchable = f"{title} {title} {title} {description} {clean_text} {' '.join(tags)}"
-        
+
         return {
             'id': str(file_path.relative_to(self.content_path)) if isinstance(file_path, Path) else str(file_path),
             'title': title,
@@ -96,46 +96,69 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._stringify(frontmatter.get('date'), ''),
         }
-    
+
+    def _stringify(self, value: Any, default: str = '') -> str:
+        """Coerce YAML-native scalars into JSON-safe strings."""
+        if value is None:
+            return default
+        return str(value)
+
     def _clean_markdown(self, text: str) -> str:
         """Remove markdown syntax from text"""
         # Remove code blocks
         text = re.sub(r'```[\s\S]*?```', '', text)
         text = re.sub(r'`[^`]+`', '', text)
-        
+
         # Remove images
         text = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', r'\1', text)
-        
+
         # Remove links but keep text
         text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-        
+
         # Remove headings markers
         text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-        
+
         # Remove emphasis
         text = re.sub(r'\*\*([^\*]+)\*\*', r'\1', text)
         text = re.sub(r'\*([^\*]+)\*', r'\1', text)
         text = re.sub(r'__([^_]+)__', r'\1', text)
         text = re.sub(r'_([^_]+)_', r'\1', text)
-        
+
         # Remove HTML tags
         text = re.sub(r'<[^>]+>', '', text)
-        
+
         # Clean up whitespace
         text = re.sub(r'\s+', ' ', text)
-        
+
         return text.strip()
-    
+
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site = self.config.get('site', {})
+        site_title = site.get('title', 'Site')
+        site_url = site.get('url', '').rstrip('/')
+        description = f"Search {site_title} content."
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchResultsPage',
+            'name': 'Search',
+            'description': description,
+            'url': f"{site_url}/search/",
+        }, indent=2)
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,93 +249,106 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
-    
-    <div class="search-box">
-        <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search articles, projects, pages..."
-            autocomplete="off"
-        >
-    </div>
-    
-    <div id="searchStats" class="search-stats"></div>
-    <div id="results"></div>
-    
+    <header>
+        <nav aria-label="Main navigation">
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/projects/">Projects</a>
+        </nav>
+    </header>
+    <main>
+        <h1>Search</h1>
+
+        <div class="search-box">
+            <label for="searchInput">Search query</label>
+            <input
+                type="search"
+                id="searchInput"
+                placeholder="Search articles, projects, pages..."
+                autocomplete="off"
+            >
+        </div>
+
+        <div id="searchStats" class="search-stats"></div>
+        <div id="results"></div>
+    </main>
+    <footer>
+        <p>&copy; __YEAR__ __SITE_TITLE__. Built with GANG.</p>
+    </footer>
+
     <script>
         let searchIndex = null;
-        
+
         // Load search index
         fetch('/search-index.json')
             .then(r => r.json())
             .then(data => {
                 searchIndex = data;
-                document.getElementById('searchStats').textContent = 
+                document.getElementById('searchStats').textContent =
                     `${data.documents.length} documents indexed`;
             })
             .catch(e => {
-                document.getElementById('results').innerHTML = 
+                document.getElementById('results').innerHTML =
                     '<div class="no-results">Failed to load search index</div>';
             });
-        
+
         // Search function
         function search(query) {
             if (!searchIndex || !query.trim()) {
                 document.getElementById('results').innerHTML = '';
-                document.getElementById('searchStats').textContent = 
+                document.getElementById('searchStats').textContent =
                     `${searchIndex?.documents.length || 0} documents indexed`;
                 return;
             }
-            
+
             const terms = query.toLowerCase().trim().split(/\\s+/);
             const results = [];
-            
+
             for (const doc of searchIndex.documents) {
                 let score = 0;
                 const searchable = doc.searchable;
-                
+
                 // Score based on term matches
                 for (const term of terms) {
                     if (term.length < 2) continue;
-                    
+
                     // Title match (high weight)
                     if (doc.title.toLowerCase().includes(term)) {
                         score += 10;
                     }
-                    
+
                     // Exact match in content
                     const regex = new RegExp(term, 'gi');
                     const matches = (searchable.match(regex) || []).length;
                     score += matches;
                 }
-                
+
                 if (score > 0) {
                     results.push({ ...doc, score });
                 }
             }
-            
+
             // Sort by score
             results.sort((a, b) => b.score - a.score);
-            
+
             // Display results
             displayResults(results, query);
         }
-        
+
         function displayResults(results, query) {
             const container = document.getElementById('results');
             const stats = document.getElementById('searchStats');
-            
+
             if (results.length === 0) {
-                container.innerHTML = 
-                    '<div class="no-results">No results found for "' + 
+                container.innerHTML =
+                    '<div class="no-results">No results found for "' +
                     escapeHtml(query) + '"</div>';
                 stats.textContent = '0 results';
                 return;
             }
-            
+
             stats.textContent = `${results.length} result(s) for "${query}"`;
-            
+
             container.innerHTML = results.map(r => `
                 <div class="result">
                     <div class="result-title">
@@ -328,13 +364,13 @@ class SearchIndexer:
                 </div>
             `).join('');
         }
-        
+
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
-        
+
         // Debounced search
         let searchTimeout;
         document.getElementById('searchInput').addEventListener('input', (e) => {
@@ -343,10 +379,10 @@ class SearchIndexer:
                 search(e.target.value);
             }, 300);
         });
-        
+
         // Auto-focus search box
         document.getElementById('searchInput').focus();
-        
+
         // Search from URL parameter
         const urlParams = new URLSearchParams(window.location.search);
         const queryParam = urlParams.get('q');
@@ -357,4 +393,10 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return (html
+                .replace('__SITE_TITLE__', site_title)
+                .replace('__DESCRIPTION__', description)
+                .replace('__SITE_URL__', site_url)
+                .replace('__JSONLD__', jsonld)
+                .replace('__YEAR__', str(datetime.now().year)))
 

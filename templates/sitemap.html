@@ -8,8 +8,18 @@
     <title>Sitemap - {{ site_title }}</title>
     <meta name="description" content="Complete sitemap of all pages, posts, projects, and products">
     <link rel="canonical" href="{{ site_url }}/sitemap/">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Sitemap",
+        "description": "Complete sitemap of all pages, posts, projects, and products",
+        "url": "{{ site_url }}/sitemap/"
+    }
+    </script>
     
-    <link rel="stylesheet" href="/assets/style.css">
+        <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
     {% include "partials/header.html" %}

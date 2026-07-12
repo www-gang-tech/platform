@@ -12,7 +12,7 @@ import os
 
 class ProductSchema:
     """Normalize product data to Schema.org Product schema"""
-    
+
     @staticmethod
     def normalize(product: Dict[str, Any], source: str) -> Dict[str, Any]:
         """
@@ -26,27 +26,27 @@ class ProductSchema:
             return ProductSchema._from_gumroad(product)
         else:
             return product
-    
+
     @staticmethod
     def _from_shopify(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Shopify product to Schema.org"""
         variants = product.get('variants', [])
         first_variant = variants[0] if variants else {}
-        
+
         # Get images
         images = [img.get('src') for img in product.get('images', [])]
-        
+
         # Build offers from variants
         offers = []
         for variant in variants:
             # Shopify Admin REST API uses different field names than GraphQL
             # REST API: inventory_quantity, inventory_management, inventory_policy
             # GraphQL: inventoryQuantity, availableForSale
-            
+
             inventory_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
             inventory_management = variant.get('inventory_management')  # 'shopify' if tracked, None if not
             inventory_policy = variant.get('inventory_policy', 'deny')  # 'continue' allows selling when out of stock
-            
+
             # Determine availability:
             # - If inventory not tracked: Always in stock
             # - If inventory tracked: Check quantity > 0 OR policy allows overselling
@@ -59,7 +59,7 @@ class ProductSchema:
             else:
                 # Inventory tracked and no overselling - check quantity
                 in_stock = inventory_qty > 0
-            
+
             offers.append({
                 '@type': 'Offer',
                 'price': variant.get('price', '0'),
@@ -70,7 +70,7 @@ class ProductSchema:
                 'name': variant.get('title', ''),
                 'inventory_quantity': inventory_qty  # Include for debugging
             })
-        
+
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
@@ -99,13 +99,13 @@ class ProductSchema:
                 'updated_at': product.get('updated_at')
             }
         }
-    
+
     @staticmethod
     def _from_stripe(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Stripe product to Schema.org"""
         prices = product.get('prices', [])
         first_price = prices[0] if prices else {}
-        
+
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
@@ -127,7 +127,7 @@ class ProductSchema:
                 'updated': product.get('updated')
             }
         }
-    
+
     @staticmethod
     def _from_gumroad(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Gumroad product to Schema.org"""
@@ -154,38 +154,38 @@ class ProductSchema:
 
 class ShopifyClient:
     """Shopify Storefront API client"""
-    
+
     def __init__(self, store_url: str, access_token: str):
         self.store_url = store_url.replace('https://', '').replace('http://', '')
         self.access_token = access_token
         self.api_version = '2024-01'
-    
+
     def fetch_products(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Fetch products from Shopify"""
         # Demo mode - return mock data
         if not self.access_token or self.access_token == 'demo':
             return self._demo_products()
-        
+
         try:
             import requests
-            
+
             url = f"https://{self.store_url}/admin/api/{self.api_version}/products.json"
             headers = {
                 'X-Shopify-Access-Token': self.access_token,
                 'Content-Type': 'application/json'
             }
-            
+
             params = {'limit': limit}
             response = requests.get(url, headers=headers, params=params)
             response.raise_for_status()
-            
+
             data = response.json()
             return data.get('products', [])
-        
+
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")
             return []
-    
+
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Shopify products"""
         return [
@@ -231,27 +231,27 @@ class ShopifyClient:
 
 class StripeClient:
     """Stripe Products API client"""
-    
+
     def __init__(self, secret_key: str):
         self.secret_key = secret_key
-    
+
     def fetch_products(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Fetch products from Stripe"""
         # Demo mode
         if not self.secret_key or self.secret_key == 'demo':
             return self._demo_products()
-        
+
         try:
             import stripe
             stripe.api_key = self.secret_key
-            
+
             products = stripe.Product.list(limit=limit, active=True)
             result = []
-            
+
             for product in products.data:
                 # Fetch prices for this product
                 prices = stripe.Price.list(product=product.id, active=True)
-                
+
                 result.append({
                     'id': product.id,
                     'name': product.name,
@@ -271,13 +271,13 @@ class StripeClient:
                     'created': product.created,
                     'updated': product.updated
                 })
-            
+
             return result
-        
+
         except Exception as e:
             print(f"Error fetching from Stripe: {e}")
             return []
-    
+
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Stripe products"""
         return [
@@ -304,32 +304,32 @@ class StripeClient:
 
 class GumroadClient:
     """Gumroad API client"""
-    
+
     def __init__(self, access_token: str):
         self.access_token = access_token
-    
+
     def fetch_products(self) -> List[Dict[str, Any]]:
         """Fetch products from Gumroad"""
         # Demo mode
         if not self.access_token or self.access_token == 'demo':
             return self._demo_products()
-        
+
         try:
             import requests
-            
+
             url = 'https://api.gumroad.com/v2/products'
             headers = {'Authorization': f'Bearer {self.access_token}'}
-            
+
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            
+
             data = response.json()
             return data.get('products', [])
-        
+
         except Exception as e:
             print(f"Error fetching from Gumroad: {e}")
             return []
-    
+
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Gumroad products"""
         return [
@@ -348,47 +348,64 @@ class GumroadClient:
 
 class ProductAggregator:
     """Aggregate products from multiple platforms"""
-    
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.products_cache_file = Path('.products-cache.json')
-    
+
     def fetch_all(self) -> Dict[str, List[Dict[str, Any]]]:
         """Fetch products from all configured platforms"""
         products = {
             'shopify': [],
             'stripe': [],
-            'gumroad': []
+            'gumroad': [],
+            'content': self._load_content_products(),
         }
-        
+        has_live_source = False
+
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
+            has_live_source = True
             client = ShopifyClient(shopify_config[0], shopify_config[1])
             products['shopify'] = client.fetch_products()
         elif self.config.get('demo_mode', False):
             # Only use demo if explicitly enabled
             client = ShopifyClient('demo.myshopify.com', 'demo')
             products['shopify'] = client.fetch_products()
-        
+
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
+            has_live_source = True
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
-        
+
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
+            has_live_source = True
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
-        
-        # Cache results
-        self._save_cache(products)
-        
+
+        if any(products.values()):
+            self._save_cache(products)
+        elif not has_live_source:
+            cache = self.load_cache()
+            cached_products = cache.get('products') if cache else None
+            if cached_products and any(cached_products.values()):
+                return cached_products
+        elif self.products_cache_file.exists():
+            # Keep the last known non-empty cache if a live source transiently
+            # returns no products; do not erase the local product surface.
+            cache = self.load_cache()
+            cached_products = cache.get('products') if cache else None
+            if cached_products and any(cached_products.values()):
+                return cached_products
+
         return products
-    
+
     def get_normalized_products(self, status_filter: str = 'all') -> List[Dict[str, Any]]:
         """
         Get all products normalized to Schema.org
@@ -396,24 +413,85 @@ class ProductAggregator:
         """
         all_products = self.fetch_all()
         normalized = []
-        
+
         for source, products in all_products.items():
             for product in products:
                 norm_product = ProductSchema.normalize(product, source)
-                
+                norm_product.setdefault('_meta', {})
+
                 # Add status (default to 'active' for Shopify published products)
                 if source == 'shopify':
                     # Shopify products come from published endpoint, so they're active
                     norm_product['_meta']['status'] = product.get('status', 'active')
                 else:
                     norm_product['_meta']['status'] = 'active'
-                
+
                 # Filter by status
                 if status_filter == 'all' or norm_product['_meta']['status'] == status_filter:
                     normalized.append(norm_product)
-        
+
         return normalized
-    
+
+    def _load_content_products(self) -> List[Dict[str, Any]]:
+        """Load Shopify-synced markdown products from the content tree."""
+        content_root = Path(self.config.get('build', {}).get('content', './content'))
+        products_dir = content_root / 'products'
+        if not products_dir.exists():
+            return []
+
+        try:
+            import yaml
+        except ImportError:
+            return []
+
+        products = []
+        for product_file in products_dir.glob('*.md'):
+            content = product_file.read_text()
+            frontmatter = {}
+            body = ''
+            if content.startswith('---'):
+                parts = content.split('---', 2)
+                if len(parts) >= 3:
+                    frontmatter = yaml.safe_load(parts[1]) or {}
+                    body = parts[2].strip()
+            if not frontmatter:
+                continue
+
+            slug = frontmatter.get('slug') or product_file.stem
+            images = frontmatter.get('images') or []
+            if isinstance(images, str):
+                images = [images]
+            price = str(frontmatter.get('price', '0'))
+            currency = frontmatter.get('currency', 'USD')
+            products.append({
+                '@context': 'https://schema.org',
+                '@type': 'Product',
+                'name': frontmatter.get('title') or slug.replace('-', ' ').title(),
+                'description': frontmatter.get('description') or frontmatter.get('summary') or body,
+                'image': images,
+                'offers': {
+                    '@type': 'Offer',
+                    'price': price,
+                    'priceCurrency': currency,
+                    'availability': 'https://schema.org/InStock',
+                    'url': frontmatter.get('buy_url') or f"/products/{slug}/",
+                },
+                'sku': frontmatter.get('sku', ''),
+                'brand': {
+                    '@type': 'Brand',
+                    'name': frontmatter.get('brand', self.config.get('site', {}).get('title', '')),
+                },
+                'category': frontmatter.get('category', ''),
+                '_meta': {
+                    'source': 'content',
+                    'handle': slug,
+                    'slug': slug,
+                    'status': frontmatter.get('status', 'active'),
+                },
+            })
+
+        return products
+
     def _save_cache(self, products: Dict[str, Any]):
         """Save products to cache file"""
         cache_data = {
@@ -421,7 +499,7 @@ class ProductAggregator:
             'products': products
         }
         self.products_cache_file.write_text(json.dumps(cache_data, indent=2))
-    
+
     def load_cache(self) -> Optional[Dict[str, Any]]:
         """Load products from cache"""
         if self.products_cache_file.exists():
