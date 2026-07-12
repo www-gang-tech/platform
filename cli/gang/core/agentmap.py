@@ -48,7 +48,7 @@ class AgentMapGenerator:
             'endpoints': {
                 'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
-                'search': f"{self.site_url}/api/search.json",
+                'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
             },
             
@@ -60,7 +60,7 @@ class AgentMapGenerator:
             },
             
             'search': {
-                'endpoint': f"{self.site_url}/api/search.json",
+                'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
                 'parameters': ['q', 'category', 'limit'],
                 'description': 'Full-text search across all content'
@@ -85,7 +85,7 @@ class AgentMapGenerator:
         types = []
         
         for file_path in content_files:
-            category = file_path.parent.name
+            category = 'posts' if file_path.parent.name == 'articles' else file_path.parent.name
             
             if category not in by_category:
                 by_category[category] = []
@@ -164,18 +164,19 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
-                category = file_path.parent.name
+                category = 'posts' if file_path.parent.name == 'articles' else file_path.parent.name
                 slug = file_path.stem
+                tags = frontmatter.get('tags') or []
                 
                 item = {
-                    'title': frontmatter.get('title', slug.replace('-', ' ').title()),
+                    'title': str(frontmatter.get('title') or slug.replace('-', ' ').title()),
                     'url': f"{self.site_url}/{category}/{slug}/",
                     'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
                     'category': category,
                     'slug': slug,
-                    'summary': frontmatter.get('summary', frontmatter.get('description', '')),
+                    'summary': str(frontmatter.get('summary') or frontmatter.get('description') or ''),
                     'date': str(frontmatter.get('date', '')),
-                    'tags': frontmatter.get('tags', [])
+                    'tags': [str(tag) for tag in tags]
                 }
                 
                 index['items'].append(item)
