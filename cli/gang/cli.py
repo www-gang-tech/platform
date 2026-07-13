@@ -2846,6 +2846,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_html = cart_template.render(
                 year=datetime.now().year,
                 site_title=config['site']['title'],
+                site_url=config['site']['url'].rstrip('/'),
                 lighthouse_scores=True,
                 build_time=build_time_formatted,
                 build_time_iso=build_time_iso,
