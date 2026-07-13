@@ -7,7 +7,16 @@
     
     <title>Shopping Cart - GANG</title>
     <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <link rel="canonical" href="{{ site_url }}/cart/">
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": "Shopping Cart",
+        "description": "Your shopping cart",
+        "url": "{{ site_url }}/cart/"
+    }
+    </script>
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
