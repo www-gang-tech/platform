@@ -11,6 +11,22 @@ from datetime import datetime
 import yaml
 
 
+def _normalize_tags(tags: Any) -> List[str]:
+    if tags is None:
+        return []
+    if isinstance(tags, (list, tuple, set)):
+        return [str(tag) for tag in tags if tag]
+    return [str(tags)]
+
+
+def _date_to_string(value: Any) -> str:
+    if not value:
+        return ''
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+
 class SearchIndexer:
     """Generate search index for static site"""
     
@@ -58,15 +74,16 @@ class SearchIndexer:
                     pass
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
+        title = str(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = str(frontmatter.get('description') or frontmatter.get('summary') or '')
+        tags = _normalize_tags(frontmatter.get('tags', []))
         category = file_path.parent.name
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
+        if category in {'posts', 'articles'}:
             url = f"/posts/{slug}/"
+            category = 'posts'
         elif category == 'projects':
             url = f"/projects/{slug}/"
         elif category == 'pages':
@@ -96,7 +113,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': _date_to_string(frontmatter.get('date', '')),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -136,6 +153,11 @@ class SearchIndexer:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
+    <meta name="description" content="Search GANG content.">
+    <link rel="canonical" href="/search/">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"SearchAction","target":"/search/?q={search_term_string}","query-input":"required name=search_term_string"}
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +248,11 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <a href="/">GANG</a>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -240,6 +266,10 @@ class SearchIndexer:
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
     
+    </main>
+    <footer>
+        <p>&copy; GANG</p>
+    </footer>
     <script>
         let searchIndex = null;
         
