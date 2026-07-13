@@ -30,7 +30,13 @@ jobs:
       - name: Check for security vulnerabilities
         id: audit
         run: |
-          pip-audit -r requirements.txt --format=json > audit-report.json || echo "VULNERABILITIES_FOUND=true" >> $GITHUB_ENV
+          set +e
+          pip-audit -r requirements.txt --format=json > audit-report.json
+          AUDIT_EXIT=$?
+          if [ "$AUDIT_EXIT" -ne 0 ]; then
+            echo "VULNERABILITIES_FOUND=true" >> "$GITHUB_ENV"
+          fi
+          echo "audit_exit=$AUDIT_EXIT" >> "$GITHUB_OUTPUT"
       
       - name: Create issue if vulnerabilities found
         if: env.VULNERABILITIES_FOUND == 'true'
@@ -39,7 +45,15 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
+            const vulnerabilities = (report.dependencies || []).flatMap((dependency) =>
+              (dependency.vulns || []).map((vuln) => ({
+                name: dependency.name,
+                version: dependency.version,
+                severity: vuln.severity || 'unknown',
+                fix_versions: vuln.fix_versions || [],
+                description: vuln.description || vuln.id || 'No description provided'
+              }))
+            );
             
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
@@ -67,4 +81,8 @@ jobs:
         with:
           name: security-audit-report
           path: audit-report.json
+
+      - name: Fail on vulnerabilities
+        if: steps.audit.outputs.audit_exit != '0'
+        run: exit 1
 
