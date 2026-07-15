@@ -2961,8 +2961,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
             js_content = js_file.read_text()
             js_original += len(js_content)
-            # Remove single-line comments (but preserve URLs)
-            js_content = re.sub(r'(?<!["\'/])//[^\n]*', '', js_content)
+            # Remove full-line comments only; inline stripping corrupts URLs and template literals.
+            js_content = re.sub(r'(^|\n)\s*//[^\n]*', r'\1', js_content)
             # Remove multi-line comments
             js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
             # Remove extra whitespace (but not all - preserve some for safety)
