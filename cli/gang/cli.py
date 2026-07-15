@@ -2778,6 +2778,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': offer.get('id', ''),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2815,10 +2816,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'recurring': None,
                     'content': product.get('description', ''),
                     'buy_url': first_offer.get('url', '#'),
+                    'checkout_base_url': product.get('_meta', {}).get('checkout_base_url', ''),
+                    'commerce_source': product.get('_meta', {}).get('source', ''),
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
-                    'sku': product.get('sku', ''),
+                    'sku': first_offer.get('sku') or product.get('sku', ''),
+                    'variant_id': first_offer.get('id') or '',
                     'brand': brand_name,
                     'category': product.get('category', ''),
                     'availability': first_offer.get('availability', 'InStock'),
@@ -2844,6 +2848,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             cart_template = jinja_env.get_template('cart.html')
             cart_html = cart_template.render(
+                lang=config['site'].get('language', 'en'),
                 year=datetime.now().year,
                 site_title=config['site']['title'],
                 site_url=config['site']['url'].rstrip('/'),
@@ -4760,6 +4765,7 @@ def serve(ctx, port, host):
                                         size_part = parts[1].strip() if len(parts) > 1 else ''
                                     
                                     variants_list.append({
+                                        'id': offer.get('id', ''),
                                         'name': variant_name,
                                         'color': color_part,
                                         'size': size_part,
@@ -4796,10 +4802,13 @@ def serve(ctx, port, host):
                                 'recurring': None,
                                 'content': product.get('description', ''),
                                 'buy_url': first_offer.get('url', '#'),
+                                'checkout_base_url': product.get('_meta', {}).get('checkout_base_url', ''),
+                                'commerce_source': product.get('_meta', {}).get('source', ''),
                                 'variants': variants_list,
                                 'colors': colors_list,
                                 'sizes': sizes_list,
-                                'sku': product.get('sku', ''),
+                                'sku': first_offer.get('sku') or product.get('sku', ''),
+                                'variant_id': first_offer.get('id') or '',
                                 'brand': brand_name,
                                 'category': product.get('category', ''),
                                 'availability': first_offer.get('availability', 'InStock'),
@@ -4824,8 +4833,10 @@ def serve(ctx, port, host):
                         build_time_iso = build_time.isoformat()
                         cart_template = jinja_env.get_template('cart.html')
                         cart_html = cart_template.render(
+                            lang=config['site'].get('language', 'en'),
                             year=datetime.now().year,
                             site_title=config['site']['title'],
+                            site_url=config['site']['url'].rstrip('/'),
                             lighthouse_scores=True,
                             build_time=build_time_formatted,
                             build_time_iso=build_time_iso,
