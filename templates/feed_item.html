@@ -103,7 +103,7 @@
     <p class="tags">
       Tags:
       {% for tag in tags %}
-        <a href="/tags/{{ tag }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
+        <span rel="tag">#{{ tag }}</span>{% if not loop.last %}, {% endif %}
       {% endfor %}
     </p>
   </footer>

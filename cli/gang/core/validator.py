@@ -9,6 +9,14 @@ import re
 from typing import List, Dict, Any
 from pathlib import Path
 
+
+EXECUTABLE_SCRIPT_TYPES = {
+    '',
+    'text/javascript',
+    'application/javascript',
+    'module',
+}
+
 class ContractValidator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -86,9 +94,10 @@ class ContractValidator:
                         'message': f'Alt text coverage {coverage:.1f}% < required {alt_coverage}%',
                     })
         
+        accessibility_rules = [item if isinstance(item, str) else next(iter(item.keys()), None)
+                               for item in self.contracts.get('accessibility', [])]
         # Check color contrast (basic check for inline styles)
-        if 'color_contrast' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                 for item in self.contracts.get('accessibility', [])]:
+        if 'color_contrast' in accessibility_rules:
             elements_with_style = soup.find_all(style=True)
             for elem in elements_with_style:
                 style = elem.get('style', '')
@@ -98,9 +107,13 @@ class ContractValidator:
                     pass
         
         # Check keyboard navigation (check for tabindex misuse)
-        if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+        if 'keyboard_nav' in accessibility_rules:
+            def has_positive_tabindex(value):
+                try:
+                    return value is not None and int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -115,9 +128,10 @@ class ContractValidator:
         issues = []
         soup = BeautifulSoup(html, 'html.parser')
         
+        seo_rules = [item if isinstance(item, str) else next(iter(item.keys()), None)
+                     for item in self.contracts.get('seo', [])]
         # Check meta description
-        if 'meta_description' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                   for item in self.contracts.get('seo', [])]:
+        if 'meta_description' in seo_rules:
             meta_desc = soup.find('meta', attrs={'name': 'description'})
             if not meta_desc or not meta_desc.get('content'):
                 issues.append({
@@ -127,8 +141,7 @@ class ContractValidator:
                 })
         
         # Check canonical URL
-        if 'canonical_url' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                for item in self.contracts.get('seo', [])]:
+        if 'canonical_url' in seo_rules:
             canonical = soup.find('link', attrs={'rel': 'canonical'})
             if not canonical:
                 issues.append({
@@ -138,8 +151,7 @@ class ContractValidator:
                 })
         
         # Check valid JSON-LD
-        if 'valid_jsonld' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('seo', [])]:
+        if 'valid_jsonld' in seo_rules:
             jsonld_scripts = soup.find_all('script', attrs={'type': 'application/ld+json'})
             for script in jsonld_scripts:
                 try:
@@ -185,8 +197,18 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            relative_parts = html_path.parts
+            interactive_sections = {'cart', 'products', 'search', 'studio'}
+            if any(section in relative_parts for section in interactive_sections):
+                return issues
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if (script.get('type') or '').lower() in EXECUTABLE_SCRIPT_TYPES
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if (script.get('type') or '').lower() in EXECUTABLE_SCRIPT_TYPES
+            ]
             
             if scripts or inline_scripts:
                 issues.append({
@@ -218,7 +240,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

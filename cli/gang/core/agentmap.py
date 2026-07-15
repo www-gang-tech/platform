@@ -9,6 +9,12 @@ from datetime import datetime
 import json
 
 
+def _content_url(site_url: str, category: str, slug: str) -> str:
+    if category == 'articles':
+        category = 'posts'
+    return f"{site_url}/{category}/{slug}/"
+
+
 class AgentMapGenerator:
     """Generate AgentMap.json for AI agent navigation"""
     
@@ -48,7 +54,7 @@ class AgentMapGenerator:
             'endpoints': {
                 'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
-                'search': f"{self.site_url}/api/search.json",
+                'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
             },
             
@@ -60,7 +66,7 @@ class AgentMapGenerator:
             },
             
             'search': {
-                'endpoint': f"{self.site_url}/api/search.json",
+                'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
                 'parameters': ['q', 'category', 'limit'],
                 'description': 'Full-text search across all content'
@@ -86,20 +92,21 @@ class AgentMapGenerator:
         
         for file_path in content_files:
             category = file_path.parent.name
+            public_category = 'posts' if category == 'articles' else category
             
-            if category not in by_category:
-                by_category[category] = []
+            if public_category not in by_category:
+                by_category[public_category] = []
                 types.append({
-                    'type': category,
-                    'url': f"{self.site_url}/{category}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}.json"
+                    'type': public_category,
+                    'url': f"{self.site_url}/{public_category}/",
+                    'apiEndpoint': f"{self.site_url}/api/content.json"
                 })
             
             slug = file_path.stem
-            by_category[category].append({
+            by_category[public_category].append({
                 'slug': slug,
-                'url': f"{self.site_url}/{category}/{slug}/",
-                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json"
+                'url': _content_url(self.site_url, category, slug),
+                'apiEndpoint': f"{self.site_url}/api/content.json"
             })
         
         return {
@@ -165,13 +172,14 @@ class ContentAPIGenerator:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
                 category = file_path.parent.name
+                public_category = 'posts' if category == 'articles' else category
                 slug = file_path.stem
                 
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                    'url': f"{self.site_url}/{category}/{slug}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
-                    'category': category,
+                    'url': _content_url(self.site_url, category, slug),
+                    'apiEndpoint': f"{self.site_url}/api/content.json",
+                    'category': public_category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),
                     'date': str(frontmatter.get('date', '')),
@@ -215,12 +223,13 @@ class ContentAPIGenerator:
         content_text = re.sub('<[^<]+?>', '', content_html)
         
         category = file_path.parent.name
+        public_category = 'posts' if category == 'articles' else category
         slug = file_path.stem
         
         return {
             'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-            'url': f"{self.site_url}/{category}/{slug}/",
-            'category': category,
+            'url': _content_url(self.site_url, category, slug),
+            'category': public_category,
             'slug': slug,
             'metadata': frontmatter,
             'content': {

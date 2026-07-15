@@ -8,6 +8,16 @@
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     <link rel="canonical" href="{{ canonical_url }}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{ title }}">
+    <meta property="og:description" content="{{ description }}">
+    <meta property="og:url" content="{{ canonical_url }}">
+    <meta name="twitter:card" content="summary">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>

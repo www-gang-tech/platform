@@ -11,7 +11,8 @@
     // Cart storage utilities
     function getCart() {
         try {
-            return JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+            const cart = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+            return Array.isArray(cart) ? cart : [];
         } catch {
             return [];
         }
@@ -21,10 +22,30 @@
         localStorage.setItem(CART_KEY, JSON.stringify(cart));
         updateCartCount();
     }
+
+    function normalizeQuantity(quantity) {
+        const parsed = Number.parseInt(quantity, 10);
+        if (Number.isNaN(parsed)) return 1;
+        return Math.max(1, Math.min(99, parsed));
+    }
+
+    function formatMoney(currency, amount) {
+        return `${currency || 'USD'} ${amount.toFixed(2)}`;
+    }
+
+    function isSafeUrl(url) {
+        if (!url) return false;
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    }
     
     function updateCartCount() {
         const cart = getCart();
-        const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+        const count = cart.reduce((sum, item) => sum + normalizeQuantity(item.quantity), 0);
         const badges = document.querySelectorAll('.cart-count');
         badges.forEach(badge => {
             badge.textContent = count;
@@ -38,18 +59,22 @@
         
         const form = e.target;
         const formData = new FormData(form);
+        const rawAction = form.getAttribute('action');
         
         const item = {
-            id: form.dataset.variantId || Date.now().toString(),
+            id: String(form.dataset.variantId || Date.now()),
             name: form.dataset.productName || 'Product',
             variant: formData.get('color') && formData.get('size') 
                 ? `${formData.get('color')} / ${formData.get('size')}`
                 : '',
-            price: parseFloat(form.dataset.price || '0'),
+            price: Number.parseFloat(form.dataset.price || '0') || 0,
             currency: form.dataset.currency || 'USD',
-            quantity: parseInt(formData.get('quantity') || '1'),
+            quantity: normalizeQuantity(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
             url: form.dataset.productUrl || '',
+            checkoutUrl: rawAction && rawAction !== '#' ? form.action : '',
+            checkoutBaseUrl: form.dataset.checkoutBaseUrl || '',
+            commerceSource: form.dataset.commerceSource || '',
             sku: form.dataset.sku || ''
         };
         
@@ -71,10 +96,10 @@
     // Update quantity on cart page
     function updateQuantity(id, variant, quantity) {
         const cart = getCart();
-        const item = cart.find(i => i.id === id && i.variant === variant);
+        const item = cart.find(i => String(i.id) === id && String(i.variant || '') === variant);
         
         if (item) {
-            item.quantity = Math.max(1, Math.min(99, quantity));
+            item.quantity = normalizeQuantity(quantity);
             saveCart(cart);
             renderCart();
         }
@@ -83,7 +108,7 @@
     // Remove item from cart
     function removeItem(id, variant) {
         let cart = getCart();
-        cart = cart.filter(i => !(i.id === id && i.variant === variant));
+        cart = cart.filter(i => !(String(i.id) === id && String(i.variant || '') === variant));
         saveCart(cart);
         renderCart();
     }
@@ -109,49 +134,100 @@
         if (cartSummary) cartSummary.style.display = 'block';
         container.style.display = 'block';
         
-        let html = '';
+        container.textContent = '';
         let subtotal = 0;
         
-        cart.forEach(item => {
-            const itemTotal = item.price * item.quantity;
+        cart.forEach((item, index) => {
+            const id = String(item.id || '');
+            const variant = String(item.variant || '');
+            const name = String(item.name || 'Product');
+            const currency = String(item.currency || 'USD');
+            const price = Number.parseFloat(item.price || '0') || 0;
+            const quantity = normalizeQuantity(item.quantity);
+            const itemTotal = price * quantity;
             subtotal += itemTotal;
             
-            html += `
-                <div class="cart-item">
-                    ${item.image ? `<img src="${item.image}" alt="${item.name}" width="80" height="80" class="cart-item-image">` : ''}
-                    <div class="cart-item-details">
-                        <h3 class="cart-item-name">${item.name}</h3>
-                        ${item.variant ? `<p class="cart-item-variant">${item.variant}</p>` : ''}
-                        ${item.sku ? `<p class="cart-item-sku">SKU: ${item.sku}</p>` : ''}
-                    </div>
-                    <div class="cart-item-quantity">
-                        <label for="qty-${item.id}-${item.variant}">Qty:</label>
-                        <input type="number" 
-                               id="qty-${item.id}-${item.variant}"
-                               value="${item.quantity}" 
-                               min="1" 
-                               max="99"
-                               onchange="updateCartQuantity('${item.id}', '${item.variant}', this.value)">
-                    </div>
-                    <div class="cart-item-price">
-                        <p>${item.currency} ${item.price.toFixed(2)}</p>
-                        <p class="cart-item-total">${item.currency} ${itemTotal.toFixed(2)}</p>
-                    </div>
-                    <button onclick="removeCartItem('${item.id}', '${item.variant}')" 
-                            class="cart-item-remove" 
-                            aria-label="Remove ${item.name}">
-                        ✕
-                    </button>
-                </div>
-            `;
+            const cartItem = document.createElement('div');
+            cartItem.className = 'cart-item';
+
+            if (isSafeUrl(item.image)) {
+                const image = document.createElement('img');
+                image.src = item.image;
+                image.alt = name;
+                image.width = 80;
+                image.height = 80;
+                image.className = 'cart-item-image';
+                cartItem.appendChild(image);
+            }
+
+            const details = document.createElement('div');
+            details.className = 'cart-item-details';
+
+            const title = document.createElement('h3');
+            title.className = 'cart-item-name';
+            title.textContent = name;
+            details.appendChild(title);
+
+            if (variant) {
+                const variantElement = document.createElement('p');
+                variantElement.className = 'cart-item-variant';
+                variantElement.textContent = variant;
+                details.appendChild(variantElement);
+            }
+
+            if (item.sku) {
+                const sku = document.createElement('p');
+                sku.className = 'cart-item-sku';
+                sku.textContent = `SKU: ${item.sku}`;
+                details.appendChild(sku);
+            }
+
+            cartItem.appendChild(details);
+
+            const quantityWrap = document.createElement('div');
+            quantityWrap.className = 'cart-item-quantity';
+            const quantityId = `qty-${index}`;
+            const label = document.createElement('label');
+            label.setAttribute('for', quantityId);
+            label.textContent = 'Qty:';
+            quantityWrap.appendChild(label);
+
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = quantityId;
+            input.value = String(quantity);
+            input.min = '1';
+            input.max = '99';
+            input.addEventListener('change', () => updateQuantity(id, variant, input.value));
+            quantityWrap.appendChild(input);
+            cartItem.appendChild(quantityWrap);
+
+            const priceWrap = document.createElement('div');
+            priceWrap.className = 'cart-item-price';
+            const priceElement = document.createElement('p');
+            priceElement.textContent = formatMoney(currency, price);
+            priceWrap.appendChild(priceElement);
+            const totalElement = document.createElement('p');
+            totalElement.className = 'cart-item-total';
+            totalElement.textContent = formatMoney(currency, itemTotal);
+            priceWrap.appendChild(totalElement);
+            cartItem.appendChild(priceWrap);
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'cart-item-remove';
+            removeButton.setAttribute('aria-label', `Remove ${name}`);
+            removeButton.textContent = '✕';
+            removeButton.addEventListener('click', () => removeItem(id, variant));
+            cartItem.appendChild(removeButton);
+
+            container.appendChild(cartItem);
         });
-        
-        container.innerHTML = html;
         
         // Update summary
         const subtotalEl = document.getElementById('cart-subtotal');
         if (subtotalEl) {
-            subtotalEl.textContent = `${cart[0].currency} ${subtotal.toFixed(2)}`;
+            subtotalEl.textContent = formatMoney(cart[0].currency, subtotal);
         }
     }
     
@@ -160,18 +236,30 @@
         const cart = getCart();
         if (cart.length === 0) return;
         
-        // Build Shopify cart URL
-        // Format: /cart/VARIANT_ID:QUANTITY,VARIANT_ID:QUANTITY
-        const cartItems = cart.map(item => `${item.id}:${item.quantity}`).join(',');
-        const checkoutUrl = `https://www.shopify.com/cart/${cartItems}`;
+        const checkoutBaseUrl = cart.find(item => isSafeUrl(item.checkoutBaseUrl))?.checkoutBaseUrl;
+        const cartItems = cart
+            .filter(item =>
+                item.checkoutBaseUrl === checkoutBaseUrl &&
+                /^\d+$/.test(String(item.id || ''))
+            )
+            .map(item => `${encodeURIComponent(item.id)}:${normalizeQuantity(item.quantity)}`)
+            .join(',');
         
-        window.location.href = checkoutUrl;
+        if (checkoutBaseUrl && cartItems) {
+            window.location.href = `${checkoutBaseUrl.replace(/\/$/, '')}/cart/${cartItems}`;
+            return;
+        }
+
+        const directCheckoutUrl = cart.find(item =>
+            item.commerceSource !== 'shopify' && isSafeUrl(item.checkoutUrl)
+        )?.checkoutUrl;
+        if (directCheckoutUrl) {
+            window.location.href = directCheckoutUrl;
+            return;
+        }
+
+        window.alert('Checkout is not configured for these products.');
     }
-    
-    // Global functions for cart page
-    window.updateCartQuantity = updateQuantity;
-    window.removeCartItem = removeItem;
-    window.proceedToCheckout = proceedToCheckout;
     
     // Initialize
     updateCartCount();
@@ -179,6 +267,10 @@
     // If on cart page, render cart
     if (document.getElementById('cart-items')) {
         renderCart();
+        const checkoutButton = document.getElementById('checkout-button');
+        if (checkoutButton) {
+            checkoutButton.addEventListener('click', proceedToCheckout);
+        }
     }
     
     // Attach to product forms
