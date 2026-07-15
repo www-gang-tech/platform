@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -34,7 +34,7 @@
         <h1>Cart</h1>
         
         <!-- Empty cart message -->
-        <div id="cart-empty" style="display: none; text-align: center; padding: 3rem 0;">
+        <div id="cart-empty" style="text-align: center; padding: 3rem 0;">
             <p style="font-size: 1.2rem; color: var(--color-muted); margin-bottom: 1rem;">Your cart is empty</p>
             <a href="/products/" class="button">Continue Shopping</a>
         </div>
@@ -53,7 +53,7 @@
                 Shipping and taxes calculated at checkout
             </p>
             
-            <button onclick="proceedToCheckout()" class="button" style="width: 100%;">
+            <button type="button" id="checkout-button" class="button" style="width: 100%;">
                 Proceed to Checkout →
             </button>
             
