@@ -31,7 +31,10 @@ jobs:
         id: audit
         run: |
           set +e
-          pip-audit -r requirements.txt --format=json > audit-report.json
+          pip-audit \
+            -r requirements.txt \
+            -r apps/studio/backend/requirements.txt \
+            --format=json > audit-report.json
           AUDIT_EXIT=$?
           if [ "$AUDIT_EXIT" -ne 0 ]; then
             echo "VULNERABILITIES_FOUND=true" >> "$GITHUB_ENV"
