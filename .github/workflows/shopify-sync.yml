@@ -83,14 +83,14 @@ jobs:
                   if value is None:
                       break
               return value
-          
+
           # Apply mappings
           front_matter = {}
           for key, mapping in schema['mappings'].items():
               source = mapping.get('shopify_field') or mapping.get('source')
               target = mapping.get('frontmatter_field', key)
               value = extract_path(product, source) if source else mapping.get('default')
-              
+
               # Apply transforms
               if value and mapping.get('transform') in ('strip_html', 'html_to_markdown'):
                   value = BeautifulSoup(str(value), 'html.parser').get_text()[:mapping.get('max_length', 1000)]
@@ -158,7 +158,7 @@ jobs:
           body: |
             ## Shopify Product Update
             
-            **Product**: `${{ steps.convert.outputs.handle }}`  
+            **Product**: `${{ steps.convert.outputs.handle }}`
             **Synced at**: `${{ steps.pr_branch.outputs.timestamp }}`  
             **Shopify ID**: `${{ github.event.client_payload.product.id }}`
             

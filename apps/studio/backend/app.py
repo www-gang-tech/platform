@@ -18,7 +18,17 @@ CORS(app)  # Enable CORS for local development
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-CONTENT_DIR = PROJECT_ROOT / 'content'
+CONTENT_DIR = (PROJECT_ROOT / 'content').resolve()
+
+
+def resolve_content_file(file_path):
+    """Resolve a Markdown path while keeping it inside CONTENT_DIR."""
+    full_path = (CONTENT_DIR / f'{file_path}.md').resolve()
+    try:
+        full_path.relative_to(CONTENT_DIR)
+    except ValueError as exc:
+        raise ValueError('Invalid file path') from exc
+    return full_path
 
 
 @app.route('/api/health')
@@ -47,12 +57,10 @@ def auth_status():
 @app.route('/api/content/<path:file_path>')
 def get_content(file_path):
     """Get markdown content for editing"""
-    # Ensure file_path is safe (no directory traversal)
-    if '..' in file_path or file_path.startswith('/'):
+    try:
+        full_path = resolve_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     if not full_path.exists():
         return jsonify({'error': 'File not found'}), 404
@@ -67,8 +75,9 @@ def get_content(file_path):
 @app.route('/api/content/<path:file_path>', methods=['PUT'])
 def save_content(file_path):
     """Save edited markdown content"""
-    # Ensure file_path is safe
-    if '..' in file_path or file_path.startswith('/'):
+    try:
+        full_path = resolve_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
     
     # Get content from request body
@@ -76,9 +85,6 @@ def save_content(file_path):
     
     if not content:
         return jsonify({'error': 'No content provided'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     # Ensure parent directory exists
     full_path.parent.mkdir(parents=True, exist_ok=True)

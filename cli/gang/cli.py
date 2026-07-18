@@ -12,11 +12,13 @@ import json
 import re
 import shutil
 import markdown
+import sys
 import time
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+from urllib.parse import unquote, urlsplit
 
 
 PUBLISHABLE_CONTENT_DIRS = ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products']
@@ -160,6 +162,18 @@ def _is_real_comments_webhook(config: Dict[str, Any]) -> bool:
 
 def _strip_leading_h1(markdown_body: str) -> str:
     return re.sub(r'^\s*#\s+.+?(?:\r?\n)+', '', markdown_body, count=1)
+
+
+def _resolve_content_path(content_base: Path, file_path: str) -> Path:
+    """Resolve a requested content path without allowing root escapes."""
+    content_base = content_base.resolve()
+    content_path = (content_base / file_path).resolve()
+    try:
+        content_path.relative_to(content_base)
+    except ValueError as exc:
+        raise ValueError('Content path escapes the configured content directory') from exc
+    return content_path
+
 
 @click.group()
 @click.pass_context
@@ -2457,7 +2471,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         if content_type in TEMPLATES_WITH_OWN_H1:
             body = _strip_leading_h1(body)
-        
+
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
@@ -2637,7 +2651,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'people').mkdir(parents=True, exist_ok=True)
         (dist_path / 'people' / 'index.html').write_text(people_html)
-    
+
     if all_products:
         click.echo("📄 Creating products index...")
         products_html = create_list_page_simple(config, all_products, 'Products', templates_path)
@@ -2645,7 +2659,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         products_html = products_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'products').mkdir(parents=True, exist_ok=True)
         (dist_path / 'products' / 'index.html').write_text(products_html)
-    
+
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
     all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
@@ -4044,9 +4058,14 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
+                        request_path = urlsplit(self.path).path
+                        file_path = unquote(request_path.removeprefix('/api/content/'))
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        try:
+                            content_path = _resolve_content_path(content_base, file_path)
+                        except ValueError:
+                            self.send_error(403, 'Content path is outside the content directory')
+                            return
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -4158,7 +4177,15 @@ def studio(ctx, port, host):
                         dist_path = Path(config['build']['output'])
                         
                         # Check old file exists
-                        old_file = content_path / category / f"{old_slug}.md"
+                        try:
+                            old_file = _resolve_content_path(content_path, f"{category}/{old_slug}.md")
+                            new_file = _resolve_content_path(content_path, f"{category}/{new_slug}.md")
+                        except ValueError:
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'Invalid content path'}).encode())
+                            return
                         if not old_file.exists():
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
@@ -4171,7 +4198,6 @@ def studio(ctx, port, host):
                             return
                         
                         # Check new slug is unique
-                        new_file = content_path / category / f"{new_slug}.md"
                         if new_file.exists():
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
@@ -4283,9 +4309,14 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/content/'):
                     try:
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
+                        request_path = urlsplit(self.path).path
+                        file_path = unquote(request_path.removeprefix('/api/content/'))
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        try:
+                            content_path = _resolve_content_path(content_base, file_path)
+                        except ValueError:
+                            self.send_error(403, 'Content path is outside the content directory')
+                            return
                         
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
