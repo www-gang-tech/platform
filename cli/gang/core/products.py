@@ -8,18 +8,23 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
 import os
+from urllib.parse import urlsplit
 
 
 class ProductSchema:
     """Normalize product data to Schema.org Product schema"""
     
     @staticmethod
-    def normalize(product: Dict[str, Any], source: str) -> Dict[str, Any]:
+    def normalize(
+        product: Dict[str, Any],
+        source: str,
+        site_url: str = ''
+    ) -> Dict[str, Any]:
         """
         Normalize product from any platform to Schema.org/Product
         """
         if source == 'shopify':
-            return ProductSchema._from_shopify(product)
+            return ProductSchema._from_shopify(product, site_url)
         elif source == 'stripe':
             return ProductSchema._from_stripe(product)
         elif source == 'gumroad':
@@ -28,10 +33,21 @@ class ProductSchema:
             return product
     
     @staticmethod
-    def _from_shopify(product: Dict[str, Any]) -> Dict[str, Any]:
+    def _from_shopify(product: Dict[str, Any], site_url: str = '') -> Dict[str, Any]:
         """Convert Shopify product to Schema.org"""
         variants = product.get('variants', [])
         first_variant = variants[0] if variants else {}
+        handle = product.get('handle', '')
+        storefront_url = product.get('url') or ''
+        product_url = storefront_url
+        if not product_url and site_url and handle:
+            product_url = f"{site_url.rstrip('/')}/products/{handle}"
+        parsed_storefront_url = urlsplit(storefront_url)
+        checkout_base_url = (
+            f"{parsed_storefront_url.scheme}://{parsed_storefront_url.netloc}"
+            if parsed_storefront_url.scheme in ('http', 'https') and parsed_storefront_url.netloc
+            else ''
+        )
         
         # Get images
         images = [img.get('src') for img in product.get('images', [])]
@@ -62,10 +78,11 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': variant.get('id'),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
-                'url': f"{product.get('url')}?variant={variant.get('id')}",
+                'url': f"{product_url}?variant={variant.get('id')}" if product_url else '',
                 'sku': variant.get('sku', ''),
                 'name': variant.get('title', ''),
                 'inventory_quantity': inventory_qty  # Include for debugging
@@ -92,8 +109,9 @@ class ProductSchema:
             '_meta': {
                 'source': 'shopify',
                 'id': product.get('id'),
-                'handle': product.get('handle'),
-                'url': product.get('url'),
+                'handle': handle,
+                'url': product_url,
+                'checkout_base_url': checkout_base_url,
                 'variants': variants,
                 'created_at': product.get('created_at'),
                 'updated_at': product.get('updated_at')
@@ -156,15 +174,23 @@ class ShopifyClient:
     """Shopify Storefront API client"""
     
     def __init__(self, store_url: str, access_token: str):
-        self.store_url = store_url.replace('https://', '').replace('http://', '')
+        self.store_url = store_url.replace('https://', '').replace('http://', '').rstrip('/')
         self.access_token = access_token
         self.api_version = '2024-01'
+
+    def _add_storefront_urls(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Add public product URLs omitted by the Admin REST response."""
+        for product in products:
+            handle = product.get('handle')
+            if handle and not product.get('url'):
+                product['url'] = f"https://{self.store_url}/products/{handle}"
+        return products
     
     def fetch_products(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Fetch products from Shopify"""
         # Demo mode - return mock data
         if not self.access_token or self.access_token == 'demo':
-            return self._demo_products()
+            return self._add_storefront_urls(self._demo_products())
         
         try:
             import requests
@@ -180,7 +206,7 @@ class ShopifyClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('products', [])
+            return self._add_storefront_urls(data.get('products', []))
         
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")
@@ -384,8 +410,13 @@ class ProductAggregator:
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        has_live_results = any(products_for_source for products_for_source in products.values())
+        if has_live_results:
+            self._save_cache(products)
+        else:
+            cached = self.load_cache()
+            if cached and cached.get('products'):
+                return cached['products']
         
         return products
     
@@ -399,7 +430,8 @@ class ProductAggregator:
         
         for source, products in all_products.items():
             for product in products:
-                norm_product = ProductSchema.normalize(product, source)
+                site_url = self.config.get('site', {}).get('url', '')
+                norm_product = ProductSchema.normalize(product, source, site_url)
                 
                 # Add status (default to 'active' for Shopify published products)
                 if source == 'shopify':
