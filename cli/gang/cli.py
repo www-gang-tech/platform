@@ -13,10 +13,11 @@ import shutil
 import markdown
 import time
 import threading
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 @click.group()
 @click.pass_context
@@ -2654,6 +2655,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             size_part = parts[1].strip() if len(parts) > 1 else ''
                         
                         variants_list.append({
+                            'id': offer.get('id'),
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
@@ -2677,6 +2679,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 # Prepare template variables
                 brand_data = product.get('brand', '')
                 brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+                offer_url = str(first_offer.get('url') or '')
+                parsed_offer_url = urlparse(offer_url)
+                checkout_base_url = (
+                    f"{parsed_offer_url.scheme}://{parsed_offer_url.netloc}"
+                    if parsed_offer_url.scheme in ('http', 'https') and parsed_offer_url.netloc
+                    else ''
+                )
                 
                 pdp_context = {
                     'lang': config['site'].get('language', 'en'),
@@ -2695,6 +2704,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'colors': colors_list,
                     'sizes': sizes_list,
                     'sku': product.get('sku', ''),
+                    'variant_id': first_offer.get('id', ''),
+                    'checkout_base_url': checkout_base_url,
+                    'product_slug': slug,
                     'brand': brand_name,
                     'category': product.get('category', ''),
                     'availability': first_offer.get('availability', 'InStock'),
@@ -2813,36 +2825,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     except Exception as e:
         click.echo(f"⚠️  Could not generate AgentMap: {e}")
     
-    # Minify HTML, CSS, and JS (simple implementation)
+    # Minify HTML and CSS. JavaScript is preserved because regex-based
+    # minification can corrupt valid strings, template literals, and regexes.
     try:
         import re
         
-        # Minify JS (safer approach - preserve operators)
         js_files = [f for f in dist_path.rglob('*.js')]
-        js_original = 0
-        js_minified = 0
-        for js_file in js_files:
-            # Skip editor-bundle.js to avoid corruption
-            if js_file.name == 'editor-bundle.js':
-                continue
-                
-            js_content = js_file.read_text()
-            js_original += len(js_content)
-            # Remove single-line comments (but preserve URLs)
-            js_content = re.sub(r'(?<!["\'/])//[^\n]*', '', js_content)
-            # Remove multi-line comments
-            js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
-            # Remove extra whitespace (but not all - preserve some for safety)
-            js_content = re.sub(r'\n\s+', '\n', js_content)
-            js_content = re.sub(r'\s{2,}', ' ', js_content)
-            # Remove empty lines
-            js_content = '\n'.join(line for line in js_content.split('\n') if line.strip())
-            js_minified += len(js_content.strip())
-            js_file.write_text(js_content.strip())
-        
         if js_files:
-            js_savings = ((js_original - js_minified) / js_original * 100) if js_original > 0 else 0
-            click.echo(f"🗜️  Minified {len(js_files)} JS file(s) ({js_savings:.1f}% reduction)")
+            click.echo(f"🛡️  Preserved {len(js_files)} JS file(s) without unsafe regex minification")
         
         # Minify CSS
         css_files = [f for f in dist_path.rglob('*.css')]
@@ -4013,6 +4003,20 @@ def studio(ctx, port, host):
         import threading
         
         config = ctx.obj
+
+        def resolve_studio_content_path(request_path):
+            """Resolve a markdown API path without allowing root or symlink escapes."""
+            relative_path = request_path.replace('/api/content/', '', 1).split('?', 1)[0]
+            relative_path = unquote(relative_path)
+            content_base = Path(config['build']['content']).resolve()
+            content_path = (content_base / relative_path).resolve()
+            if content_path.suffix != '.md':
+                raise ValueError('Content path must point to a markdown file')
+            try:
+                content_path.relative_to(content_base)
+            except ValueError as exc:
+                raise ValueError('Invalid content path') from exc
+            return content_base, content_path
         
         class StudioHandler(SimpleHTTPRequestHandler):
             def log_message(self, format, *args):
@@ -4060,9 +4064,7 @@ def studio(ctx, port, host):
                 elif self.path.startswith('/api/content/'):
                     try:
                         # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = resolve_studio_content_path(self.path)
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -4076,6 +4078,9 @@ def studio(ctx, port, host):
                         else:
                             click.echo(f"❌ File not found: {content_path}")
                             self.send_error(404)
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid content path: {e}")
+                        self.send_error(403, str(e))
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error reading file: {e}")
@@ -4299,14 +4304,16 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/content/'):
                     try:
                         # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
-                        content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_base, content_path = resolve_studio_content_path(self.path)
                         
                         # Read request body
-                        content_length = int(self.headers['Content-Length'])
+                        content_length = int(self.headers.get('Content-Length', '0'))
+                        if content_length <= 0:
+                            raise ValueError('No content provided')
                         body = self.rfile.read(content_length)
                         content = body.decode()
+                        if not content:
+                            raise ValueError('No content provided')
                         
                         # Save file
                         content_path.write_text(content)
@@ -4321,6 +4328,16 @@ def studio(ctx, port, host):
                             'path': str(content_path.relative_to(content_base))
                         }).encode())
                         
+                    except ValueError as e:
+                        click.echo(f"❌ Invalid save request: {e}")
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Invalid save request',
+                            'message': str(e)
+                        }).encode())
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error saving file: {e}")
@@ -4781,6 +4798,7 @@ def serve(ctx, port, host):
                                         size_part = parts[1].strip() if len(parts) > 1 else ''
                                     
                                     variants_list.append({
+                                        'id': offer.get('id'),
                                         'name': variant_name,
                                         'color': color_part,
                                         'size': size_part,
@@ -4803,6 +4821,13 @@ def serve(ctx, port, host):
                             # Prepare template variables
                             brand_data = product.get('brand', '')
                             brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+                            offer_url = str(first_offer.get('url') or '')
+                            parsed_offer_url = urlparse(offer_url)
+                            checkout_base_url = (
+                                f"{parsed_offer_url.scheme}://{parsed_offer_url.netloc}"
+                                if parsed_offer_url.scheme in ('http', 'https') and parsed_offer_url.netloc
+                                else ''
+                            )
                             
                             pdp_context = {
                                 'lang': config['site'].get('language', 'en'),
@@ -4821,6 +4846,9 @@ def serve(ctx, port, host):
                                 'colors': colors_list,
                                 'sizes': sizes_list,
                                 'sku': product.get('sku', ''),
+                                'variant_id': first_offer.get('id', ''),
+                                'checkout_base_url': checkout_base_url,
+                                'product_slug': slug,
                                 'brand': brand_name,
                                 'category': product.get('category', ''),
                                 'availability': first_offer.get('availability', 'InStock'),
