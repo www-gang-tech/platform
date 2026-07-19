@@ -508,6 +508,12 @@
             
             document.getElementById('status').textContent = 'Mode: WYSIWYG';
         }
+
+        function escapeHtml(value) {
+            const element = document.createElement('div');
+            element.textContent = String(value ?? '');
+            return element.innerHTML;
+        }
         
         // Load content list
         async function loadContentList() {
@@ -534,11 +540,14 @@
                 files.forEach(file => {
                     const item = document.createElement('div');
                     item.className = 'content-item';
-                    item.innerHTML = `
-                        <div class="content-item-name">${file.name}</div>
-                        <div class="content-item-type">${file.type}</div>
-                    `;
-                    item.onclick = () => loadFile(file.path);
+                    const name = document.createElement('div');
+                    name.className = 'content-item-name';
+                    name.textContent = file.name || file.title || file.slug || file.path;
+                    const type = document.createElement('div');
+                    type.className = 'content-item-type';
+                    type.textContent = file.type || '';
+                    item.append(name, type);
+                    item.onclick = () => loadFile(file.path, item);
                     listEl.appendChild(item);
                 });
             } catch (e) {
@@ -548,11 +557,14 @@
         }
         
         // Load specific file
-        async function loadFile(path) {
+        async function loadFile(path, selectedItem = null) {
             if (!editor) return;
             
             try {
                 const response = await fetch(`/api/content/${path}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const content = await response.text();
                 
                 currentFile = path;
@@ -562,7 +574,9 @@
                 document.querySelectorAll('.content-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                event.target.closest('.content-item').classList.add('active');
+                if (selectedItem) {
+                    selectedItem.classList.add('active');
+                }
                 
                 // Enable rename button when a file is loaded
                 document.getElementById('renameSlugBtn').disabled = false;
@@ -634,6 +648,12 @@
             const modal = document.getElementById('validationModal');
             const resultDiv = document.getElementById('validationResult');
             const publishBtn = document.getElementById('publishAnywayBtn');
+            const headings = result.headings || [];
+            const headingItems = headings.map(heading => {
+                const level = Array.isArray(heading) ? heading[0] : heading.level;
+                const text = Array.isArray(heading) ? heading[1] : heading.text;
+                return `<li>h${escapeHtml(level)}: ${escapeHtml(text)}</li>`;
+            }).join('');
             
             if (result.valid) {
                 resultDiv.innerHTML = `
@@ -641,11 +661,9 @@
                         ✅ Heading structure is valid!
                     </div>
                     <div style="background: #f0f9f0; border: 1px solid #4caf50; padding: 1rem; border-radius: 4px;">
-                        <strong>Found ${result.headings.length} heading(s):</strong>
+                        <strong>Found ${headings.length} heading(s):</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.headings.map(([level, text]) => 
-                                `<li>h${level}: ${text}</li>`
-                            ).join('')}
+                            ${headingItems}
                         </ul>
                     </div>
                 `;
@@ -659,14 +677,14 @@
                     <div style="background: #ffebee; border: 1px solid #ef5350; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                         <strong>Errors:</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.errors.map(error => `<li>${error}</li>`).join('')}
+                            ${(result.errors || []).map(error => `<li>${escapeHtml(error)}</li>`).join('')}
                         </ul>
                     </div>
                     ${result.suggestions && result.suggestions.length > 0 ? `
                         <div style="background: #fff3e0; border: 1px solid #ff9800; padding: 1rem; border-radius: 4px;">
                             <strong>How to fix:</strong>
                             <ul style="margin-top: 0.5rem;">
-                                ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+                                ${result.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
                             </ul>
                         </div>
                     ` : ''}
@@ -825,8 +843,8 @@
                         html += `
                             <div class="redirect-item">
                                 <div class="redirect-info">
-                                    <div style="font-weight: 500;">${p.name}</div>
-                                    <div class="redirect-from">${currency} ${price} · ${p._meta.source}</div>
+                                    <div style="font-weight: 500;">${escapeHtml(p.name)}</div>
+                                    <div class="redirect-from">${escapeHtml(currency)} ${escapeHtml(price)} · ${escapeHtml(p._meta.source)}</div>
                                 </div>
                             </div>
                         `;
@@ -970,15 +988,27 @@
                     return;
                 }
                 
-                listEl.innerHTML = redirects.map(r => `
-                    <div class="redirect-item">
-                        <div class="redirect-info">
-                            <div class="redirect-from">${r.from}</div>
-                            <div class="redirect-to">→ ${r.to}</div>
-                        </div>
-                        <button class="redirect-delete" onclick="deleteRedirect('${r.from}')">Delete</button>
-                    </div>
-                `).join('');
+                listEl.textContent = '';
+                redirects.forEach(redirect => {
+                    const item = document.createElement('div');
+                    item.className = 'redirect-item';
+                    const info = document.createElement('div');
+                    info.className = 'redirect-info';
+                    const from = document.createElement('div');
+                    from.className = 'redirect-from';
+                    from.textContent = redirect.from;
+                    const to = document.createElement('div');
+                    to.className = 'redirect-to';
+                    to.textContent = `→ ${redirect.to}`;
+                    info.append(from, to);
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'redirect-delete';
+                    button.textContent = 'Delete';
+                    button.addEventListener('click', () => deleteRedirect(redirect.from));
+                    item.append(info, button);
+                    listEl.appendChild(item);
+                });
             } catch (e) {
                 console.error('Failed to load redirects:', e);
                 document.getElementById('redirectsList').innerHTML = '<p style="color: #ff6b6b;">Failed to load redirects</p>';
