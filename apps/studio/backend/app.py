@@ -12,13 +12,59 @@ import subprocess
 import yaml
 import re
 import os
+import secrets
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for local development
+CORS(app, origins=[
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    'http://localhost:5001',
+    'http://127.0.0.1:5001',
+])
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
+
+
+def resolve_content_file(file_path):
+    """Resolve an extensionless editor path beneath the content root."""
+    if file_path.startswith('/') or Path(file_path).suffix:
+        raise ValueError('Invalid file path')
+
+    content_root = CONTENT_DIR.resolve()
+    full_path = (content_root / (file_path + '.md')).resolve()
+    try:
+        full_path.relative_to(content_root)
+    except ValueError as exc:
+        raise ValueError('Invalid file path') from exc
+    return full_path
+
+
+def request_is_authenticated():
+    """Authenticate editor requests when a Studio token is configured."""
+    if os.environ.get('EDITOR_MODE', '').lower() == 'true':
+        return True
+    expected_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
+    if not expected_token:
+        return False
+    auth_header = request.headers.get('Authorization', '')
+    scheme, _, provided_token = auth_header.partition(' ')
+    return (
+        scheme.lower() == 'bearer'
+        and bool(provided_token)
+        and secrets.compare_digest(provided_token, expected_token)
+    )
+
+
+@app.before_request
+def protect_mutations():
+    """Require a configured bearer token for non-local production mutations."""
+    if request.method not in {'POST', 'PUT', 'DELETE'}:
+        return None
+    if os.environ.get('STUDIO_AUTH_TOKEN') and not request_is_authenticated():
+        return jsonify({'error': 'Unauthorized'}), 401
+    return None
 
 
 @app.route('/api/health')
@@ -29,14 +75,8 @@ def health():
 
 @app.route('/api/auth/status')
 def auth_status():
-    """Check authentication status (simplified for MVP)"""
-    # For MVP, we'll just check if a simple auth token is present
-    # In production, use Cloudflare Access or proper OAuth
-    auth_header = request.headers.get('Authorization', '')
-    
-    # Simple check: if any auth header is present, consider authenticated
-    # TODO: Implement proper authentication in production
-    authenticated = bool(auth_header) or os.environ.get('EDITOR_MODE') == 'true'
+    """Report whether the request has valid local or bearer authentication."""
+    authenticated = request_is_authenticated()
     
     return jsonify({
         'authenticated': authenticated,
@@ -47,12 +87,10 @@ def auth_status():
 @app.route('/api/content/<path:file_path>')
 def get_content(file_path):
     """Get markdown content for editing"""
-    # Ensure file_path is safe (no directory traversal)
-    if '..' in file_path or file_path.startswith('/'):
+    try:
+        full_path = resolve_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     if not full_path.exists():
         return jsonify({'error': 'File not found'}), 404
@@ -67,8 +105,9 @@ def get_content(file_path):
 @app.route('/api/content/<path:file_path>', methods=['PUT'])
 def save_content(file_path):
     """Save edited markdown content"""
-    # Ensure file_path is safe
-    if '..' in file_path or file_path.startswith('/'):
+    try:
+        full_path = resolve_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
     
     # Get content from request body
@@ -76,9 +115,6 @@ def save_content(file_path):
     
     if not content:
         return jsonify({'error': 'No content provided'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     # Ensure parent directory exists
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,15 +190,13 @@ def validate_headings():
 def trigger_build():
     """Trigger git commit and build deployment"""
     try:
-        # Change to project root
-        os.chdir(PROJECT_ROOT)
-        
         # Check if there are changes to commit
         status = subprocess.run(
             ['git', 'status', '--porcelain', 'content/'],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            cwd=PROJECT_ROOT
         )
         
         if not status.stdout.strip():
@@ -174,7 +208,8 @@ def trigger_build():
         # Add content changes
         subprocess.run(
             ['git', 'add', 'content/'],
-            check=True
+            check=True,
+            cwd=PROJECT_ROOT
         )
         
         # Commit changes
@@ -185,7 +220,8 @@ def trigger_build():
             commit_message = 'Content update via in-place editor'
         subprocess.run(
             ['git', 'commit', '-m', commit_message],
-            check=True
+            check=True,
+            cwd=PROJECT_ROOT
         )
         
         # Rebuild the site
@@ -197,7 +233,8 @@ def trigger_build():
             capture_output=True,
             text=True,
             check=True,
-            env=env
+            env=env,
+            cwd=PROJECT_ROOT
         )
         print("✅ Site rebuilt successfully")
         
@@ -205,9 +242,17 @@ def trigger_build():
         auto_push = os.environ.get('AUTO_PUSH', 'false').lower() == 'true'
         
         if auto_push:
+            branch = subprocess.run(
+                ['git', 'branch', '--show-current'],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=PROJECT_ROOT
+            ).stdout.strip()
             subprocess.run(
-                ['git', 'push', 'origin', 'main'],
-                check=True
+                ['git', 'push', 'origin', branch],
+                check=True,
+                cwd=PROJECT_ROOT
             )
             return jsonify({
                 'status': 'building',
@@ -233,12 +278,13 @@ def trigger_build():
         }), 500
 
 
+@app.route('/api/content')
 @app.route('/api/content/list')
 def list_content():
     """List all editable content files"""
     content_files = []
     
-    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products']:
+    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products', 'people']:
         type_dir = CONTENT_DIR / content_type
         if type_dir.exists():
             for md_file in type_dir.glob('*.md'):
@@ -287,5 +333,7 @@ if __name__ == '__main__':
     print("")
     
     # Run on configurable port (default 5001 to avoid macOS AirPlay)
-    app.run(host='0.0.0.0', port=port, debug=True)
+    host = os.environ.get('HOST', '127.0.0.1')
+    debug = os.environ.get('FLASK_DEBUG', '').lower() == 'true'
+    app.run(host=host, port=port, debug=debug)
 
