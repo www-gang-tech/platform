@@ -62,10 +62,15 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': variant.get('id'),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
-                'url': f"{product.get('url')}?variant={variant.get('id')}",
+                'url': (
+                    f"{product.get('url')}?variant={variant.get('id')}"
+                    if product.get('url')
+                    else ''
+                ),
                 'sku': variant.get('sku', ''),
                 'name': variant.get('title', ''),
                 'inventory_quantity': inventory_qty  # Include for debugging
@@ -180,7 +185,12 @@ class ShopifyClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('products', [])
+            products = data.get('products', [])
+            for product in products:
+                handle = product.get('handle')
+                if handle and not product.get('url'):
+                    product['url'] = f"https://{self.store_url}/products/{handle}"
+            return products
         
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")
@@ -360,13 +370,10 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
-        attempted_live_fetch = False
-        
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
-            attempted_live_fetch = True
             client = ShopifyClient(shopify_config[0], shopify_config[1])
             products['shopify'] = client.fetch_products()
         elif self.config.get('demo_mode', False):
@@ -377,14 +384,12 @@ class ProductAggregator:
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
-            attempted_live_fetch = True
             client = StripeClient(stripe_key)
             products['stripe'] = client.fetch_products()
         
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
-            attempted_live_fetch = True
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
@@ -394,8 +399,6 @@ class ProductAggregator:
             cached_products = self._cached_products()
             if cached_products is not None:
                 return cached_products
-            if attempted_live_fetch:
-                self._save_cache(products)
         
         return products
     
