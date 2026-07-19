@@ -2273,6 +2273,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             source = public_path / control_file
             if source.is_file():
                 shutil.copy2(source, dist_path / control_file)
+
+    favicon_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<rect width="64" height="64" rx="12" fill="#0f172a"/>'
+        '<text x="32" y="42" text-anchor="middle" '
+        'font-family="Arial, sans-serif" font-size="30" fill="#f8fafc">G</text>'
+        '</svg>'
+    )
+    (dist_path / 'favicon.svg').write_text(favicon_svg)
     
     # Build content
     content_path = Path(config['build']['content'])
@@ -3207,6 +3216,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
     <script type="application/ld+json">
@@ -3283,6 +3293,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
     <script type="application/ld+json">
@@ -3352,6 +3363,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'self'; form-action 'self';">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{description}">
     <style>
