@@ -2267,6 +2267,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+
+        # Cloudflare Pages reads deployment controls from the site root.
+        for control_file in ('_headers',):
+            source = public_path / control_file
+            if source.is_file():
+                shutil.copy2(source, dist_path / control_file)
     
     # Build content
     content_path = Path(config['build']['content'])
