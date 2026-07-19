@@ -146,6 +146,7 @@ class SearchIndexer:
     <title>Search</title>
     <meta name="description" content="Search content across this site">
     <link rel="canonical" href="/search/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"SearchResultsPage","name":"Search","url":"/search/"}
     </script>
