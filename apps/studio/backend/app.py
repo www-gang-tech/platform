@@ -41,9 +41,17 @@ def resolve_content_file(file_path):
     return full_path
 
 
+def request_is_local():
+    """Return whether Flask received the request from this machine."""
+    return request.remote_addr in {'127.0.0.1', '::1'}
+
+
 def request_is_authenticated():
     """Authenticate editor requests when a Studio token is configured."""
-    if os.environ.get('EDITOR_MODE', '').lower() == 'true':
+    if (
+        os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        and request_is_local()
+    ):
         return True
     expected_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
     if not expected_token:
@@ -62,7 +70,7 @@ def protect_mutations():
     """Require a configured bearer token for non-local production mutations."""
     if request.method not in {'POST', 'PUT', 'DELETE'}:
         return None
-    if os.environ.get('STUDIO_AUTH_TOKEN') and not request_is_authenticated():
+    if not request_is_authenticated():
         return jsonify({'error': 'Unauthorized'}), 401
     return None
 
