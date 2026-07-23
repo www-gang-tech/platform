@@ -62,10 +62,15 @@ class ProductSchema:
             
             offers.append({
                 '@type': 'Offer',
+                'id': variant.get('id'),
                 'price': variant.get('price', '0'),
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
-                'url': f"{product.get('url')}?variant={variant.get('id')}",
+                'url': (
+                    f"{product.get('url')}?variant={variant.get('id')}"
+                    if product.get('url')
+                    else ''
+                ),
                 'sku': variant.get('sku', ''),
                 'name': variant.get('title', ''),
                 'inventory_quantity': inventory_qty  # Include for debugging
@@ -180,7 +185,12 @@ class ShopifyClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('products', [])
+            products = data.get('products', [])
+            for product in products:
+                handle = product.get('handle')
+                if handle and not product.get('url'):
+                    product['url'] = f"https://{self.store_url}/products/{handle}"
+            return products
         
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")
@@ -360,7 +370,6 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
-        
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
@@ -384,8 +393,12 @@ class ProductAggregator:
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
-        # Cache results
-        self._save_cache(products)
+        if any(products.values()):
+            self._save_cache(products)
+        else:
+            cached_products = self._cached_products()
+            if cached_products is not None:
+                return cached_products
         
         return products
     
@@ -430,4 +443,19 @@ class ProductAggregator:
             except:
                 return None
         return None
+    
+    def _cached_products(self) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+        cache = self.load_cache()
+        if not cache:
+            return None
+        products = cache.get('products')
+        if not isinstance(products, dict):
+            return None
+        if not any(products.get(source) for source in ('shopify', 'stripe', 'gumroad')):
+            return None
+        return {
+            'shopify': products.get('shopify', []),
+            'stripe': products.get('stripe', []),
+            'gumroad': products.get('gumroad', []),
+        }
 
