@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import subprocess
 import json
 import base64
+from core.frontmatter import dump_frontmatter
 
 
 class ImagePipeline:
@@ -205,8 +206,7 @@ class ImagePipeline:
         image_entry['focal_point'] = list(focal_point)
         
         # Write back
-        new_frontmatter = yaml.dump(frontmatter, default_flow_style=False)
-        new_content = f"---\n{new_frontmatter}---{parts[2]}"
+        new_content = dump_frontmatter(frontmatter, parts[2])
         md_file.write_text(new_content)
 
 
