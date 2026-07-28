@@ -2534,6 +2534,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         products_html = products_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'products').mkdir(parents=True, exist_ok=True)
         (dist_path / 'products' / 'index.html').write_text(products_html)
+
+    by_tag = collect_items_by_tag(all_posts, all_projects, all_newsletters, all_pages, all_people, all_product_pages)
+    tag_pages = write_tag_pages(dist_path, config, templates_path, by_tag)
     
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
@@ -2548,6 +2551,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
     if all_product_pages:
         all_pages.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
+    all_pages.extend(tag_pages)
     
     # Combine all content for sitemap generation
     all_content = all_pages + all_posts + all_projects + all_newsletters + all_people + all_product_pages
@@ -2995,6 +2999,95 @@ def normalize_tags(tags) -> List[str]:
     return [str(tags)]
 
 
+def collect_items_by_tag(*collections: List[Dict]) -> Dict[str, List[Dict]]:
+    """Group publishable content items by tag for /tags/<tag>/ pages."""
+    by_tag: Dict[str, List[Dict]] = {}
+    for collection in collections:
+        for item in collection or []:
+            for tag in item.get('tags') or []:
+                tag_name = str(tag).strip()
+                if not tag_name:
+                    continue
+                bucket = by_tag.setdefault(tag_name, [])
+                # Avoid duplicate URLs when the same item appears twice
+                if not any(existing.get('url') == item.get('url') for existing in bucket):
+                    bucket.append(item)
+    return by_tag
+
+
+def tag_path_segment(tag: str) -> str:
+    """Filesystem/URL segment matching template tag links (urlencode-compatible)."""
+    from urllib.parse import quote
+    return quote(str(tag).strip(), safe='-_.~')
+
+
+def write_tag_pages(
+    dist_path: Path,
+    config: Dict,
+    templates_path: Path,
+    by_tag: Dict[str, List[Dict]],
+    live_reload_script: str = None,
+) -> List[Dict]:
+    """Generate /tags/ and /tags/<tag>/ list pages linked from content templates."""
+    if not by_tag:
+        return []
+
+    click.echo(f"🏷️  Creating {len(by_tag)} tag page(s)...")
+    tags_root = dist_path / 'tags'
+    tags_root.mkdir(parents=True, exist_ok=True)
+    generated_pages: List[Dict] = []
+
+    tag_index_items = []
+    for tag_name in sorted(by_tag.keys(), key=lambda value: value.lower()):
+        segment = tag_path_segment(tag_name)
+        items = sorted(
+            by_tag[tag_name],
+            key=lambda item: (item.get('date') or '', item.get('title') or ''),
+            reverse=True,
+        )
+        tag_html = create_list_page_simple(
+            config,
+            items,
+            f"Tag: {tag_name}",
+            templates_path,
+            canonical_path=f"/tags/{segment}/",
+        )
+        if live_reload_script and '</body>' in tag_html:
+            tag_html = tag_html.replace('</body>', live_reload_script + '</body>')
+        page_size_bytes = len(tag_html.encode('utf-8'))
+        tag_html = tag_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+        tag_dir = tags_root / segment
+        tag_dir.mkdir(parents=True, exist_ok=True)
+        (tag_dir / 'index.html').write_text(tag_html)
+
+        tag_url = f"/tags/{segment}/"
+        generated_pages.append({
+            'url': tag_url,
+            'title': f"Tag: {tag_name}",
+            'type': 'tag',
+        })
+        tag_index_items.append({
+            'url': tag_url,
+            'title': tag_name,
+            'summary': f"{len(items)} item{'s' if len(items) != 1 else ''}",
+        })
+
+    tags_index_html = create_list_page_simple(
+        config,
+        tag_index_items,
+        'Tags',
+        templates_path,
+        canonical_path='/tags/',
+    )
+    if live_reload_script and '</body>' in tags_index_html:
+        tags_index_html = tags_index_html.replace('</body>', live_reload_script + '</body>')
+    page_size_bytes = len(tags_index_html.encode('utf-8'))
+    tags_index_html = tags_index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+    (tags_root / 'index.html').write_text(tags_index_html)
+    generated_pages.append({'url': '/tags/', 'title': 'Tags', 'type': 'list'})
+    return generated_pages
+
+
 def strip_leading_markdown_h1(body: str) -> str:
     """Remove an authored leading H1 when the template owns the visible H1."""
     lines = body.splitlines()
@@ -3249,7 +3342,13 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
+def create_list_page_simple(
+    config: Dict,
+    items: List,
+    title: str,
+    templates_path: Path = None,
+    canonical_path: str = None,
+) -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
@@ -3260,12 +3359,15 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     
     # Create JSON-LD structured data
     import json
+    page_url = config['site']['url'].rstrip('/')
+    if canonical_path:
+        page_url = f"{page_url}{canonical_path}"
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": page_url
     }
     jsonld_str = json.dumps(jsonld, indent=2)
     
@@ -3296,6 +3398,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{title} - {config['site']['title']}</title>
     <meta name="description" content="{config['site']['description']}">
+    {f'<link rel="canonical" href="{page_url}">' if canonical_path else ''}
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -4717,6 +4820,15 @@ def serve(ctx, port, host):
                     page_size_bytes = len(projects_html.encode('utf-8'))
                     projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
                     (dist_path / 'projects' / 'index.html').write_text(projects_html)
+
+                by_tag = collect_items_by_tag(all_posts, all_projects, all_pages)
+                tag_pages = write_tag_pages(
+                    dist_path,
+                    config,
+                    templates_path,
+                    by_tag,
+                    live_reload_script=live_reload_script,
+                )
                 
                 # Generate outputs
                 all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
@@ -4724,6 +4836,7 @@ def serve(ctx, port, host):
                     all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
                 if all_projects:
                     all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+                all_pages.extend(tag_pages)
                 
                 generators.generate_all(dist_path, all_pages, all_posts)
                 
