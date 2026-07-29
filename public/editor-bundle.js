@@ -390,14 +390,14 @@ class InPlaceEditor {
     }
 
     getCurrentFilePath() {
-        const pageType = document.body.dataset.pageType || 'page';
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
-        
-        if (pageType === 'page' && category && slug) {
+
+        // Content pages expose data-category (posts/pages/projects/...) + data-slug.
+        if (category && slug) {
             return `${category}/${slug}`;
         }
-        
+
         return 'unknown';
     }
 
