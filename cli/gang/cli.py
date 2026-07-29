@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 from urllib.parse import quote, unquote, urlparse
+from html import escape as html_escape
 
 @click.group()
 @click.pass_context
@@ -2417,9 +2418,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'brand': frontmatter.get('brand', ''),
             'category': frontmatter.get('category', ''),
             'availability': first_offer.get('availability', 'https://schema.org/InStock'),
+            # Newsletter metadata (ignored by other templates)
+            'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
+            'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
             # In-place editor context
             'page_type': page_type,
-            'category': content_type,  # 'posts', 'pages', 'projects', etc.
+            'content_category': content_type,  # 'posts', 'pages', 'projects', etc.
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
@@ -2587,8 +2591,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo(f"🛒 Generating {len(products)} product page(s)...")
             
             # Setup Jinja2
+            from jinja2 import select_autoescape
             template_dir = Path(__file__).parent.parent.parent / 'templates'
-            jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+            jinja_env = Environment(
+                loader=FileSystemLoader(str(template_dir)),
+                autoescape=select_autoescape(['html', 'xml']),
+            )
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -2729,6 +2737,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'product_slug': slug,
                     'brand': brand_name,
                     'category': product.get('category', ''),
+                    'content_category': 'products',
+                    'page_type': 'product',
+                    'slug': slug,
                     'availability': first_offer.get('availability', 'InStock'),
                     'jsonld': product,
                     'year': datetime.now().year,
@@ -3211,7 +3222,11 @@ def render_header(config: Dict, templates_path: Path = None) -> str:
         templates_path = Path(__file__).parent.parent.parent / 'templates'
     
     try:
-        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        from jinja2 import select_autoescape
+        env = Environment(
+            loader=FileSystemLoader(str(templates_path)),
+            autoescape=select_autoescape(['html', 'xml']),
+        )
         template = env.get_template('partials/header.html')
         return template.render(site_title=config['site']['title'])
     except Exception as e:
@@ -3248,7 +3263,11 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
         year = datetime.now().year
     
     try:
-        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        from jinja2 import select_autoescape
+        env = Environment(
+            loader=FileSystemLoader(str(templates_path)),
+            autoescape=select_autoescape(['html', 'xml']),
+        )
         template = env.get_template('partials/footer.html')
         return template.render(
             site_title=config['site']['title'],
@@ -3272,7 +3291,10 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     """Create simple index page"""
     posts_html = ""
     for post in recent_posts:
-        posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
+        posts_html += (
+            f'<li><a href="{html_escape(str(post["url"]), quote=True)}">'
+            f'{html_escape(str(post["title"]))}</a></li>\n'
+        )
     
     # Create JSON-LD structured data
     jsonld = {
@@ -3352,9 +3374,12 @@ def create_list_page_simple(
     """Create simple list page"""
     items_html = ""
     for item in items:
-        items_html += f'<li><a href="{item["url"]}">{item["title"]}</a>'
+        items_html += (
+            f'<li><a href="{html_escape(str(item["url"]), quote=True)}">'
+            f'{html_escape(str(item["title"]))}</a>'
+        )
         if item.get('summary'):
-            items_html += f'<p>{item["summary"]}</p>'
+            items_html += f'<p>{html_escape(str(item["summary"]))}</p>'
         items_html += '</li>\n'
     
     # Create JSON-LD structured data
@@ -4850,8 +4875,12 @@ def serve(ctx, port, host):
                     
                     if products:
                         # Setup Jinja2
+                        from jinja2 import select_autoescape
                         template_dir = Path(__file__).parent.parent.parent / 'templates'
-                        jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+                        jinja_env = Environment(
+                            loader=FileSystemLoader(str(template_dir)),
+                            autoescape=select_autoescape(['html', 'xml']),
+                        )
                         
                         products_path = dist_path / 'products'
                         products_path.mkdir(parents=True, exist_ok=True)
