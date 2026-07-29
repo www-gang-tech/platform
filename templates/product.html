@@ -40,7 +40,7 @@
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body>
+<body data-page-type="{{ page_type|default('product') }}" data-category="{{ content_category|default('products') }}" data-slug="{{ slug|default('') }}">
     {% include "partials/header.html" %}
     
     <main>
