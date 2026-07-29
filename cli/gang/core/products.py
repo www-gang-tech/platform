@@ -28,10 +28,29 @@ class ProductSchema:
             return product
     
     @staticmethod
+    def _shopify_product_url(product: Dict[str, Any]) -> str:
+        """Resolve a public Shopify product URL from payload or store env."""
+        existing = product.get('url')
+        if existing:
+            return str(existing)
+        handle = product.get('handle')
+        if not handle:
+            return ''
+        store = (
+            os.environ.get('SHOPIFY_STORE_URL')
+            or os.environ.get('SHOPIFY_STORE')
+            or ''
+        ).replace('https://', '').replace('http://', '').strip().strip('/')
+        if not store:
+            return ''
+        return f"https://{store}/products/{handle}"
+
+    @staticmethod
     def _from_shopify(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Shopify product to Schema.org"""
         variants = product.get('variants', [])
         first_variant = variants[0] if variants else {}
+        product_url = ProductSchema._shopify_product_url(product)
         
         # Get images
         images = [img.get('src') for img in product.get('images', [])]
@@ -67,8 +86,8 @@ class ProductSchema:
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
                 'url': (
-                    f"{product.get('url')}?variant={variant.get('id')}"
-                    if product.get('url')
+                    f"{product_url}?variant={variant.get('id')}"
+                    if product_url
                     else ''
                 ),
                 'sku': variant.get('sku', ''),
@@ -98,7 +117,7 @@ class ProductSchema:
                 'source': 'shopify',
                 'id': product.get('id'),
                 'handle': product.get('handle'),
-                'url': product.get('url'),
+                'url': product_url or product.get('url'),
                 'variants': variants,
                 'created_at': product.get('created_at'),
                 'updated_at': product.get('updated_at')
@@ -429,8 +448,14 @@ class ProductAggregator:
     
     def _save_cache(self, products: Dict[str, Any]):
         """Save products to cache file"""
+        store = (
+            os.environ.get('SHOPIFY_STORE_URL')
+            or os.environ.get('SHOPIFY_STORE')
+            or ''
+        ).replace('https://', '').replace('http://', '').strip().strip('/')
         cache_data = {
             'cached_at': datetime.now().isoformat(),
+            'store_url': store or None,
             'products': products
         }
         self.products_cache_file.write_text(json.dumps(cache_data, indent=2))
@@ -453,8 +478,24 @@ class ProductAggregator:
             return None
         if not any(products.get(source) for source in ('shopify', 'stripe', 'gumroad')):
             return None
+        store = (
+            cache.get('store_url')
+            or (self.config.get('shopify') or {}).get('store_url')
+            or os.environ.get('SHOPIFY_STORE_URL')
+            or os.environ.get('SHOPIFY_STORE')
+            or ''
+        ).replace('https://', '').replace('http://', '').strip().strip('/')
+        shopify_products = []
+        for product in products.get('shopify', []) or []:
+            if not isinstance(product, dict):
+                continue
+            enriched = dict(product)
+            handle = enriched.get('handle')
+            if handle and not enriched.get('url') and store:
+                enriched['url'] = f"https://{store}/products/{handle}"
+            shopify_products.append(enriched)
         return {
-            'shopify': products.get('shopify', []),
+            'shopify': shopify_products,
             'stripe': products.get('stripe', []),
             'gumroad': products.get('gumroad', []),
         }
