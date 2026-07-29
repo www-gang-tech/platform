@@ -2380,6 +2380,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        buy_url = str(frontmatter.get('buy_url') or first_offer.get('url') or '')
+        parsed_buy_url = urlparse(buy_url)
+        markdown_checkout_base = (
+            f"{parsed_buy_url.scheme}://{parsed_buy_url.netloc}"
+            if parsed_buy_url.scheme in ('http', 'https') and parsed_buy_url.netloc
+            else ''
+        )
         
         context = {
             'site_title': config['site']['title'],
@@ -2410,7 +2417,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'price': frontmatter.get('price') or first_offer.get('price', '0'),
             'currency': frontmatter.get('currency') or first_offer.get('priceCurrency', 'USD'),
             'recurring': frontmatter.get('recurring'),
-            'buy_url': frontmatter.get('buy_url') or first_offer.get('url', '#'),
+            'buy_url': buy_url or '#',
             'variants': frontmatter.get('variants', []),
             'colors': frontmatter.get('colors', []),
             'sizes': frontmatter.get('sizes', []),
@@ -2418,6 +2425,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'brand': frontmatter.get('brand', ''),
             'category': frontmatter.get('category', ''),
             'availability': first_offer.get('availability', 'https://schema.org/InStock'),
+            'variant_id': frontmatter.get('variant_id') or first_offer.get('id', ''),
+            'product_slug': slug if content_type == 'products' else '',
+            'checkout_base_url': markdown_checkout_base,
             # Newsletter metadata (ignored by other templates)
             'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
             'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
@@ -2464,6 +2474,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'type': content_type,
             'content_html': content_html,
             'tags': context['tags'],
+            'slug': slug,
+            'issue_number': context.get('issue_number', ''),
+            'sent_date': context.get('sent_date', ''),
+            'preview': context['description'],
         }
         
         # Add to appropriate collection (no duplicates)
