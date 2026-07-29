@@ -41,9 +41,15 @@ def resolve_content_file(file_path):
     return full_path
 
 
+def _is_loopback_request():
+    """Allow unauthenticated local Studio use only from loopback clients."""
+    remote = (request.remote_addr or '').strip()
+    return remote in {'127.0.0.1', '::1', 'localhost'}
+
+
 def request_is_authenticated():
     """Authenticate editor requests when a Studio token is configured."""
-    if os.environ.get('EDITOR_MODE', '').lower() == 'true':
+    if os.environ.get('EDITOR_MODE', '').lower() == 'true' and _is_loopback_request():
         return True
     expected_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
     if not expected_token:
@@ -59,12 +65,15 @@ def request_is_authenticated():
 
 @app.before_request
 def protect_mutations():
-    """Require a configured bearer token for non-local production mutations."""
+    """Require auth for mutations unless this is a loopback local Studio session."""
     if request.method not in {'POST', 'PUT', 'DELETE'}:
         return None
-    if os.environ.get('STUDIO_AUTH_TOKEN') and not request_is_authenticated():
-        return jsonify({'error': 'Unauthorized'}), 401
-    return None
+    if request_is_authenticated():
+        return None
+    # Local Studio without a configured token remains usable on loopback only.
+    if not os.environ.get('STUDIO_AUTH_TOKEN') and _is_loopback_request():
+        return None
+    return jsonify({'error': 'Unauthorized'}), 401
 
 
 @app.route('/api/health')
