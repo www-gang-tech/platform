@@ -33,24 +33,24 @@ jobs:
       
       - name: Extract product data
         id: extract
+        env:
+          # Pass via env to avoid shell metacharacter breakage from toJSON(...)
+          PRODUCT_JSON: ${{ toJSON(github.event.client_payload.product) }}
+          PRODUCT_HANDLE: ${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}
         run: |
-          # Parse webhook payload or fetch from Shopify API
-          PRODUCT_HANDLE="${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}"
-          echo "handle=$PRODUCT_HANDLE" >> $GITHUB_OUTPUT
-          
-          # Save product JSON (from webhook or API)
+          echo "handle=$PRODUCT_HANDLE" >> "$GITHUB_OUTPUT"
           mkdir -p .shopify-sync
-          echo '${{ toJSON(github.event.client_payload.product) }}' > .shopify-sync/product.json
+          python3 -c 'import json,os; from pathlib import Path; raw=os.environ.get("PRODUCT_JSON") or "null"; Path(".shopify-sync/product.json").write_text(json.dumps(json.loads(raw), indent=2) if raw not in ("", "null") else "null")'
       
       - name: Convert to front-matter
         id: convert
         run: |
           python3 << 'EOF'
           import json
+          import os
           import yaml
           from pathlib import Path
           from bs4 import BeautifulSoup
-          from datetime import datetime
           
           # Load mapping schema
           with open('schemas/product.map.json') as f:
@@ -62,16 +62,16 @@ jobs:
           
           if not product:
               print("No product data")
-              exit(1)
+              raise SystemExit(1)
           
           def extract_value(data, path):
               parts = path.replace('[', '.').replace(']', '').split('.')
               value = data
-              for part in parts:
+              for i, part in enumerate(parts):
                   if part == '*':
                       if not isinstance(value, list):
                           return []
-                      rest = '.'.join(parts[parts.index(part) + 1:])
+                      rest = '.'.join(parts[i + 1:])
                       return [extract_value(item, rest) for item in value]
                   if part.isdigit():
                       if not isinstance(value, list) or int(part) >= len(value):
@@ -94,6 +94,22 @@ jobs:
                   return flattened
               return value
 
+          def normalize_variants(value):
+              if not isinstance(value, list):
+                  return []
+              normalized = []
+              for variant in value:
+                  if not isinstance(variant, dict):
+                      continue
+                  normalized.append({
+                      'id': variant.get('id'),
+                      'title': variant.get('title'),
+                      'price': variant.get('price'),
+                      'sku': variant.get('sku'),
+                      'inventory': variant.get('inventory_quantity', 0),
+                  })
+              return normalized
+
           # Apply mappings
           front_matter = {}
           for _key, mapping in schema['mappings'].items():
@@ -104,8 +120,15 @@ jobs:
               # Apply transforms
               if value and mapping.get('transform') == 'html_to_markdown':
                   value = BeautifulSoup(str(value), 'html.parser').get_text()
-              elif value and mapping.get('transform') == 'normalize_variants':
-                  value = value
+              elif value is not None and mapping.get('transform') == 'normalize_variants':
+                  value = normalize_variants(value)
+              
+              # Shopify tags arrive as a comma-separated string
+              if target == 'tags' and isinstance(value, str):
+                  value = [tag.strip() for tag in value.split(',') if tag.strip()]
+              
+              if value is None and 'default' in mapping:
+                  value = mapping['default']
               
               if value is not None:
                   front_matter[target] = value
@@ -121,12 +144,10 @@ jobs:
               f.write('---\n')
               yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
               f.write('---\n\n')
-              f.write(front_matter.get('description', ''))
+              f.write(front_matter.get('description', '') or '')
           
           print(f"Generated: {output_file}")
           
-          # Set outputs using environment file (new syntax)
-          import os
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"file={output_file}\n")
               f.write(f"handle={handle}\n")
