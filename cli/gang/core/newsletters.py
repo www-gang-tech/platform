@@ -395,6 +395,56 @@ class KlaviyoProvider(EmailProvider):
             if response.status_code == 201:
                 campaign = response.json()
                 campaign_id = campaign['data']['id']
+
+                # Attach HTML/text body to the campaign message before sending.
+                messages = (
+                    campaign.get('data', {})
+                    .get('attributes', {})
+                    .get('campaign_messages', {})
+                    .get('data', [])
+                ) or (
+                    campaign.get('data', {})
+                    .get('relationships', {})
+                    .get('campaign-messages', {})
+                    .get('data', [])
+                )
+                if messages:
+                    message_id = messages[0].get('id')
+                    if message_id:
+                        content_payload = {
+                            'data': {
+                                'type': 'campaign-message',
+                                'id': message_id,
+                                'attributes': {
+                                    'content': {
+                                        'subject': email_data['subject'],
+                                        'preview_text': email_data.get('preview_text', ''),
+                                        'from_email': email_data['from_email'],
+                                        'from_label': email_data['from_name'],
+                                        'html': email_data.get('html_body', ''),
+                                        'text': email_data.get('text_body', ''),
+                                    }
+                                }
+                            }
+                        }
+                        content_response = requests.patch(
+                            f"{self.base_url}/campaign-messages/{message_id}/",
+                            headers=headers,
+                            json=content_payload,
+                        )
+                        if content_response.status_code not in (200, 202):
+                            return {
+                                'success': False,
+                                'error': (
+                                    f'Failed to attach campaign content: '
+                                    f'{content_response.status_code} {content_response.text}'
+                                )
+                            }
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Klaviyo campaign created without a campaign-message to attach HTML'
+                    }
                 
                 # Send campaign
                 send_response = requests.post(

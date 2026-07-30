@@ -17,17 +17,20 @@
     <main style="max-width: 65ch; margin: 0 auto;">
         <h1>Newsletters</h1>
         
-        <form class="subscribe-form" action="#" method="POST">
-            <input type="email" name="email" placeholder="Enter your email" required aria-label="Email address">
+        {% if subscribe_url %}
+        <form class="subscribe-form" action="{{ subscribe_url }}" method="POST">
+            <label for="newsletter-email">Email address</label>
+            <input id="newsletter-email" type="email" name="email" autocomplete="email" required>
             <button type="submit">Subscribe</button>
         </form>
+        {% endif %}
         
         {% if newsletters %}
         <div style="margin-top: 3rem;">
             {% for newsletter in newsletters %}
             <article class="newsletter-card">
                 <p class="newsletter-meta">
-                    Issue #{{ newsletter.issue_number }} · {{ newsletter.sent_date }}
+                    {% if newsletter.issue_number %}Issue #{{ newsletter.issue_number }}{% else %}Newsletter{% endif %}{% if newsletter.sent_date %} · {{ newsletter.sent_date }}{% endif %}
                 </p>
                 <h2 style="margin-bottom: 0.5rem;">
                     <a href="/newsletters/{{ newsletter.slug }}/">{{ newsletter.title }}</a>
@@ -40,7 +43,7 @@
         </div>
         {% else %}
         <p style="color: var(--color-muted); text-align: center; margin-top: 3rem;">
-            No newsletters yet. Subscribe above to be notified when we publish our first edition!
+            No newsletters yet.{% if subscribe_url %} Subscribe above to be notified when we publish our first edition!{% endif %}
         </p>
         {% endif %}
     </main>
