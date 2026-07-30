@@ -285,26 +285,24 @@ class SearchIndexer:
                 return;
             }
             
-            const terms = query.toLowerCase().trim().split(/\\s+/);
+            const terms = query.toLowerCase().trim().split(/\\s+/).filter(t => t.length >= 2);
             const results = [];
             
             for (const doc of searchIndex.documents) {
                 let score = 0;
-                const searchable = doc.searchable;
+                const searchable = doc.searchable || '';
+                const titleLower = (doc.title || '').toLowerCase();
                 
-                // Score based on term matches
+                // Score based on term matches (literal includes — avoid RegExp injection)
                 for (const term of terms) {
-                    if (term.length < 2) continue;
-                    
-                    // Title match (high weight)
-                    if (doc.title.toLowerCase().includes(term)) {
+                    if (titleLower.includes(term)) {
                         score += 10;
                     }
-                    
-                    // Exact match in content
-                    const regex = new RegExp(term, 'gi');
-                    const matches = (searchable.match(regex) || []).length;
-                    score += matches;
+                    let idx = 0;
+                    while ((idx = searchable.indexOf(term, idx)) !== -1) {
+                        score += 1;
+                        idx += term.length;
+                    }
                 }
                 
                 if (score > 0) {
@@ -336,17 +334,26 @@ class SearchIndexer:
             container.innerHTML = results.map(r => `
                 <div class="result">
                     <div class="result-title">
-                        <a href="${r.url}">${escapeHtml(r.title)}</a>
+                        <a href="${escapeAttr(r.url)}">${escapeHtml(r.title)}</a>
                     </div>
                     <div class="result-meta">
                         <span class="result-category">${escapeHtml(r.category)}</span>
-                        ${r.date ? '<span>' + r.date + '</span>' : ''}
+                        ${r.date ? '<span>' + escapeHtml(r.date) + '</span>' : ''}
                     </div>
                     <div class="result-description">
                         ${escapeHtml(r.description || r.content)}
                     </div>
                 </div>
             `).join('');
+        }
+        
+        function escapeAttr(text) {
+            // Only allow same-origin relative paths in result links.
+            const value = String(text || '');
+            if (!value.startsWith('/') || value.startsWith('//')) {
+                return '#';
+            }
+            return escapeHtml(value);
         }
         
         function escapeHtml(text) {
