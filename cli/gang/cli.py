@@ -2618,19 +2618,23 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
             
-            # Generate PLP
-            plp_template = jinja_env.get_template('products-list.html')
-            plp_html = plp_template.render(
-                products=products,
-                site_title=config['site']['title'],
-                lang=config['site'].get('language', 'en'),
-                canonical_url=f"{config['site']['url']}/products/",
-                year=datetime.now().year,
-                navigation=config.get('nav', {}).get('main', []),
-                build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
-                build_time_iso=datetime.now().isoformat()
-            )
-            (products_path / 'index.html').write_text(plp_html)
+            # Generate PLP only when markdown content did not already build /products/.
+            # Aggregator PDPs still render below either way.
+            if all_product_pages:
+                click.echo("📄 Keeping markdown products index (skipping aggregator PLP overwrite)")
+            else:
+                plp_template = jinja_env.get_template('products-list.html')
+                plp_html = plp_template.render(
+                    products=products,
+                    site_title=config['site']['title'],
+                    lang=config['site'].get('language', 'en'),
+                    canonical_url=f"{config['site']['url']}/products/",
+                    year=datetime.now().year,
+                    navigation=config.get('nav', {}).get('main', []),
+                    build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                    build_time_iso=datetime.now().isoformat()
+                )
+                (products_path / 'index.html').write_text(plp_html)
             
             # Generate PDPs
             pdp_template = jinja_env.get_template('product.html')
@@ -5054,22 +5058,28 @@ def serve(ctx, port, host):
                         products_path = dist_path / 'products'
                         products_path.mkdir(parents=True, exist_ok=True)
                         
-                        # Generate PLP
-                        plp_template = jinja_env.get_template('products-list.html')
-                        plp_html = plp_template.render(
-                            products=products,
-                            site_title=config['site']['title'],
-                            lang=config['site'].get('language', 'en'),
-                            canonical_url=f"{config['site']['url']}/products/",
-                            year=datetime.now().year,
-                            navigation=config.get('nav', {}).get('main', []),
-                            build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
-                            build_time_iso=datetime.now().isoformat()
+                        markdown_products_dir = content_path / 'products'
+                        markdown_products_exist = (
+                            markdown_products_dir.is_dir()
+                            and any(markdown_products_dir.glob('*.md'))
                         )
-                        # Inject live reload
-                        if '</body>' in plp_html:
-                            plp_html = plp_html.replace('</body>', live_reload_script + '</body>')
-                        (products_path / 'index.html').write_text(plp_html)
+                        # Keep a markdown-built /products/ index instead of clobbering it.
+                        if not markdown_products_exist:
+                            plp_template = jinja_env.get_template('products-list.html')
+                            plp_html = plp_template.render(
+                                products=products,
+                                site_title=config['site']['title'],
+                                lang=config['site'].get('language', 'en'),
+                                canonical_url=f"{config['site']['url']}/products/",
+                                year=datetime.now().year,
+                                navigation=config.get('nav', {}).get('main', []),
+                                build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                                build_time_iso=datetime.now().isoformat()
+                            )
+                            # Inject live reload
+                            if '</body>' in plp_html:
+                                plp_html = plp_html.replace('</body>', live_reload_script + '</body>')
+                            (products_path / 'index.html').write_text(plp_html)
                         
                         # Generate PDPs
                         pdp_template = jinja_env.get_template('product.html')
