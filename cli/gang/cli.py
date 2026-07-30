@@ -2511,12 +2511,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'index.html').write_text(index_html)
     
-    # Create newsletters list page
+    # Create newsletters list page (uses archive template with issue/sent metadata)
     if all_newsletters:
         newsletters_dir = dist_path / 'newsletters'
         newsletters_dir.mkdir(parents=True, exist_ok=True)
-        
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
+        newsletters_html = create_newsletters_list_page(
+            config,
+            sorted(all_newsletters, key=lambda x: x.get('date', '') or x.get('sent_date', ''), reverse=True),
+            templates_path,
+        )
         page_size_bytes = len(newsletters_html.encode('utf-8'))
         newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (newsletters_dir / 'index.html').write_text(newsletters_html)
@@ -2729,18 +2732,30 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     else ''
                 )
                 
+                raw_description = product.get('description', '') or ''
+                # Shopify body_html is untrusted markup; convert to escaped text for |safe slots.
+                if '<' in str(raw_description):
+                    from bs4 import BeautifulSoup
+                    product_description_html = html_escape(
+                        BeautifulSoup(str(raw_description), 'html.parser').get_text('\n')
+                    ).replace('\n', '<br>\n')
+                    product_description_text = BeautifulSoup(str(raw_description), 'html.parser').get_text(' ')
+                else:
+                    product_description_html = html_escape(str(raw_description)).replace('\n', '<br>\n')
+                    product_description_text = str(raw_description)
+
                 pdp_context = {
                     'lang': config['site'].get('language', 'en'),
                     'site_title': config['site']['title'],
                     'title': product.get('name', ''),
-                    'description': product.get('description', ''),
+                    'description': product_description_text,
                     'canonical_url': f"{config['site']['url']}/products/{slug}/",
                     'product_image': images[0] if images else '',
                     'product_images': images,
                     'price': first_offer.get('price', '0'),
                     'currency': first_offer.get('priceCurrency', 'USD'),
                     'recurring': None,
-                    'content': product.get('description', ''),
+                    'content': product_description_html,
                     'buy_url': first_offer.get('url', '#'),
                     'variants': variants_list,
                     'colors': colors_list,
@@ -2767,30 +2782,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
             
-            # Generate cart page
-            cart_dir = dist_path / 'cart'
-            cart_dir.mkdir(parents=True, exist_ok=True)
-            
-            build_time = datetime.now()
-            build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
-            build_time_iso = build_time.isoformat()
-            
-            cart_template = jinja_env.get_template('cart.html')
-            cart_html = cart_template.render(
-                year=datetime.now().year,
-                site_title=config['site']['title'],
-                lang=config['site'].get('language', 'en'),
-                site_url=config['site']['url'],
-                canonical_url=f"{config['site']['url']}/cart/",
-                lighthouse_scores=True,
-                build_time=build_time_formatted,
-                build_time_iso=build_time_iso,
-                description=config['site']['description']
-            )
-            (cart_dir / 'index.html').write_text(cart_html)
-            
-            click.echo("🛒 Generated cart page")
-            
             # Generate HTML sitemap
             sitemap_dir = dist_path / 'sitemap'
             sitemap_dir.mkdir(parents=True, exist_ok=True)
@@ -2813,6 +2804,35 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo("🗺️  Generated HTML sitemap")
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
+
+    # Cart page is linked from the global header; always emit it when templates exist.
+    try:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        template_dir = Path(__file__).parent.parent.parent / 'templates'
+        cart_template_path = template_dir / 'cart.html'
+        if cart_template_path.exists():
+            jinja_env = Environment(
+                loader=FileSystemLoader(str(template_dir)),
+                autoescape=select_autoescape(['html', 'xml']),
+            )
+            cart_dir = dist_path / 'cart'
+            cart_dir.mkdir(parents=True, exist_ok=True)
+            build_time = datetime.now()
+            cart_html = jinja_env.get_template('cart.html').render(
+                year=build_time.year,
+                site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                site_url=config['site']['url'],
+                canonical_url=f"{config['site']['url']}/cart/",
+                lighthouse_scores=True,
+                build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
+                build_time_iso=build_time.isoformat(),
+                description=config['site']['description']
+            )
+            (cart_dir / 'index.html').write_text(cart_html)
+            click.echo("🛒 Generated cart page")
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate cart page: {e}")
     
     # Generate search index
     try:
@@ -3346,8 +3366,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <title>{config['site']['title']}</title>
-    <meta name="description" content="{config['site']['description']}">
+    <title>{html_escape(str(config['site']['title']))}</title>
+    <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3362,8 +3382,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 <body>
     {header_html}
     <main>
-        <h1>{config['site']['title']}</h1>
-        <p>{config['site']['description']}</p>
+        <h1>{html_escape(str(config['site']['title']))}</h1>
+        <p>{html_escape(str(config['site']['description']))}</p>
         
         <h2>Latest Posts</h2>
         <ul  class="unstyled">
@@ -3376,6 +3396,52 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 </html>"""
     
     return html
+
+
+def _newsletter_subscribe_url(config: Dict) -> str:
+    """Return a real subscribe endpoint, or empty string for placeholder/missing URLs."""
+    newsletter_cfg = config.get('newsletter') or config.get('newsletters') or {}
+    url = str(
+        newsletter_cfg.get('subscribe_url')
+        or newsletter_cfg.get('form_action')
+        or ''
+    ).strip()
+    if not url.startswith('https://'):
+        return ''
+    placeholders = ('example.com', 'your-', 'localhost', '127.0.0.1')
+    if any(token in url for token in placeholders):
+        return ''
+    return url
+
+
+def create_newsletters_list_page(
+    config: Dict,
+    newsletters: List,
+    templates_path: Path = None,
+) -> str:
+    """Render the newsletter archive template with issue/sent metadata."""
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    if templates_path is None:
+        templates_path = Path(__file__).parent.parent.parent / 'templates'
+
+    env = Environment(
+        loader=FileSystemLoader(str(templates_path)),
+        autoescape=select_autoescape(['html', 'xml']),
+    )
+    template = env.get_template('newsletters-list.html')
+    build_time = datetime.now()
+    return template.render(
+        lang=config['site'].get('language', 'en'),
+        site_title=config['site']['title'],
+        canonical_url=f"{config['site']['url'].rstrip('/')}/newsletters/",
+        newsletters=newsletters,
+        subscribe_url=_newsletter_subscribe_url(config),
+        year=build_time.year,
+        build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
+        build_time_iso=build_time.isoformat(),
+        navigation=config.get('nav', {}).get('main', []),
+    )
 
 
 def create_list_page_simple(
@@ -3435,9 +3501,9 @@ def create_list_page_simple(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <title>{title} - {config['site']['title']}</title>
-    <meta name="description" content="{config['site']['description']}">
-    {f'<link rel="canonical" href="{page_url}">' if canonical_path else ''}
+    <title>{html_escape(str(title))} - {html_escape(str(config['site']['title']))}</title>
+    <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
+    {f'<link rel="canonical" href="{html_escape(page_url, quote=True)}">' if canonical_path else ''}
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3455,7 +3521,7 @@ def create_list_page_simple(
 <body>
     {header_html}
     <main>
-        <h1>{title}</h1>
+        <h1>{html_escape(str(title))}</h1>
         <ul>
             {items_html}
         </ul>
@@ -4165,6 +4231,18 @@ def studio(ctx, port, host):
         
         config = ctx.obj
 
+        ALLOWED_STUDIO_ORIGINS = {
+            'http://localhost:8000',
+            'http://127.0.0.1:8000',
+            'http://localhost:5001',
+            'http://127.0.0.1:5001',
+            f'http://localhost:{port}',
+            f'http://127.0.0.1:{port}',
+        }
+        ALLOWED_CONTENT_CATEGORIES = {
+            'pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people'
+        }
+
         def resolve_studio_content_path(request_path):
             """Resolve a markdown API path without allowing root or symlink escapes."""
             relative_path = request_path.replace('/api/content/', '', 1).split('?', 1)[0]
@@ -4178,11 +4256,73 @@ def studio(ctx, port, host):
             except ValueError as exc:
                 raise ValueError('Invalid content path') from exc
             return content_base, content_path
+
+        def resolve_studio_slug_path(category, slug):
+            """Resolve category/slug markdown paths without path traversal."""
+            import re
+            if category not in ALLOWED_CONTENT_CATEGORIES:
+                raise ValueError('Invalid content category')
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug or ''):
+                raise ValueError('Invalid slug')
+            content_base = Path(config['build']['content']).resolve()
+            content_path = (content_base / category / f'{slug}.md').resolve()
+            try:
+                content_path.relative_to(content_base)
+            except ValueError as exc:
+                raise ValueError('Invalid content path') from exc
+            return content_base, content_path
+
+        def studio_cors_origin(handler):
+            origin = handler.headers.get('Origin', '')
+            if origin in ALLOWED_STUDIO_ORIGINS:
+                return origin
+            return ''
+
+        def send_studio_cors(handler):
+            origin = studio_cors_origin(handler)
+            if origin:
+                handler.send_header('Access-Control-Allow-Origin', origin)
+                handler.send_header('Vary', 'Origin')
+                handler.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                handler.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+
+        def studio_request_authenticated(handler):
+            import secrets
+            if os.environ.get('EDITOR_MODE', '').lower() == 'true':
+                client = handler.client_address[0] if handler.client_address else ''
+                if client in {'127.0.0.1', '::1', 'localhost'}:
+                    return True
+            expected = os.environ.get('STUDIO_AUTH_TOKEN', '')
+            if not expected:
+                client = handler.client_address[0] if handler.client_address else ''
+                return client in {'127.0.0.1', '::1', 'localhost'}
+            auth_header = handler.headers.get('Authorization', '')
+            scheme, _, provided = auth_header.partition(' ')
+            return (
+                scheme.lower() == 'bearer'
+                and bool(provided)
+                and secrets.compare_digest(provided, expected)
+            )
+
+        def require_studio_mutation_auth(handler):
+            if studio_request_authenticated(handler):
+                return True
+            handler.send_response(401)
+            handler.send_header('Content-type', 'application/json')
+            send_studio_cors(handler)
+            handler.end_headers()
+            handler.wfile.write(json.dumps({'error': 'Unauthorized'}).encode())
+            return False
         
         class StudioHandler(SimpleHTTPRequestHandler):
             def log_message(self, format, *args):
                 # Suppress HTTP request logs
                 pass
+
+            def do_OPTIONS(self):
+                self.send_response(204)
+                send_studio_cors(self)
+                self.end_headers()
             
             def do_GET(self):
                 if self.path == '/api/content':
@@ -4197,7 +4337,7 @@ def studio(ctx, port, host):
                             click.echo(f"⚠️  Content directory not found: {content_path}")
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            send_studio_cors(self)
                             self.end_headers()
                             self.wfile.write(json.dumps([]).encode())
                             return
@@ -4213,7 +4353,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps(files).encode())
                     except Exception as e:
@@ -4233,7 +4373,7 @@ def studio(ctx, port, host):
                             content = content_path.read_text()
                             self.send_response(200)
                             self.send_header('Content-type', 'text/plain')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            send_studio_cors(self)
                             self.end_headers()
                             self.wfile.write(content.encode())
                         else:
@@ -4300,7 +4440,7 @@ def studio(ctx, port, host):
                         # Return validation result
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps(result, default=str).encode())
                         
@@ -4310,7 +4450,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Internal server error',
@@ -4318,6 +4458,8 @@ def studio(ctx, port, host):
                         }).encode())
                 
                 elif self.path == '/api/rename-slug':
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4334,17 +4476,16 @@ def studio(ctx, port, host):
                         # Import redirect manager
                         sys.path.insert(0, str(Path(__file__).parent))
                         from core.redirects import RedirectManager
-                        from core.content_importer import SlugChecker
                         
-                        content_path = Path(config['build']['content'])
+                        content_base, old_file = resolve_studio_slug_path(category, old_slug)
+                        _, new_file = resolve_studio_slug_path(category, new_slug)
                         dist_path = Path(config['build']['output'])
                         
                         # Check old file exists
-                        old_file = content_path / category / f"{old_slug}.md"
                         if not old_file.exists():
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            send_studio_cors(self)
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'File not found',
@@ -4353,11 +4494,10 @@ def studio(ctx, port, host):
                             return
                         
                         # Check new slug is unique
-                        new_file = content_path / category / f"{new_slug}.md"
                         if new_file.exists():
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            send_studio_cors(self)
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'Slug already exists',
@@ -4375,7 +4515,7 @@ def studio(ctx, port, host):
                             old_url = f"/{category}/{old_slug}/"
                             new_url = f"/{category}/{new_slug}/"
                             
-                            redirect_manager = RedirectManager(content_path, dist_path)
+                            redirect_manager = RedirectManager(content_base, dist_path)
                             result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
@@ -4383,22 +4523,31 @@ def studio(ctx, port, host):
                         # Return success response
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
-                            'old_path': str(old_file.relative_to(content_path)),
-                            'new_path': str(new_file.relative_to(content_path)),
+                            'old_path': str(old_file.relative_to(content_base)),
+                            'new_path': str(new_file.relative_to(content_base)),
                             'redirect': redirect_info
                         }).encode())
                         
+                    except ValueError as e:
+                        self.send_response(400)
+                        self.send_header('Content-type', 'application/json')
+                        send_studio_cors(self)
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Invalid rename request',
+                            'message': str(e)
+                        }).encode())
                     except Exception as e:
                         import traceback
                         click.echo(f"❌ Error renaming slug: {e}")
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Internal server error',
@@ -4419,7 +4568,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps(redirects_list).encode())
                         
@@ -4430,6 +4579,8 @@ def studio(ctx, port, host):
                         self.send_error(500)
                 
                 elif self.path == '/api/products/sync':
+                    if not require_studio_mutation_auth(self):
+                        return
                     # Sync products from Shopify/Stripe/Gumroad
                     try:
                         sys.path.insert(0, str(Path(__file__).parent))
@@ -4441,7 +4592,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4463,6 +4614,8 @@ def studio(ctx, port, host):
             def do_PUT(self):
                 """Handle PUT requests"""
                 if self.path.startswith('/api/content/'):
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         # Get file path and content
                         content_base, content_path = resolve_studio_content_path(self.path)
@@ -4482,7 +4635,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4493,7 +4646,7 @@ def studio(ctx, port, host):
                         click.echo(f"❌ Invalid save request: {e}")
                         self.send_response(400)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Invalid save request',
@@ -4505,7 +4658,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        send_studio_cors(self)
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Failed to save',
@@ -4517,6 +4670,8 @@ def studio(ctx, port, host):
             def do_DELETE(self):
                 """Handle DELETE requests"""
                 if self.path.startswith('/api/redirects/'):
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         # Get redirect path
                         from_path = self.path.replace('/api/redirects', '')
@@ -4533,7 +4688,7 @@ def studio(ctx, port, host):
                             click.echo(f"✅ Redirect removed: {from_path}")
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            send_studio_cors(self)
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'success': True,
@@ -4542,7 +4697,7 @@ def studio(ctx, port, host):
                         else:
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            send_studio_cors(self)
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'Redirect not found'
