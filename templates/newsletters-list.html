@@ -8,6 +8,26 @@
     <title>Newsletters - {{ site_title }}</title>
     <meta name="description" content="Browse our newsletter archive">
     <link rel="canonical" href="{{ canonical_url }}">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Newsletters - {{ site_title }}">
+    <meta property="og:description" content="Browse our newsletter archive">
+    <meta property="og:url" content="{{ canonical_url }}">
+
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Newsletters - {{ site_title }}">
+    <meta name="twitter:description" content="Browse our newsletter archive">
+
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Newsletters",
+        "description": "Browse our newsletter archive",
+        "url": "{{ canonical_url }}",
+        "numberOfItems": {{ newsletters | length }}
+    }
+    </script>
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
