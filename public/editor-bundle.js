@@ -46,35 +46,43 @@ class InPlaceEditor {
         // Create full-screen overlay
         const overlay = document.createElement('div');
         overlay.className = 'editor-overlay';
-        overlay.innerHTML = `
-            <div class="editor-container">
-                <div class="editor-header">
-                    <h2>Edit: ${this.getPageTitle()}</h2>
-                    <div class="editor-header-actions">
-                        <button class="editor-actions-btn" id="actions-toggle">
-                            <i class="fa-solid fa-bars"></i> Actions
-                        </button>
-                        <div class="action-menu" id="action-menu">
-                            <button data-action="save">
-                                <i class="fa-solid fa-floppy-disk"></i> Save Draft
-                            </button>
-                            <button data-action="validate">
-                                <i class="fa-solid fa-check"></i> Validate
-                            </button>
-                            <button data-action="publish">
-                                <i class="fa-solid fa-rocket"></i> Publish
-                            </button>
-                            <button data-action="cancel">
-                                <i class="fa-solid fa-xmark"></i> Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
+
+        const container = document.createElement('div');
+        container.className = 'editor-container';
+
+        const header = document.createElement('div');
+        header.className = 'editor-header';
+
+        const title = document.createElement('h2');
+        title.textContent = 'Edit: ' + this.getPageTitle();
+
+        const headerActions = document.createElement('div');
+        headerActions.className = 'editor-header-actions';
+        headerActions.innerHTML = `
+            <button class="editor-actions-btn" id="actions-toggle">
+                <i class="fa-solid fa-bars"></i> Actions
+            </button>
+            <div class="action-menu" id="action-menu">
+                <button data-action="save">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Draft
+                </button>
+                <button data-action="validate">
+                    <i class="fa-solid fa-check"></i> Validate
+                </button>
+                <button data-action="publish">
+                    <i class="fa-solid fa-rocket"></i> Publish
+                </button>
+                <button data-action="cancel">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
             </div>
         `;
+
+        header.append(title, headerActions);
+        container.appendChild(header);
+        overlay.appendChild(container);
         
         // Create editor content area
-        const container = overlay.querySelector('.editor-container');
         this.editorElement = this.initEditor();
         container.appendChild(this.editorElement);
         
