@@ -90,14 +90,11 @@ class KlaviyoClient:
         
         campaign = response.json()
         campaign_id = campaign['data']['id']
-        
-        # Get the campaign message ID from the response
-        messages = campaign['data']['attributes'].get('campaign-messages', {}).get('data', [])
-        if messages:
-            message_id = messages[0]['id']
-            # Update with HTML/text content
-            self._update_campaign_content(message_id, html_content, text_content)
-        
+
+        # Campaign messages are exposed via relationships / nested collection
+        # endpoints, not attributes.campaign-messages. Always resolve by campaign id.
+        self._update_campaign_content(campaign_id, html_content, text_content)
+
         return campaign
     
     def _create_campaign_message(

@@ -67,9 +67,16 @@
             });
         }
         
-        // Update form action to point to correct variant URL
+        // Update form action to point to correct variant URL (http/https only)
         if (variant.url) {
-            form.action = variant.url;
+            try {
+                const parsed = new URL(variant.url, window.location.origin);
+                if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                    form.action = parsed.href;
+                }
+            } catch (e) {
+                // Keep the existing form action when variant URL is invalid.
+            }
         }
 
         // Keep cart data aligned with the selected Shopify variant.
