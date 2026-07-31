@@ -143,35 +143,18 @@ class KlaviyoClient:
         
         message = response.json()
         message_id = message['data']['id']
-        
-        # Update with HTML/text content
-        self._update_campaign_content(message_id, html_content, text_content)
-        
+        self._patch_campaign_message(message_id, html_content, text_content)
         return message
-    
-    def _update_campaign_content(
+
+    def _patch_campaign_message(
         self,
-        campaign_id: str,
+        message_id: str,
         html_content: str,
         text_content: str
     ):
-        """Update campaign HTML and text content"""
+        """PATCH HTML/text onto an existing campaign-message id."""
         import requests
-        
-        # Get campaign message ID
-        response = requests.get(
-            f'{self.base_url}/campaigns/{campaign_id}/campaign-messages/',
-            headers=self.headers
-        )
-        response.raise_for_status()
-        
-        messages = response.json()['data']
-        if not messages:
-            raise Exception("No campaign messages found")
-        
-        message_id = messages[0]['id']
-        
-        # Update content
+
         payload = {
             'data': {
                 'type': 'campaign-message',
@@ -184,13 +167,33 @@ class KlaviyoClient:
                 }
             }
         }
-        
         response = requests.patch(
             f'{self.base_url}/campaign-messages/{message_id}/',
             headers=self.headers,
             json=payload
         )
         response.raise_for_status()
+
+    def _update_campaign_content(
+        self,
+        campaign_id: str,
+        html_content: str,
+        text_content: str
+    ):
+        """Resolve campaign messages by campaign id, then attach HTML/text."""
+        import requests
+
+        response = requests.get(
+            f'{self.base_url}/campaigns/{campaign_id}/campaign-messages/',
+            headers=self.headers
+        )
+        response.raise_for_status()
+
+        messages = response.json()['data']
+        if not messages:
+            raise Exception("No campaign messages found")
+
+        self._patch_campaign_message(messages[0]['id'], html_content, text_content)
     
     def sync_shopify_data(self) -> Dict[str, Any]:
         """
