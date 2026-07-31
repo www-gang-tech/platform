@@ -2039,13 +2039,8 @@ def generate_agentmap(ctx):
     # Get publishable content - avoid rglob recursion issue
     scheduler = ContentScheduler(content_path)
     
-    # Manually collect .md files to avoid Click recursion
-    all_md_files = []
-    for category_dir in ['posts', 'pages', 'projects']:
-        category_path = content_path / category_dir
-        if category_path.exists():
-            all_md_files.extend(list(category_path.glob('*.md')))
-    
+    # Keep AgentMap aligned with the same publishable content set as gang build.
+    all_md_files = collect_build_content_files(content_path)
     schedule_result = scheduler.get_publishable_content(all_md_files)
     publishable = [item['path'] for item in schedule_result['publishable']]
     
@@ -2894,57 +2889,119 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     except Exception as e:
         click.echo(f"⚠️  Could not generate AgentMap: {e}")
     
-    # Minify HTML and CSS. JavaScript is preserved because regex-based
+    # Minify HTML and CSS carefully. JavaScript is preserved because regex-based
     # minification can corrupt valid strings, template literals, and regexes.
     try:
         import re
-        
+
         js_files = [f for f in dist_path.rglob('*.js')]
         if js_files:
             click.echo(f"🛡️  Preserved {len(js_files)} JS file(s) without unsafe regex minification")
-        
-        # Minify CSS
+
+        def minify_css_safely(css_content: str) -> str:
+            """Collapse CSS whitespace/comments without touching quoted strings."""
+            out = []
+            i = 0
+            n = len(css_content)
+            in_single = False
+            in_double = False
+            while i < n:
+                ch = css_content[i]
+                nxt = css_content[i + 1] if i + 1 < n else ''
+                if in_single:
+                    out.append(ch)
+                    if ch == '\\' and i + 1 < n:
+                        out.append(css_content[i + 1])
+                        i += 2
+                        continue
+                    if ch == "'":
+                        in_single = False
+                    i += 1
+                    continue
+                if in_double:
+                    out.append(ch)
+                    if ch == '\\' and i + 1 < n:
+                        out.append(css_content[i + 1])
+                        i += 2
+                        continue
+                    if ch == '"':
+                        in_double = False
+                    i += 1
+                    continue
+                if ch == "'":
+                    in_single = True
+                    out.append(ch)
+                    i += 1
+                    continue
+                if ch == '"':
+                    in_double = True
+                    out.append(ch)
+                    i += 1
+                    continue
+                if ch == '/' and nxt == '*':
+                    end = css_content.find('*/', i + 2)
+                    i = n if end == -1 else end + 2
+                    continue
+                if ch.isspace():
+                    while i < n and css_content[i].isspace():
+                        i += 1
+                    if out and out[-1] not in '{:;,}(' and i < n and css_content[i] not in '{:;,})':
+                        out.append(' ')
+                    continue
+                out.append(ch)
+                i += 1
+            return ''.join(out).strip()
+
+        def minify_html_safely(html_content: str) -> str:
+            """Minify HTML while preserving pre/code/textarea/script/style bodies."""
+            protected = []
+
+            def stash(match):
+                protected.append(match.group(0))
+                return f'<!--GANG_MINIFY_PROTECT_{len(protected) - 1}-->'
+
+            preserved = re.sub(
+                r'(?is)<(pre|code|textarea|script|style)\b[^>]*>.*?</\1>',
+                stash,
+                html_content,
+            )
+            # Keep conditional IE comments out of the way; drop normal comments.
+            minified = re.sub(r'<!--(?!\[if).*?-->', '', preserved, flags=re.DOTALL)
+            minified = re.sub(r'>\s+<', '><', minified)
+            minified = '\n'.join(
+                line.strip() for line in minified.split('\n') if line.strip()
+            )
+            for idx, block in enumerate(protected):
+                minified = minified.replace(f'<!--GANG_MINIFY_PROTECT_{idx}-->', block)
+            return minified
+
         css_files = [f for f in dist_path.rglob('*.css')]
         css_original = 0
         css_minified = 0
         for css_file in css_files:
             css_content = css_file.read_text()
             css_original += len(css_content)
-            # Remove comments
-            css_content = re.sub(r'/\*.*?\*/', '', css_content, flags=re.DOTALL)
-            # Remove extra whitespace
-            css_content = re.sub(r'\s+', ' ', css_content)
-            # Remove spaces around special characters
-            css_content = re.sub(r'\s*([{}:;,])\s*', r'\1', css_content)
-            css_minified += len(css_content.strip())
-            css_file.write_text(css_content.strip())
-        
+            minified_css = minify_css_safely(css_content)
+            css_minified += len(minified_css)
+            css_file.write_text(minified_css)
+
         if css_files:
             css_savings = ((css_original - css_minified) / css_original * 100) if css_original > 0 else 0
             click.echo(f"🗜️  Minified {len(css_files)} CSS file(s) ({css_savings:.1f}% reduction)")
-        
-        # Minify HTML
+
         html_files = [f for f in dist_path.rglob('*.html')]
         minified_count = 0
         original_size = 0
         minified_size = 0
-        
+
         for html_file in html_files:
             original_html = html_file.read_text()
             original_size += len(original_html)
-            
-            # Simple minification:
-            # 1. Remove HTML comments
-            minified = re.sub(r'<!--.*?-->', '', original_html, flags=re.DOTALL)
-            # 2. Remove whitespace between tags
-            minified = re.sub(r'>\s+<', '><', minified)
-            # 3. Remove leading/trailing whitespace on lines
-            minified = '\n'.join(line.strip() for line in minified.split('\n') if line.strip())
-            
+            minified = minify_html_safely(original_html)
             minified_size += len(minified)
             html_file.write_text(minified)
             minified_count += 1
-        
+
         savings = ((original_size - minified_size) / original_size * 100) if original_size > 0 else 0
         click.echo(f"🗜️  Minified {minified_count} HTML files ({savings:.1f}% reduction)")
     except Exception as e:
@@ -3023,9 +3080,22 @@ def output_content_type(content_type: str) -> str:
     return 'posts' if content_type == 'articles' else content_type
 
 
+PAGE_TYPE_BY_CONTENT = {
+    'posts': 'post',
+    'articles': 'post',
+    'pages': 'page',
+    'projects': 'project',
+    'newsletters': 'newsletter',
+    'people': 'person',
+    'products': 'product',
+}
+
+
 def page_type_for_content(content_type: str) -> str:
     output_type = output_content_type(content_type)
-    return 'post' if output_type == 'posts' else output_type.rstrip('s')
+    if output_type in PAGE_TYPE_BY_CONTENT:
+        return PAGE_TYPE_BY_CONTENT[output_type]
+    return output_type[:-1] if output_type.endswith('s') else output_type
 
 
 def url_for_content(content_type: str, slug: str) -> str:
@@ -4250,7 +4320,11 @@ def studio(ctx, port, host):
         def resolve_studio_content_path(request_path):
             """Resolve a markdown API path without allowing root or symlink escapes."""
             relative_path = request_path.replace('/api/content/', '', 1).split('?', 1)[0]
-            relative_path = unquote(relative_path)
+            relative_path = unquote(relative_path).lstrip('/')
+            # In-place editor sends extensionless paths (posts/slug); Flask backend
+            # appends .md. Keep CLI Studio compatible with the same contract.
+            if relative_path and not relative_path.endswith('.md'):
+                relative_path = f'{relative_path}.md'
             content_base = Path(config['build']['content']).resolve()
             content_path = (content_base / relative_path).resolve()
             if content_path.suffix != '.md':
@@ -4856,402 +4930,27 @@ def serve(ctx, port, host):
 '''
         
         def rebuild_site(ctx):
-            """Rebuild the site"""
+            """Rebuild via the full production build path (not a divergent serve-only builder)."""
             click.echo("🔨 Rebuilding site...")
             try:
-                # Import here to use fresh code
-                from core.templates import TemplateEngine
-                from core.generators import OutputGenerators
-                from core.optimizer import AIOptimizer
-                
-                # Clear dist
-                if dist_path.exists():
-                    shutil.rmtree(dist_path)
-                dist_path.mkdir(parents=True, exist_ok=True)
-                
-                # Initialize systems
-                template_engine = TemplateEngine(templates_path)
-                generators = OutputGenerators(config)
-                optimizer = AIOptimizer(config)
-                
-                # Copy public assets
-                if public_path.exists():
-                    shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
-                
-                # Build content
-                all_pages = []
-                all_posts = []
-                all_projects = []
-                
-                for md_file in content_path.rglob('*.md'):
-                    content_type = md_file.parent.name
-                    
-                    # Parse markdown with frontmatter
-                    content = md_file.read_text()
-                    if content.startswith('---'):
-                        parts = content.split('---', 2)
-                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-                        body = parts[2] if len(parts) > 2 else ''
-                    else:
-                        frontmatter = {}
-                        body = content
-                    
-                    # Convert markdown to HTML
-                    md_converter = markdown.Markdown(extensions=['extra', 'meta'])
-                    content_html = md_converter.convert(body)
-                    
-                    # Process external links to open in new tabs
-                    content_html = process_external_links(content_html)
-                    
-                    # Prepare context
-                    slug = md_file.stem
-                    if content_type == 'posts':
-                        url = f"/posts/{slug}/"
-                        template_name = 'post.html'
-                    elif content_type == 'projects':
-                        url = f"/projects/{slug}/"
-                        template_name = 'post.html'
-                    elif content_type == 'pages':
-                        url = f"/pages/{slug}/"
-                        template_name = 'page.html'
-                    else:
-                        url = f"/{content_type}/{slug}/"
-                        template_name = 'page.html'
-                    
-                    build_time = datetime.now()
-                    
-                    # Check if editor mode is enabled (for in-place editing)
-                    user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
-                    
-                    context = {
-                        'site_title': config['site']['title'],
-                        'lang': config['site']['language'],
-                        'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
-                        'content': content_html,
-                        'content_has_h1': '<h1' in content_html.lower(),
-                        'year': datetime.now().year,
-                        'navigation': config.get('nav', {}).get('main', []),
-                        'date': frontmatter.get('date'),
-                        'date_formatted': str(frontmatter.get('date', '')),
-                        'tags': frontmatter.get('tags', []),
-                        'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
-                        'build_time_iso': build_time.isoformat(),
-                        'jsonld': frontmatter.get('jsonld'),
-                        'canonical_url': f"{config['site']['url']}{url}",
-                        # In-place editor context
-                        'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
-                        'category': content_type,  # 'posts', 'pages', 'projects', etc.
-                        'slug': slug,
-                        'user_authenticated': user_authenticated,
-                    }
-                    
-                    # Render HTML
-                    try:
-                        html = template_engine.render(template_name, context)
-                    except Exception as e:
-                        html = process_markdown_fallback(md_file, content_type, config)
-                    
-                    # Inject live reload script
-                    if '</body>' in html:
-                        html = html.replace('</body>', live_reload_script + '</body>')
-                    else:
-                        html += live_reload_script
-                    
-                    # Calculate and inject page size
-                    page_size_bytes = len(html.encode('utf-8'))
-                    page_size_str = format_bytes(page_size_bytes)
-                    html = html.replace('__PAGE_SIZE__', page_size_str)
-                    
-                    # Write output
-                    output_file = dist_path / content_type / slug / 'index.html'
-                    output_file.parent.mkdir(parents=True, exist_ok=True)
-                    output_file.write_text(html)
-                    
-                    # Collect metadata
-                    page_data = {
-                        'url': url,
-                        'title': context['title'],
-                        'summary': context['description'],
-                        'date': context['date'],
-                        'type': content_type,
-                        'content_html': content_html,
-                        'tags': context['tags'],
-                    }
-                    
-                    if content_type == 'posts':
-                        all_posts.append(page_data)
-                    elif content_type == 'projects':
-                        all_projects.append(page_data)
-                    else:
-                        all_pages.append(page_data)
-                
-                # Create index page
-                index_html = create_index_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5], templates_path)
-                # Inject live reload script
-                if '</body>' in index_html:
-                    index_html = index_html.replace('</body>', live_reload_script + '</body>')
-                else:
-                    index_html += live_reload_script
-                # Recalculate page size after injecting live reload
-                page_size_bytes = len(index_html.encode('utf-8'))
-                index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-                (dist_path / 'index.html').write_text(index_html)
-                
-                # Create list pages
-                if all_posts:
-                    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
-                    # Inject live reload script
-                    if '</body>' in posts_html:
-                        posts_html = posts_html.replace('</body>', live_reload_script + '</body>')
-                    # Recalculate page size after injecting live reload
-                    page_size_bytes = len(posts_html.encode('utf-8'))
-                    posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-                    (dist_path / 'posts' / 'index.html').write_text(posts_html)
-                
-                if all_projects:
-                    projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
-                    # Inject live reload script
-                    if '</body>' in projects_html:
-                        projects_html = projects_html.replace('</body>', live_reload_script + '</body>')
-                    # Recalculate page size after injecting live reload
-                    page_size_bytes = len(projects_html.encode('utf-8'))
-                    projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-                    (dist_path / 'projects' / 'index.html').write_text(projects_html)
-
-                by_tag = collect_items_by_tag(all_posts, all_projects, all_pages)
-                tag_pages = write_tag_pages(
-                    dist_path,
-                    config,
-                    templates_path,
-                    by_tag,
-                    live_reload_script=live_reload_script,
+                ctx.invoke(
+                    build,
+                    check_quality=False,
+                    min_quality_score=85,
+                    validate_links=False,
+                    check_slugs=True,
+                    optimize_images=False,
+                    profile=False,
                 )
-                
-                # Generate outputs
-                all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
-                if all_posts:
-                    all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
-                if all_projects:
-                    all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
-                all_pages.extend(tag_pages)
-                
-                generators.generate_all(dist_path, all_pages, all_posts)
-                
-                # Generate product pages (only active products)
-                try:
-                    from core.products import ProductAggregator
-                    from jinja2 import Environment, FileSystemLoader
-                    
-                    aggregator = ProductAggregator(config)
-                    products = aggregator.get_normalized_products(status_filter='active')
-                    
-                    if products:
-                        # Setup Jinja2
-                        from jinja2 import select_autoescape
-                        template_dir = Path(__file__).parent.parent.parent / 'templates'
-                        jinja_env = Environment(
-                            loader=FileSystemLoader(str(template_dir)),
-                            autoescape=select_autoescape(['html', 'xml']),
-                        )
-                        
-                        products_path = dist_path / 'products'
-                        products_path.mkdir(parents=True, exist_ok=True)
-                        
-                        markdown_products_dir = content_path / 'products'
-                        markdown_products_exist = (
-                            markdown_products_dir.is_dir()
-                            and any(markdown_products_dir.glob('*.md'))
-                        )
-                        # Keep a markdown-built /products/ index instead of clobbering it.
-                        if not markdown_products_exist:
-                            plp_template = jinja_env.get_template('products-list.html')
-                            plp_html = plp_template.render(
-                                products=products,
-                                site_title=config['site']['title'],
-                                lang=config['site'].get('language', 'en'),
-                                canonical_url=f"{config['site']['url']}/products/",
-                                year=datetime.now().year,
-                                navigation=config.get('nav', {}).get('main', []),
-                                build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                build_time_iso=datetime.now().isoformat()
-                            )
-                            # Inject live reload
-                            if '</body>' in plp_html:
-                                plp_html = plp_html.replace('</body>', live_reload_script + '</body>')
-                            (products_path / 'index.html').write_text(plp_html)
-                        
-                        # Generate PDPs
-                        pdp_template = jinja_env.get_template('product.html')
-                        for product in products:
-                            slug = product['_meta'].get('slug') or product['_meta'].get('handle')
-                            if not slug:
-                                continue
-                            
-                            pdp_dir = products_path / slug
-                            pdp_dir.mkdir(parents=True, exist_ok=True)
-                            
-                            # Handle images FIRST
-                            raw_images = product.get('image', [])
-                            type_name = type(raw_images).__name__
-                            if type_name in ('list', 'tuple'):
-                                images = [str(img) for img in raw_images if img]
-                            elif raw_images:
-                                images = [str(raw_images)]
-                            else:
-                                images = []
-                            
-                            # Extract offer data and variants
-                            offers = product.get('offers', {})
-                            variants_list = []
-                            
-                            if type(offers).__name__ == 'list':
-                                colors = set()
-                                sizes = set()
-                                color_to_image = {}
-                                color_order = []
-                                
-                                for offer in offers:
-                                    variant_name = offer.get('name', '')
-                                    if '/' in variant_name:
-                                        parts = variant_name.split('/')
-                                        color = parts[0].strip()
-                                        size = parts[1].strip() if len(parts) > 1 else ''
-                                        
-                                        if color not in colors:
-                                            color_order.append(color)
-                                            colors.add(color)
-                                        if size:
-                                            sizes.add(size)
-                                
-                                for idx, color in enumerate(color_order):
-                                    if idx < len(images):
-                                        color_to_image[color] = idx
-                                
-                                for offer in offers:
-                                    variant_name = offer.get('name', '')
-                                    color_part = ''
-                                    size_part = ''
-                                    
-                                    if '/' in variant_name:
-                                        parts = variant_name.split('/')
-                                        color_part = parts[0].strip()
-                                        size_part = parts[1].strip() if len(parts) > 1 else ''
-                                    
-                                    variants_list.append({
-                                        'id': offer.get('id'),
-                                        'name': variant_name,
-                                        'color': color_part,
-                                        'size': size_part,
-                                        'price': offer.get('price', '0'),
-                                        'currency': offer.get('priceCurrency', 'USD'),
-                                        'availability': offer.get('availability', 'InStock'),
-                                        'url': offer.get('url', '#'),
-                                        'sku': offer.get('sku', ''),
-                                        'image_index': color_to_image.get(color_part, 0) if color_part else 0
-                                    })
-                                
-                                first_offer = offers[0]
-                                colors_list = [c for c in sorted(colors)]
-                                sizes_list = [s for s in sorted(sizes)]
-                            else:
-                                first_offer = offers
-                                colors_list = []
-                                sizes_list = []
-                            
-                            # Prepare template variables
-                            brand_data = product.get('brand', '')
-                            brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
-                            offer_url = str(first_offer.get('url') or '')
-                            parsed_offer_url = urlparse(offer_url)
-                            checkout_base_url = (
-                                f"{parsed_offer_url.scheme}://{parsed_offer_url.netloc}"
-                                if parsed_offer_url.scheme in ('http', 'https') and parsed_offer_url.netloc
-                                else ''
-                            )
-                            
-                            pdp_context = {
-                                'lang': config['site'].get('language', 'en'),
-                                'site_title': config['site']['title'],
-                                'title': product.get('name', ''),
-                                'description': product.get('description', ''),
-                                'canonical_url': f"{config['site']['url']}/products/{slug}/",
-                                'product_image': images[0] if images else '',
-                                'product_images': images,
-                                'price': first_offer.get('price', '0'),
-                                'currency': first_offer.get('priceCurrency', 'USD'),
-                                'recurring': None,
-                                'content': product.get('description', ''),
-                                'buy_url': first_offer.get('url', '#'),
-                                'variants': variants_list,
-                                'colors': colors_list,
-                                'sizes': sizes_list,
-                                'sku': product.get('sku', ''),
-                                'variant_id': first_offer.get('id', ''),
-                                'checkout_base_url': checkout_base_url,
-                                'product_slug': slug,
-                                'brand': brand_name,
-                                'category': product.get('category', ''),
-                                'availability': first_offer.get('availability', 'InStock'),
-                                'jsonld': product,
-                                'year': datetime.now().year,
-                                'navigation': config.get('nav', {}).get('main', []),
-                                'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                'build_time_iso': datetime.now().isoformat()
-                            }
-                            
-                            pdp_html = pdp_template.render(**pdp_context)
-                            # Inject live reload
-                            if '</body>' in pdp_html:
-                                pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
-                            (pdp_dir / 'index.html').write_text(pdp_html)
-                        
-                        # Generate cart page
-                        cart_dir = dist_path / 'cart'
-                        cart_dir.mkdir(parents=True, exist_ok=True)
-                        build_time = datetime.now()
-                        build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
-                        build_time_iso = build_time.isoformat()
-                        cart_template = jinja_env.get_template('cart.html')
-                        cart_html = cart_template.render(
-                            year=datetime.now().year,
-                            site_title=config['site']['title'],
-                            lighthouse_scores=True,
-                            build_time=build_time_formatted,
-                            build_time_iso=build_time_iso,
-                            description=config['site']['description']
-                        )
-                        if '</body>' in cart_html:
-                            cart_html = cart_html.replace('</body>', live_reload_script + '</body>')
-                        (cart_dir / 'index.html').write_text(cart_html)
-                        
-                        # Generate HTML sitemap
-                        sitemap_dir = dist_path / 'sitemap'
-                        sitemap_dir.mkdir(parents=True, exist_ok=True)
-                        sitemap_template = jinja_env.get_template('sitemap.html')
-                        sitemap_html = sitemap_template.render(
-                            site_title=config['site']['title'],
-                            site_url=config['site']['url'],
-                            pages=all_pages,
-                            posts=all_posts,
-                            projects=all_projects,
-                            products=products,
-                            year=datetime.now().year,
-                            build_time_iso=datetime.now().isoformat()
-                        )
-                        if '</body>' in sitemap_html:
-                            sitemap_html = sitemap_html.replace('</body>', live_reload_script + '</body>')
-                        (sitemap_dir / 'index.html').write_text(sitemap_html)
-                except Exception as e:
-                    click.echo(f"⚠️  Could not generate product pages: {e}")
-                
-                click.echo("✅ Build complete!")
-                
+            except SystemExit as e:
+                # Click commands may raise SystemExit on failure; keep the watcher alive.
+                if e.code not in (0, None):
+                    click.echo(f"❌ Build failed with exit code {e.code}", err=True)
             except Exception as e:
                 click.echo(f"❌ Build error: {e}", err=True)
                 import traceback
                 traceback.print_exc()
-        
+
         def notify_reload():
             """Notify all connected clients to reload"""
             click.echo(f"📡 Notifying {len(reload_clients)} connected clients")
@@ -5295,9 +4994,40 @@ def serve(ctx, port, host):
                         finally:
                             if self in reload_clients:
                                 reload_clients.remove(self)
-                    else:
-                        # Let parent handle all other requests (HTML and assets)
-                        super().do_GET()
+                        return
+
+                    # Inject live-reload into HTML responses so the full build
+                    # path does not need a divergent serve-only renderer.
+                    request_path = self.path.split('?', 1)[0]
+                    if request_path.endswith('/') or request_path.endswith('.html'):
+                        relative = request_path.lstrip('/')
+                        if request_path.endswith('/'):
+                            candidate = dist_path / relative / 'index.html'
+                        else:
+                            candidate = dist_path / relative
+                        candidate = candidate.resolve()
+                        try:
+                            candidate.relative_to(dist_path.resolve())
+                        except ValueError:
+                            self.send_error(403)
+                            return
+                        if candidate.exists() and candidate.is_file():
+                            html = candidate.read_text()
+                            if live_reload_script not in html:
+                                if '</body>' in html:
+                                    html = html.replace('</body>', live_reload_script + '</body>')
+                                else:
+                                    html += live_reload_script
+                            payload = html.encode('utf-8')
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'text/html; charset=utf-8')
+                            self.send_header('Content-Length', str(len(payload)))
+                            self.end_headers()
+                            self.wfile.write(payload)
+                            return
+
+                    # Let parent handle all other requests (assets, etc.)
+                    super().do_GET()
                 except BrokenPipeError:
                     # Client disconnected, ignore
                     pass
