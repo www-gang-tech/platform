@@ -298,6 +298,17 @@ b, strong {
     color: var(--fgColor-accent);
     text-decoration: none;
   }
+
+  .markdown-body a {
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+  }
+
+  .markdown-body li > a {
+    display: inline-block;
+    min-height: 44px;
+    padding: 0.25rem 0;
+  }
   
   abbr[title] {
     border-bottom: none;
@@ -445,7 +456,8 @@ b, strong {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    
+    gap: 1rem;
+    flex-wrap: wrap;
   }
 
   article {
@@ -454,12 +466,15 @@ b, strong {
 
   .nav-container nav {
     display: flex;
-    gap: 1.25em;
+    gap: 0.75rem 1.25rem;
+    flex-wrap: wrap;
   }
 
   .nav-container a {
-    padding: 0rem 0;
-    display: block;
+    align-items: center;
+    display: flex;
+    min-height: 44px;
+    padding: 0.25rem 0;
   }
   
   table {
