@@ -2958,7 +2958,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
 
             def stash(match):
                 protected.append(match.group(0))
-                return f'<!--GANG_MINIFY_PROTECT_{len(protected) - 1}-->'
+                # Use a non-comment token so later comment stripping cannot drop it.
+                return f'GANGMINIFYPROTECT{len(protected) - 1}ENDPROTECT'
 
             preserved = re.sub(
                 r'(?is)<(pre|code|textarea|script|style)\b[^>]*>.*?</\1>',
@@ -2972,7 +2973,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 line.strip() for line in minified.split('\n') if line.strip()
             )
             for idx, block in enumerate(protected):
-                minified = minified.replace(f'<!--GANG_MINIFY_PROTECT_{idx}-->', block)
+                minified = minified.replace(f'GANGMINIFYPROTECT{idx}ENDPROTECT', block)
             return minified
 
         css_files = [f for f in dist_path.rglob('*.css')]
