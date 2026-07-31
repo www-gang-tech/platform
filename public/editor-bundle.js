@@ -249,7 +249,13 @@ class InPlaceEditor {
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
             .replace(/\[(.+?)\]\((.+?)\)/g, (_match, text, href) => {
-                const safeHref = /^(https?:|mailto:|\/|#)/i.test(href) ? href : '#';
+                // Reject protocol-relative URLs (//evil.example) while allowing
+                // http(s), mailto, same-origin paths, and in-page anchors.
+                const safeHref = (
+                    href
+                    && !href.startsWith('//')
+                    && /^(https?:|mailto:|\/|#)/i.test(href)
+                ) ? href : '#';
                 return `<a href="${safeHref}">${text}</a>`;
             })
             .replace(/`(.+?)`/g, '<code>$1</code>')
