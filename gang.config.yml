@@ -161,7 +161,7 @@ shopify:
 # Hosting
 hosting:
   provider: "cloudflare"
-  pages_project: "gang-platform"
+  pages_project: "platform"
   r2_bucket: "gang-media"
   
 # Security headers
