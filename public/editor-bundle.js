@@ -226,7 +226,15 @@ class InPlaceEditor {
         } else if (cmd === 'link') {
             const url = prompt('Enter URL:');
             if (url) {
-                document.execCommand('createLink', false, url);
+                const trimmed = url.trim();
+                const safe = trimmed
+                    && !trimmed.startsWith('//')
+                    && /^(https?:|mailto:|\/|#)/i.test(trimmed);
+                if (safe) {
+                    document.execCommand('createLink', false, trimmed);
+                } else {
+                    alert('Only http(s), mailto, site paths, or #anchors are allowed.');
+                }
             }
         }
         
@@ -266,6 +274,26 @@ class InPlaceEditor {
     htmlToMarkdown(html) {
         const temp = document.createElement('div');
         temp.innerHTML = html;
+
+        // Drop executable / unknown markup before it becomes persisted markdown.
+        temp.querySelectorAll('script, style, iframe, object, embed').forEach(node => node.remove());
+        temp.querySelectorAll('*').forEach(node => {
+            [...node.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const value = attr.value || '';
+                if (name.startsWith('on') || name === 'style') {
+                    node.removeAttribute(attr.name);
+                    return;
+                }
+                if ((name === 'href' || name === 'src') && (
+                    value.trim().toLowerCase().startsWith('javascript:')
+                    || value.trim().toLowerCase().startsWith('data:')
+                    || value.trim().startsWith('//')
+                )) {
+                    node.setAttribute(name, '#');
+                }
+            });
+        });
         
         return temp.innerHTML
             .replace(/<h1>(.+?)<\/h1>/g, '# $1\n\n')
@@ -273,9 +301,17 @@ class InPlaceEditor {
             .replace(/<h3>(.+?)<\/h3>/g, '### $1\n\n')
             .replace(/<strong>(.+?)<\/strong>/g, '**$1**')
             .replace(/<em>(.+?)<\/em>/g, '*$1*')
-            .replace(/<a href="(.+?)">(.+?)<\/a>/g, '[$2]($1)')
+            .replace(/<a href="(.+?)">(.+?)<\/a>/g, (_m, href, text) => {
+                const safeHref = (
+                    href
+                    && !href.startsWith('//')
+                    && /^(https?:|mailto:|\/|#)/i.test(href)
+                ) ? href : '#';
+                return `[${text}](${safeHref})`;
+            })
             .replace(/<code>(.+?)<\/code>/g, '`$1`')
             .replace(/<p>(.+?)<\/p>/g, '$1\n\n')
+            .replace(/<[^>]+>/g, '')
             .trim();
     }
 

@@ -293,7 +293,7 @@ def list_content():
     """List all editable content files"""
     content_files = []
     
-    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products', 'people']:
+    for content_type in ['pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people']:
         type_dir = CONTENT_DIR / content_type
         if type_dir.exists():
             for md_file in type_dir.glob('*.md'):
@@ -307,17 +307,132 @@ def list_content():
                     else:
                         title = md_file.stem.replace('-', ' ').title()
                     
+                    output_type = 'posts' if content_type == 'articles' else content_type
                     content_files.append({
                         'type': content_type,
                         'slug': md_file.stem,
                         'title': title,
                         'path': content_type + "/" + md_file.stem,
-                        'url': "/" + content_type + "/" + md_file.stem + "/"
+                        'url': "/" + output_type + "/" + md_file.stem + "/"
                     })
                 except Exception as e:
                     print("Error reading " + str(md_file) + ": " + str(e))
     
     return jsonify(content_files)
+
+
+def _resolve_slug_file(category, slug):
+    """Resolve category/slug markdown under the content root."""
+    if not category or not slug:
+        raise ValueError('category and slug are required')
+    if '/' in category or '\\' in category or '/' in slug or '\\' in slug:
+        raise ValueError('Invalid category or slug')
+    if Path(slug).suffix:
+        raise ValueError('Slug must not include a file extension')
+    content_root = CONTENT_DIR.resolve()
+    full_path = (content_root / category / f'{slug}.md').resolve()
+    try:
+        full_path.relative_to(content_root)
+    except ValueError as exc:
+        raise ValueError('Invalid category or slug') from exc
+    return full_path
+
+
+@app.route('/api/rename-slug', methods=['POST'])
+def rename_slug():
+    """Rename a content slug and optionally create a 301 redirect."""
+    data = request.get_json(silent=True) or {}
+    old_slug = data.get('old_slug')
+    new_slug = data.get('new_slug')
+    category = data.get('category')
+    create_redirect = data.get('create_redirect', True)
+
+    try:
+        old_file = _resolve_slug_file(category, old_slug)
+        new_file = _resolve_slug_file(category, new_slug)
+    except ValueError as exc:
+        return jsonify({'error': 'Invalid rename request', 'message': str(exc)}), 400
+
+    if not old_file.exists():
+        return jsonify({'error': 'File not found', 'message': f'File {old_file} does not exist'}), 404
+    if new_file.exists():
+        return jsonify({'error': 'Slug already exists', 'message': f'A file with slug "{new_slug}" already exists'}), 400
+
+    try:
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
+        from core.redirects import RedirectManager
+
+        old_file.rename(new_file)
+        redirect_info = None
+        if create_redirect:
+            output_category = 'posts' if category == 'articles' else category
+            old_url = f'/{output_category}/{old_slug}/'
+            new_url = f'/{output_category}/{new_slug}/'
+            manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
+            redirect_info = manager.add_redirect(old_url, new_url, reason='slug_rename_cms').get('redirect')
+
+        return jsonify({
+            'success': True,
+            'old_path': str(old_file.relative_to(CONTENT_DIR)),
+            'new_path': str(new_file.relative_to(CONTENT_DIR)),
+            'redirect': redirect_info,
+        })
+    except Exception as exc:
+        return jsonify({'error': 'Internal server error', 'message': str(exc)}), 500
+
+
+@app.route('/api/redirects')
+def list_redirects():
+    """List tracked redirects."""
+    try:
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
+        from core.redirects import RedirectManager
+
+        manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
+        return jsonify(manager.list_all_redirects())
+    except Exception as exc:
+        return jsonify({'error': 'Internal server error', 'message': str(exc)}), 500
+
+
+@app.route('/api/redirects/<path:from_path>', methods=['DELETE'])
+def delete_redirect(from_path):
+    """Remove a tracked redirect by source path."""
+    try:
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
+        from core.redirects import RedirectManager
+
+        manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
+        redirect_from = '/' + from_path if not from_path.startswith('/') else from_path
+        if manager.remove_redirect(redirect_from):
+            return jsonify({'success': True, 'message': 'Redirect removed'})
+        return jsonify({'error': 'Redirect not found'}), 404
+    except Exception as exc:
+        return jsonify({'error': 'Internal server error', 'message': str(exc)}), 500
+
+
+@app.route('/api/products/sync', methods=['POST'])
+def sync_products():
+    """Sync normalized products from configured commerce sources."""
+    try:
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
+        from core.products import ProductAggregator
+
+        config_path = PROJECT_ROOT / 'gang.config.yml'
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+        aggregator = ProductAggregator(config)
+        products = aggregator.get_normalized_products(status_filter='all')
+        return jsonify({
+            'success': True,
+            'total': len(products),
+            'products': products,
+        })
+    except Exception as exc:
+        return jsonify({'error': 'Internal server error', 'message': str(exc)}), 500
 
 
 if __name__ == '__main__':
@@ -336,6 +451,10 @@ if __name__ == '__main__':
     print("  POST http://localhost:" + str(port) + "/api/validate-headings")
     print("  POST http://localhost:" + str(port) + "/api/build")
     print("  GET  http://localhost:" + str(port) + "/api/content/list")
+    print("  POST http://localhost:" + str(port) + "/api/rename-slug")
+    print("  GET  http://localhost:" + str(port) + "/api/redirects")
+    print("  DELETE http://localhost:" + str(port) + "/api/redirects/<path>")
+    print("  POST http://localhost:" + str(port) + "/api/products/sync")
     print("")
     print("📝 TIP: If using Python 3.9.6, make sure Flask is installed")
     print("🔧 To change port: PORT=8080 python app.py")
