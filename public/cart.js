@@ -33,6 +33,18 @@
         });
     }
     
+    function cartLineKey(item) {
+        // Prefer variant id; otherwise keep distinct products from collapsing
+        // into one row when markdown/catalog items omit variant ids.
+        return [
+            String(item.id || ''),
+            String(item.variant || ''),
+            String(item.url || ''),
+            String(item.sku || ''),
+            String(item.name || ''),
+        ].join('\0');
+    }
+
     // Add to cart from product page
     function addToCart(e) {
         e.preventDefault();
@@ -40,6 +52,10 @@
         const form = e.target;
         const formData = new FormData(form);
         const rawAction = form.getAttribute('action');
+        const checkoutFromData = safeHttpUrl(form.dataset.checkoutUrl || '');
+        const checkoutFromAction = (rawAction && rawAction !== '#')
+            ? safeHttpUrl(form.action)
+            : null;
         
         const item = {
             id: String(form.dataset.variantId || ''),
@@ -52,16 +68,16 @@
             quantity: normalizeQuantity(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
             url: form.dataset.productUrl || '',
-            checkoutUrl: rawAction && rawAction !== '#' ? form.action : '',
+            checkoutUrl: (checkoutFromData || checkoutFromAction || { href: '' }).href || '',
             checkoutBaseUrl: form.dataset.checkoutBaseUrl || '',
             sku: form.dataset.sku || ''
         };
         
         const cart = getCart();
-        const existing = cart.find(i => i.id === item.id && i.variant === item.variant);
+        const existing = cart.find(i => cartLineKey(i) === cartLineKey(item));
         
         if (existing) {
-            existing.quantity += item.quantity;
+            existing.quantity = normalizeQuantity(existing.quantity + item.quantity);
         } else {
             cart.push(item);
         }
