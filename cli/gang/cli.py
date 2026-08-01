@@ -2348,6 +2348,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
         
+        # Neutralize dangerous URL protocols before templates mark content safe
+        content_html = sanitize_content_hrefs(content_html)
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
         
@@ -2362,6 +2364,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         jsonld = frontmatter.get('jsonld')
         if not jsonld:
             jsonld = build_default_jsonld(source_content_type, title, description, canonical_url, frontmatter, config)
+        jsonld = make_json_safe(jsonld)
         page_type = page_type_for_content(source_content_type)
         page_comments = comments_manager.get_comments_for_page(slug, page_type) if comments_manager else []
         product_images = frontmatter.get('images') or frontmatter.get('image') or []
@@ -2428,7 +2431,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
             # In-place editor context
             'page_type': page_type,
-            'content_category': content_type,  # 'posts', 'pages', 'projects', etc.
+            # Keep the source folder so the editor loads/saves the real file
+            # (articles → /posts/ URLs must still edit content/articles/*.md).
+            'content_category': source_content_type,
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
@@ -2498,10 +2503,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         'description': config['site']['description'],
         'year': datetime.now().year,
         'navigation': config.get('nav', {}).get('main', []),
-        'posts': sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5],
+        'posts': sorted(all_posts, key=content_date_sort_key, reverse=True)[:5],
     }
     
-    index_html = create_index_simple(config, all_posts[:5], templates_path)
+    index_html = create_index_simple(config, sorted(all_posts, key=content_date_sort_key, reverse=True)[:5], templates_path)
     page_size_bytes = len(index_html.encode('utf-8'))
     index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'index.html').write_text(index_html)
@@ -2512,7 +2517,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         newsletters_dir.mkdir(parents=True, exist_ok=True)
         newsletters_html = create_newsletters_list_page(
             config,
-            sorted(all_newsletters, key=lambda x: x.get('date', '') or x.get('sent_date', ''), reverse=True),
+            sorted(all_newsletters, key=content_date_sort_key, reverse=True),
             templates_path,
         )
         page_size_bytes = len(newsletters_html.encode('utf-8'))
@@ -2522,7 +2527,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Create list pages
     # Always create posts index page, even if empty
     click.echo("📄 Creating posts index...")
-    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+    posts_html = create_list_page_simple(config, sorted(all_posts, key=content_date_sort_key, reverse=True), 'Posts', templates_path)
     page_size_bytes = len(posts_html.encode('utf-8'))
     posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
@@ -2956,16 +2961,93 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             """Minify HTML while preserving pre/code/textarea/script/style bodies."""
             protected = []
 
-            def stash(match):
-                protected.append(match.group(0))
+            def stash_block(block: str) -> str:
+                protected.append(block)
                 # Use a non-comment token so later comment stripping cannot drop it.
                 return f'GANGMINIFYPROTECT{len(protected) - 1}ENDPROTECT'
 
-            preserved = re.sub(
-                r'(?is)<(pre|code|textarea|script|style)\b[^>]*>.*?</\1>',
-                stash,
-                html_content,
-            )
+            # Protect sensitive blocks with a scanner so an early "</script>"
+            # inside a JS/JSON string cannot truncate the protected region.
+            tag_pattern = re.compile(r'(?is)<(pre|code|textarea|script|style)\b[^>]*>')
+            pieces = []
+            cursor = 0
+            for open_match in tag_pattern.finditer(html_content):
+                if open_match.start() < cursor:
+                    continue
+                pieces.append(html_content[cursor:open_match.start()])
+                tag_name = open_match.group(1).lower()
+                close_token = f'</{tag_name}>'
+                close_idx = html_content.lower().find(close_token, open_match.end())
+                if close_idx == -1:
+                    pieces.append(html_content[open_match.start():])
+                    cursor = len(html_content)
+                    break
+                # For script/style, skip false closes that appear inside strings/comments.
+                if tag_name in ('script', 'style'):
+                    body = html_content
+                    lower_body = body.lower()
+                    i = open_match.end()
+                    n = len(body)
+                    in_single = in_double = in_line_comment = in_block_comment = False
+                    chosen = -1
+                    while i < n:
+                        if not (in_single or in_double or in_line_comment or in_block_comment):
+                            if lower_body.startswith(close_token, i):
+                                chosen = i
+                                break
+                        ch = body[i]
+                        nxt = body[i + 1] if i + 1 < n else ''
+                        if in_line_comment:
+                            if ch == '\n':
+                                in_line_comment = False
+                            i += 1
+                            continue
+                        if in_block_comment:
+                            if ch == '*' and nxt == '/':
+                                in_block_comment = False
+                                i += 2
+                                continue
+                            i += 1
+                            continue
+                        if in_single:
+                            if ch == '\\':
+                                i += 2
+                                continue
+                            if ch == "'":
+                                in_single = False
+                            i += 1
+                            continue
+                        if in_double:
+                            if ch == '\\':
+                                i += 2
+                                continue
+                            if ch == '"':
+                                in_double = False
+                            i += 1
+                            continue
+                        if ch == '/' and nxt == '/':
+                            in_line_comment = True
+                            i += 2
+                            continue
+                        if ch == '/' and nxt == '*':
+                            in_block_comment = True
+                            i += 2
+                            continue
+                        if ch == "'":
+                            in_single = True
+                        elif ch == '"':
+                            in_double = True
+                        i += 1
+                    if chosen == -1:
+                        pieces.append(html_content[open_match.start():])
+                        cursor = len(html_content)
+                        break
+                    close_idx = chosen
+                end = close_idx + len(close_token)
+                pieces.append(stash_block(html_content[open_match.start():end]))
+                cursor = end
+            pieces.append(html_content[cursor:])
+            preserved = ''.join(pieces)
             # Keep conditional IE comments out of the way; drop normal comments.
             minified = re.sub(r'<!--(?!\[if).*?-->', '', preserved, flags=re.DOTALL)
             minified = re.sub(r'>\s+<', '><', minified)
@@ -3028,6 +3110,62 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
 def process_markdown_fallback(md_file: Path, content_type: str, config: Dict) -> str:
     """Fallback markdown processor if templates fail"""
     return process_markdown(md_file, content_type, config)
+
+
+def content_date_sort_key(item: Dict) -> str:
+    """Normalize mixed YAML date types so collection sorts never TypeError."""
+    raw = item.get('date')
+    if raw in (None, ''):
+        raw = item.get('sent_date')
+    if hasattr(raw, 'isoformat'):
+        try:
+            return raw.isoformat()
+        except Exception:
+            pass
+    return coerce_string(raw)
+
+
+def make_json_safe(value):
+    """Recursively coerce date/datetime values so Jinja tojson cannot crash."""
+    if hasattr(value, 'isoformat') and not isinstance(value, str):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {str(key): make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [make_json_safe(item) for item in value]
+    return value
+
+
+def sanitize_content_hrefs(html: str) -> str:
+    """Rewrite unsafe href/src protocols in generated markdown HTML."""
+    import re
+
+    def is_safe_url(value: str) -> bool:
+        if not value or value.startswith('//'):
+            return False
+        scheme_host = value.split('?', 1)[0].split('#', 1)[0]
+        if ':' in scheme_host:
+            return scheme_host.lower().startswith(('http:', 'https:', 'mailto:'))
+        # Relative paths, root paths, and in-page anchors are fine.
+        return True
+
+    def replace_attr(match):
+        attr = match.group(1)
+        quote = match.group(2) or ''
+        value = match.group(3)
+        if not is_safe_url(value):
+            return f'{attr}={quote}#{quote}' if quote else f'{attr}=#'
+        return match.group(0)
+
+    return re.sub(
+        r'\b(href|src)\s*=\s*(["\']?)([^"\'>\s]+)\2',
+        replace_attr,
+        html,
+        flags=re.IGNORECASE,
+    )
 
 
 def process_external_links(html: str) -> str:
@@ -3162,7 +3300,7 @@ def write_tag_pages(
         segment = tag_path_segment(tag_name)
         items = sorted(
             by_tag[tag_name],
-            key=lambda item: (item.get('date') or '', item.get('title') or ''),
+            key=lambda item: (content_date_sort_key(item), coerce_string(item.get('title'))),
             reverse=True,
         )
         tag_html = create_list_page_simple(
@@ -3439,7 +3577,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{html_escape(str(config['site']['title']))}</title>
     <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
@@ -3574,7 +3712,7 @@ def create_list_page_simple(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{html_escape(str(title))} - {html_escape(str(config['site']['title']))}</title>
     <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
@@ -4862,13 +5000,11 @@ def serve(ctx, port, host):
         
         # Track clients for live reload
         reload_clients = []
-        rebuild_pending = False
-        last_rebuild = 0
+        rebuild_lock = threading.Lock()
+        rebuild_timer = {'handle': None}
         
         class ChangeHandler(FileSystemEventHandler):
             def on_any_event(self, event):
-                nonlocal rebuild_pending, last_rebuild
-                
                 if event.is_directory:
                     return
                 
@@ -4878,20 +5014,26 @@ def serve(ctx, port, host):
                 
                 if event.src_path.startswith('.') or '/.git/' in event.src_path:
                     return
-                
-                # Debounce rebuilds (wait 0.5 seconds)
-                current_time = time.time()
-                if current_time - last_rebuild < 0.5:
-                    rebuild_pending = True
-                    return
-                
-                click.echo(f"\n📝 Change detected: {Path(event.src_path).name}")
-                rebuild_site(ctx)
-                # Small delay to ensure files are fully written
-                time.sleep(0.1)
-                notify_reload()
-                last_rebuild = time.time()
-                rebuild_pending = False
+
+                def run_rebuild():
+                    with rebuild_lock:
+                        rebuild_timer['handle'] = None
+                        click.echo(f"\n📝 Change detected: {Path(event.src_path).name}")
+                        rebuild_site(ctx)
+                        # Small delay to ensure files are fully written
+                        time.sleep(0.1)
+                        notify_reload()
+
+                # Debounce: rebuild once after a quiet period so rapid saves
+                # are not dropped by a sticky rebuild_pending flag.
+                with rebuild_lock:
+                    pending = rebuild_timer['handle']
+                    if pending is not None:
+                        pending.cancel()
+                    timer = threading.Timer(0.5, run_rebuild)
+                    timer.daemon = True
+                    rebuild_timer['handle'] = timer
+                    timer.start()
         
         # Live reload script to inject during build
         live_reload_script = '''
