@@ -985,8 +985,9 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     click.echo(f"   To:   {new_slug}")
     click.echo(f"")
     
-    old_url = f"/{category}/{old_slug}/"
-    new_url = f"/{category}/{new_slug}/"
+    output_category = output_content_type(category)
+    old_url = f"/{output_category}/{old_slug}/"
+    new_url = f"/{output_category}/{new_slug}/"
     
     create_redirect = redirect and not no_redirect
     
@@ -4605,6 +4606,29 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_error(500)
                 
+                elif self.path == '/api/redirects':
+                    # List redirects (GET); studio.html uses GET for Flask parity.
+                    try:
+                        sys.path.insert(0, str(Path(__file__).parent))
+                        from core.redirects import RedirectManager
+
+                        content_path = Path(config['build']['content'])
+                        dist_path = Path(config['build']['output'])
+
+                        manager = RedirectManager(content_path, dist_path)
+                        redirects_list = manager.list_all_redirects()
+
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        send_studio_cors(self)
+                        self.end_headers()
+                        self.wfile.write(json.dumps(redirects_list).encode())
+                    except Exception as e:
+                        import traceback
+                        click.echo(f"❌ Error listing redirects: {e}")
+                        click.echo(traceback.format_exc())
+                        self.send_error(500)
+
                 elif self.path == '/' or self.path == '/studio.html':
                     # Serve studio UI
                     try:
@@ -4613,6 +4637,18 @@ def studio(ctx, port, host):
                         if studio_html_path.exists():
                             with open(studio_html_path, 'r') as f:
                                 content = f.read()
+                            # Inject bearer token for authenticated Studio sessions without
+                            # writing secrets to disk. Clients read window.GANG_STUDIO_TOKEN.
+                            studio_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
+                            if studio_token:
+                                token_json = json.dumps(studio_token)
+                                inject = (
+                                    f'<script>window.GANG_STUDIO_TOKEN={token_json};</script>\n'
+                                )
+                                if '</head>' in content:
+                                    content = content.replace('</head>', inject + '</head>', 1)
+                                else:
+                                    content = inject + content
                             self.send_response(200)
                             self.send_header('Content-type', 'text/html')
                             self.end_headers()
@@ -4729,8 +4765,10 @@ def studio(ctx, port, host):
                         # Create redirect if requested
                         redirect_info = None
                         if create_redirect:
-                            old_url = f"/{category}/{old_slug}/"
-                            new_url = f"/{category}/{new_slug}/"
+                            # Articles publish under /posts/; keep redirects on public URLs.
+                            output_category = output_content_type(category)
+                            old_url = f"/{output_category}/{old_slug}/"
+                            new_url = f"/{output_category}/{new_slug}/"
                             
                             redirect_manager = RedirectManager(content_base, dist_path)
                             result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
@@ -4742,10 +4780,11 @@ def studio(ctx, port, host):
                         self.send_header('Content-type', 'application/json')
                         send_studio_cors(self)
                         self.end_headers()
+                        # Prefer extensionless editor paths for Flask/studio.html compatibility.
                         self.wfile.write(json.dumps({
                             'success': True,
-                            'old_path': str(old_file.relative_to(content_base)),
-                            'new_path': str(new_file.relative_to(content_base)),
+                            'old_path': f'{category}/{old_slug}',
+                            'new_path': f'{category}/{new_slug}',
                             'redirect': redirect_info
                         }).encode())
                         

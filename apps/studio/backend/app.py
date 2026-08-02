@@ -372,10 +372,13 @@ def rename_slug():
             manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
             redirect_info = manager.add_redirect(old_url, new_url, reason='slug_rename_cms').get('redirect')
 
+        # Editor clients expect extensionless paths (resolve_content_file rejects ".md").
+        old_editor_path = f'{category}/{old_slug}'
+        new_editor_path = f'{category}/{new_slug}'
         return jsonify({
             'success': True,
-            'old_path': str(old_file.relative_to(CONTENT_DIR)),
-            'new_path': str(new_file.relative_to(CONTENT_DIR)),
+            'old_path': old_editor_path,
+            'new_path': new_editor_path,
             'redirect': redirect_info,
         })
     except Exception as exc:
