@@ -11,7 +11,8 @@
     // Cart storage utilities
     function getCart() {
         try {
-            return JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+            const cart = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+            return Array.isArray(cart) ? cart : [];
         } catch {
             return [];
         }
@@ -24,7 +25,7 @@
     
     function updateCartCount() {
         const cart = getCart();
-        const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+        const count = cart.reduce((sum, item) => sum + normalizeQuantity(item.quantity), 0);
         const badges = document.querySelectorAll('.cart-count');
         badges.forEach(badge => {
             badge.textContent = count;
@@ -32,32 +33,51 @@
         });
     }
     
+    function cartLineKey(item) {
+        // Prefer variant id; otherwise keep distinct products from collapsing
+        // into one row when markdown/catalog items omit variant ids.
+        return [
+            String(item.id || ''),
+            String(item.variant || ''),
+            String(item.url || ''),
+            String(item.sku || ''),
+            String(item.name || ''),
+        ].join('\0');
+    }
+
     // Add to cart from product page
     function addToCart(e) {
         e.preventDefault();
         
         const form = e.target;
         const formData = new FormData(form);
+        const rawAction = form.getAttribute('action');
+        const checkoutFromData = safeHttpUrl(form.dataset.checkoutUrl || '');
+        const checkoutFromAction = (rawAction && rawAction !== '#')
+            ? safeHttpUrl(form.action)
+            : null;
         
         const item = {
-            id: form.dataset.variantId || Date.now().toString(),
+            id: String(form.dataset.variantId || ''),
             name: form.dataset.productName || 'Product',
             variant: formData.get('color') && formData.get('size') 
                 ? `${formData.get('color')} / ${formData.get('size')}`
                 : '',
-            price: parseFloat(form.dataset.price || '0'),
+            price: Number.parseFloat(form.dataset.price || '0') || 0,
             currency: form.dataset.currency || 'USD',
-            quantity: parseInt(formData.get('quantity') || '1'),
+            quantity: normalizeQuantity(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
             url: form.dataset.productUrl || '',
+            checkoutUrl: (checkoutFromData || checkoutFromAction || { href: '' }).href || '',
+            checkoutBaseUrl: form.dataset.checkoutBaseUrl || '',
             sku: form.dataset.sku || ''
         };
         
         const cart = getCart();
-        const existing = cart.find(i => i.id === item.id && i.variant === item.variant);
+        const existing = cart.find(i => cartLineKey(i) === cartLineKey(item));
         
         if (existing) {
-            existing.quantity += item.quantity;
+            existing.quantity = normalizeQuantity(existing.quantity + item.quantity);
         } else {
             cart.push(item);
         }
@@ -68,24 +88,44 @@
         window.location.href = '/cart/';
     }
     
-    // Update quantity on cart page
-    function updateQuantity(id, variant, quantity) {
+    // Update quantity on cart page by stable cart line key
+    function updateQuantity(lineKey, quantity) {
         const cart = getCart();
-        const item = cart.find(i => i.id === id && i.variant === variant);
+        const item = cart.find(i => cartLineKey(i) === lineKey);
         
         if (item) {
-            item.quantity = Math.max(1, Math.min(99, quantity));
+            item.quantity = normalizeQuantity(quantity);
             saveCart(cart);
             renderCart();
         }
     }
     
-    // Remove item from cart
-    function removeItem(id, variant) {
+    // Remove item from cart by stable cart line key
+    function removeItem(lineKey) {
         let cart = getCart();
-        cart = cart.filter(i => !(i.id === id && i.variant === variant));
+        cart = cart.filter(i => cartLineKey(i) !== lineKey);
         saveCart(cart);
         renderCart();
+    }
+
+    function normalizeQuantity(quantity) {
+        const parsed = Number.parseInt(quantity, 10);
+        if (Number.isNaN(parsed)) return 1;
+        return Math.max(1, Math.min(99, parsed));
+    }
+
+    function formatMoney(currency, amount) {
+        return `${currency || 'USD'} ${amount.toFixed(2)}`;
+    }
+
+    function safeHttpUrl(url) {
+        if (!url) return null;
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed : null;
+        } catch {
+            return null;
+        }
     }
     
     // Render cart page
@@ -109,49 +149,97 @@
         if (cartSummary) cartSummary.style.display = 'block';
         container.style.display = 'block';
         
-        let html = '';
+        container.textContent = '';
         let subtotal = 0;
         
-        cart.forEach(item => {
-            const itemTotal = item.price * item.quantity;
+        cart.forEach((item, index) => {
+            const lineKey = cartLineKey(item);
+            const variant = String(item.variant || '');
+            const name = String(item.name || 'Product');
+            const currency = String(item.currency || 'USD');
+            const price = Number.parseFloat(item.price || '0') || 0;
+            const quantity = normalizeQuantity(item.quantity);
+            const itemTotal = price * quantity;
             subtotal += itemTotal;
-            
-            html += `
-                <div class="cart-item">
-                    ${item.image ? `<img src="${item.image}" alt="${item.name}" width="80" height="80" class="cart-item-image">` : ''}
-                    <div class="cart-item-details">
-                        <h3 class="cart-item-name">${item.name}</h3>
-                        ${item.variant ? `<p class="cart-item-variant">${item.variant}</p>` : ''}
-                        ${item.sku ? `<p class="cart-item-sku">SKU: ${item.sku}</p>` : ''}
-                    </div>
-                    <div class="cart-item-quantity">
-                        <label for="qty-${item.id}-${item.variant}">Qty:</label>
-                        <input type="number" 
-                               id="qty-${item.id}-${item.variant}"
-                               value="${item.quantity}" 
-                               min="1" 
-                               max="99"
-                               onchange="updateCartQuantity('${item.id}', '${item.variant}', this.value)">
-                    </div>
-                    <div class="cart-item-price">
-                        <p>${item.currency} ${item.price.toFixed(2)}</p>
-                        <p class="cart-item-total">${item.currency} ${itemTotal.toFixed(2)}</p>
-                    </div>
-                    <button onclick="removeCartItem('${item.id}', '${item.variant}')" 
-                            class="cart-item-remove" 
-                            aria-label="Remove ${item.name}">
-                        ✕
-                    </button>
-                </div>
-            `;
+
+            const cartItem = document.createElement('div');
+            cartItem.className = 'cart-item';
+
+            const imageUrl = safeHttpUrl(item.image);
+            if (imageUrl) {
+                const image = document.createElement('img');
+                image.src = imageUrl.href;
+                image.alt = name;
+                image.width = 80;
+                image.height = 80;
+                image.loading = 'lazy';
+                image.decoding = 'async';
+                image.className = 'cart-item-image';
+                cartItem.appendChild(image);
+            }
+
+            const details = document.createElement('div');
+            details.className = 'cart-item-details';
+            const title = document.createElement('h3');
+            title.className = 'cart-item-name';
+            title.textContent = name;
+            details.appendChild(title);
+
+            if (variant) {
+                const variantElement = document.createElement('p');
+                variantElement.className = 'cart-item-variant';
+                variantElement.textContent = variant;
+                details.appendChild(variantElement);
+            }
+            if (item.sku) {
+                const sku = document.createElement('p');
+                sku.className = 'cart-item-sku';
+                sku.textContent = `SKU: ${String(item.sku)}`;
+                details.appendChild(sku);
+            }
+            cartItem.appendChild(details);
+
+            const quantityWrap = document.createElement('div');
+            quantityWrap.className = 'cart-item-quantity';
+            const quantityId = `qty-${index}`;
+            const label = document.createElement('label');
+            label.htmlFor = quantityId;
+            label.textContent = 'Qty:';
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.id = quantityId;
+            input.value = String(quantity);
+            input.min = '1';
+            input.max = '99';
+            input.addEventListener('change', () => updateQuantity(lineKey, input.value));
+            quantityWrap.append(label, input);
+            cartItem.appendChild(quantityWrap);
+
+            const priceWrap = document.createElement('div');
+            priceWrap.className = 'cart-item-price';
+            const unitPrice = document.createElement('p');
+            unitPrice.textContent = formatMoney(currency, price);
+            const totalPrice = document.createElement('p');
+            totalPrice.className = 'cart-item-total';
+            totalPrice.textContent = formatMoney(currency, itemTotal);
+            priceWrap.append(unitPrice, totalPrice);
+            cartItem.appendChild(priceWrap);
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'cart-item-remove';
+            removeButton.setAttribute('aria-label', `Remove ${name}`);
+            removeButton.textContent = '✕';
+            removeButton.addEventListener('click', () => removeItem(lineKey));
+            cartItem.appendChild(removeButton);
+
+            container.appendChild(cartItem);
         });
-        
-        container.innerHTML = html;
         
         // Update summary
         const subtotalEl = document.getElementById('cart-subtotal');
         if (subtotalEl) {
-            subtotalEl.textContent = `${cart[0].currency} ${subtotal.toFixed(2)}`;
+            subtotalEl.textContent = formatMoney(String(cart[0].currency || 'USD'), subtotal);
         }
     }
     
@@ -160,12 +248,32 @@
         const cart = getCart();
         if (cart.length === 0) return;
         
-        // Build Shopify cart URL
-        // Format: /cart/VARIANT_ID:QUANTITY,VARIANT_ID:QUANTITY
-        const cartItems = cart.map(item => `${item.id}:${item.quantity}`).join(',');
-        const checkoutUrl = `https://www.shopify.com/cart/${cartItems}`;
-        
-        window.location.href = checkoutUrl;
+        const baseUrl = safeHttpUrl(cart[0].checkoutBaseUrl);
+        const isNumericId = value => /^\d+$/.test(String(value || ''));
+        const sameMerchantItems = baseUrl
+            ? cart.filter(item => {
+                const itemBase = safeHttpUrl(item.checkoutBaseUrl);
+                return itemBase && itemBase.origin === baseUrl.origin && isNumericId(item.id);
+            })
+            : [];
+
+        if (baseUrl && sameMerchantItems.length === cart.length) {
+            const cartItems = sameMerchantItems
+                .map(item => `${item.id}:${normalizeQuantity(item.quantity)}`)
+                .join(',');
+            window.location.href = `${baseUrl.origin}/cart/${cartItems}`;
+            return;
+        }
+
+        if (cart.length === 1) {
+            const directCheckoutUrl = safeHttpUrl(cart[0].checkoutUrl);
+            if (directCheckoutUrl) {
+                window.location.href = directCheckoutUrl.href;
+                return;
+            }
+        }
+
+        window.alert('Checkout is not configured for these products.');
     }
     
     // Global functions for cart page
@@ -179,6 +287,10 @@
     // If on cart page, render cart
     if (document.getElementById('cart-items')) {
         renderCart();
+        const checkoutButton = document.getElementById('checkout-button');
+        if (checkoutButton) {
+            checkoutButton.addEventListener('click', proceedToCheckout);
+        }
     }
     
     // Attach to product forms

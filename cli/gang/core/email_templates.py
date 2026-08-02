@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import re
 from datetime import datetime
+from core.frontmatter import dump_frontmatter
 
 
 class EmailTemplateGenerator:
@@ -367,10 +368,7 @@ class EmailOrchestrator:
             'tags': frontmatter.get('tags', [])
         }
         
-        # Create newsletter content
-        newsletter_content = f"""---
-{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False)}---
-{body}
+        newsletter_body = f"""{body}
 
 ---
 
@@ -378,6 +376,7 @@ class EmailOrchestrator:
 
 [View archive of all newsletters](/newsletters/)
 """
+        newsletter_content = dump_frontmatter(newsletter_frontmatter, newsletter_body)
         
         # Save to newsletters directory
         newsletters_dir = content_dir / 'newsletters'
