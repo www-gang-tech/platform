@@ -88,10 +88,10 @@
         window.location.href = '/cart/';
     }
     
-    // Update quantity on cart page
-    function updateQuantity(id, variant, quantity) {
+    // Update quantity on cart page by stable cart line key
+    function updateQuantity(lineKey, quantity) {
         const cart = getCart();
-        const item = cart.find(i => String(i.id) === id && String(i.variant || '') === variant);
+        const item = cart.find(i => cartLineKey(i) === lineKey);
         
         if (item) {
             item.quantity = normalizeQuantity(quantity);
@@ -100,10 +100,10 @@
         }
     }
     
-    // Remove item from cart
-    function removeItem(id, variant) {
+    // Remove item from cart by stable cart line key
+    function removeItem(lineKey) {
         let cart = getCart();
-        cart = cart.filter(i => !(String(i.id) === id && String(i.variant || '') === variant));
+        cart = cart.filter(i => cartLineKey(i) !== lineKey);
         saveCart(cart);
         renderCart();
     }
@@ -153,7 +153,7 @@
         let subtotal = 0;
         
         cart.forEach((item, index) => {
-            const id = String(item.id || '');
+            const lineKey = cartLineKey(item);
             const variant = String(item.variant || '');
             const name = String(item.name || 'Product');
             const currency = String(item.currency || 'USD');
@@ -211,7 +211,7 @@
             input.value = String(quantity);
             input.min = '1';
             input.max = '99';
-            input.addEventListener('change', () => updateQuantity(id, variant, input.value));
+            input.addEventListener('change', () => updateQuantity(lineKey, input.value));
             quantityWrap.append(label, input);
             cartItem.appendChild(quantityWrap);
 
@@ -230,7 +230,7 @@
             removeButton.className = 'cart-item-remove';
             removeButton.setAttribute('aria-label', `Remove ${name}`);
             removeButton.textContent = '✕';
-            removeButton.addEventListener('click', () => removeItem(id, variant));
+            removeButton.addEventListener('click', () => removeItem(lineKey));
             cartItem.appendChild(removeButton);
 
             container.appendChild(cartItem);

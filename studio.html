@@ -478,6 +478,32 @@
         let currentFile = null;
         let editor = null;
         let validationPassed = false;
+
+        function studioAuthToken() {
+            if (typeof window.GANG_STUDIO_TOKEN === 'string' && window.GANG_STUDIO_TOKEN) {
+                return window.GANG_STUDIO_TOKEN;
+            }
+            const meta = document.querySelector('meta[name="gang-studio-token"]');
+            if (meta && meta.content) {
+                return meta.content;
+            }
+            try {
+                return localStorage.getItem('GANG_STUDIO_TOKEN')
+                    || sessionStorage.getItem('GANG_STUDIO_TOKEN')
+                    || '';
+            } catch {
+                return '';
+            }
+        }
+
+        function studioHeaders(extra = {}) {
+            const headers = { ...extra };
+            const token = studioAuthToken();
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
         
         // Initialize Toast UI Editor
         function initEditor() {
@@ -520,7 +546,7 @@
             const listEl = document.getElementById('contentList');
             try {
                 console.log('Fetching content from /api/content...');
-                const response = await fetch('/api/content');
+                const response = await fetch('/api/content', { headers: studioHeaders() });
                 console.log('Response status:', response.status);
                 
                 if (!response.ok) {
@@ -561,7 +587,7 @@
             if (!editor) return;
             
             try {
-                const response = await fetch(`/api/content/${path}`);
+                const response = await fetch(`/api/content/${path}`, { headers: studioHeaders() });
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -622,9 +648,9 @@
                 
                 const response = await fetch('/api/validate-headings', {
                     method: 'POST',
-                    headers: {
+                    headers: studioHeaders({
                         'Content-Type': 'application/json',
-                    },
+                    }),
                     body: JSON.stringify({ content: markdown })
                 });
                 
@@ -737,9 +763,9 @@
                 
                 const response = await fetch(`/api/content/${currentFile}`, {
                     method: 'PUT',
-                    headers: {
+                    headers: studioHeaders({
                         'Content-Type': 'text/plain',
-                    },
+                    }),
                     body: markdown
                 });
                 
@@ -774,7 +800,8 @@
             
             try {
                 const response = await fetch('/api/products/sync', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: studioHeaders()
                 });
                 
                 const result = await response.json();
@@ -921,9 +948,9 @@
             try {
                 const response = await fetch('/api/rename-slug', {
                     method: 'POST',
-                    headers: {
+                    headers: studioHeaders({
                         'Content-Type': 'application/json',
-                    },
+                    }),
                     body: JSON.stringify({
                         old_slug: oldSlug,
                         new_slug: newSlug,
@@ -938,8 +965,11 @@
                     document.getElementById('status').textContent = '✓ Slug renamed successfully!';
                     closeRenameSlugModal();
                     
-                    // Update current file path
-                    currentFile = result.new_path;
+                    // Prefer extensionless editor paths (Flask rejects ".md" suffixes).
+                    const renamedPath = String(result.new_path || `${category}/${newSlug}`);
+                    currentFile = renamedPath.endsWith('.md')
+                        ? renamedPath.slice(0, -3)
+                        : renamedPath;
                     
                     // Reload content list
                     loadContentList();
@@ -977,8 +1007,11 @@
         async function loadRedirects() {
             try {
                 const response = await fetch('/api/redirects', {
-                    method: 'POST'
+                    headers: studioHeaders()
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const redirects = await response.json();
                 
                 const listEl = document.getElementById('redirectsList');
@@ -1023,7 +1056,8 @@
             
             try {
                 const response = await fetch(`/api/redirects${fromPath}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: studioHeaders()
                 });
                 
                 if (response.ok) {
