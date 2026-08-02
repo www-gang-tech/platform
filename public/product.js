@@ -73,6 +73,8 @@
                 const parsed = new URL(variant.url, window.location.origin);
                 if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
                     form.action = parsed.href;
+                    // cart.js prefers data-checkout-url over action; keep them in sync.
+                    form.dataset.checkoutUrl = parsed.href;
                 }
             } catch (e) {
                 // Keep the existing form action when variant URL is invalid.

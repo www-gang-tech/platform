@@ -13,6 +13,32 @@ class InPlaceEditor {
         this.apiBase = window.GANG_API_BASE || 'http://localhost:5001';
     }
 
+    studioAuthToken() {
+        if (typeof window.GANG_STUDIO_TOKEN === 'string' && window.GANG_STUDIO_TOKEN) {
+            return window.GANG_STUDIO_TOKEN;
+        }
+        const meta = document.querySelector('meta[name="gang-studio-token"]');
+        if (meta && meta.content) {
+            return meta.content;
+        }
+        try {
+            return localStorage.getItem('GANG_STUDIO_TOKEN')
+                || sessionStorage.getItem('GANG_STUDIO_TOKEN')
+                || '';
+        } catch {
+            return '';
+        }
+    }
+
+    studioHeaders(extra = {}) {
+        const headers = { ...extra };
+        const token = this.studioAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
+    }
+
     async activate() {
         if (this.isActive) return;
         
@@ -21,7 +47,9 @@ class InPlaceEditor {
         
         try {
             // Fetch content from API
-            const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`);
+            const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`, {
+                headers: this.studioHeaders()
+            });
             if (!response.ok) {
                 throw new Error('Failed to load content: ' + response.status);
             }
@@ -344,9 +372,9 @@ class InPlaceEditor {
             
             const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`, {
                 method: 'PUT',
-                headers: {
+                headers: this.studioHeaders({
                     'Content-Type': 'text/plain',
-                },
+                }),
                 body: content
             });
             
@@ -370,9 +398,9 @@ class InPlaceEditor {
             
             const response = await fetch(`${this.apiBase}/api/validate-headings`, {
                 method: 'POST',
-                headers: {
+                headers: this.studioHeaders({
                     'Content-Type': 'application/json',
-                },
+                }),
                 body: JSON.stringify({ content })
             });
             
@@ -402,7 +430,8 @@ class InPlaceEditor {
             
             // Then trigger build/deploy
             const buildResponse = await fetch(`${this.apiBase}/api/build`, {
-                method: 'POST' 
+                method: 'POST',
+                headers: this.studioHeaders()
             });
             const buildResult = await buildResponse.json();
             if (!buildResponse.ok || buildResult.status === 'error') {
