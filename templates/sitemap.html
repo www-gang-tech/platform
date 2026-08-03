@@ -71,12 +71,27 @@
         </section>
         {% endif %}
         
+        {% if newsletters %}
+        <section style="margin-top: 2rem;">
+            <h2>Newsletters</h2>
+            <ul class="unstyled">
+                {% for newsletter in newsletters %}
+                <li><a href="{{ newsletter.url }}">{{ newsletter.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
         {% if products %}
         <section style="margin-top: 2rem;">
             <h2>Products</h2>
             <ul class="unstyled">
                 {% for product in products %}
-                <li><a href="/products/{{ product._meta.slug or product._meta.handle }}/">{{ product.name }}</a></li>
+                <li>
+                    <a href="{% if product.url %}{{ product.url }}{% else %}/products/{{ product._meta.slug or product._meta.handle }}/{% endif %}">
+                        {{ product.title or product.name }}
+                    </a>
+                </li>
                 {% endfor %}
             </ul>
         </section>
