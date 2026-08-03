@@ -396,12 +396,15 @@ class InPlaceEditor {
         try {
             const content = this.getBodyContent();
             
+            const category = document.body?.dataset?.category
+                || (this.currentFile ? this.currentFile.split('/')[0] : '')
+                || '';
             const response = await fetch(`${this.apiBase}/api/validate-headings`, {
                 method: 'POST',
                 headers: this.studioHeaders({
                     'Content-Type': 'application/json',
                 }),
-                body: JSON.stringify({ content })
+                body: JSON.stringify({ content, category })
             });
             
             if (!response.ok) {
