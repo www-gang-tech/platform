@@ -30,7 +30,7 @@
   {% if item.tags %}
     <ul class="tags" aria-label="Tags">
       {% for tag in item.tags %}
-        <li><a href="/tags/{{ tag|urlencode }}/">#{{ tag }}</a></li>
+        <li><a href="/tags/{{ tag|tagencode }}/">#{{ tag }}</a></li>
       {% endfor %}
     </ul>
   {% endif %}
