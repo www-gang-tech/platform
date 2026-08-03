@@ -10,7 +10,6 @@ from flask_cors import CORS
 from pathlib import Path
 import subprocess
 import yaml
-import re
 import os
 import secrets
 
@@ -150,49 +149,39 @@ def validate_headings():
         return jsonify({'error': 'No content provided'}), 400
     
     content = data['content']
-    
-    # Extract headings from markdown
-    heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
-    headings = heading_pattern.findall(content)
-    
-    if not headings:
+    category = (data.get('category') or data.get('content_category') or '').strip()
+    # Templates for these content types render the visible H1 from frontmatter.
+    template_owns_h1 = category in {
+        'posts', 'articles', 'projects', 'newsletters', 'people'
+    }
+
+    try:
+        import sys
+        sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
+        from core.heading_validator import HeadingValidator
+
+        result = HeadingValidator().validate_markdown(
+            content, template_owns_h1=template_owns_h1
+        )
+        headings = [
+            {'level': level, 'text': text}
+            for level, text, _line in result.get('headings', [])
+        ]
+        errors = result.get('errors', [])
         return jsonify({
-            'valid': True,
-            'message': 'No headings found (optional for some content types)'
+            'valid': result.get('valid', False),
+            'errors': errors,
+            'suggestions': result.get('suggestions', []) if errors else [],
+            'headings': headings,
+            'message': (
+                'Heading structure is valid'
+                if result.get('valid')
+                else 'Found ' + str(len(errors)) + ' heading issue(s)'
+            ),
+            'template_owns_h1': template_owns_h1,
         })
-    
-    errors = []
-    suggestions = []
-    
-    # Convert to heading levels
-    heading_levels = [len(h[0]) for h in headings]
-    
-    # Rule 1: First heading should be H1
-    if heading_levels[0] != 1:
-        errors.append('First heading is H' + str(heading_levels[0]) + ', should be H1')
-        suggestions.append('Start with a single # for the main title')
-    
-    # Rule 2: Only one H1
-    h1_count = heading_levels.count(1)
-    if h1_count > 1:
-        errors.append('Multiple H1 headings found (' + str(h1_count) + '), should have exactly one')
-        suggestions.append('Use only one # (H1) for the page title')
-    
-    # Rule 3: No skipped levels
-    for i in range(1, len(heading_levels)):
-        prev_level = heading_levels[i-1]
-        curr_level = heading_levels[i]
-        
-        if curr_level > prev_level + 1:
-            errors.append('Heading level skipped: H' + str(prev_level) + ' to H' + str(curr_level))
-            suggestions.append('Increment heading levels by one (use H' + str(prev_level + 1) + ' instead of H' + str(curr_level) + ')')
-    
-    return jsonify({
-        'valid': len(errors) == 0,
-        'errors': errors,
-        'suggestions': suggestions if errors else [],
-        'headings': [{'level': len(h[0]), 'text': h[1]} for h in headings]
-    })
+    except Exception as exc:
+        return jsonify({'error': 'Internal server error', 'message': str(exc)}), 500
 
 
 @app.route('/api/build', methods=['POST'])
