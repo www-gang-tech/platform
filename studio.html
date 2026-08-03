@@ -645,13 +645,14 @@
             
             try {
                 const markdown = editor.getMarkdown();
+                const category = currentFile ? currentFile.split('/')[0] : '';
                 
                 const response = await fetch('/api/validate-headings', {
                     method: 'POST',
                     headers: studioHeaders({
                         'Content-Type': 'application/json',
                     }),
-                    body: JSON.stringify({ content: markdown })
+                    body: JSON.stringify({ content: markdown, category })
                 });
                 
                 const result = await response.json();
@@ -911,8 +912,10 @@
                 const redirectPreview = document.getElementById('redirectPreview');
                 
                 if (newSlug && createRedirect) {
-                    const oldUrl = `/${category}/${slug}/`;
-                    const newUrl = `/${category}/${newSlug}/`;
+                    // articles publish under /posts/ (same as server redirect mapping)
+                    const outputCategory = category === 'articles' ? 'posts' : category;
+                    const oldUrl = `/${outputCategory}/${slug}/`;
+                    const newUrl = `/${outputCategory}/${newSlug}/`;
                     redirectPreview.textContent = `${oldUrl} → ${newUrl}`;
                     redirectInfo.style.display = 'block';
                 } else {
