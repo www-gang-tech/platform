@@ -138,17 +138,18 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site_url = str(self.config.get('site', {}).get('url', '')).rstrip('/')
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search</title>
     <meta name="description" content="Search content across this site">
-    <link rel="canonical" href="/search/">
+    <link rel="canonical" href="__SITE_URL__/search/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"SearchResultsPage","name":"Search","url":"/search/"}
+    {"@context":"https://schema.org","@type":"SearchResultsPage","name":"Search","url":"__SITE_URL__/search/"}
     </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -176,6 +177,17 @@ class SearchIndexer:
         #searchInput:focus {
             outline: none;
             border-color: #0066cc;
+        }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
         .search-stats {
             margin-bottom: 1rem;
@@ -247,11 +259,14 @@ class SearchIndexer:
     <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput" class="visually-hidden">Search</label>
         <input 
-            type="text" 
+            type="search" 
             id="searchInput" 
+            name="q"
             placeholder="Search articles, projects, pages..."
             autocomplete="off"
+            aria-label="Search site content"
         >
     </div>
     
@@ -384,4 +399,5 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return html.replace('__SITE_URL__', site_url)
 
