@@ -10,7 +10,7 @@
             {% if tags %}
             <span aria-label="Tags">
                 {% for tag in tags %}
-                <a href="/tags/{{ tag|urlencode }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
+                <a href="/tags/{{ tag|tagencode }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
                 {% endfor %}
             </span>
             {% endif %}
