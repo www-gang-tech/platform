@@ -946,7 +946,12 @@ def import_content(ctx, source, title, category, compress_images, commit):
 @cli.command()
 @click.argument('old_slug')
 @click.argument('new_slug')
-@click.option('--category', type=click.Choice(['posts', 'pages', 'projects']), required=True, help='Content category')
+@click.option(
+    '--category',
+    type=click.Choice(['posts', 'pages', 'projects', 'articles', 'newsletters', 'products', 'people']),
+    required=True,
+    help='Content category',
+)
 @click.option('--redirect', is_flag=True, default=True, help='Create 301 redirect (default: yes)')
 @click.option('--no-redirect', is_flag=True, help='Skip creating redirect')
 @click.pass_context
@@ -2528,7 +2533,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Create list pages
     # Always create posts index page, even if empty
     click.echo("📄 Creating posts index...")
-    posts_html = create_list_page_simple(config, sorted(all_posts, key=content_date_sort_key, reverse=True), 'Posts', templates_path)
+    posts_html = create_list_page_simple(
+        config,
+        sorted(all_posts, key=content_date_sort_key, reverse=True),
+        'Posts',
+        templates_path,
+        canonical_path='/posts/',
+    )
     page_size_bytes = len(posts_html.encode('utf-8'))
     posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
@@ -2536,14 +2547,18 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     if all_projects:
         click.echo("📄 Creating projects index...")
-        projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
+        projects_html = create_list_page_simple(
+            config, all_projects, 'Projects', templates_path, canonical_path='/projects/',
+        )
         page_size_bytes = len(projects_html.encode('utf-8'))
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
     
     if all_people:
         click.echo("📄 Creating people index...")
-        people_html = create_list_page_simple(config, all_people, 'People', templates_path)
+        people_html = create_list_page_simple(
+            config, all_people, 'People', templates_path, canonical_path='/people/',
+        )
         page_size_bytes = len(people_html.encode('utf-8'))
         people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'people').mkdir(parents=True, exist_ok=True)
@@ -2551,7 +2566,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     if all_product_pages:
         click.echo("📄 Creating products index from content...")
-        products_html = create_list_page_simple(config, all_product_pages, 'Products', templates_path)
+        products_html = create_list_page_simple(
+            config, all_product_pages, 'Products', templates_path, canonical_path='/products/',
+        )
         page_size_bytes = len(products_html.encode('utf-8'))
         products_html = products_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'products').mkdir(parents=True, exist_ok=True)
@@ -2637,8 +2654,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 )
                 (products_path / 'index.html').write_text(plp_html)
             
-            # Generate PDPs
+            # Generate PDPs (skip slugs already rendered from markdown content)
+            markdown_product_slugs = {
+                quote(str(p.get('slug', '')).strip('/'), safe='')
+                for p in all_product_pages
+                if p.get('slug')
+            }
             pdp_template = jinja_env.get_template('product.html')
+            aggregator_pdp_count = 0
             for product in products:
                 # Use 'handle' if 'slug' not present (Shopify uses 'handle')
                 slug = product['_meta'].get('slug') or product['_meta'].get('handle')
@@ -2646,6 +2669,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     click.echo(f"⚠️  Skipping product without slug/handle: {product.get('name')}")
                     continue
                 slug = quote(str(slug).strip('/'), safe='')
+                if slug in markdown_product_slugs:
+                    click.echo(f"📄 Keeping markdown PDP for {slug} (skipping aggregator overwrite)")
+                    continue
                 
                 pdp_dir = products_path / slug
                 pdp_dir.mkdir(parents=True, exist_ok=True)
@@ -2784,15 +2810,45 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
                 pdp_html = pdp_template.render(**pdp_context)
                 (pdp_dir / 'index.html').write_text(pdp_html)
+                aggregator_pdp_count += 1
             
-            click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
-            
-            # Generate HTML sitemap
+            click.echo(
+                f"✅ Generated product pages "
+                f"({'PLP + ' if not all_product_pages else ''}"
+                f"{aggregator_pdp_count} aggregator PDP(s)"
+                f"{f', kept {len(markdown_product_slugs)} markdown PDP(s)' if markdown_product_slugs else ''})"
+            )
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate product pages: {e}")
+
+    # HTML sitemap is linked from the footer; always emit it (not gated on commerce).
+    try:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        template_dir = Path(__file__).parent.parent.parent / 'templates'
+        sitemap_template_path = template_dir / 'sitemap.html'
+        if sitemap_template_path.exists():
+            jinja_env = Environment(
+                loader=FileSystemLoader(str(template_dir)),
+                autoescape=select_autoescape(['html', 'xml']),
+            )
+            # Prefer markdown product pages; fall back to aggregator products.
+            if all_product_pages:
+                sitemap_products = all_product_pages
+            else:
+                sitemap_products = []
+                for product in products or []:
+                    meta = product.get('_meta') or {}
+                    slug = meta.get('slug') or meta.get('handle')
+                    if not slug:
+                        continue
+                    slug = quote(str(slug).strip('/'), safe='')
+                    sitemap_products.append({
+                        'url': f'/products/{slug}/',
+                        'title': product.get('name') or slug,
+                    })
             sitemap_dir = dist_path / 'sitemap'
             sitemap_dir.mkdir(parents=True, exist_ok=True)
-            
-            sitemap_template = jinja_env.get_template('sitemap.html')
-            sitemap_html = sitemap_template.render(
+            sitemap_html = jinja_env.get_template('sitemap.html').render(
                 site_title=config['site']['title'],
                 lang=config['site'].get('language', 'en'),
                 site_url=config['site']['url'],
@@ -2800,15 +2856,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 posts=all_posts,
                 projects=all_projects,
                 people=all_people,
-                products=products,
+                newsletters=all_newsletters,
+                products=sitemap_products,
                 year=datetime.now().year,
                 build_time_iso=datetime.now().isoformat()
             )
             (sitemap_dir / 'index.html').write_text(sitemap_html)
-            
             click.echo("🗺️  Generated HTML sitemap")
     except Exception as e:
-        click.echo(f"⚠️  Could not generate product pages: {e}")
+        click.echo(f"⚠️  Could not generate HTML sitemap: {e}")
 
     # Cart page is linked from the global header; always emit it when templates exist.
     try:
@@ -3275,7 +3331,7 @@ def collect_items_by_tag(*collections: List[Dict]) -> Dict[str, List[Dict]]:
 
 
 def tag_path_segment(tag: str) -> str:
-    """Filesystem/URL segment matching template tag links (urlencode-compatible)."""
+    """Filesystem/URL segment matching template `|tagencode` filter (encodes `/`)."""
     from urllib.parse import quote
     return quote(str(tag).strip(), safe='-_.~')
 
@@ -3582,6 +3638,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{html_escape(str(config['site']['title']))}</title>
     <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
+    <link rel="canonical" href="{html_escape(str(config['site']['url']).rstrip('/') + '/', quote=True)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -4561,8 +4618,13 @@ def studio(ctx, port, host):
                             return
                         
                         for md_file in content_path.rglob('*.md'):
+                            # Extensionless paths match Flask list_content /
+                            # resolve_content_file and studio.html clients.
+                            rel = str(md_file.relative_to(content_path)).replace('\\', '/')
+                            if rel.endswith('.md'):
+                                rel = rel[:-3]
                             files.append({
-                                'path': str(md_file.relative_to(content_path)),
+                                'path': rel,
                                 'type': md_file.parent.name,
                                 'name': md_file.stem
                             })
@@ -4668,6 +4730,8 @@ def studio(ctx, port, host):
             def do_POST(self):
                 """Handle POST requests"""
                 if self.path == '/api/validate-headings':
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         # Read request body
                         content_length = int(self.headers['Content-Length'])
@@ -4675,6 +4739,8 @@ def studio(ctx, port, host):
                         data = json.loads(body.decode())
                         
                         content = data.get('content', '')
+                        category = (data.get('category') or data.get('content_category') or '').strip()
+                        template_owns_h1 = category in TEMPLATE_OWNS_H1
                         
                         click.echo(f"Score Validating headings in content ({len(content)} chars)")
                         
@@ -4683,7 +4749,9 @@ def studio(ctx, port, host):
                         from core.heading_validator import HeadingValidator
                         
                         validator = HeadingValidator()
-                        result = validator.validate_markdown(content)
+                        result = validator.validate_markdown(
+                            content, template_owns_h1=template_owns_h1
+                        )
                         
                         # Add formatted report
                         result['report'] = validator.generate_error_report(result)
