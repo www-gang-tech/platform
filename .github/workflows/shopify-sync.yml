@@ -82,16 +82,31 @@ jobs:
                       print(f'No Shopify product found for handle={handle}', file=sys.stderr)
                       raise SystemExit(1)
               else:
-                  # Manual "sync all": fetch the first page and write a marker
-                  # list; convert step expands each product into its own file.
-                  resp = requests.get(
-                      f'{base}/products.json',
-                      params={'limit': 50},
-                      headers=headers,
-                      timeout=30,
-                  )
-                  resp.raise_for_status()
-                  products = resp.json().get('products') or []
+                  # Manual "sync all": paginate Admin API until exhausted.
+                  products = []
+                  url = f'{base}/products.json'
+                  params = {'limit': 50}
+                  while url:
+                      resp = requests.get(
+                          url,
+                          params=params,
+                          headers=headers,
+                          timeout=30,
+                      )
+                      resp.raise_for_status()
+                      batch = resp.json().get('products') or []
+                      products.extend(batch)
+                      next_url = None
+                      link = resp.headers.get('Link') or resp.headers.get('link') or ''
+                      for part in link.split(','):
+                          if 'rel="next"' in part:
+                              start = part.find('<')
+                              end = part.find('>')
+                              if start != -1 and end != -1:
+                                  next_url = part[start + 1:end]
+                              break
+                      url = next_url
+                      params = None  # next Link URL already includes query params
                   if not products:
                       print('No Shopify products returned', file=sys.stderr)
                       raise SystemExit(1)

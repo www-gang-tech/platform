@@ -19,7 +19,18 @@
     
     // Get all variant data from hidden input
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            variants = JSON.parse(variantsData.textContent || '[]');
+            if (!Array.isArray(variants)) {
+                variants = [];
+            }
+        } catch (e) {
+            // Keep progressive enhancement working when variant JSON is malformed.
+            variants = [];
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
