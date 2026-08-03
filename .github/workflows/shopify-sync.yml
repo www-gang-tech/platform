@@ -15,6 +15,9 @@ on:
 jobs:
   sync-product:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     
     steps:
       - name: Checkout code
@@ -33,136 +36,240 @@ jobs:
       
       - name: Extract product data
         id: extract
+        env:
+          # Pass via env to avoid shell metacharacter breakage from toJSON(...)
+          PRODUCT_JSON: ${{ toJSON(github.event.client_payload.product) }}
+          PRODUCT_HANDLE: ${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
         run: |
-          # Parse webhook payload or fetch from Shopify API
-          PRODUCT_HANDLE="${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}"
-          echo "handle=$PRODUCT_HANDLE" >> $GITHUB_OUTPUT
-          
-          # Save product JSON (from webhook or API)
+          echo "handle=$PRODUCT_HANDLE" >> "$GITHUB_OUTPUT"
           mkdir -p .shopify-sync
-          echo '${{ toJSON(github.event.client_payload.product) }}' > .shopify-sync/product.json
+          python3 << 'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          import requests
+
+          out = Path('.shopify-sync/product.json')
+          raw = os.environ.get('PRODUCT_JSON') or 'null'
+          handle = (os.environ.get('PRODUCT_HANDLE') or '').strip()
+          store = (os.environ.get('SHOPIFY_STORE') or '').strip()
+          token = (os.environ.get('SHOPIFY_ACCESS_TOKEN') or '').strip()
+
+          product = None
+          if raw not in ('', 'null'):
+              product = json.loads(raw)
+          elif store and token:
+              base = f'https://{store}/admin/api/2024-01'
+              headers = {
+                  'X-Shopify-Access-Token': token,
+                  'Content-Type': 'application/json',
+              }
+              if handle:
+                  resp = requests.get(
+                      f'{base}/products.json',
+                      params={'handle': handle, 'limit': 1},
+                      headers=headers,
+                      timeout=30,
+                  )
+                  resp.raise_for_status()
+                  products = resp.json().get('products') or []
+                  product = products[0] if products else None
+                  if product is None:
+                      print(f'No Shopify product found for handle={handle}', file=sys.stderr)
+                      raise SystemExit(1)
+              else:
+                  # Manual "sync all": paginate Admin API until exhausted.
+                  products = []
+                  url = f'{base}/products.json'
+                  params = {'limit': 50}
+                  while url:
+                      resp = requests.get(
+                          url,
+                          params=params,
+                          headers=headers,
+                          timeout=30,
+                      )
+                      resp.raise_for_status()
+                      batch = resp.json().get('products') or []
+                      products.extend(batch)
+                      next_url = None
+                      link = resp.headers.get('Link') or resp.headers.get('link') or ''
+                      for part in link.split(','):
+                          if 'rel="next"' in part:
+                              start = part.find('<')
+                              end = part.find('>')
+                              if start != -1 and end != -1:
+                                  next_url = part[start + 1:end]
+                              break
+                      url = next_url
+                      params = None  # next Link URL already includes query params
+                  if not products:
+                      print('No Shopify products returned', file=sys.stderr)
+                      raise SystemExit(1)
+                  out.write_text(json.dumps({'products': products}, indent=2))
+                  print(f'Fetched {len(products)} Shopify product(s) for bulk sync')
+                  raise SystemExit(0)
+          else:
+              print(
+                  'No product payload. Provide repository_dispatch product JSON '
+                  'or set SHOPIFY_STORE + SHOPIFY_ACCESS_TOKEN for workflow_dispatch.',
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+
+          out.write_text(json.dumps(product, indent=2) if product is not None else 'null')
+          PY
       
       - name: Convert to front-matter
         id: convert
         run: |
           python3 << 'EOF'
           import json
+          import os
           import yaml
           from pathlib import Path
           from bs4 import BeautifulSoup
-          from datetime import datetime
           
           # Load mapping schema
           with open('schemas/product.map.json') as f:
               schema = json.load(f)
           
-          # Load product data
+          # Load product data (single product or bulk {"products": [...]})
           with open('.shopify-sync/product.json') as f:
-              product = json.load(f)
+              payload = json.load(f)
           
-          if not product:
+          if not payload:
               print("No product data")
-              exit(1)
+              raise SystemExit(1)
+
+          if isinstance(payload, dict) and isinstance(payload.get('products'), list):
+              products = [item for item in payload['products'] if isinstance(item, dict)]
+          elif isinstance(payload, dict):
+              products = [payload]
+          else:
+              print("Unexpected product payload shape")
+              raise SystemExit(1)
+
+          if not products:
+              print("No product data")
+              raise SystemExit(1)
           
-          # Apply mappings
-          front_matter = {}
-          for key, mapping in schema['mappings'].items():
-              source = mapping['source']
-              # Simple JSONPath evaluation (production would use jsonpath_ng)
-              value = product
-              for part in source.replace('[', '.').replace(']', '').split('.'):
-                  if part.startswith('*'):
-                      continue
+          def extract_value(data, path):
+              parts = path.replace('[', '.').replace(']', '').split('.')
+              value = data
+              for i, part in enumerate(parts):
+                  if part == '*':
+                      if not isinstance(value, list):
+                          return []
+                      rest = '.'.join(parts[i + 1:])
+                      return [extract_value(item, rest) for item in value]
                   if part.isdigit():
-                      value = value[int(part)] if isinstance(value, list) else value
+                      if not isinstance(value, list) or int(part) >= len(value):
+                          return None
+                      value = value[int(part)]
                   else:
                       value = value.get(part) if isinstance(value, dict) else None
                   if value is None:
-                      break
-              
-              # Apply transforms
-              if value and mapping.get('transform') == 'strip_html':
-                  value = BeautifulSoup(str(value), 'html.parser').get_text()[:mapping.get('max_length', 1000)]
-              elif value and mapping.get('transform') == 'to_schema_availability':
-                  value = 'InStock' if value else 'OutOfStock'
-              
-              if value is not None:
-                  front_matter[key] = value
-          
-          # Generate front-matter file
-          handle = front_matter.get('handle', 'unknown')
-          content_dir = Path('content/shop')
+                      return None
+              return value
+
+          def flatten(value):
+              if isinstance(value, list):
+                  flattened = []
+                  for item in value:
+                      if isinstance(item, list):
+                          flattened.extend(item)
+                      elif item is not None:
+                          flattened.append(item)
+                  return flattened
+              return value
+
+          def normalize_variants(value):
+              if not isinstance(value, list):
+                  return []
+              normalized = []
+              for variant in value:
+                  if not isinstance(variant, dict):
+                      continue
+                  normalized.append({
+                      'id': variant.get('id'),
+                      'title': variant.get('title'),
+                      'price': variant.get('price'),
+                      'sku': variant.get('sku'),
+                      'inventory': variant.get('inventory_quantity', 0),
+                  })
+              return normalized
+
+          content_dir = Path('content/products')
           content_dir.mkdir(parents=True, exist_ok=True)
+          handles = []
+          output_files = []
+
+          for product in products:
+              # Apply mappings
+              front_matter = {}
+              for _key, mapping in schema['mappings'].items():
+                  source = mapping['shopify_field']
+                  target = mapping['frontmatter_field']
+                  value = flatten(extract_value(product, source))
+                  
+                  # Apply transforms
+                  if value and mapping.get('transform') == 'html_to_markdown':
+                      value = BeautifulSoup(str(value), 'html.parser').get_text()
+                  elif value is not None and mapping.get('transform') == 'normalize_variants':
+                      value = normalize_variants(value)
+                  
+                  # Shopify tags arrive as a comma-separated string
+                  if target == 'tags' and isinstance(value, str):
+                      value = [tag.strip() for tag in value.split(',') if tag.strip()]
+                  
+                  if value is None and 'default' in mapping:
+                      value = mapping['default']
+                  
+                  if value is not None:
+                      front_matter[target] = value
+              
+              # Generate front-matter file
+              handle = front_matter.get('slug') or product.get('handle') or 'unknown'
+              output_file = content_dir / f"{handle}.md"
+              
+              with open(output_file, 'w') as f:
+                  f.write('---\n')
+                  yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
+                  f.write('---\n\n')
+                  f.write(front_matter.get('description', '') or '')
+              
+              print(f"Generated: {output_file}")
+              handles.append(handle)
+              output_files.append(str(output_file))
           
-          output_file = content_dir / f"{handle}.md"
-          
-          with open(output_file, 'w') as f:
-              f.write('---\n')
-              yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
-              f.write('---\n\n')
-              f.write(front_matter.get('summary', ''))
-          
-          print(f"Generated: {output_file}")
-          
-          # Set outputs using environment file (new syntax)
-          import os
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"file={output_file}\n")
-              f.write(f"handle={handle}\n")
+              f.write(f"file={output_files[0]}\n")
+              f.write(f"handle={handles[0] if len(handles) == 1 else 'bulk-' + str(len(handles))}\n")
           EOF
       
-      - name: Create PR branch
-        id: pr_branch
+      - name: Prepare PR metadata
+        id: pr_meta
         run: |
-          HANDLE="${{ steps.extract.outputs.handle }}"
-          BRANCH="shop/update-${HANDLE}"
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          
-          git config user.name "shopify-sync-bot"
-          git config user.email "bot@gang.tech"
-          
-          # Create branch from main
-          git checkout -b "$BRANCH"
-          
-          # Stage changes
-          git add content/shop/
-          
-          # Check if there are changes
-          if git diff --staged --quiet; then
-            echo "No changes detected"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          # Commit
-          git commit -m "chore(shop): update product ${HANDLE}
-
-          Synced from Shopify at ${TIMESTAMP}
-          
-          Product ID: ${{ github.event.client_payload.product.id }}
-          Status: ${{ github.event.client_payload.product.status }}
-          
-          Auto-generated by Shopify sync workflow"
-          
-          # Push
-          git push origin "$BRANCH" --force
-          
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
       
       - name: Create Pull Request
-        if: steps.pr_branch.outputs.has_changes == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ steps.pr_branch.outputs.branch }}
-          title: "🛍️ Update product: ${{ steps.extract.outputs.handle }}"
+          branch: shop/update-${{ steps.convert.outputs.handle }}
+          commit-message: "chore(shop): update product ${{ steps.convert.outputs.handle }}"
+          add-paths: content/products/
+          title: "🛍️ Update product: ${{ steps.convert.outputs.handle }}"
           body: |
             ## Shopify Product Update
             
-            **Product**: `${{ steps.extract.outputs.handle }}`  
-            **Synced at**: `${{ steps.pr_branch.outputs.timestamp }}`  
+            **Product**: `${{ steps.convert.outputs.handle }}`  
+            **Synced at**: `${{ steps.pr_meta.outputs.timestamp }}`  
             **Shopify ID**: `${{ github.event.client_payload.product.id }}`
             
             ### Changes
