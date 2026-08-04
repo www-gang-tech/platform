@@ -63,9 +63,12 @@ def request_is_authenticated():
 
 
 @app.before_request
-def protect_mutations():
-    """Require auth for mutations unless this is a loopback local Studio session."""
-    if request.method not in {'POST', 'PUT', 'DELETE'}:
+def protect_studio_api():
+    """Require auth for mutations and content reads outside trusted local use."""
+    path = request.path or ''
+    is_mutation = request.method in {'POST', 'PUT', 'DELETE'}
+    is_content_read = request.method == 'GET' and path.startswith('/api/content')
+    if not (is_mutation or is_content_read):
         return None
     if request_is_authenticated():
         return None
@@ -353,6 +356,11 @@ def rename_slug():
         from core.redirects import RedirectManager
 
         old_file.rename(new_file)
+        try:
+            from core.frontmatter import update_slug_in_file
+            update_slug_in_file(new_file, new_slug)
+        except Exception:
+            pass
         redirect_info = None
         if create_redirect:
             output_category = 'posts' if category == 'articles' else category
