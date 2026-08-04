@@ -222,9 +222,11 @@ class NewsletterManager:
                     parts = content.split('---', 2)
                     frontmatter = yaml.safe_load(parts[1]) or {}
                     
-                    status = frontmatter.get('status', 'draft')
+                    status = str(frontmatter.get('status', 'draft') or 'draft').strip().lower()
+                    # Unknown statuses (e.g. "published") used to KeyError and get dropped.
+                    bucket = status if status in newsletters else 'draft'
                     
-                    newsletters[status].append({
+                    newsletters[bucket].append({
                         'slug': file_path.stem,
                         'title': frontmatter.get('title', file_path.stem),
                         'subject': frontmatter.get('subject', ''),
@@ -234,7 +236,7 @@ class NewsletterManager:
                         'scheduled_for': frontmatter.get('scheduled_for'),
                         'recipients': frontmatter.get('recipients', 0)
                     })
-            except:
+            except Exception:
                 continue
         
         return newsletters
@@ -348,7 +350,7 @@ class KlaviyoProvider(EmailProvider):
         try:
             import requests
             
-            # Create campaign
+            # Create campaign (campaign-messages key matches Klaviyo API / klaviyo_integration)
             campaign_data = {
                 'data': {
                     'type': 'campaign',
@@ -360,7 +362,7 @@ class KlaviyoProvider(EmailProvider):
                         'send_strategy': {
                             'method': 'immediate'
                         },
-                        'campaign_messages': {
+                        'campaign-messages': {
                             'data': [{
                                 'type': 'campaign-message',
                                 'attributes': {
@@ -396,18 +398,22 @@ class KlaviyoProvider(EmailProvider):
                 campaign = response.json()
                 campaign_id = campaign['data']['id']
 
-                # Attach HTML/text body to the campaign message before sending.
-                messages = (
-                    campaign.get('data', {})
-                    .get('attributes', {})
-                    .get('campaign_messages', {})
-                    .get('data', [])
-                ) or (
-                    campaign.get('data', {})
-                    .get('relationships', {})
-                    .get('campaign-messages', {})
-                    .get('data', [])
+                # Resolve message ids via the campaign collection endpoint; create
+                # responses often only expose relationships, not nested attributes.
+                messages_response = requests.get(
+                    f"{self.base_url}/campaigns/{campaign_id}/campaign-messages/",
+                    headers=headers,
                 )
+                messages = []
+                if messages_response.status_code == 200:
+                    messages = messages_response.json().get('data') or []
+                if not messages:
+                    messages = (
+                        campaign.get('data', {})
+                        .get('relationships', {})
+                        .get('campaign-messages', {})
+                        .get('data', [])
+                    )
                 if messages:
                     message_id = messages[0].get('id')
                     if message_id:
@@ -422,7 +428,7 @@ class KlaviyoProvider(EmailProvider):
                                         'from_email': email_data['from_email'],
                                         'from_label': email_data['from_name'],
                                         'html': email_data.get('html_body', ''),
-                                        'text': email_data.get('text_body', ''),
+                                        'plain_text': email_data.get('text_body', ''),
                                     }
                                 }
                             }
