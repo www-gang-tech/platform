@@ -230,7 +230,12 @@ class KlaviyoClient:
         actions: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Create automated flow (e.g., abandoned cart, welcome series)
+        Create an empty draft flow shell (e.g., abandoned cart, welcome series).
+
+        Klaviyo's Flows API creates the flow record only; action definitions must
+        be configured via the Flow Definition API or Klaviyo UI. Callers that
+        pass ``actions`` receive them echoed under ``pending_actions`` with a
+        warning so empty drafts are not mistaken for fully configured flows.
         
         Common trigger types:
         - 'abandoned-cart'
@@ -258,7 +263,14 @@ class KlaviyoClient:
         )
         response.raise_for_status()
         
-        return response.json()
+        result = response.json()
+        if actions:
+            result['pending_actions'] = actions
+            result['warning'] = (
+                'Flow created as an empty draft; action definitions were not applied. '
+                'Configure actions in the Klaviyo UI or Flow Definition API.'
+            )
+        return result
     
     def get_lists(self) -> List[Dict[str, Any]]:
         """Get all email lists"""
