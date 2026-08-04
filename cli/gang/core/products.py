@@ -185,7 +185,7 @@ class ShopifyClient:
         self.api_version = '2024-01'
     
     def fetch_products(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Fetch products from Shopify"""
+        """Fetch products from Shopify, following Admin API pagination."""
         # Demo mode - return mock data
         if not self.access_token or self.access_token == 'demo':
             return self._demo_products()
@@ -199,12 +199,27 @@ class ShopifyClient:
                 'Content-Type': 'application/json'
             }
             
-            params = {'limit': limit}
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            products = data.get('products', [])
+            page_limit = max(1, min(int(limit or 100), 250))
+            params = {'limit': page_limit}
+            products: List[Dict[str, Any]] = []
+            while url:
+                response = requests.get(url, headers=headers, params=params, timeout=30)
+                response.raise_for_status()
+                batch = response.json().get('products', []) or []
+                products.extend(batch)
+
+                next_url = None
+                link = response.headers.get('Link') or response.headers.get('link') or ''
+                for part in link.split(','):
+                    if 'rel="next"' in part:
+                        start = part.find('<')
+                        end = part.find('>')
+                        if start != -1 and end != -1:
+                            next_url = part[start + 1:end]
+                        break
+                url = next_url
+                params = None  # next Link URL already includes query params
+
             for product in products:
                 handle = product.get('handle')
                 if handle and not product.get('url'):

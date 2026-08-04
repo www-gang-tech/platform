@@ -1016,6 +1016,13 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     except Exception as e:
         click.echo(f"❌ Rename failed: {e}")
         ctx.exit(1)
+
+    try:
+        from core.frontmatter import update_slug_in_file
+        if update_slug_in_file(new_file, new_slug):
+            click.echo(f"✅ Frontmatter slug updated to '{new_slug}'")
+    except Exception as e:
+        click.echo(f"⚠️  Could not update frontmatter slug: {e}")
     
     # Create redirect if requested
     if create_redirect:
@@ -3045,10 +3052,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     lower_body = body.lower()
                     i = open_match.end()
                     n = len(body)
-                    in_single = in_double = in_line_comment = in_block_comment = False
+                    in_single = in_double = in_backtick = False
+                    in_line_comment = in_block_comment = False
                     chosen = -1
                     while i < n:
-                        if not (in_single or in_double or in_line_comment or in_block_comment):
+                        if not (
+                            in_single or in_double or in_backtick
+                            or in_line_comment or in_block_comment
+                        ):
                             if lower_body.startswith(close_token, i):
                                 chosen = i
                                 break
@@ -3082,6 +3093,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                                 in_double = False
                             i += 1
                             continue
+                        if in_backtick:
+                            if ch == '\\':
+                                i += 2
+                                continue
+                            if ch == '`':
+                                in_backtick = False
+                            i += 1
+                            continue
                         if ch == '/' and nxt == '/':
                             in_line_comment = True
                             i += 2
@@ -3094,6 +3113,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             in_single = True
                         elif ch == '"':
                             in_double = True
+                        elif ch == '`':
+                            in_backtick = True
                         i += 1
                     if chosen == -1:
                         pieces.append(html_content[open_match.start():])
@@ -3197,7 +3218,7 @@ def make_json_safe(value):
 
 
 def sanitize_content_hrefs(html: str) -> str:
-    """Rewrite unsafe href/src protocols in generated markdown HTML."""
+    """Rewrite unsafe URL-bearing attributes in generated markdown HTML."""
     import re
 
     def is_safe_url(value: str) -> bool:
@@ -3209,17 +3230,41 @@ def sanitize_content_hrefs(html: str) -> str:
         # Relative paths, root paths, and in-page anchors are fine.
         return True
 
-    def replace_attr(match):
-        attr = match.group(1)
-        quote = match.group(2) or ''
-        value = match.group(3)
-        if not is_safe_url(value):
-            return f'{attr}={quote}#{quote}' if quote else f'{attr}=#'
-        return match.group(0)
+    def sanitize_srcset(value: str) -> str:
+        parts = []
+        for candidate in value.split(','):
+            token = candidate.strip()
+            if not token:
+                continue
+            url = token.split(None, 1)[0]
+            descriptor = token[len(url):]
+            if is_safe_url(url):
+                parts.append(token)
+            else:
+                parts.append(f'#{descriptor}' if descriptor else '#')
+        return ', '.join(parts) if parts else '#'
 
+    def rewrite(attr: str, quote: str, value: str) -> str:
+        if attr.lower() == 'srcset':
+            safe_value = sanitize_srcset(value)
+        elif is_safe_url(value):
+            safe_value = value
+        else:
+            safe_value = '#'
+        if quote:
+            return f'{attr}={quote}{safe_value}{quote}'
+        return f'{attr}={safe_value}'
+
+    # Quoted attributes first so srcset values with spaces are preserved.
+    html = re.sub(
+        r'\b(href|src|action|formaction|data|poster|srcset)\s*=\s*(["\'])(.*?)\2',
+        lambda m: rewrite(m.group(1), m.group(2), m.group(3)),
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
     return re.sub(
-        r'\b(href|src)\s*=\s*(["\']?)([^"\'>\s]+)\2',
-        replace_attr,
+        r'\b(href|src|action|formaction|data|poster|srcset)\s*=\s*([^"\'>\s]+)',
+        lambda m: rewrite(m.group(1), '', m.group(2)),
         html,
         flags=re.IGNORECASE,
     )
@@ -3333,7 +3378,16 @@ def collect_items_by_tag(*collections: List[Dict]) -> Dict[str, List[Dict]]:
 def tag_path_segment(tag: str) -> str:
     """Filesystem/URL segment matching template `|tagencode` filter (encodes `/`)."""
     from urllib.parse import quote
-    return quote(str(tag).strip(), safe='-_.~')
+    raw = str(tag).strip()
+    if not raw:
+        raise ValueError('Unsafe tag path segment: empty')
+    segment = quote(raw, safe='-_.~')
+    # urllib.parse.quote never encodes "."; block "." / ".." traversal explicitly.
+    if segment in {'.', '..'}:
+        segment = ''.join('%2E' if ch == '.' else quote(ch, safe='-_~') for ch in raw)
+    if not segment or segment in {'.', '..'} or '/' in segment or '\\' in segment:
+        raise ValueError(f'Unsafe tag path segment: {tag!r}')
+    return segment
 
 
 def write_tag_pages(
@@ -3348,13 +3402,17 @@ def write_tag_pages(
         return []
 
     click.echo(f"🏷️  Creating {len(by_tag)} tag page(s)...")
-    tags_root = dist_path / 'tags'
+    tags_root = (dist_path / 'tags').resolve()
     tags_root.mkdir(parents=True, exist_ok=True)
     generated_pages: List[Dict] = []
 
     tag_index_items = []
     for tag_name in sorted(by_tag.keys(), key=lambda value: value.lower()):
-        segment = tag_path_segment(tag_name)
+        try:
+            segment = tag_path_segment(tag_name)
+        except ValueError:
+            click.echo(f"⚠️  Skipping unsafe tag name: {tag_name!r}")
+            continue
         items = sorted(
             by_tag[tag_name],
             key=lambda item: (content_date_sort_key(item), coerce_string(item.get('title'))),
@@ -3371,7 +3429,12 @@ def write_tag_pages(
             tag_html = tag_html.replace('</body>', live_reload_script + '</body>')
         page_size_bytes = len(tag_html.encode('utf-8'))
         tag_html = tag_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-        tag_dir = tags_root / segment
+        tag_dir = (tags_root / segment).resolve()
+        try:
+            tag_dir.relative_to(tags_root)
+        except ValueError:
+            click.echo(f"⚠️  Skipping tag path escape: {tag_name!r} → {segment!r}")
+            continue
         tag_dir.mkdir(parents=True, exist_ok=True)
         (tag_dir / 'index.html').write_text(tag_html)
 
@@ -4601,6 +4664,8 @@ def studio(ctx, port, host):
             
             def do_GET(self):
                 if self.path == '/api/content':
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         # List all content files
                         content_path = Path(config['build']['content']).resolve()
@@ -4643,6 +4708,8 @@ def studio(ctx, port, host):
                         self.send_error(500)
                 
                 elif self.path.startswith('/api/content/'):
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         # Get specific content file
                         content_base, content_path = resolve_studio_content_path(self.path)
@@ -4829,6 +4896,12 @@ def studio(ctx, port, host):
                         # Rename file
                         old_file.rename(new_file)
                         click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
+
+                        try:
+                            from core.frontmatter import update_slug_in_file
+                            update_slug_in_file(new_file, new_slug)
+                        except Exception as slug_exc:
+                            click.echo(f"⚠️  Could not update frontmatter slug: {slug_exc}")
                         
                         # Create redirect if requested
                         redirect_info = None
@@ -4931,6 +5004,90 @@ def studio(ctx, port, host):
                         click.echo(f"❌ Error syncing products: {e}")
                         click.echo(traceback.format_exc())
                         self.send_error(500)
+
+                elif self.path == '/api/build':
+                    if not require_studio_mutation_auth(self):
+                        return
+                    # Parity with Flask Studio: commit content changes and rebuild.
+                    try:
+                        import subprocess
+                        content_length = int(self.headers.get('Content-Length', '0') or '0')
+                        commit_message = 'Content update via in-place editor'
+                        if content_length > 0:
+                            body = self.rfile.read(content_length)
+                            try:
+                                payload = json.loads(body.decode() or '{}')
+                                if isinstance(payload, dict) and payload.get('message'):
+                                    commit_message = str(payload['message'])
+                            except Exception:
+                                pass
+
+                        project_root = Path.cwd()
+                        status = subprocess.run(
+                            ['git', 'status', '--porcelain', 'content/'],
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                            cwd=project_root,
+                        )
+                        if not status.stdout.strip():
+                            self.send_response(200)
+                            self.send_header('Content-type', 'application/json')
+                            send_studio_cors(self)
+                            self.end_headers()
+                            self.wfile.write(json.dumps({
+                                'status': 'no_changes',
+                                'message': 'No changes to commit',
+                            }).encode())
+                            return
+
+                        subprocess.run(
+                            ['git', 'add', 'content/'],
+                            check=True,
+                            cwd=project_root,
+                        )
+                        subprocess.run(
+                            ['git', 'commit', '-m', commit_message],
+                            check=True,
+                            cwd=project_root,
+                        )
+
+                        env = os.environ.copy()
+                        env['EDITOR_MODE'] = 'true'
+                        build_cmd = [sys.executable, '-m', 'gang', 'build']
+                        # Prefer installed `gang` when available.
+                        from shutil import which
+                        gang_bin = which('gang')
+                        if gang_bin:
+                            build_cmd = [gang_bin, 'build']
+                        click.echo('🔄 Rebuilding site via /api/build...')
+                        subprocess.run(
+                            build_cmd,
+                            check=True,
+                            env=env,
+                            cwd=project_root,
+                        )
+
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        send_studio_cors(self)
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'status': 'published',
+                            'message': 'Content committed and site rebuilt',
+                        }).encode())
+                    except Exception as e:
+                        import traceback
+                        click.echo(f"❌ Error in /api/build: {e}")
+                        click.echo(traceback.format_exc())
+                        self.send_response(500)
+                        self.send_header('Content-type', 'application/json')
+                        send_studio_cors(self)
+                        self.end_headers()
+                        self.wfile.write(json.dumps({
+                            'error': 'Internal server error',
+                            'message': str(e),
+                        }).encode())
                 
                 else:
                     self.send_error(404)

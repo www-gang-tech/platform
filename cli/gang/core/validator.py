@@ -191,8 +191,8 @@ class ContractValidator:
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
             utility_sections = {'search', 'cart', 'products', 'studio'}
+            comment_sections = {'posts', 'articles'}
             relative_parts = html_path.parts
-            js_allowed = any(part in utility_sections for part in relative_parts)
             scripts = [
                 script for script in soup.find_all('script', src=True)
                 if script.get('type', '').lower() not in ('application/ld+json', 'application/json')
@@ -201,6 +201,19 @@ class ContractValidator:
                 script for script in soup.find_all('script', src=False)
                 if script.get('type', '').lower() not in ('application/ld+json', 'application/json')
             ]
+            comments_only = (
+                not inline_scripts
+                and scripts
+                and all(
+                    (script.get('src') or '').rstrip('/').endswith('comments.js')
+                    for script in scripts
+                )
+                and any(part in comment_sections for part in relative_parts)
+            )
+            js_allowed = (
+                any(part in utility_sections for part in relative_parts)
+                or comments_only
+            )
             
             if not js_allowed and (scripts or inline_scripts):
                 issues.append({
