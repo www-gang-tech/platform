@@ -100,7 +100,12 @@ class ContractValidator:
         # Check keyboard navigation (check for tabindex misuse)
         if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
                                for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+            def has_positive_tabindex(value):
+                try:
+                    return int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -185,10 +190,32 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            utility_sections = {'search', 'cart', 'products', 'studio'}
+            comment_sections = {'posts', 'articles'}
+            relative_parts = html_path.parts
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if script.get('type', '').lower() not in ('application/ld+json', 'application/json')
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if script.get('type', '').lower() not in ('application/ld+json', 'application/json')
+            ]
+            comments_only = (
+                not inline_scripts
+                and scripts
+                and all(
+                    (script.get('src') or '').rstrip('/').endswith('comments.js')
+                    for script in scripts
+                )
+                and any(part in comment_sections for part in relative_parts)
+            )
+            js_allowed = (
+                any(part in utility_sections for part in relative_parts)
+                or comments_only
+            )
             
-            if scripts or inline_scripts:
+            if not js_allowed and (scripts or inline_scripts):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -218,7 +245,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

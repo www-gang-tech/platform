@@ -9,6 +9,7 @@ from datetime import datetime
 import json
 import os
 import hashlib
+from core.frontmatter import dump_frontmatter
 
 
 class ContentSyndicator:
@@ -329,7 +330,7 @@ class ContentSyndicator:
                 frontmatter['syndicated'][platform] = result['url']
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return True

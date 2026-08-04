@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 import yaml
+from core.frontmatter import dump_frontmatter
 
 
 class ContentScheduler:
@@ -61,12 +62,16 @@ class ContentScheduler:
             
             # Get status
             status = frontmatter.get('status', 'published')
-            
-            # If status is draft, skip
-            if status == 'draft':
+            status_norm = str(status or 'published').strip().lower()
+            blocked_statuses = {
+                'draft', 'private', 'archived', 'unlisted', 'hidden', 'deleted'
+            }
+
+            # Non-public statuses never publish, even with a past publish_date.
+            if status_norm in blocked_statuses:
                 draft.append({
                     'path': file_path,
-                    'status': 'draft',
+                    'status': status_norm,
                     'publish_date': None,
                     'title': frontmatter.get('title', file_path.stem)
                 })
@@ -74,6 +79,16 @@ class ContentScheduler:
             
             # Check publish_date
             publish_date_str = frontmatter.get('publish_date')
+
+            # Explicitly scheduled content without a date stays unpublished.
+            if status_norm == 'scheduled' and not publish_date_str:
+                scheduled_future.append({
+                    'path': file_path,
+                    'status': 'scheduled',
+                    'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem)
+                })
+                continue
             
             if not publish_date_str:
                 # No publish date, publish immediately
@@ -219,7 +234,7 @@ class ContentScheduler:
             if publish_date:
                 frontmatter['publish_date'] = publish_date.isoformat()
             
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+            new_content = dump_frontmatter(frontmatter, content)
             file_path.write_text(new_content)
             return True
         
@@ -244,7 +259,7 @@ class ContentScheduler:
         
         # Write back
         body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return True
