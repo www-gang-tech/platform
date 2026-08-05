@@ -144,6 +144,7 @@ class SearchIndexer:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self';">
     <title>Search</title>
     <meta name="description" content="Search content across this site">
     <link rel="canonical" href="__SITE_URL__/search/">
