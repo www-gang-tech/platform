@@ -19,7 +19,18 @@
     
     // Get all variant data from hidden input
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            variants = JSON.parse(variantsData.textContent || '[]');
+            if (!Array.isArray(variants)) {
+                variants = [];
+            }
+        } catch (e) {
+            // Keep progressive enhancement working when variant JSON is malformed.
+            variants = [];
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
@@ -67,9 +78,32 @@
             });
         }
         
-        // Update form action to point to correct variant URL
+        // Update form action to point to correct variant URL (http/https only)
         if (variant.url) {
-            form.action = variant.url;
+            try {
+                const parsed = new URL(variant.url, window.location.origin);
+                if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                    form.action = parsed.href;
+                    // cart.js prefers data-checkout-url over action; keep them in sync.
+                    form.dataset.checkoutUrl = parsed.href;
+                }
+            } catch (e) {
+                // Keep the existing form action when variant URL is invalid.
+            }
+        }
+
+        // Keep cart data aligned with the selected Shopify variant.
+        if (variant.id) {
+            form.dataset.variantId = String(variant.id);
+        }
+        if (variant.sku) {
+            form.dataset.sku = variant.sku;
+        }
+        if (variant.price) {
+            form.dataset.price = variant.price;
+        }
+        if (variant.currency) {
+            form.dataset.currency = variant.currency;
         }
     }
     
