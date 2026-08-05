@@ -204,10 +204,19 @@ jobs:
                   })
               return normalized
 
-          content_dir = Path('content/products')
+          import re
+
+          content_dir = Path('content/products').resolve()
           content_dir.mkdir(parents=True, exist_ok=True)
           handles = []
           output_files = []
+
+          def safe_product_handle(raw):
+              """Restrict handles to a single path segment under content/products."""
+              handle = str(raw or '').strip()
+              if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', handle):
+                  raise SystemExit(f'Refusing unsafe Shopify product handle: {raw!r}')
+              return handle
 
           for product in products:
               # Apply mappings
@@ -233,9 +242,16 @@ jobs:
                   if value is not None:
                       front_matter[target] = value
               
-              # Generate front-matter file
-              handle = front_matter.get('slug') or product.get('handle') or 'unknown'
-              output_file = content_dir / f"{handle}.md"
+              # Generate front-matter file (path-safe handle only)
+              handle = safe_product_handle(
+                  front_matter.get('slug') or product.get('handle') or 'unknown'
+              )
+              front_matter['slug'] = handle
+              output_file = (content_dir / f'{handle}.md').resolve()
+              try:
+                  output_file.relative_to(content_dir)
+              except ValueError as exc:
+                  raise SystemExit(f'Handle escaped products dir: {handle!r}') from exc
               
               with open(output_file, 'w') as f:
                   f.write('---\n')

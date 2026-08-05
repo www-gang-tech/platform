@@ -131,17 +131,25 @@ class ShopifyPRBot:
     
     def generate_markdown_file(self, product_data: Dict[str, Any]) -> Path:
         """Generate markdown file for product"""
+        import re
         
         frontmatter = self.convert_to_frontmatter(product_data)
         
-        # Get slug
-        slug = frontmatter.get('slug', 'unknown')
+        # Get slug — reject path separators / traversal before writing.
+        slug = str(frontmatter.get('slug', 'unknown') or 'unknown').strip()
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug):
+            raise ValueError(f'Unsafe Shopify product slug/handle: {slug!r}')
+        frontmatter['slug'] = slug
         
         # Create file path
-        products_dir = self.content_path / 'products'
+        products_dir = (self.content_path / 'products').resolve()
         products_dir.mkdir(exist_ok=True)
         
-        file_path = products_dir / f"{slug}.md"
+        file_path = (products_dir / f"{slug}.md").resolve()
+        try:
+            file_path.relative_to(products_dir)
+        except ValueError as exc:
+            raise ValueError(f'Slug escaped products directory: {slug!r}') from exc
         
         content = dump_frontmatter(frontmatter, frontmatter.get('description', ''))
         
