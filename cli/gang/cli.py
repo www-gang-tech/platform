@@ -5088,8 +5088,10 @@ def studio(ctx, port, host):
                         self.send_header('Content-type', 'application/json')
                         send_studio_cors(self)
                         self.end_headers()
+                        # Use `committed` for Flask / editor-bundle.js parity
+                        # (in-place editor reloads only on status === 'committed').
                         self.wfile.write(json.dumps({
-                            'status': 'published',
+                            'status': 'committed',
                             'message': 'Content committed and site rebuilt',
                         }).encode())
                     except Exception as e:
