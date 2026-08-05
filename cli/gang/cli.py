@@ -3886,9 +3886,21 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     
     # Process external links to open in new tabs
     body_html = process_external_links(body_html)
+    body_html = sanitize_content_hrefs(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
     description = frontmatter.get('summary', config['site']['description'])
+    safe_title = html_escape(str(title))
+    safe_site_title = html_escape(str(config['site']['title']))
+    safe_description = html_escape(str(description), quote=True)
+    canonical_url = f"{str(config['site']['url']).rstrip('/')}/{content_type}/{quote(md_file.stem, safe='')}/"
+    fallback_jsonld = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": str(title),
+        "description": str(description),
+        "url": canonical_url,
+    })
     
     # Build time for footer
     build_time = datetime.now()
@@ -3906,8 +3918,12 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'self'; form-action 'self';">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <title>{title} - {config['site']['title']}</title>
-    <meta name="description" content="{description}">
+    <title>{safe_title} - {safe_site_title}</title>
+    <meta name="description" content="{safe_description}">
+    <link rel="canonical" href="{html_escape(canonical_url, quote=True)}">
+    <script type="application/ld+json">
+{fallback_jsonld}
+    </script>
     <style>
         :root {{
             --max-width: 65ch;
@@ -4025,7 +4041,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
         </article>
     </main>
     <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
+        <p>&copy; {datetime.now().year} {safe_site_title}. Built with GANG. __PAGE_SIZE__</p>
         <p class="lighthouse-scores">
             <span class="score" title="Performance">Performance <strong>100</strong></span>
             <span class="score" title="Accessibility">Accessibility <strong>100</strong></span>
@@ -4033,7 +4049,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
             <span class="score" title="SEO">Score <strong>100</strong></span>
         </p>
         <p class="last-updated">
-            <time datetime="{build_time_iso}">Last updated: {build_time_formatted}</time>
+            <time datetime="{html_escape(build_time_iso, quote=True)}">Last updated: {html_escape(build_time_formatted)}</time>
         </p>
     </footer>
 </body>
