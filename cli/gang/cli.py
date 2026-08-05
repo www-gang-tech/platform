@@ -2391,6 +2391,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        studio_api_base = (
+            os.environ.get('GANG_API_BASE')
+            or os.environ.get('STUDIO_API_BASE')
+            or 'http://127.0.0.1:3000'
+        )
+        studio_auth_token = (
+            os.environ.get('STUDIO_AUTH_TOKEN', '') if user_authenticated else ''
+        )
         buy_url = str(frontmatter.get('buy_url') or first_offer.get('url') or '')
         parsed_buy_url = urlparse(buy_url)
         markdown_checkout_base = (
@@ -2449,6 +2457,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'content_category': source_content_type,
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'studio_api_base': studio_api_base,
+            'studio_auth_token': studio_auth_token,
         }
         
         # Select template
@@ -3697,7 +3707,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001 http://localhost:3000 http://127.0.0.1:3000; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{html_escape(str(config['site']['title']))}</title>
     <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
@@ -3833,7 +3843,7 @@ def create_list_page_simple(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001 http://localhost:3000 http://127.0.0.1:3000; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{html_escape(str(title))} - {html_escape(str(config['site']['title']))}</title>
     <meta name="description" content="{html_escape(str(config['site']['description']), quote=True)}">
@@ -4642,21 +4652,20 @@ def studio(ctx, port, host):
 
         def studio_request_authenticated(handler):
             import secrets
-            if os.environ.get('EDITOR_MODE', '').lower() == 'true':
-                client = handler.client_address[0] if handler.client_address else ''
-                if client in {'127.0.0.1', '::1', 'localhost'}:
-                    return True
             expected = os.environ.get('STUDIO_AUTH_TOKEN', '')
-            if not expected:
-                client = handler.client_address[0] if handler.client_address else ''
-                return client in {'127.0.0.1', '::1', 'localhost'}
-            auth_header = handler.headers.get('Authorization', '')
-            scheme, _, provided = auth_header.partition(' ')
-            return (
-                scheme.lower() == 'bearer'
-                and bool(provided)
-                and secrets.compare_digest(provided, expected)
-            )
+            client = handler.client_address[0] if handler.client_address else ''
+            is_loopback = client in {'127.0.0.1', '::1', 'localhost'}
+            if expected:
+                # Token configured: require Bearer. EDITOR_MODE only toggles Edit UI.
+                auth_header = handler.headers.get('Authorization', '')
+                scheme, _, provided = auth_header.partition(' ')
+                return (
+                    scheme.lower() == 'bearer'
+                    and bool(provided)
+                    and secrets.compare_digest(provided, expected)
+                )
+            # No token: allow unauthenticated local Studio on loopback only.
+            return is_loopback
 
         def require_studio_mutation_auth(handler):
             if studio_request_authenticated(handler):
@@ -4679,11 +4688,34 @@ def studio(ctx, port, host):
                 self.end_headers()
             
             def do_GET(self):
+                if self.path == '/api/health':
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    send_studio_cors(self)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        'status': 'ok',
+                        'service': 'gang-studio',
+                    }).encode())
+                    return
+
+                if self.path == '/api/auth/status':
+                    authenticated = studio_request_authenticated(self)
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    send_studio_cors(self)
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        'authenticated': authenticated,
+                        'user': {'email': 'local@dev'} if authenticated else None,
+                    }).encode())
+                    return
+
                 if self.path == '/api/content':
                     if not require_studio_mutation_auth(self):
                         return
                     try:
-                        # List all content files
+                        # List publishable content only (Flask list_content parity).
                         content_path = Path(config['build']['content']).resolve()
                         files = []
                         
@@ -4698,17 +4730,19 @@ def studio(ctx, port, host):
                             self.wfile.write(json.dumps([]).encode())
                             return
                         
-                        for md_file in content_path.rglob('*.md'):
-                            # Extensionless paths match Flask list_content /
-                            # resolve_content_file and studio.html clients.
-                            rel = str(md_file.relative_to(content_path)).replace('\\', '/')
-                            if rel.endswith('.md'):
-                                rel = rel[:-3]
-                            files.append({
-                                'path': rel,
-                                'type': md_file.parent.name,
-                                'name': md_file.stem
-                            })
+                        for category in sorted(ALLOWED_CONTENT_CATEGORIES):
+                            type_dir = content_path / category
+                            if not type_dir.is_dir():
+                                continue
+                            for md_file in sorted(type_dir.glob('*.md')):
+                                # Extensionless paths match Flask list_content /
+                                # resolve_content_file and studio.html clients.
+                                files.append({
+                                    'path': f'{category}/{md_file.stem}',
+                                    'type': category,
+                                    'name': md_file.stem,
+                                    'slug': md_file.stem,
+                                })
                         
                         click.echo(f"📂 Found {len(files)} content files: {[f['name'] for f in files]}")
                         
@@ -5070,6 +5104,8 @@ def studio(ctx, port, host):
 
                         env = os.environ.copy()
                         env['EDITOR_MODE'] = 'true'
+                        # Point in-place editor API calls at this CLI Studio instance.
+                        env.setdefault('GANG_API_BASE', f'http://127.0.0.1:{port}')
                         build_cmd = [sys.executable, '-m', 'gang', 'build']
                         # Prefer installed `gang` when available.
                         from shutil import which
@@ -5717,16 +5753,25 @@ def create_studio_html(output_path: Path):
                 files.forEach(file => {
                     const item = document.createElement('div');
                     item.className = 'content-item';
-                    item.innerHTML = `
-                        <div class="content-item-name">${file.name}</div>
-                        <div class="content-item-type">${file.type}</div>
-                    `;
+                    const name = document.createElement('div');
+                    name.className = 'content-item-name';
+                    name.textContent = file.name || file.title || file.slug || file.path || '';
+                    const type = document.createElement('div');
+                    type.className = 'content-item-type';
+                    type.textContent = file.type || '';
+                    item.append(name, type);
                     item.onclick = () => loadFile(file.path);
                     listEl.appendChild(item);
                 });
             } catch (e) {
                 console.error('Failed to load content list:', e);
-                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
+                listEl.replaceChildren();
+                const err = document.createElement('div');
+                err.className = 'loading';
+                err.style.color = '#ff6b6b';
+                err.textContent = 'Error: ' + (e && e.message ? e.message : 'unknown') +
+                    '. Check browser console for details';
+                listEl.appendChild(err);
             }
         }
         
