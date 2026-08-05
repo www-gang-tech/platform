@@ -51,18 +51,19 @@ def _is_loopback_request():
 
 def request_is_authenticated():
     """Authenticate editor requests when a Studio token is configured."""
-    if os.environ.get('EDITOR_MODE', '').lower() == 'true' and _is_loopback_request():
-        return True
     expected_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
-    if not expected_token:
-        return False
-    auth_header = request.headers.get('Authorization', '')
-    scheme, _, provided_token = auth_header.partition(' ')
-    return (
-        scheme.lower() == 'bearer'
-        and bool(provided_token)
-        and secrets.compare_digest(provided_token, expected_token)
-    )
+    if expected_token:
+        # When a token is configured, require Bearer — EDITOR_MODE only controls
+        # whether built pages show the Edit UI, not API authorization.
+        auth_header = request.headers.get('Authorization', '')
+        scheme, _, provided_token = auth_header.partition(' ')
+        return (
+            scheme.lower() == 'bearer'
+            and bool(provided_token)
+            and secrets.compare_digest(provided_token, expected_token)
+        )
+    # No token configured: allow unauthenticated local Studio on loopback only.
+    return _is_loopback_request()
 
 
 @app.before_request
@@ -232,6 +233,9 @@ def trigger_build():
         print("🔄 Rebuilding site...")
         env = os.environ.copy()
         env['EDITOR_MODE'] = 'true'
+        # Point in-place editor API calls at this Flask Studio instance.
+        studio_port = int(os.environ.get('PORT', 5001))
+        env.setdefault('GANG_API_BASE', f'http://127.0.0.1:{studio_port}')
         build_result = subprocess.run(
             ['gang', 'build'],
             capture_output=True,
