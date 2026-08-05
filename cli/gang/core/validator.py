@@ -137,7 +137,7 @@ class ContractValidator:
             canonical = soup.find('link', attrs={'rel': 'canonical'})
             if not canonical:
                 issues.append({
-                    'severity': 'warning',
+                    'severity': 'error',
                     'rule': 'canonical_url',
                     'message': 'Missing canonical URL',
                 })
