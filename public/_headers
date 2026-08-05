@@ -3,10 +3,10 @@
   # HSTS: Force HTTPS for 1 year, include subdomains, opt-in to preload list
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   
-  # CSP: Restrict resource loading to same origin only
-  # Note: 'unsafe-inline' for script-src is development-only, remove for production
+  # CSP: Align with template meta policies (both are enforced together).
+  # Allow cdnjs for Font Awesome on content pages; allow n8n comment webhooks.
   # TODO: Add SRI hashes via build process for CSS/JS integrity checking
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' https://*.n8n.app https://*.n8n.io http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001; base-uri 'self'; form-action 'self' https: https://*.n8n.app https://*.n8n.io; frame-ancestors 'none'; object-src 'none'
   
   # Referrer Policy: Only send origin on cross-origin requests over HTTPS
   Referrer-Policy: strict-origin-when-cross-origin
