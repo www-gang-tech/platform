@@ -77,7 +77,11 @@
         const existing = cart.find(i => cartLineKey(i) === cartLineKey(item));
         
         if (existing) {
-            existing.quantity = normalizeQuantity(existing.quantity + item.quantity);
+            // Coerce before add — string quantities from older carts would
+            // concatenate ("2"+3 → "23") instead of summing.
+            existing.quantity = normalizeQuantity(
+                normalizeQuantity(existing.quantity) + item.quantity
+            );
         } else {
             cart.push(item);
         }
