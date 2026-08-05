@@ -728,7 +728,7 @@
             document.getElementById('validationModal').style.display = 'none';
         }
         
-        // Validate and save (publish)
+        // Validate, save, then trigger /api/build (real publish).
         async function validateAndSave() {
             const result = await validateHeadings();
             
@@ -737,7 +737,7 @@
             if (result.valid) {
                 closeValidationModal();
                 await saveContent();
-                document.getElementById('status').textContent = '📤 Published successfully!';
+                await triggerBuild('📤 Published successfully!');
             } else {
                 // Modal is already shown, user must fix or choose "Publish Anyway"
                 document.getElementById('status').textContent = '⚠️ Fix heading errors before publishing';
@@ -749,7 +749,30 @@
             if (confirm('Are you sure you want to publish with heading errors? This may impact accessibility and SEO.')) {
                 closeValidationModal();
                 await saveContent();
-                document.getElementById('status').textContent = '📤 Published (with warnings)';
+                await triggerBuild('📤 Published (with warnings)');
+            }
+        }
+
+        async function triggerBuild(successLabel) {
+            try {
+                document.getElementById('status').textContent = '🔨 Building…';
+                const response = await fetch('/api/build', {
+                    method: 'POST',
+                    headers: studioHeaders({
+                        'Content-Type': 'application/json',
+                    }),
+                    body: JSON.stringify({ message: 'Content update via Studio' }),
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || result.status === 'error') {
+                    throw new Error(result.message || `Build failed (${response.status})`);
+                }
+                document.getElementById('status').textContent =
+                    successLabel || result.message || 'Build complete';
+            } catch (e) {
+                console.error('Build failed:', e);
+                document.getElementById('status').textContent = `⚠️ Saved, but build failed: ${e.message}`;
+                alert(`Build failed: ${e.message}`);
             }
         }
         
@@ -785,9 +808,9 @@
             }
         }
         
-        // Build site
-        function buildSite() {
-            alert('Run "gang build" in terminal to build the site');
+        // Build site via Studio API
+        async function buildSite() {
+            await triggerBuild('✅ Site rebuilt');
         }
         
         // Run optimize
