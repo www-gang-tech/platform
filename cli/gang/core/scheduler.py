@@ -171,20 +171,39 @@ class ContentScheduler:
             lines.append("\n📋 Upcoming Scheduled Posts:")
             lines.append("-" * 60)
             
-            # Sort by publish date
+            # Sort by publish date; undated scheduled items sort last.
+            from datetime import datetime, timezone
+            max_dt = datetime.max.replace(tzinfo=timezone.utc)
+
+            def _schedule_sort_key(item):
+                pub_date = item.get('publish_date')
+                if isinstance(pub_date, datetime):
+                    if pub_date.tzinfo is None:
+                        return pub_date.replace(tzinfo=timezone.utc)
+                    return pub_date
+                return max_dt
+
             sorted_items = sorted(
                 summary['scheduled_items'],
-                key=lambda x: x['publish_date']
+                key=_schedule_sort_key,
             )
             
             for item in sorted_items:
                 pub_date = item['publish_date']
                 title = item['title']
                 path = item['path']
+
+                if not isinstance(pub_date, datetime):
+                    lines.append("  📅 (no publish_date)")
+                    lines.append(f"     {title}")
+                    lines.append(f"     {path.relative_to(self.content_path)}")
+                    lines.append("")
+                    continue
                 
                 # Format relative time
-                from datetime import datetime, timezone
                 now = datetime.now(timezone.utc)
+                if pub_date.tzinfo is None:
+                    pub_date = pub_date.replace(tzinfo=timezone.utc)
                 delta = pub_date - now
                 
                 if delta.days > 0:

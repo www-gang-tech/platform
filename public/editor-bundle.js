@@ -441,7 +441,7 @@ class InPlaceEditor {
                 throw new Error(buildResult.message || 'Build failed');
             }
             
-            if (buildResult.status === 'committed') {
+            if (buildResult.status === 'committed' || buildResult.status === 'published') {
                 this.showNotification('Changes committed and site rebuilt! Page will reload in 3 seconds...', 'success');
                 setTimeout(() => {
                     location.reload();

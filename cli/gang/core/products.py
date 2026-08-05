@@ -129,6 +129,9 @@ class ProductSchema:
         """Convert Stripe product to Schema.org"""
         prices = product.get('prices', [])
         first_price = prices[0] if prices else {}
+        unit_amount = first_price.get('unit_amount')
+        if unit_amount is None:
+            unit_amount = 0
         
         return {
             '@context': 'https://schema.org',
@@ -138,7 +141,7 @@ class ProductSchema:
             'image': product.get('images', []),
             'offers': {
                 '@type': 'Offer',
-                'price': str(first_price.get('unit_amount', 0) / 100),
+                'price': str(unit_amount / 100),
                 'priceCurrency': first_price.get('currency', 'usd').upper(),
                 'availability': 'https://schema.org/InStock' if product.get('active') else 'https://schema.org/OutOfStock'
             },
@@ -155,6 +158,9 @@ class ProductSchema:
     @staticmethod
     def _from_gumroad(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Gumroad product to Schema.org"""
+        raw_price = product.get('price')
+        if raw_price is None:
+            raw_price = 0
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
@@ -163,7 +169,7 @@ class ProductSchema:
             'image': [product.get('thumbnail_url')] if product.get('thumbnail_url') else [],
             'offers': {
                 '@type': 'Offer',
-                'price': str(product.get('price', 0) / 100),
+                'price': str(raw_price / 100),
                 'priceCurrency': product.get('currency', 'USD'),
                 'availability': 'https://schema.org/InStock'
             },
@@ -427,12 +433,18 @@ class ProductAggregator:
             client = GumroadClient(gumroad_token)
             products['gumroad'] = client.fetch_products()
         
+        cached_products = self._cached_products()
+        if cached_products is not None:
+            # Preserve per-source cache when a live fetch returns empty
+            # (failed/partial credentials must not wipe other platforms).
+            for source in ('shopify', 'stripe', 'gumroad'):
+                if not products.get(source) and cached_products.get(source):
+                    products[source] = cached_products[source]
+
         if any(products.values()):
             self._save_cache(products)
-        else:
-            cached_products = self._cached_products()
-            if cached_products is not None:
-                return cached_products
+        elif cached_products is not None:
+            return cached_products
         
         return products
     
