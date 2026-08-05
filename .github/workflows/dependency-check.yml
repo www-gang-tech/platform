@@ -31,8 +31,33 @@ jobs:
         id: audit
         run: |
           set +e
-          pip-audit -r requirements.txt --format=json > audit-report.json
-          status=$?
+          # Audit root build deps and Studio backend deps (Flask is not in root requirements).
+          pip-audit -r requirements.txt --format=json > audit-root.json
+          root_status=$?
+          pip-audit -r apps/studio/backend/requirements.txt --format=json > audit-studio.json
+          studio_status=$?
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          merged = {'dependencies': []}
+          for path in (Path('audit-root.json'), Path('audit-studio.json')):
+              if not path.exists() or path.stat().st_size == 0:
+                  continue
+              data = json.loads(path.read_text() or '{}')
+              deps = data.get('dependencies') if isinstance(data, dict) else data
+              if isinstance(deps, list):
+                  merged['dependencies'].extend(deps)
+          Path('audit-report.json').write_text(json.dumps(merged, indent=2))
+          PY
+          status=0
+          if [ "$root_status" -eq 1 ] || [ "$studio_status" -eq 1 ]; then
+            status=1
+          elif [ "$root_status" -ne 0 ]; then
+            status=$root_status
+          elif [ "$studio_status" -ne 0 ]; then
+            status=$studio_status
+          fi
           set -e
           # pip-audit: 0 = clean, 1 = vulnerabilities found, other = tool/infra failure
           if [ "$status" -eq 1 ]; then
