@@ -10,7 +10,9 @@ class InPlaceEditor {
         this.currentFile = '';
         this.floatingToolbar = null;
         this.isActive = false;
-        this.apiBase = window.GANG_API_BASE || 'http://localhost:5001';
+        // Prefer injected GANG_API_BASE (EDITOR_MODE builds / studio.html).
+        // Default to CLI `gang studio` (:3000); Flask Studio injects :5001.
+        this.apiBase = window.GANG_API_BASE || 'http://127.0.0.1:3000';
     }
 
     studioAuthToken() {
