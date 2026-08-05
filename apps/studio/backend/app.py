@@ -24,6 +24,9 @@ CORS(app, origins=[
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
+ALLOWED_CONTENT_CATEGORIES = {
+    'pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people'
+}
 
 
 def resolve_content_file(file_path):
@@ -315,12 +318,17 @@ def list_content():
 
 def _resolve_slug_file(category, slug):
     """Resolve category/slug markdown under the content root."""
+    import re
     if not category or not slug:
         raise ValueError('category and slug are required')
+    if category not in ALLOWED_CONTENT_CATEGORIES:
+        raise ValueError('Invalid content category')
     if '/' in category or '\\' in category or '/' in slug or '\\' in slug:
         raise ValueError('Invalid category or slug')
     if Path(slug).suffix:
         raise ValueError('Slug must not include a file extension')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug):
+        raise ValueError('Invalid slug')
     content_root = CONTENT_DIR.resolve()
     full_path = (content_root / category / f'{slug}.md').resolve()
     try:
@@ -359,8 +367,9 @@ def rename_slug():
         try:
             from core.frontmatter import update_slug_in_file
             update_slug_in_file(new_file, new_slug)
-        except Exception:
-            pass
+        except Exception as slug_exc:
+            # Keep rename durable, but surface FM sync failures for operators.
+            print(f'Warning: could not update frontmatter slug: {slug_exc}')
         redirect_info = None
         if create_redirect:
             output_category = 'posts' if category == 'articles' else category
