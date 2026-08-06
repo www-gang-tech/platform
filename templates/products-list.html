@@ -44,7 +44,14 @@
         <div class="grid grid-2">
             {% for product in products %}
             <article class="product-card">
-                <a href="/products/{{ product._meta.slug or product._meta.handle }}/">
+                {% set meta_slug = product._meta.slug or product._meta.handle %}
+                {% if meta_slug %}
+                <a href="/products/{{ meta_slug }}/">
+                {% elif product._meta.url %}
+                <a href="{{ product._meta.url }}">
+                {% else %}
+                <a href="/products/">
+                {% endif %}
                     {% if product.image %}
                         {% if product.image is string %}
                         <img src="{{ product.image }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
@@ -59,8 +66,16 @@
                         {% endif %}
                         <p class="product-price">
                             {% if product.offers %}
-                                {% set offer = product.offers[0] if product.offers is iterable and product.offers is not string else product.offers %}
+                                {% if product.offers is mapping %}
+                                    {% set offer = product.offers %}
+                                {% elif product.offers is sequence and product.offers is not string %}
+                                    {% set offer = product.offers[0] %}
+                                {% else %}
+                                    {% set offer = none %}
+                                {% endif %}
+                                {% if offer %}
                                 {{ offer.priceCurrency }} {{ offer.price }}
+                                {% endif %}
                             {% endif %}
                         </p>
                         <p class="product-meta">{{ product._meta.source }}</p>

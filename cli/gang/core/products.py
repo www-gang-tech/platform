@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
 import os
+import re
 
 
 class ProductSchema:
@@ -26,6 +27,15 @@ class ProductSchema:
             return ProductSchema._from_gumroad(product)
         else:
             return product
+
+    @staticmethod
+    def _slugify(value: Any, fallback: str = 'product') -> str:
+        """Build a URL-safe slug for aggregator PDPs and PLP links."""
+        text = re.sub(r'[^a-z0-9]+', '-', str(value or '').lower()).strip('-')
+        if text and re.fullmatch(r'[a-z0-9][a-z0-9._-]*', text):
+            return text
+        fallback_text = re.sub(r'[^a-z0-9]+', '-', str(fallback or 'product').lower()).strip('-')
+        return fallback_text or 'product'
     
     @staticmethod
     def _shopify_product_url(product: Dict[str, Any]) -> str:
@@ -132,6 +142,7 @@ class ProductSchema:
         unit_amount = first_price.get('unit_amount')
         if unit_amount is None:
             unit_amount = 0
+        slug = ProductSchema._slugify(product.get('name'), product.get('id') or 'stripe-product')
         
         return {
             '@context': 'https://schema.org',
@@ -148,6 +159,8 @@ class ProductSchema:
             '_meta': {
                 'source': 'stripe',
                 'id': product.get('id'),
+                'slug': slug,
+                'handle': slug,
                 'url': product.get('url'),
                 'prices': prices,
                 'created': product.get('created'),
@@ -161,6 +174,10 @@ class ProductSchema:
         raw_price = product.get('price')
         if raw_price is None:
             raw_price = 0
+        slug = ProductSchema._slugify(
+            product.get('custom_permalink') or product.get('name'),
+            product.get('id') or 'gumroad-product',
+        )
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
@@ -176,6 +193,8 @@ class ProductSchema:
             '_meta': {
                 'source': 'gumroad',
                 'id': product.get('id'),
+                'slug': slug,
+                'handle': slug,
                 'url': product.get('short_url'),
                 'created_at': product.get('created_at')
             }

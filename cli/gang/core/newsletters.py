@@ -153,10 +153,15 @@ class NewsletterManager:
             new_content = dump_frontmatter(frontmatter, body)
             file_path.write_text(new_content)
             
-            # Add to archive
+            # Add to archive (title may be absent when only subject is set)
+            archive_title = (
+                frontmatter.get('title')
+                or email_data.get('subject')
+                or file_path.stem
+            )
             self.archive['newsletters'].append({
                 'slug': file_path.stem,
-                'title': frontmatter['title'],
+                'title': archive_title,
                 'subject': email_data['subject'],
                 'sent_at': frontmatter['sent_at'],
                 'campaign_id': frontmatter['campaign_id'],
