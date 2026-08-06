@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import yaml
 import os
+import re
 import secrets
 
 app = Flask(__name__)
@@ -30,14 +31,23 @@ ALLOWED_CONTENT_CATEGORIES = {
 
 
 def resolve_content_file(file_path):
-    """Resolve an extensionless editor path beneath the content root."""
+    """Resolve an extensionless category/slug path beneath the content root."""
     if file_path.startswith('/') or Path(file_path).suffix:
         raise ValueError('Invalid file path')
 
+    parts = Path(file_path).parts
+    if len(parts) != 2:
+        raise ValueError('Invalid file path')
+    category, slug = parts
+    if category not in ALLOWED_CONTENT_CATEGORIES:
+        raise ValueError('Invalid file path')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug):
+        raise ValueError('Invalid file path')
+
     content_root = CONTENT_DIR.resolve()
-    full_path = (content_root / (file_path + '.md')).resolve()
+    full_path = (content_root / category / f'{slug}.md').resolve()
     try:
-        full_path.relative_to(content_root)
+        full_path.relative_to(content_root / category)
     except ValueError as exc:
         raise ValueError('Invalid file path') from exc
     return full_path

@@ -969,16 +969,21 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     config = ctx.obj
     content_path = Path(config['build']['content'])
     dist_path = Path(config['build']['output'])
+
+    try:
+        old_file = resolve_content_slug_file(content_path, category, old_slug)
+        new_file = resolve_content_slug_file(content_path, category, new_slug)
+    except ValueError as e:
+        click.echo(f"❌ {e}")
+        ctx.exit(1)
     
     # Check old file exists
-    old_file = content_path / category / f"{old_slug}.md"
     if not old_file.exists():
         click.echo(f"❌ File not found: {old_file}")
         ctx.exit(1)
     
     # Check new slug is unique
     checker = SlugChecker(content_path)
-    new_file = content_path / category / f"{new_slug}.md"
     if new_file.exists():
         click.echo(f"❌ Slug '{new_slug}' already exists: {new_file}")
         click.echo(f"💡 Choose a different slug")
@@ -2361,7 +2366,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
         
-        # Neutralize dangerous URL protocols before templates mark content safe
+        # Strip raw HTML hazards, then neutralize dangerous URL protocols
+        content_html = sanitize_markdown_html(content_html)
         content_html = sanitize_content_hrefs(content_html)
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
@@ -2369,6 +2375,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
+        if not is_safe_content_slug(slug):
+            click.echo(f"⚠️  Skipping content with unsafe slug '{slug}': {md_file}")
+            continue
         title = coerce_string(frontmatter.get('title'), md_file.stem.replace('-', ' ').title())
         description = content_description(frontmatter, config)
         tags = normalize_tags(frontmatter.get('tags'))
@@ -2685,7 +2694,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 if not slug:
                     click.echo(f"⚠️  Skipping product without slug/handle: {product.get('name')}")
                     continue
-                slug = quote(str(slug).strip('/'), safe='')
+                slug = str(slug).strip().strip('/')
+                if not is_safe_content_slug(slug):
+                    click.echo(f"⚠️  Skipping product with unsafe slug/handle '{slug}': {product.get('name')}")
+                    continue
+                slug = quote(slug, safe='')
                 if slug in markdown_product_slugs:
                     click.echo(f"📄 Keeping markdown PDP for {slug} (skipping aggregator overwrite)")
                     continue
@@ -3227,6 +3240,35 @@ def make_json_safe(value):
     return value
 
 
+def sanitize_markdown_html(html: str) -> str:
+    """Strip dangerous tags/attrs from Markdown-generated HTML fragments."""
+    from bs4 import BeautifulSoup
+
+    if not html:
+        return ''
+
+    soup = BeautifulSoup(f'<div id="gang-md-root">{html}</div>', 'html.parser')
+    root = soup.find(id='gang-md-root')
+    if root is None:
+        return ''
+
+    forbidden_tags = {
+        'script', 'style', 'iframe', 'object', 'embed', 'link', 'meta',
+        'base', 'form', 'input', 'button', 'textarea', 'select',
+    }
+    for tag in list(root.find_all(True)):
+        name = (tag.name or '').lower()
+        if name in forbidden_tags:
+            tag.decompose()
+            continue
+        for attr in list(tag.attrs):
+            attr_l = str(attr).lower()
+            if attr_l.startswith('on') or attr_l in {'style', 'srcdoc'}:
+                del tag.attrs[attr]
+
+    return ''.join(str(child) for child in root.contents)
+
+
 def sanitize_content_hrefs(html: str) -> str:
     """Rewrite unsafe URL-bearing attributes in generated markdown HTML."""
     import re
@@ -3352,6 +3394,37 @@ def page_type_for_content(content_type: str) -> str:
 def url_for_content(content_type: str, slug: str) -> str:
     output_type = output_content_type(content_type)
     return f"/{output_type}/{quote(slug, safe='')}/"
+
+
+ALLOWED_CONTENT_SLUG_CATEGORIES = {
+    'pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people'
+}
+
+
+def is_safe_content_slug(slug: str) -> bool:
+    """Reject empty, dotted, or path-like slugs before writing under dist/."""
+    import re
+    if not slug or slug in {'.', '..'}:
+        return False
+    if '/' in slug or '\\' in slug:
+        return False
+    return bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug))
+
+
+def resolve_content_slug_file(content_root: Path, category: str, slug: str) -> Path:
+    """Resolve category/slug.md under content_root without path traversal."""
+    if category not in ALLOWED_CONTENT_SLUG_CATEGORIES:
+        raise ValueError(f"Invalid content category: {category}")
+    if not is_safe_content_slug(slug):
+        raise ValueError(f"Invalid slug: {slug}")
+    base = Path(content_root).resolve()
+    category_root = (base / category).resolve()
+    full_path = (category_root / f'{slug}.md').resolve()
+    try:
+        full_path.relative_to(category_root)
+    except ValueError as exc:
+        raise ValueError(f"Invalid slug path: {category}/{slug}") from exc
+    return full_path
 
 
 def coerce_string(value, fallback: str = '') -> str:
@@ -3893,10 +3966,11 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     # Convert markdown to HTML
     md = markdown.Markdown(extensions=['extra', 'meta'])
     body_html = md.convert(body)
+    body_html = sanitize_markdown_html(body_html)
+    body_html = sanitize_content_hrefs(body_html)
     
     # Process external links to open in new tabs
     body_html = process_external_links(body_html)
-    body_html = sanitize_content_hrefs(body_html)
     
     title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
     description = frontmatter.get('summary', config['site']['description'])
@@ -4609,31 +4683,29 @@ def studio(ctx, port, host):
             relative_path = unquote(relative_path).lstrip('/')
             # In-place editor sends extensionless paths (posts/slug); Flask backend
             # appends .md. Keep CLI Studio compatible with the same contract.
-            if relative_path and not relative_path.endswith('.md'):
-                relative_path = f'{relative_path}.md'
+            if relative_path.endswith('.md'):
+                relative_path = relative_path[:-3]
+            parts = Path(relative_path).parts
+            if len(parts) != 2:
+                raise ValueError('Content path must be category/slug')
+            category, slug = parts
+            if category not in ALLOWED_CONTENT_CATEGORIES:
+                raise ValueError('Invalid content category')
+            if not is_safe_content_slug(slug):
+                raise ValueError('Invalid slug')
             content_base = Path(config['build']['content']).resolve()
-            content_path = (content_base / relative_path).resolve()
-            if content_path.suffix != '.md':
-                raise ValueError('Content path must point to a markdown file')
+            category_root = (content_base / category).resolve()
+            content_path = (category_root / f'{slug}.md').resolve()
             try:
-                content_path.relative_to(content_base)
+                content_path.relative_to(category_root)
             except ValueError as exc:
                 raise ValueError('Invalid content path') from exc
             return content_base, content_path
 
         def resolve_studio_slug_path(category, slug):
             """Resolve category/slug markdown paths without path traversal."""
-            import re
-            if category not in ALLOWED_CONTENT_CATEGORIES:
-                raise ValueError('Invalid content category')
-            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug or ''):
-                raise ValueError('Invalid slug')
             content_base = Path(config['build']['content']).resolve()
-            content_path = (content_base / category / f'{slug}.md').resolve()
-            try:
-                content_path.relative_to(content_base)
-            except ValueError as exc:
-                raise ValueError('Invalid content path') from exc
+            content_path = resolve_content_slug_file(content_base, category, slug or '')
             return content_base, content_path
 
         def studio_cors_origin(handler):
@@ -4816,10 +4888,12 @@ def studio(ctx, port, host):
                         if studio_html_path.exists():
                             with open(studio_html_path, 'r') as f:
                                 content = f.read()
-                            # Inject bearer token for authenticated Studio sessions without
-                            # writing secrets to disk. Clients read window.GANG_STUDIO_TOKEN.
+                            # Only inject the bearer token for loopback clients. Non-local
+                            # browsers must supply the token via local/session storage.
                             studio_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
-                            if studio_token:
+                            client = self.client_address[0] if self.client_address else ''
+                            is_loopback = client in {'127.0.0.1', '::1', 'localhost'}
+                            if studio_token and is_loopback:
                                 token_json = json.dumps(studio_token)
                                 inject = (
                                     f'<script>window.GANG_STUDIO_TOKEN={token_json};</script>\n'
@@ -5002,7 +5076,9 @@ def studio(ctx, port, host):
                         }).encode())
                 
                 elif self.path == '/api/redirects':
-                    # Get all redirects
+                    # POST kept for Flask parity; require the same auth as other mutations.
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         sys.path.insert(0, str(Path(__file__).parent))
                         from core.redirects import RedirectManager
