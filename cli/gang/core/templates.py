@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pathlib import Path
 from typing import Dict, Any
 from datetime import datetime
+from urllib.parse import quote
 
 class TemplateEngine:
     def __init__(self, templates_dir: Path):
@@ -19,6 +20,19 @@ class TemplateEngine:
         
         # Add custom filters
         self.env.filters['formatdate'] = self._format_date
+        self.env.filters['date'] = self._format_date
+        # Path-safe tag encoding (encodes "/" unlike Jinja urlencode)
+        self.env.filters['tagencode'] = self._tagencode
+
+    @staticmethod
+    def _tagencode(value: Any) -> str:
+        """Encode a tag for /tags/<segment>/ paths (matches tag_path_segment)."""
+        raw = str(value).strip()
+        segment = quote(raw, safe='-_.~')
+        # urllib.parse.quote never encodes "."; encode traversal tags manually.
+        if not segment or segment in {'.', '..'}:
+            return ''.join('%2E' if ch == '.' else quote(ch, safe='-_~') for ch in raw)
+        return segment
     
     def _format_date(self, date_str: str, format: str = '%B %d, %Y') -> str:
         """Format date string"""
