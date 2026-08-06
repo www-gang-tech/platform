@@ -190,7 +190,10 @@ class ContractValidator:
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
             soup = BeautifulSoup(content, 'html.parser')
-            utility_sections = {'search', 'cart', 'products', 'studio'}
+            # Interactive utility shells may include their own JS. Product detail
+            # pages are limited to cart/product helpers; arbitrary product-path
+            # scripts are not a free pass.
+            utility_sections = {'search', 'cart', 'studio'}
             comment_sections = {'posts', 'articles'}
             relative_parts = html_path.parts
             scripts = [
@@ -210,9 +213,21 @@ class ContractValidator:
                 )
                 and any(part in comment_sections for part in relative_parts)
             )
+            product_detail_only = (
+                not inline_scripts
+                and scripts
+                and all(
+                    (script.get('src') or '').rstrip('/').endswith(('cart.js', 'product.js'))
+                    for script in scripts
+                )
+                and 'products' in relative_parts
+                and html_path.name == 'index.html'
+                and html_path.parent.name != 'products'
+            )
             js_allowed = (
                 any(part in utility_sections for part in relative_parts)
                 or comments_only
+                or product_detail_only
             )
             
             if not js_allowed and (scripts or inline_scripts):
