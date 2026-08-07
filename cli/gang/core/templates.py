@@ -23,6 +23,16 @@ class TemplateEngine:
         self.env.filters['date'] = self._format_date
         # Path-safe tag encoding (encodes "/" unlike Jinja urlencode)
         self.env.filters['tagencode'] = self._tagencode
+        self.env.filters['safe_url'] = self._safe_url
+
+    @staticmethod
+    def _safe_url(value: Any) -> str:
+        """Neutralize javascript: and other unsafe URL schemes in href/src."""
+        try:
+            from core.html_sanitize import safe_href
+        except ImportError:  # pragma: no cover
+            from html_sanitize import safe_href
+        return safe_href(value)
 
     @staticmethod
     def _tagencode(value: Any) -> str:

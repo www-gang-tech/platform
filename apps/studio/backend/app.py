@@ -59,6 +59,22 @@ def _is_loopback_request():
     return remote in {'127.0.0.1', '::1', 'localhost'}
 
 
+def _is_loopback_origin():
+    """Reject cross-site CSRF when Studio runs without a configured token."""
+    origin = (request.headers.get('Origin') or '').strip()
+    if not origin:
+        # curl / same-origin navigations often omit Origin.
+        return True
+    return origin.startswith((
+        'http://127.0.0.1',
+        'http://localhost',
+        'http://[::1]',
+        'https://127.0.0.1',
+        'https://localhost',
+        'https://[::1]',
+    ))
+
+
 def request_is_authenticated():
     """Authenticate editor requests when a Studio token is configured."""
     expected_token = os.environ.get('STUDIO_AUTH_TOKEN', '')
@@ -72,8 +88,9 @@ def request_is_authenticated():
             and bool(provided_token)
             and secrets.compare_digest(provided_token, expected_token)
         )
-    # No token configured: allow unauthenticated local Studio on loopback only.
-    return _is_loopback_request()
+    # No token configured: allow unauthenticated local Studio on loopback only,
+    # and only when Origin is absent or also loopback (mitigates browser CSRF).
+    return _is_loopback_request() and _is_loopback_origin()
 
 
 @app.before_request
@@ -85,9 +102,6 @@ def protect_studio_api():
     if not (is_mutation or is_content_read):
         return None
     if request_is_authenticated():
-        return None
-    # Local Studio without a configured token remains usable on loopback only.
-    if not os.environ.get('STUDIO_AUTH_TOKEN') and _is_loopback_request():
         return None
     return jsonify({'error': 'Unauthorized'}), 401
 

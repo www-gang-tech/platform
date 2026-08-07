@@ -1134,18 +1134,25 @@ def add_redirect(ctx, from_path, to_path, temporary):
     dist_path = Path(config['build']['output'])
     
     manager = RedirectManager(content_path, dist_path)
-    result = manager.add_redirect(
-        from_path, 
-        to_path, 
-        reason='manual',
-        permanent=not temporary
-    )
+    try:
+        result = manager.add_redirect(
+            from_path, 
+            to_path, 
+            reason='manual',
+            permanent=not temporary
+        )
+    except ValueError as exc:
+        click.echo(f"❌ {exc}")
+        ctx.exit(1)
     
     status = 302 if temporary else 301
+    redirect = result.get('redirect') or {}
+    shown_from = redirect.get('from', from_path)
+    shown_to = redirect.get('to', to_path)
     if result.get('created'):
-        click.echo(f"✅ Redirect created: {from_path} → {to_path} ({status})")
+        click.echo(f"✅ Redirect created: {shown_from} → {shown_to} ({status})")
     elif result.get('updated'):
-        click.echo(f"✅ Redirect updated: {from_path} → {to_path} ({status})")
+        click.echo(f"✅ Redirect updated: {shown_from} → {shown_to} ({status})")
 
 @redirects.command('remove')
 @click.argument('from_path')
@@ -1242,7 +1249,14 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     content_path = Path(config['build']['content'])
     scheduler = ContentScheduler(content_path)
     
-    file_path = Path(file_path)
+    try:
+        file_path = resolve_content_cli_path(content_path, Path(file_path))
+    except ValueError as exc:
+        click.echo(f"❌ {exc}")
+        ctx.exit(1)
+    if not file_path.exists():
+        click.echo(f"❌ File not found: {file_path}")
+        ctx.exit(1)
     
     if now:
         # Remove schedule, publish now
@@ -1327,7 +1341,11 @@ def history(ctx, file_path, limit):
     content_path = Path(config['build']['content'])
     
     versioning = ContentVersioning(content_path)
-    file_path = Path(file_path)
+    try:
+        file_path = resolve_content_cli_path(content_path, Path(file_path))
+    except ValueError as exc:
+        click.echo(f"❌ {exc}")
+        ctx.exit(1)
     
     history_list = versioning.get_file_history(file_path, limit)
     
@@ -1356,7 +1374,11 @@ def restore(ctx, file_path, commit):
     content_path = Path(config['build']['content'])
     
     versioning = ContentVersioning(content_path)
-    file_path = Path(file_path)
+    try:
+        file_path = resolve_content_cli_path(content_path, Path(file_path))
+    except ValueError as exc:
+        click.echo(f"❌ {exc}")
+        ctx.exit(1)
     
     # Show what we're restoring
     history = versioning.get_file_history(file_path, limit=50)
@@ -2325,6 +2347,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     schedule_result = scheduler.get_publishable_content(all_md_files)
     
     publishable_files = [item['path'] for item in schedule_result['publishable']]
+
+    # Drop unsafe / non-allowlisted paths before any generator consumes the list
+    # (search, AgentMap, and content API must not advertise unrendered pages).
+    filtered_publishable = []
+    for md_file in publishable_files:
+        category = md_file.parent.name
+        slug = md_file.stem
+        if category not in ALLOWED_CONTENT_SLUG_CATEGORIES:
+            click.echo(f"⚠️  Skipping content outside allowlisted categories: {md_file}")
+            continue
+        if not is_safe_content_slug(slug):
+            click.echo(f"⚠️  Skipping content with unsafe slug '{slug}': {md_file}")
+            continue
+        filtered_publishable.append(md_file)
+    publishable_files = filtered_publishable
     
     # Show scheduling info if there are scheduled items
     if schedule_result['scheduled']:
@@ -2375,9 +2412,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Prepare context for template
         build_time = datetime.now()
         slug = md_file.stem
-        if not is_safe_content_slug(slug):
-            click.echo(f"⚠️  Skipping content with unsafe slug '{slug}': {md_file}")
-            continue
         title = coerce_string(frontmatter.get('title'), md_file.stem.replace('-', ' ').title())
         description = content_description(frontmatter, config)
         tags = normalize_tags(frontmatter.get('tags'))
@@ -2405,9 +2439,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             or os.environ.get('STUDIO_API_BASE')
             or 'http://127.0.0.1:3000'
         )
-        studio_auth_token = (
-            os.environ.get('STUDIO_AUTH_TOKEN', '') if user_authenticated else ''
-        )
+            # Never bake bearer tokens into static HTML — EDITOR_MODE builds must
+        # remain deployable. The editor reads tokens from local/session storage.
+        studio_auth_token = ''
         buy_url = str(frontmatter.get('buy_url') or first_offer.get('url') or '')
         parsed_buy_url = urlparse(buy_url)
         markdown_checkout_base = (
@@ -2602,9 +2636,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
 
     by_tag = collect_items_by_tag(all_posts, all_projects, all_newsletters, all_pages, all_people, all_product_pages)
     tag_pages = write_tag_pages(dist_path, config, templates_path, by_tag)
-    
-    # Generate outputs
-    click.echo("🗺️  Generating sitemap, feeds, etc...")
+
     all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
     if all_posts:
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
@@ -2617,36 +2649,36 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     if all_product_pages:
         all_pages.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
     all_pages.extend(tag_pages)
-    
-    # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects + all_newsletters + all_people + all_product_pages
-    
-    if profiler:
-        with profiler.stage('generate_outputs'):
-            generators.generate_all(dist_path, all_content, all_posts)
-    else:
-        generators.generate_all(dist_path, all_content, all_posts)
-    
-    # Generate redirect rules if any exist
-    try:
-        from core.redirects import RedirectManager
-        redirect_manager = RedirectManager(content_path, dist_path)
-        redirect_list = redirect_manager.list_all_redirects()
-        
-        if redirect_list:
-            redirect_manager.write_redirects_file(format='cloudflare')
-            click.echo(f"🔀 Generated {len(redirect_list)} redirect(s) → dist/_redirects")
-    except Exception as e:
-        click.echo(f"⚠️  Could not generate redirects: {e}")
-    
-    # Generate product pages (only active products)
+
+    # Generate product pages (only active products) before XML sitemap so commerce
+    # routes and utility pages are included in sitemap/feed generation.
     products = []
+    aggregator_product_pages = []
     try:
         from core.products import ProductAggregator
         from jinja2 import Environment, FileSystemLoader
         
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
+        # Filter unsafe handles once so PLP/PDP/sitemap/AgentMap stay aligned.
+        safe_products = []
+        for product in products:
+            meta = product.get('_meta') or {}
+            slug = meta.get('slug') or meta.get('handle')
+            if not slug:
+                click.echo(f"⚠️  Skipping product without slug/handle: {product.get('name')}")
+                continue
+            slug = str(slug).strip().strip('/')
+            if not is_safe_content_slug(slug):
+                click.echo(f"⚠️  Skipping product with unsafe slug/handle '{slug}': {product.get('name')}")
+                continue
+            product = dict(product)
+            product_meta = dict(meta)
+            product_meta['slug'] = slug
+            product_meta['handle'] = slug
+            product['_meta'] = product_meta
+            safe_products.append(product)
+        products = safe_products
         
         if products:
             click.echo(f"🛒 Generating {len(products)} product page(s)...")
@@ -2658,6 +2690,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 loader=FileSystemLoader(str(template_dir)),
                 autoescape=select_autoescape(['html', 'xml']),
             )
+            jinja_env.filters['safe_url'] = safe_href
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -2679,6 +2712,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     build_time_iso=datetime.now().isoformat()
                 )
                 (products_path / 'index.html').write_text(plp_html)
+                all_pages.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
             
             # Generate PDPs (skip slugs already rendered from markdown content)
             markdown_product_slugs = {
@@ -2841,6 +2875,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 pdp_html = pdp_template.render(**pdp_context)
                 (pdp_dir / 'index.html').write_text(pdp_html)
                 aggregator_pdp_count += 1
+                aggregator_product_pages.append({
+                    'url': f'/products/{slug}/',
+                    'title': product.get('name') or slug,
+                    'slug': slug,
+                    'type': 'product',
+                })
             
             click.echo(
                 f"✅ Generated product pages "
@@ -2861,21 +2901,23 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 loader=FileSystemLoader(str(template_dir)),
                 autoescape=select_autoescape(['html', 'xml']),
             )
+            jinja_env.filters['safe_url'] = safe_href
             # Prefer markdown product pages; fall back to aggregator products.
             if all_product_pages:
                 sitemap_products = all_product_pages
             else:
-                sitemap_products = []
-                for product in products or []:
-                    meta = product.get('_meta') or {}
-                    slug = meta.get('slug') or meta.get('handle')
-                    if not slug:
-                        continue
-                    slug = quote(str(slug).strip('/'), safe='')
-                    sitemap_products.append({
-                        'url': f'/products/{slug}/',
-                        'title': product.get('name') or slug,
-                    })
+                sitemap_products = aggregator_product_pages or []
+                if not sitemap_products:
+                    for product in products or []:
+                        meta = product.get('_meta') or {}
+                        slug = meta.get('slug') or meta.get('handle')
+                        if not slug:
+                            continue
+                        slug = quote(str(slug).strip('/'), safe='')
+                        sitemap_products.append({
+                            'url': f'/products/{slug}/',
+                            'title': product.get('name') or slug,
+                        })
             sitemap_dir = dist_path / 'sitemap'
             sitemap_dir.mkdir(parents=True, exist_ok=True)
             sitemap_html = jinja_env.get_template('sitemap.html').render(
@@ -2921,6 +2963,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 description=config['site']['description']
             )
             (cart_dir / 'index.html').write_text(cart_html)
+            all_pages.append({'url': '/cart/', 'title': 'Cart', 'type': 'utility'})
             click.echo("🛒 Generated cart page")
     except Exception as e:
         click.echo(f"⚠️  Could not generate cart page: {e}")
@@ -2941,10 +2984,41 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
         search_page.write_text(indexer.generate_search_page_html())
+        all_pages.append({'url': '/search/', 'title': 'Search', 'type': 'utility'})
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
+
+    # XML sitemap / feeds after all public HTML routes exist.
+    click.echo("🗺️  Generating sitemap, feeds, etc...")
+    all_pages.append({'url': '/sitemap/', 'title': 'Sitemap', 'type': 'utility'})
+    all_content = (
+        all_pages
+        + all_posts
+        + all_projects
+        + all_newsletters
+        + all_people
+        + all_product_pages
+        + aggregator_product_pages
+    )
+    if profiler:
+        with profiler.stage('generate_outputs'):
+            generators.generate_all(dist_path, all_content, all_posts)
+    else:
+        generators.generate_all(dist_path, all_content, all_posts)
+
+    # Generate redirect rules if any exist
+    try:
+        from core.redirects import RedirectManager
+        redirect_manager = RedirectManager(content_path, dist_path)
+        redirect_list = redirect_manager.list_all_redirects()
+
+        if redirect_list:
+            redirect_manager.write_redirects_file(format='cloudflare')
+            click.echo(f"🔀 Generated {len(redirect_list)} redirect(s) → dist/_redirects")
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate redirects: {e}")
     
     # Generate AgentMap for AI agents
     try:
@@ -3240,86 +3314,10 @@ def make_json_safe(value):
     return value
 
 
-def sanitize_markdown_html(html: str) -> str:
-    """Strip dangerous tags/attrs from Markdown-generated HTML fragments."""
-    from bs4 import BeautifulSoup
-
-    if not html:
-        return ''
-
-    soup = BeautifulSoup(f'<div id="gang-md-root">{html}</div>', 'html.parser')
-    root = soup.find(id='gang-md-root')
-    if root is None:
-        return ''
-
-    forbidden_tags = {
-        'script', 'style', 'iframe', 'object', 'embed', 'link', 'meta',
-        'base', 'form', 'input', 'button', 'textarea', 'select',
-    }
-    for tag in list(root.find_all(True)):
-        name = (tag.name or '').lower()
-        if name in forbidden_tags:
-            tag.decompose()
-            continue
-        for attr in list(tag.attrs):
-            attr_l = str(attr).lower()
-            if attr_l.startswith('on') or attr_l in {'style', 'srcdoc'}:
-                del tag.attrs[attr]
-
-    return ''.join(str(child) for child in root.contents)
-
-
-def sanitize_content_hrefs(html: str) -> str:
-    """Rewrite unsafe URL-bearing attributes in generated markdown HTML."""
-    import re
-
-    def is_safe_url(value: str) -> bool:
-        if not value or value.startswith('//'):
-            return False
-        scheme_host = value.split('?', 1)[0].split('#', 1)[0]
-        if ':' in scheme_host:
-            return scheme_host.lower().startswith(('http:', 'https:', 'mailto:'))
-        # Relative paths, root paths, and in-page anchors are fine.
-        return True
-
-    def sanitize_srcset(value: str) -> str:
-        parts = []
-        for candidate in value.split(','):
-            token = candidate.strip()
-            if not token:
-                continue
-            url = token.split(None, 1)[0]
-            descriptor = token[len(url):]
-            if is_safe_url(url):
-                parts.append(token)
-            else:
-                parts.append(f'#{descriptor}' if descriptor else '#')
-        return ', '.join(parts) if parts else '#'
-
-    def rewrite(attr: str, quote: str, value: str) -> str:
-        if attr.lower() == 'srcset':
-            safe_value = sanitize_srcset(value)
-        elif is_safe_url(value):
-            safe_value = value
-        else:
-            safe_value = '#'
-        if quote:
-            return f'{attr}={quote}{safe_value}{quote}'
-        return f'{attr}={safe_value}'
-
-    # Quoted attributes first so srcset values with spaces are preserved.
-    html = re.sub(
-        r'\b(href|src|action|formaction|data|poster|srcset)\s*=\s*(["\'])(.*?)\2',
-        lambda m: rewrite(m.group(1), m.group(2), m.group(3)),
-        html,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    return re.sub(
-        r'\b(href|src|action|formaction|data|poster|srcset)\s*=\s*([^"\'>\s]+)',
-        lambda m: rewrite(m.group(1), '', m.group(2)),
-        html,
-        flags=re.IGNORECASE,
-    )
+try:
+    from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs, safe_href
+except ImportError:  # pragma: no cover - package layout fallback
+    from html_sanitize import sanitize_markdown_html, sanitize_content_hrefs, safe_href
 
 
 def process_external_links(html: str) -> str:
@@ -3425,6 +3423,38 @@ def resolve_content_slug_file(content_root: Path, category: str, slug: str) -> P
     except ValueError as exc:
         raise ValueError(f"Invalid slug path: {category}/{slug}") from exc
     return full_path
+
+
+def resolve_content_cli_path(content_root: Path, file_path: Path) -> Path:
+    """Resolve a CLI content path under content_root (markdown only)."""
+    base = Path(content_root).resolve()
+    candidate = Path(file_path)
+    if not candidate.is_absolute():
+        # Prefer paths relative to content root; also accept repo-relative
+        # paths that already include the content directory prefix.
+        direct = (base / candidate).resolve()
+        cwd_relative = candidate.resolve()
+        if direct.exists() or not cwd_relative.exists():
+            candidate = direct
+        else:
+            candidate = cwd_relative
+    else:
+        candidate = candidate.resolve()
+    try:
+        rel = candidate.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"Path must be under content root: {file_path}") from exc
+    if len(rel.parts) != 2:
+        raise ValueError(f"Path must be content/<category>/<slug>.md: {file_path}")
+    category, name = rel.parts
+    if category not in ALLOWED_CONTENT_SLUG_CATEGORIES:
+        raise ValueError(f"Invalid content category: {category}")
+    if not name.endswith('.md'):
+        raise ValueError(f"Content path must be a markdown file: {file_path}")
+    slug = name[:-3]
+    if not is_safe_content_slug(slug):
+        raise ValueError(f"Invalid slug: {slug}")
+    return candidate
 
 
 def coerce_string(value, fallback: str = '') -> str:
@@ -4736,7 +4766,18 @@ def studio(ctx, port, host):
                     and bool(provided)
                     and secrets.compare_digest(provided, expected)
                 )
-            # No token: allow unauthenticated local Studio on loopback only.
+            # No token: allow local Studio on loopback only, and only when Origin
+            # is absent or also loopback (mitigates browser CSRF to :3000).
+            origin = (handler.headers.get('Origin') or '').strip()
+            if origin and not origin.startswith((
+                'http://127.0.0.1',
+                'http://localhost',
+                'http://[::1]',
+                'https://127.0.0.1',
+                'https://localhost',
+                'https://[::1]',
+            )):
+                return False
             return is_loopback
 
         def require_studio_mutation_auth(handler):

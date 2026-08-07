@@ -48,7 +48,7 @@
                 {% if meta_slug %}
                 <a href="/products/{{ meta_slug }}/">
                 {% elif product._meta.url %}
-                <a href="{{ product._meta.url }}">
+                <a href="{{ product._meta.url|safe_url }}">
                 {% else %}
                 <a href="/products/">
                 {% endif %}

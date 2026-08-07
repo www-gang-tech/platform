@@ -240,7 +240,17 @@ class ShopifyClient:
                         start = part.find('<')
                         end = part.find('>')
                         if start != -1 and end != -1:
-                            next_url = part[start + 1:end]
+                            candidate = part[start + 1:end]
+                            # Never follow pagination off the configured Shopify host
+                            # (avoids leaking X-Shopify-Access-Token to a third party).
+                            from urllib.parse import urlparse
+                            parsed = urlparse(candidate)
+                            if (
+                                parsed.scheme == 'https'
+                                and parsed.netloc.lower() == self.store_url.lower()
+                                and parsed.path
+                            ):
+                                next_url = candidate
                         break
                 url = next_url
                 params = None  # next Link URL already includes query params

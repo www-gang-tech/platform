@@ -250,10 +250,15 @@ class NewsletterManager:
         """Convert markdown to email-safe HTML"""
         
         import markdown
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:  # pragma: no cover
+            from html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         html = md.convert(markdown_content)
+        html = sanitize_content_hrefs(sanitize_markdown_html(html))
         
         # Wrap in email template
         email_html = f'''
