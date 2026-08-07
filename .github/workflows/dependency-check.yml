@@ -30,8 +30,43 @@ jobs:
       - name: Check for security vulnerabilities
         id: audit
         run: |
-          pip-audit -r requirements.txt --format=json > audit-report.json || echo "VULNERABILITIES_FOUND=true" >> $GITHUB_ENV
-      
+          set +e
+          # Audit root build deps and Studio backend deps (Flask is not in root requirements).
+          pip-audit -r requirements.txt --format=json > audit-root.json
+          root_status=$?
+          pip-audit -r apps/studio/backend/requirements.txt --format=json > audit-studio.json
+          studio_status=$?
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          merged = {'dependencies': []}
+          for path in (Path('audit-root.json'), Path('audit-studio.json')):
+              if not path.exists() or path.stat().st_size == 0:
+                  continue
+              data = json.loads(path.read_text() or '{}')
+              deps = data.get('dependencies') if isinstance(data, dict) else data
+              if isinstance(deps, list):
+                  merged['dependencies'].extend(deps)
+          Path('audit-report.json').write_text(json.dumps(merged, indent=2))
+          PY
+          status=0
+          if [ "$root_status" -eq 1 ] || [ "$studio_status" -eq 1 ]; then
+            status=1
+          elif [ "$root_status" -ne 0 ]; then
+            status=$root_status
+          elif [ "$studio_status" -ne 0 ]; then
+            status=$studio_status
+          fi
+          set -e
+          # pip-audit: 0 = clean, 1 = vulnerabilities found, other = tool/infra failure
+          if [ "$status" -eq 1 ]; then
+            echo "VULNERABILITIES_FOUND=true" >> "$GITHUB_ENV"
+          elif [ "$status" -ne 0 ]; then
+            echo "pip-audit failed with exit code $status (not treating as vulns)"
+            exit "$status"
+          fi
+
       - name: Create issue if vulnerabilities found
         if: env.VULNERABILITIES_FOUND == 'true'
         uses: actions/github-script@v7
@@ -39,20 +74,30 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
-            
+            const vulnerabilities = (report.dependencies || []).flatMap((dependency) =>
+              (dependency.vulns || []).map((vuln) => ({ dependency, vuln }))
+            );
+
+            if (vulnerabilities.length === 0) {
+              core.info('No vulnerability records found in audit JSON; skipping issue creation');
+              return;
+            }
+
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
-            
-            for (const vuln of vulnerabilities) {
-              body += `### ${vuln.name} ${vuln.version}\n`;
-              body += `- **Severity**: ${vuln.severity}\n`;
-              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
-              body += `- **Details**: ${vuln.description}\n\n`;
+
+            for (const { dependency, vuln } of vulnerabilities) {
+              const fixes = vuln.fix_versions && vuln.fix_versions.length
+                ? vuln.fix_versions.join(', ')
+                : 'No fixed version reported';
+              body += `### ${dependency.name} ${dependency.version}\n`;
+              body += `- **ID**: ${vuln.id || 'unknown'}\n`;
+              body += `- **Fix**: ${fixes}\n`;
+              body += `- **Details**: ${vuln.description || 'No description provided'}\n\n`;
             }
-            
+
             body += '**Action Required**: Run `gang update-deps --security-only` to fix these issues.\n';
-            
+
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -60,11 +105,15 @@ jobs:
               body: body,
               labels: ['security', 'dependencies']
             });
-      
+
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-audit-report
           path: audit-report.json
+
+      - name: Fail on vulnerabilities
+        if: env.VULNERABILITIES_FOUND == 'true'
+        run: exit 1
 

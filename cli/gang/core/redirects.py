@@ -4,19 +4,54 @@ Track slug changes and generate 301 redirects.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from urllib.parse import urlparse
 
 
 class RedirectManager:
     """Manage 301 redirects for slug changes"""
+
+    _SAFE_PATH = re.compile(r'^/[A-Za-z0-9._~!$&\'()*+,;=:@/\-]*$')
     
     def __init__(self, content_path: Path, dist_path: Path):
         self.content_path = content_path
         self.dist_path = dist_path
         self.redirects_file = content_path.parent / '.redirects.json'
         self.redirects = self._load_redirects()
+
+    @classmethod
+    def validate_redirect_path(cls, path: str, *, allow_external: bool = False) -> str:
+        """Normalize and validate a redirect from/to value for _redirects safety."""
+        if path is None:
+            raise ValueError('Redirect path is required')
+        value = str(path).strip()
+        if not value:
+            raise ValueError('Redirect path is required')
+        if any(ch.isspace() for ch in value) or any(ord(ch) < 32 for ch in value):
+            raise ValueError(f'Redirect path contains whitespace/control characters: {path!r}')
+        if value.startswith(('http://', 'https://')):
+            if not allow_external:
+                raise ValueError(f'External redirect destinations are not allowed: {path}')
+            parsed = urlparse(value)
+            if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
+                raise ValueError(f'Invalid external redirect URL: {path}')
+            if any(ch.isspace() for ch in value) or '\n' in value or '\r' in value:
+                raise ValueError(f'Invalid external redirect URL: {path}')
+            return value
+        if not value.startswith('/'):
+            raise ValueError(f'Redirect path must start with /: {path}')
+        if value.startswith('//'):
+            raise ValueError(f'Redirect path must not be protocol-relative: {path}')
+        if not cls._SAFE_PATH.fullmatch(value):
+            raise ValueError(f'Invalid redirect path: {path}')
+        # Collapse accidental duplicate slashes but keep a single leading slash.
+        normalized = '/' + '/'.join(part for part in value.split('/') if part)
+        if value.endswith('/') and normalized != '/':
+            normalized += '/'
+        return normalized
     
     def _load_redirects(self) -> Dict[str, Any]:
         """Load existing redirects"""
@@ -42,6 +77,8 @@ class RedirectManager:
         permanent: bool = True
     ) -> Dict[str, Any]:
         """Add a new redirect"""
+        old_path = self.validate_redirect_path(old_path, allow_external=False)
+        new_path = self.validate_redirect_path(new_path, allow_external=True)
         
         # Check if redirect already exists
         for redirect in self.redirects['redirects']:
