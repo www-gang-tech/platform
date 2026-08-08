@@ -185,22 +185,25 @@ class ImagePipeline:
             return
         
         import yaml
-        frontmatter = yaml.safe_load(parts[1])
+        loaded = yaml.safe_load(parts[1])
+        frontmatter = loaded if isinstance(loaded, dict) else {}
         
         # Add/update images array
-        if 'images' not in frontmatter:
-            frontmatter['images'] = []
+        images = frontmatter.get('images')
+        if not isinstance(images, list):
+            images = []
+            frontmatter['images'] = images
         
         # Find or create entry for this image
         image_entry = None
-        for img in frontmatter['images']:
-            if img.get('src') == image_filename:
+        for img in images:
+            if isinstance(img, dict) and img.get('src') == image_filename:
                 image_entry = img
                 break
         
         if not image_entry:
             image_entry = {'src': image_filename}
-            frontmatter['images'].append(image_entry)
+            images.append(image_entry)
         
         # Update focal point
         image_entry['focal_point'] = list(focal_point)

@@ -188,18 +188,13 @@ def optimize(ctx, force):
     click.echo(f"💰 Estimated cost: ${cost_info['estimated_cost_usd']:.2f} (with cache: ${cost_info['with_cache']:.2f})")
     
     optimized_count = 0
+    try:
+        from core.frontmatter import parse_frontmatter
+    except ImportError:
+        from frontmatter import parse_frontmatter
     for md_file in md_files:
         content = md_file.read_text()
-        
-        # Parse frontmatter
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            frontmatter = frontmatter or {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        frontmatter, body = parse_frontmatter(content)
         
         content_type = md_file.parent.name
         
@@ -2403,15 +2398,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         source_content_type = md_file.parent.name
         content_type = output_content_type(source_content_type)
         
-        # Parse markdown with frontmatter
+        # Parse markdown with frontmatter (empty/null YAML must not crash .get())
         content = md_file.read_text()
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        try:
+            from core.frontmatter import parse_frontmatter
+        except ImportError:
+            from frontmatter import parse_frontmatter
+        frontmatter, body = parse_frontmatter(content)
 
         if source_content_type in TEMPLATE_OWNS_H1:
             body = strip_leading_markdown_h1(body)
@@ -2898,7 +2891,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'year': datetime.now().year,
                     'navigation': config.get('nav', {}).get('main', []),
                     'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                    'build_time_iso': datetime.now().isoformat()
+                    'build_time_iso': datetime.now().isoformat(),
+                    # Match markdown PDP EDITOR_MODE so product.html can show Edit UI.
+                    'user_authenticated': os.environ.get('EDITOR_MODE', '').lower() == 'true',
+                    'studio_api_base': (
+                        os.environ.get('GANG_API_BASE')
+                        or os.environ.get('STUDIO_API_BASE')
+                        or 'http://127.0.0.1:3000'
+                    ),
+                    'studio_auth_token': '',
                 }
                 
                 pdp_html = pdp_template.render(**pdp_context)
@@ -3390,7 +3391,8 @@ def process_external_links(html: str) -> str:
 
 
 BUILD_CONTENT_DIRS = ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products']
-TEMPLATE_OWNS_H1 = {'posts', 'articles', 'projects', 'newsletters', 'people'}
+# product.html renders <h1>{{ title }}</h1> like post/person templates.
+TEMPLATE_OWNS_H1 = {'posts', 'articles', 'projects', 'newsletters', 'people', 'products'}
 
 
 def collect_build_content_files(content_path: Path) -> List[Path]:
@@ -4021,14 +4023,11 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     """Process a markdown file into HTML"""
     content = md_file.read_text()
     
-    # Parse frontmatter
-    if content.startswith('---'):
-        parts = content.split('---', 2)
-        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-        body = parts[2] if len(parts) > 2 else ''
-    else:
-        frontmatter = {}
-        body = content
+    try:
+        from core.frontmatter import parse_frontmatter
+    except ImportError:
+        from frontmatter import parse_frontmatter
+    frontmatter, body = parse_frontmatter(content)
     
     # Convert markdown to HTML
     md = markdown.Markdown(extensions=['extra', 'meta'])
@@ -4039,11 +4038,11 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     # Process external links to open in new tabs
     body_html = process_external_links(body_html)
     
-    title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
-    safe_title = html_escape(str(title))
+    title = coerce_string(frontmatter.get('title'), md_file.stem.replace('-', ' ').title())
+    description = coerce_string(frontmatter.get('summary'), config['site']['description'])
+    safe_title = html_escape(title)
     safe_site_title = html_escape(str(config['site']['title']))
-    safe_description = html_escape(str(description), quote=True)
+    safe_description = html_escape(description, quote=True)
     canonical_url = f"{str(config['site']['url']).rstrip('/')}/{content_type}/{quote(md_file.stem, safe='')}/"
     fallback_jsonld = json.dumps({
         "@context": "https://schema.org",
@@ -4887,11 +4886,22 @@ def studio(ctx, port, host):
                             for md_file in sorted(type_dir.glob('*.md')):
                                 # Extensionless paths match Flask list_content /
                                 # resolve_content_file and studio.html clients.
+                                title = md_file.stem.replace('-', ' ').title()
+                                try:
+                                    from core.frontmatter import parse_frontmatter
+                                    fm, _body = parse_frontmatter(md_file.read_text())
+                                    if fm.get('title') is not None and str(fm.get('title')).strip():
+                                        title = str(fm.get('title')).strip()
+                                except Exception:
+                                    pass
+                                output_type = 'posts' if category == 'articles' else category
                                 files.append({
                                     'path': f'{category}/{md_file.stem}',
                                     'type': category,
                                     'name': md_file.stem,
                                     'slug': md_file.stem,
+                                    'title': title,
+                                    'url': f'/{output_type}/{md_file.stem}/',
                                 })
                         
                         click.echo(f"📂 Found {len(files)} content files: {[f['name'] for f in files]}")
@@ -5881,13 +5891,33 @@ def create_studio_html(output_path: Path):
     
     <script>
         let currentFile = null;
+
+        function studioAuthHeaders(extra = {}) {
+            const headers = { ...extra };
+            // Injected for loopback when STUDIO_AUTH_TOKEN is set; otherwise
+            // operators may place the token in local/session storage.
+            const token = (typeof window.GANG_STUDIO_TOKEN === 'string' && window.GANG_STUDIO_TOKEN)
+                || (function() {
+                    try {
+                        return localStorage.getItem('GANG_STUDIO_TOKEN')
+                            || sessionStorage.getItem('GANG_STUDIO_TOKEN')
+                            || '';
+                    } catch (e) { return ''; }
+                })();
+            if (token) {
+                headers['Authorization'] = 'Bearer ' + token;
+            }
+            return headers;
+        }
         
         // Load content list
         async function loadContentList() {
             const listEl = document.getElementById('contentList');
             try {
                 console.log('Fetching content from /api/content...');
-                const response = await fetch('/api/content');
+                const response = await fetch('/api/content', {
+                    headers: studioAuthHeaders()
+                });
                 console.log('Response status:', response.status);
                 
                 if (!response.ok) {
@@ -5932,7 +5962,12 @@ def create_studio_html(output_path: Path):
         // Load specific file
         async function loadFile(path) {
             try {
-                const response = await fetch(`/api/content/${path}`);
+                const response = await fetch(`/api/content/${path}`, {
+                    headers: studioAuthHeaders()
+                });
+                if (!response.ok) {
+                    throw new Error('Failed to load file: ' + response.status);
+                }
                 const content = await response.text();
                 
                 currentFile = path;
@@ -5949,19 +5984,16 @@ def create_studio_html(output_path: Path):
             }
         }
         
-        // Update preview
+        // Update preview (textContent-safe — never assign raw markdown to innerHTML)
         function updatePreview(markdown) {
-            // Simple markdown to HTML (just for preview)
-            const html = markdown
-                .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-                .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-                .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                .replace(/\n\n/g, '</p><p>')
-                .replace(/^(.+)$/gm, '<p>$1</p>');
-            
-            document.getElementById('preview').innerHTML = html;
+            const preview = document.getElementById('preview');
+            preview.replaceChildren();
+            const pre = document.createElement('pre');
+            pre.style.whiteSpace = 'pre-wrap';
+            pre.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+            pre.style.fontSize = '0.9rem';
+            pre.textContent = markdown || '';
+            preview.appendChild(pre);
         }
         
         // Save content

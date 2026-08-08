@@ -31,17 +31,15 @@ class InternalLinkingSuggester:
         # Read source content
         source_content = file_path.read_text()
         
-        # Parse frontmatter
-        if source_content.startswith('---'):
-            parts = source_content.split('---', 2)
-            source_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            source_body = parts[2] if len(parts) > 2 else source_content
-        else:
-            source_fm = {}
-            source_body = source_content
+        # Parse frontmatter (null/empty YAML must not crash .get())
+        try:
+            from core.frontmatter import parse_frontmatter
+        except ImportError:  # pragma: no cover
+            from frontmatter import parse_frontmatter
+        source_fm, source_body = parse_frontmatter(source_content)
         
-        source_title = source_fm.get('title', file_path.stem)
-        source_tags = source_fm.get('tags', [])
+        source_title = source_fm.get('title') or file_path.stem
+        source_tags = source_fm.get('tags') or []
         
         # Build context about other content
         other_content = []
@@ -51,19 +49,15 @@ class InternalLinkingSuggester:
             
             try:
                 other_text = other_file.read_text()
-                if other_text.startswith('---'):
-                    parts = other_text.split('---', 2)
-                    other_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-                else:
-                    other_fm = {}
+                other_fm, _ = parse_frontmatter(other_text)
                 
                 other_content.append({
                     'path': other_file,
                     'slug': other_file.stem,
                     'category': other_file.parent.name,
-                    'title': other_fm.get('title', other_file.stem),
-                    'summary': other_fm.get('summary', ''),
-                    'tags': other_fm.get('tags', [])
+                    'title': other_fm.get('title') or other_file.stem,
+                    'summary': other_fm.get('summary') or '',
+                    'tags': other_fm.get('tags') or []
                 })
             except:
                 continue
