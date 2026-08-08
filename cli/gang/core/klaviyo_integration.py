@@ -90,14 +90,11 @@ class KlaviyoClient:
         
         campaign = response.json()
         campaign_id = campaign['data']['id']
-        
-        # Get the campaign message ID from the response
-        messages = campaign['data']['attributes'].get('campaign-messages', {}).get('data', [])
-        if messages:
-            message_id = messages[0]['id']
-            # Update with HTML/text content
-            self._update_campaign_content(message_id, html_content, text_content)
-        
+
+        # Campaign messages are exposed via relationships / nested collection
+        # endpoints, not attributes.campaign-messages. Always resolve by campaign id.
+        self._update_campaign_content(campaign_id, html_content, text_content)
+
         return campaign
     
     def _create_campaign_message(
@@ -146,35 +143,18 @@ class KlaviyoClient:
         
         message = response.json()
         message_id = message['data']['id']
-        
-        # Update with HTML/text content
-        self._update_campaign_content(message_id, html_content, text_content)
-        
+        self._patch_campaign_message(message_id, html_content, text_content)
         return message
-    
-    def _update_campaign_content(
+
+    def _patch_campaign_message(
         self,
-        campaign_id: str,
+        message_id: str,
         html_content: str,
         text_content: str
     ):
-        """Update campaign HTML and text content"""
+        """PATCH HTML/text onto an existing campaign-message id."""
         import requests
-        
-        # Get campaign message ID
-        response = requests.get(
-            f'{self.base_url}/campaigns/{campaign_id}/campaign-messages/',
-            headers=self.headers
-        )
-        response.raise_for_status()
-        
-        messages = response.json()['data']
-        if not messages:
-            raise Exception("No campaign messages found")
-        
-        message_id = messages[0]['id']
-        
-        # Update content
+
         payload = {
             'data': {
                 'type': 'campaign-message',
@@ -187,13 +167,33 @@ class KlaviyoClient:
                 }
             }
         }
-        
         response = requests.patch(
             f'{self.base_url}/campaign-messages/{message_id}/',
             headers=self.headers,
             json=payload
         )
         response.raise_for_status()
+
+    def _update_campaign_content(
+        self,
+        campaign_id: str,
+        html_content: str,
+        text_content: str
+    ):
+        """Resolve campaign messages by campaign id, then attach HTML/text."""
+        import requests
+
+        response = requests.get(
+            f'{self.base_url}/campaigns/{campaign_id}/campaign-messages/',
+            headers=self.headers
+        )
+        response.raise_for_status()
+
+        messages = response.json()['data']
+        if not messages:
+            raise Exception("No campaign messages found")
+
+        self._patch_campaign_message(messages[0]['id'], html_content, text_content)
     
     def sync_shopify_data(self) -> Dict[str, Any]:
         """
@@ -230,7 +230,12 @@ class KlaviyoClient:
         actions: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Create automated flow (e.g., abandoned cart, welcome series)
+        Create an empty draft flow shell (e.g., abandoned cart, welcome series).
+
+        Klaviyo's Flows API creates the flow record only; action definitions must
+        be configured via the Flow Definition API or Klaviyo UI. Callers that
+        pass ``actions`` receive them echoed under ``pending_actions`` with a
+        warning so empty drafts are not mistaken for fully configured flows.
         
         Common trigger types:
         - 'abandoned-cart'
@@ -258,7 +263,14 @@ class KlaviyoClient:
         )
         response.raise_for_status()
         
-        return response.json()
+        result = response.json()
+        if actions:
+            result['pending_actions'] = actions
+            result['warning'] = (
+                'Flow created as an empty draft; action definitions were not applied. '
+                'Configure actions in the Klaviyo UI or Flow Definition API.'
+            )
+        return result
     
     def get_lists(self) -> List[Dict[str, Any]]:
         """Get all email lists"""
@@ -439,13 +451,32 @@ class KlaviyoTemplateGenerator:
     @staticmethod
     def generate_abandoned_cart_template(cart_items: List[Dict], cart_url: str) -> str:
         """Generate abandoned cart email HTML"""
+        from html import escape as html_escape
+        try:
+            from core.html_sanitize import safe_href, is_safe_href
+        except ImportError:  # pragma: no cover
+            from html_sanitize import safe_href, is_safe_href
         
         items_html = ""
         total = 0
         
         for item in cart_items:
-            item_total = float(item['price']) * int(item['quantity'])
+            try:
+                price = float(item.get('price') if item.get('price') is not None else 0)
+            except (TypeError, ValueError):
+                price = 0.0
+            try:
+                quantity = int(item.get('quantity') if item.get('quantity') is not None else 1)
+            except (TypeError, ValueError):
+                quantity = 1
+            if quantity < 0:
+                quantity = 0
+            item_total = price * quantity
             total += item_total
+            name = html_escape(str(item.get('name') or 'Product'))
+            variant = html_escape(str(item.get('variant') or ''))
+            image = item.get('image') or ''
+            image_src = html_escape(image) if is_safe_href(image) else ''
             
             items_html += f"""
             <tr>
@@ -453,13 +484,13 @@ class KlaviyoTemplateGenerator:
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                         <tr>
                             <td width="100">
-                                <img src="{item.get('image', '')}" alt="{item['name']}" 
+                                <img src="{image_src}" alt="{name}" 
                                      style="width: 100px; height: 100px; object-fit: cover;">
                             </td>
                             <td style="padding-left: 15px;">
-                                <strong style="font-size: 16px;">{item['name']}</strong><br>
-                                {item.get('variant', '')}<br>
-                                <span style="color: #595959;">Qty: {item['quantity']}</span>
+                                <strong style="font-size: 16px;">{name}</strong><br>
+                                {variant}<br>
+                                <span style="color: #595959;">Qty: {quantity}</span>
                             </td>
                             <td align="right" style="font-weight: 600;">
                                 ${item_total:.2f}
@@ -470,6 +501,7 @@ class KlaviyoTemplateGenerator:
             </tr>
             """
         
+        safe_cart_url = html_escape(safe_href(cart_url, fallback='#'))
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -511,7 +543,7 @@ class KlaviyoTemplateGenerator:
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{cart_url}" 
+                                        <a href="{safe_cart_url}" 
                                            style="display: inline-block; padding: 16px 32px; background-color: #0052a3; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px;">
                                             Complete Your Purchase
                                         </a>
@@ -635,6 +667,11 @@ class KlaviyoOrchestrator:
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:  # pragma: no cover
+            from html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        content_html = sanitize_content_hrefs(sanitize_markdown_html(content_html))
         
         # Get metadata
         title = frontmatter.get('title', post_path.stem.replace('-', ' ').title())
@@ -685,14 +722,35 @@ class KlaviyoOrchestrator:
     ) -> Dict[str, Any]:
         """Create product launch campaign"""
         
-        product_name = product.get('name', 'New Product')
-        product_url = f"{self.site_url}/products/{product.get('_meta', {}).get('slug', '')}"
+        from html import escape as html_escape
+        try:
+            from core.html_sanitize import safe_href, is_safe_href
+        except ImportError:  # pragma: no cover
+            from html_sanitize import safe_href, is_safe_href
+
+        product_name = str(product.get('name', 'New Product') or 'New Product')
+        safe_name = html_escape(product_name)
+        slug = str((product.get('_meta') or {}).get('slug') or '')
+        product_url = f"{self.site_url}/products/{slug}" if slug else self.site_url
+        safe_product_url = html_escape(safe_href(product_url, fallback='#'))
+        raw_image = product.get('image', '')
+        if isinstance(raw_image, (list, tuple)):
+            raw_image = raw_image[0] if raw_image else ''
+        image_src = html_escape(str(raw_image)) if is_safe_href(str(raw_image or '')) else ''
+        # Descriptions may contain Shopify HTML — strip tags then escape.
+        raw_description = str(product.get('description', '') or '')
+        if '<' in raw_description:
+            from bs4 import BeautifulSoup
+            description_text = BeautifulSoup(raw_description, 'html.parser').get_text(' ')
+        else:
+            description_text = raw_description
+        safe_description = html_escape(description_text)
         
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>New Product: {product_name}</title>
+    <title>New Product: {safe_name}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, sans-serif; background-color: #f5f5f5;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -701,19 +759,19 @@ class KlaviyoOrchestrator:
                 <table role="presentation" style="max-width: 600px; background: #ffffff;" cellpadding="0" cellspacing="0">
                     <tr>
                         <td style="padding: 40px 30px;">
-                            <h1 style="margin: 0 0 20px 0; font-size: 28px;">Introducing {product_name}</h1>
+                            <h1 style="margin: 0 0 20px 0; font-size: 28px;">Introducing {safe_name}</h1>
                             
-                            <img src="{product.get('image', '')}" alt="{product_name}" 
+                            <img src="{image_src}" alt="{safe_name}" 
                                  style="max-width: 100%; height: auto; margin: 20px 0;">
                             
                             <p style="font-size: 16px; line-height: 1.6; margin: 20px 0;">
-                                {product.get('description', '')}
+                                {safe_description}
                             </p>
                             
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{product_url}" 
+                                        <a href="{safe_product_url}" 
                                            style="display: inline-block; padding: 16px 32px; background-color: #0052a3; color: #ffffff; text-decoration: none; font-weight: 600;">
                                             Shop Now
                                         </a>
@@ -733,7 +791,7 @@ class KlaviyoOrchestrator:
 {product_name}
 {'=' * len(product_name)}
 
-{product.get('description', '')}
+{description_text}
 
 Shop now: {product_url}
 

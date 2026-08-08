@@ -27,7 +27,7 @@
                         {% for link in social_links %}
                         <li>
                             <a 
-                                href="{{ link.url }}" 
+                                href="{{ link.url|safe_url }}" 
                                 rel="noopener noreferrer"
                                 itemprop="sameAs"
                                 class="ext"

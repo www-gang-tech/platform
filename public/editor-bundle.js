@@ -6,9 +6,39 @@ class InPlaceEditor {
         this.overlay = null;
         this.editorElement = null;
         this.originalContent = '';
+        this.frontmatter = '';
         this.currentFile = '';
         this.floatingToolbar = null;
         this.isActive = false;
+        // Prefer injected GANG_API_BASE (EDITOR_MODE builds / studio.html).
+        // Default to CLI `gang studio` (:3000); Flask Studio injects :5001.
+        this.apiBase = window.GANG_API_BASE || 'http://127.0.0.1:3000';
+    }
+
+    studioAuthToken() {
+        if (typeof window.GANG_STUDIO_TOKEN === 'string' && window.GANG_STUDIO_TOKEN) {
+            return window.GANG_STUDIO_TOKEN;
+        }
+        const meta = document.querySelector('meta[name="gang-studio-token"]');
+        if (meta && meta.content) {
+            return meta.content;
+        }
+        try {
+            return localStorage.getItem('GANG_STUDIO_TOKEN')
+                || sessionStorage.getItem('GANG_STUDIO_TOKEN')
+                || '';
+        } catch {
+            return '';
+        }
+    }
+
+    studioHeaders(extra = {}) {
+        const headers = { ...extra };
+        const token = this.studioAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
     }
 
     async activate() {
@@ -19,12 +49,17 @@ class InPlaceEditor {
         
         try {
             // Fetch content from API
-            const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`);
+            const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`, {
+                headers: this.studioHeaders()
+            });
             if (!response.ok) {
                 throw new Error('Failed to load content: ' + response.status);
             }
             
-            this.originalContent = await response.text();
+            const markdown = await response.text();
+            const parsed = this.parseFrontmatter(markdown);
+            this.frontmatter = parsed.frontmatter;
+            this.originalContent = parsed.body;
             
             // Create and show editor overlay
             this.createOverlay();
@@ -41,35 +76,43 @@ class InPlaceEditor {
         // Create full-screen overlay
         const overlay = document.createElement('div');
         overlay.className = 'editor-overlay';
-        overlay.innerHTML = `
-            <div class="editor-container">
-                <div class="editor-header">
-                    <h2>Edit: ${this.getPageTitle()}</h2>
-                    <div class="editor-header-actions">
-                        <button class="editor-actions-btn" id="actions-toggle">
-                            <i class="fa-solid fa-bars"></i> Actions
-                        </button>
-                        <div class="action-menu" id="action-menu">
-                            <button data-action="save">
-                                <i class="fa-solid fa-floppy-disk"></i> Save Draft
-                            </button>
-                            <button data-action="validate">
-                                <i class="fa-solid fa-check"></i> Validate
-                            </button>
-                            <button data-action="publish">
-                                <i class="fa-solid fa-rocket"></i> Publish
-                            </button>
-                            <button data-action="cancel">
-                                <i class="fa-solid fa-xmark"></i> Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
+
+        const container = document.createElement('div');
+        container.className = 'editor-container';
+
+        const header = document.createElement('div');
+        header.className = 'editor-header';
+
+        const title = document.createElement('h2');
+        title.textContent = 'Edit: ' + this.getPageTitle();
+
+        const headerActions = document.createElement('div');
+        headerActions.className = 'editor-header-actions';
+        headerActions.innerHTML = `
+            <button class="editor-actions-btn" id="actions-toggle">
+                <i class="fa-solid fa-bars"></i> Actions
+            </button>
+            <div class="action-menu" id="action-menu">
+                <button data-action="save">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Draft
+                </button>
+                <button data-action="validate">
+                    <i class="fa-solid fa-check"></i> Validate
+                </button>
+                <button data-action="publish">
+                    <i class="fa-solid fa-rocket"></i> Publish
+                </button>
+                <button data-action="cancel">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
             </div>
         `;
+
+        header.append(title, headerActions);
+        container.appendChild(header);
+        overlay.appendChild(container);
         
         // Create editor content area
-        const container = overlay.querySelector('.editor-container');
         this.editorElement = this.initEditor();
         container.appendChild(this.editorElement);
         
@@ -213,7 +256,15 @@ class InPlaceEditor {
         } else if (cmd === 'link') {
             const url = prompt('Enter URL:');
             if (url) {
-                document.execCommand('createLink', false, url);
+                const trimmed = url.trim();
+                const safe = trimmed
+                    && !trimmed.startsWith('//')
+                    && /^(https?:|mailto:|\/|#)/i.test(trimmed);
+                if (safe) {
+                    document.execCommand('createLink', false, trimmed);
+                } else {
+                    alert('Only http(s), mailto, site paths, or #anchors are allowed.');
+                }
             }
         }
         
@@ -222,13 +273,29 @@ class InPlaceEditor {
 
     // Markdown to HTML converter
     markdownToHtml(markdown) {
-        return markdown
+        const escaped = markdown
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        return escaped
             .replace(/^### (.+)$/gm, '<h3>$1</h3>')
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
             .replace(/^# (.+)$/gm, '<h1>$1</h1>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+            .replace(/\[(.+?)\]\((.+?)\)/g, (_match, text, href) => {
+                // Reject protocol-relative URLs (//evil.example) while allowing
+                // http(s), mailto, same-origin paths, and in-page anchors.
+                const safeHref = (
+                    href
+                    && !href.startsWith('//')
+                    && /^(https?:|mailto:|\/|#)/i.test(href)
+                ) ? href : '#';
+                return `<a href="${safeHref}">${text}</a>`;
+            })
             .replace(/`(.+?)`/g, '<code>$1</code>')
             .split('\n\n').map(p => `<p>${p}</p>`).join('');
     }
@@ -237,6 +304,26 @@ class InPlaceEditor {
     htmlToMarkdown(html) {
         const temp = document.createElement('div');
         temp.innerHTML = html;
+
+        // Drop executable / unknown markup before it becomes persisted markdown.
+        temp.querySelectorAll('script, style, iframe, object, embed').forEach(node => node.remove());
+        temp.querySelectorAll('*').forEach(node => {
+            [...node.attributes].forEach(attr => {
+                const name = attr.name.toLowerCase();
+                const value = attr.value || '';
+                if (name.startsWith('on') || name === 'style') {
+                    node.removeAttribute(attr.name);
+                    return;
+                }
+                if ((name === 'href' || name === 'src') && (
+                    value.trim().toLowerCase().startsWith('javascript:')
+                    || value.trim().toLowerCase().startsWith('data:')
+                    || value.trim().startsWith('//')
+                )) {
+                    node.setAttribute(name, '#');
+                }
+            });
+        });
         
         return temp.innerHTML
             .replace(/<h1>(.+?)<\/h1>/g, '# $1\n\n')
@@ -244,13 +331,40 @@ class InPlaceEditor {
             .replace(/<h3>(.+?)<\/h3>/g, '### $1\n\n')
             .replace(/<strong>(.+?)<\/strong>/g, '**$1**')
             .replace(/<em>(.+?)<\/em>/g, '*$1*')
-            .replace(/<a href="(.+?)">(.+?)<\/a>/g, '[$2]($1)')
+            .replace(/<a href="(.+?)">(.+?)<\/a>/g, (_m, href, text) => {
+                const safeHref = (
+                    href
+                    && !href.startsWith('//')
+                    && /^(https?:|mailto:|\/|#)/i.test(href)
+                ) ? href : '#';
+                return `[${text}](${safeHref})`;
+            })
             .replace(/<code>(.+?)<\/code>/g, '`$1`')
             .replace(/<p>(.+?)<\/p>/g, '$1\n\n')
+            .replace(/<[^>]+>/g, '')
             .trim();
     }
 
+    parseFrontmatter(markdown) {
+        const match = markdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+        if (!match) {
+            return { frontmatter: '', body: markdown };
+        }
+        return {
+            frontmatter: match[0],
+            body: markdown.slice(match[0].length)
+        };
+    }
+
+    composeMarkdown(body) {
+        return this.frontmatter ? this.frontmatter + body : body;
+    }
+
     getContent() {
+        return this.composeMarkdown(this.getBodyContent());
+    }
+
+    getBodyContent() {
         return this.htmlToMarkdown(this.editorElement.innerHTML);
     }
 
@@ -258,11 +372,11 @@ class InPlaceEditor {
         try {
             const content = this.getContent();
             
-            const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`, {
+            const response = await fetch(`${this.apiBase}/api/content/${this.currentFile}`, {
                 method: 'PUT',
-                headers: {
+                headers: this.studioHeaders({
                     'Content-Type': 'text/plain',
-                },
+                }),
                 body: content
             });
             
@@ -271,23 +385,28 @@ class InPlaceEditor {
             }
             
             this.showNotification('Content saved successfully', 'success');
+            return true;
             
         } catch (error) {
             console.error('Save failed:', error);
             this.showNotification('Failed to save: ' + error.message, 'error');
+            throw error;
         }
     }
 
     async validateContent() {
         try {
-            const content = this.getContent();
+            const content = this.getBodyContent();
             
-            const response = await fetch('http://localhost:5001/api/validate-headings', {
+            const category = document.body?.dataset?.category
+                || (this.currentFile ? this.currentFile.split('/')[0] : '')
+                || '';
+            const response = await fetch(`${this.apiBase}/api/validate-headings`, {
                 method: 'POST',
-                headers: {
+                headers: this.studioHeaders({
                     'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ content })
+                }),
+                body: JSON.stringify({ content, category })
             });
             
             if (!response.ok) {
@@ -299,7 +418,8 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const message = result.message || (result.errors || []).join('; ') || 'Unknown validation error';
+                this.showNotification('Validation failed: ' + message, 'error');
             }
             
         } catch (error) {
@@ -314,12 +434,16 @@ class InPlaceEditor {
             await this.saveContent();
             
             // Then trigger build/deploy
-            const buildResponse = await fetch('http://localhost:5001/api/build', { 
-                method: 'POST' 
+            const buildResponse = await fetch(`${this.apiBase}/api/build`, {
+                method: 'POST',
+                headers: this.studioHeaders()
             });
             const buildResult = await buildResponse.json();
+            if (!buildResponse.ok || buildResult.status === 'error') {
+                throw new Error(buildResult.message || 'Build failed');
+            }
             
-            if (buildResult.status === 'committed') {
+            if (buildResult.status === 'committed' || buildResult.status === 'published') {
                 this.showNotification('Changes committed and site rebuilt! Page will reload in 3 seconds...', 'success');
                 setTimeout(() => {
                     location.reload();
@@ -350,14 +474,14 @@ class InPlaceEditor {
     }
 
     getCurrentFilePath() {
-        const pageType = document.body.dataset.pageType || 'page';
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
-        
-        if (pageType === 'page' && category && slug) {
+
+        // Content pages expose data-category (posts/pages/projects/...) + data-slug.
+        if (category && slug) {
             return `${category}/${slug}`;
         }
-        
+
         return 'unknown';
     }
 
