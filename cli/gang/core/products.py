@@ -58,12 +58,23 @@ class ProductSchema:
     @staticmethod
     def _from_shopify(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Shopify product to Schema.org"""
-        variants = product.get('variants', [])
+        raw_variants = product.get('variants') or []
+        if not isinstance(raw_variants, list):
+            raw_variants = []
+        variants = [v for v in raw_variants if isinstance(v, dict)]
         first_variant = variants[0] if variants else {}
         product_url = ProductSchema._shopify_product_url(product)
         
-        # Get images
-        images = [img.get('src') for img in product.get('images', [])]
+        # Get images — tolerate null lists and non-dict entries from Admin API.
+        raw_images = product.get('images') or []
+        if not isinstance(raw_images, list):
+            raw_images = []
+        images = []
+        for img in raw_images:
+            if isinstance(img, dict) and img.get('src'):
+                images.append(img.get('src'))
+            elif isinstance(img, str) and img.strip():
+                images.append(img.strip())
         
         # Build offers from variants
         offers = []
@@ -72,7 +83,11 @@ class ProductSchema:
             # REST API: inventory_quantity, inventory_management, inventory_policy
             # GraphQL: inventoryQuantity, availableForSale
             
-            inventory_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
+            raw_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
+            try:
+                inventory_qty = int(raw_qty) if raw_qty is not None else 0
+            except (TypeError, ValueError):
+                inventory_qty = 0
             inventory_management = variant.get('inventory_management')  # 'shopify' if tracked, None if not
             inventory_policy = variant.get('inventory_policy', 'deny')  # 'continue' allows selling when out of stock
             

@@ -461,7 +461,17 @@ class KlaviyoTemplateGenerator:
         total = 0
         
         for item in cart_items:
-            item_total = float(item['price']) * int(item['quantity'])
+            try:
+                price = float(item.get('price') if item.get('price') is not None else 0)
+            except (TypeError, ValueError):
+                price = 0.0
+            try:
+                quantity = int(item.get('quantity') if item.get('quantity') is not None else 1)
+            except (TypeError, ValueError):
+                quantity = 1
+            if quantity < 0:
+                quantity = 0
+            item_total = price * quantity
             total += item_total
             name = html_escape(str(item.get('name') or 'Product'))
             variant = html_escape(str(item.get('variant') or ''))
@@ -480,7 +490,7 @@ class KlaviyoTemplateGenerator:
                             <td style="padding-left: 15px;">
                                 <strong style="font-size: 16px;">{name}</strong><br>
                                 {variant}<br>
-                                <span style="color: #595959;">Qty: {int(item['quantity'])}</span>
+                                <span style="color: #595959;">Qty: {quantity}</span>
                             </td>
                             <td align="right" style="font-weight: 600;">
                                 ${item_total:.2f}
