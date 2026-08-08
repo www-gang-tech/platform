@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import re
 from datetime import datetime
-from core.frontmatter import dump_frontmatter
+from html import escape as html_escape
+from core.frontmatter import dump_frontmatter, parse_frontmatter
 
 
 class EmailTemplateGenerator:
@@ -38,6 +39,20 @@ class EmailTemplateGenerator:
         
         # Process content for email
         email_content = self._process_content_for_email(content_html)
+        safe_title = html_escape(str(title or ''))
+        safe_preview = html_escape(str(preview_text or title or ''))
+        safe_site_title = html_escape(str(self.site_title or ''))
+        try:
+            from core.html_sanitize import safe_href
+        except ImportError:  # pragma: no cover
+            from html_sanitize import safe_href
+        safe_site_url = html_escape(safe_href(self.site_url, fallback='#'))
+        safe_canonical = html_escape(safe_href(canonical_url, fallback='#'))
+        # ESP merge tags like {{unsubscribe_url}} must stay literal.
+        if unsubscribe_url.strip().startswith('{{') and unsubscribe_url.strip().endswith('}}'):
+            safe_unsub = unsubscribe_url
+        else:
+            safe_unsub = html_escape(safe_href(unsubscribe_url, fallback='#'))
         
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -55,7 +70,7 @@ class EmailTemplateGenerator:
         </xml>
     </noscript>
     <![endif]-->
-    <title>{title}</title>
+    <title>{safe_title}</title>
     <style>
         /* Reset */
         body, table, td, a {{ margin: 0; padding: 0; }}
@@ -166,7 +181,7 @@ class EmailTemplateGenerator:
 <body>
     <!-- Preview text (hidden but shows in inbox) -->
     <div style="display: none; max-height: 0px; overflow: hidden;">
-        {preview_text or title}
+        {safe_preview}
     </div>
     
     <!-- Wrapper table for email clients -->
@@ -180,21 +195,21 @@ class EmailTemplateGenerator:
                     <!-- Header -->
                     <tr>
                         <td class="email-header">
-                            <a href="{self.site_url}">{self.site_title}</a>
+                            <a href="{safe_site_url}">{safe_site_title}</a>
                         </td>
                     </tr>
                     
                     <!-- Content -->
                     <tr>
                         <td class="email-content">
-                            <h1>{title}</h1>
+                            <h1>{safe_title}</h1>
                             {email_content}
                             
                             <!-- View on web CTA -->
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{canonical_url}" class="cta-button">
+                                        <a href="{safe_canonical}" class="cta-button">
                                             Read on the Web
                                         </a>
                                     </td>
@@ -207,17 +222,17 @@ class EmailTemplateGenerator:
                     <tr>
                         <td class="email-footer">
                             <p style="margin: 0 0 10px 0;">
-                                <strong>{self.site_title}</strong>
+                                <strong>{safe_site_title}</strong>
                             </p>
                             <p style="margin: 0 0 10px 0;">
                                 You're receiving this because you subscribed to our newsletter.
                             </p>
                             <p style="margin: 0 0 10px 0;">
-                                <a href="{canonical_url}">View in browser</a> · 
-                                <a href="{unsubscribe_url}">Unsubscribe</a>
+                                <a href="{safe_canonical}">View in browser</a> · 
+                                <a href="{safe_unsub}">Unsubscribe</a>
                             </p>
                             <p style="margin: 15px 0 0 0; font-size: 12px; color: #999;">
-                                © {datetime.now().year} {self.site_title}. All rights reserved.
+                                © {datetime.now().year} {safe_site_title}. All rights reserved.
                             </p>
                         </td>
                     </tr>
@@ -243,9 +258,10 @@ class EmailTemplateGenerator:
         
         # Convert HTML to plain text
         text_content = self._html_to_text(content_html)
+        title_text = str(title or '')
         
-        plain = f"""{title}
-{'=' * len(title)}
+        plain = f"""{title_text}
+{'=' * len(title_text)}
 
 {text_content}
 
@@ -269,6 +285,11 @@ Unsubscribe: {unsubscribe_url}
     
     def _process_content_for_email(self, html: str) -> str:
         """Process content HTML for email compatibility"""
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:  # pragma: no cover
+            from html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        html = sanitize_content_hrefs(sanitize_markdown_html(html or ''))
         
         # Ensure all images have alt text
         html = re.sub(
@@ -343,29 +364,20 @@ class EmailOrchestrator:
         Save newsletter as content for public listing
         Creates a markdown file in content/newsletters/
         """
-        import yaml
-        
         # Read original post
         content = post_path.read_text()
-        
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        frontmatter, body = parse_frontmatter(content)
         
         # Create newsletter frontmatter
         newsletter_frontmatter = {
-            'title': frontmatter.get('title', metadata['title']),
+            'title': frontmatter.get('title') or metadata.get('title') or post_path.stem,
             'date': datetime.now().strftime('%Y-%m-%d'),  # Use simple date format
-            'summary': frontmatter.get('summary', ''),
+            'summary': frontmatter.get('summary') or '',
             'newsletter_id': metadata.get('slug'),
             'sent_date': metadata.get('created'),
             'esp_provider': metadata.get('esp_provider'),
             'canonical_url': metadata.get('canonical_url'),
-            'tags': frontmatter.get('tags', [])
+            'tags': frontmatter.get('tags') or []
         }
         
         newsletter_body = f"""{body}
@@ -400,27 +412,23 @@ class EmailOrchestrator:
         """
         
         # Parse post
-        import yaml
         content = post_path.read_text()
+        frontmatter, body = parse_frontmatter(content)
         
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
-        
-        # Convert markdown to HTML
+        # Convert markdown to HTML (sanitized inside generate_html_email)
         import markdown
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
         
         # Get metadata
-        title = frontmatter.get('title', post_path.stem.replace('-', ' ').title())
+        title = frontmatter.get('title')
+        if title is None or not str(title).strip():
+            title = post_path.stem.replace('-', ' ').title()
+        else:
+            title = str(title).strip()
         slug = post_path.stem
         canonical_url = f"{self.config.get('site', {}).get('url')}/posts/{slug}/"
-        preview_text = frontmatter.get('summary', '')[:150]
+        preview_text = str(frontmatter.get('summary') or '')[:150]
         
         # Generate email templates
         html_email = self.template_gen.generate_html_email(
