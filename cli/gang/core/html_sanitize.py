@@ -92,7 +92,7 @@ def sanitize_content_hrefs(html: str) -> str:
 
     # Quoted attributes first so srcset values with spaces are preserved.
     # Include ping/background — legacy URL sinks not covered by href/src alone.
-    url_attrs = r'href|src|action|formaction|data|poster|srcset|ping|background'
+    url_attrs = r'href|src|action|formaction|data|poster|srcset|ping|background|cite'
     html = re.sub(
         rf'\b({url_attrs})\s*=\s*(["\'])(.*?)\2',
         lambda m: rewrite(m.group(1), m.group(2), m.group(3)),
