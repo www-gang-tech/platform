@@ -216,9 +216,14 @@ class ContentAPIGenerator:
                 frontmatter = yaml.safe_load(parts[1]) or {}
                 body = parts[2]
         
-        # Convert markdown to HTML
+        # Convert markdown to HTML (sanitize before any consumer renders |safe)
         md = markdown.Markdown(extensions=['extra'])
         content_html = md.convert(body)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:  # pragma: no cover
+            from html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        content_html = sanitize_content_hrefs(sanitize_markdown_html(content_html))
         
         # Also provide plain text
         import re
