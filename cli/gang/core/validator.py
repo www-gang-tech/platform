@@ -6,7 +6,7 @@ Enforces Template Contracts: semantics, a11y, budgets, JSON-LD
 from bs4 import BeautifulSoup
 import json
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 class ContractValidator:
@@ -172,24 +172,34 @@ class ContractValidator:
                 'message': f'HTML size {html_size} bytes exceeds budget {html_budget} bytes',
             })
         
-        # Check inline CSS size
+        # CSS budget = inline <style> bytes + same-origin linked stylesheets.
+        # External CDN CSS is not counted (uncontrolled), but local /assets/*.css is.
         with open(html_path, 'r') as f:
             content = f.read()
-            style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
-            css_size = sum(len(style) for style in style_tags)
-            css_budget = self.budgets.get('css', float('inf'))
-            
-            if css_size > css_budget:
-                issues.append({
-                    'severity': 'error',
-                    'rule': 'css_budget',
-                    'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
-                })
+        soup = BeautifulSoup(content, 'html.parser')
+        style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
+        css_size = sum(len(style) for style in style_tags)
+        dist_root = self._guess_dist_root(html_path)
+        for link in soup.find_all('link', href=True):
+            rel = ' '.join(link.get('rel') or []).lower()
+            if 'stylesheet' not in rel:
+                continue
+            href = (link.get('href') or '').strip()
+            local_css = self._resolve_local_asset(dist_root, href)
+            if local_css is not None and local_css.exists():
+                css_size += local_css.stat().st_size
+        css_budget = self.budgets.get('css', float('inf'))
+
+        if css_size > css_budget:
+            issues.append({
+                'severity': 'error',
+                'rule': 'css_budget',
+                'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
+            })
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
-            soup = BeautifulSoup(content, 'html.parser')
             # Interactive utility shells may include their own JS. Product detail
             # pages are limited to cart/product helpers; arbitrary product-path
             # scripts are not a free pass.
@@ -236,8 +246,50 @@ class ContractValidator:
                     'rule': 'js_budget',
                     'message': 'JavaScript detected, but budget is 0 bytes',
                 })
+        elif js_budget < float('inf'):
+            # Non-zero JS budgets still need to account for linked file bytes.
+            js_size = 0
+            for script in soup.find_all('script'):
+                typ = (script.get('type') or '').lower()
+                if typ in ('application/ld+json', 'application/json'):
+                    continue
+                src = (script.get('src') or '').strip()
+                if src:
+                    local_js = self._resolve_local_asset(dist_root, src)
+                    if local_js is not None and local_js.exists():
+                        js_size += local_js.stat().st_size
+                else:
+                    js_size += len(script.string or '')
+            if js_size > js_budget:
+                issues.append({
+                    'severity': 'error',
+                    'rule': 'js_budget',
+                    'message': f'JavaScript size {js_size} bytes exceeds budget {js_budget} bytes',
+                })
         
         return issues
+
+    def _guess_dist_root(self, html_path: Path) -> Path:
+        """Best-effort dist root so /assets/* resolves beside built HTML."""
+        path = html_path.resolve()
+        for parent in [path.parent, *path.parents]:
+            if (parent / 'assets').is_dir():
+                return parent
+        return path.parent
+
+    def _resolve_local_asset(self, dist_root: Path, href: str) -> Optional[Path]:
+        """Resolve same-origin asset paths; ignore absolute external URLs."""
+        if not href or href.startswith(('http://', 'https://', '//', 'data:')):
+            return None
+        clean = href.split('?', 1)[0].split('#', 1)[0]
+        if not clean.startswith('/'):
+            return None
+        candidate = (dist_root / clean.lstrip('/')).resolve()
+        try:
+            candidate.relative_to(dist_root.resolve())
+        except ValueError:
+            return None
+        return candidate
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""

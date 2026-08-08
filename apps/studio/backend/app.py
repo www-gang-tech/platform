@@ -183,7 +183,7 @@ def validate_headings():
     category = (data.get('category') or data.get('content_category') or '').strip()
     # Templates for these content types render the visible H1 from frontmatter.
     template_owns_h1 = category in {
-        'posts', 'articles', 'projects', 'newsletters', 'people'
+        'posts', 'articles', 'projects', 'newsletters', 'people', 'products'
     }
 
     try:
@@ -323,18 +323,25 @@ def list_content():
                 # Parse frontmatter to get title
                 try:
                     content = md_file.read_text(encoding='utf-8')
+                    title = md_file.stem.replace('-', ' ').title()
                     if content.startswith('---'):
                         parts = content.split('---', 2)
-                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-                        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-                    else:
-                        title = md_file.stem.replace('-', ' ').title()
+                        try:
+                            loaded = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        except Exception:
+                            loaded = {}
+                        frontmatter = loaded if isinstance(loaded, dict) else {}
+                        raw_title = frontmatter.get('title')
+                        if raw_title is not None and str(raw_title).strip():
+                            title = str(raw_title).strip()
                     
                     output_type = 'posts' if content_type == 'articles' else content_type
                     content_files.append({
                         'type': content_type,
                         'slug': md_file.stem,
                         'title': title,
+                        # CLI Studio list uses `name`; keep both for client parity.
+                        'name': md_file.stem,
                         'path': content_type + "/" + md_file.stem,
                         'url': "/" + output_type + "/" + md_file.stem + "/"
                     })

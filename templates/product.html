@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' https: data:; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001 http://localhost:3000 http://127.0.0.1:3000; base-uri 'self'; form-action 'self' https:;">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     
     <title>{{ title }} - {{ site_title }}</title>
@@ -39,6 +39,11 @@
     {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
+    {% if user_authenticated %}
+    <link rel="preload" href="/assets/editor.css" as="style">
+    <link rel="stylesheet" href="/assets/editor.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% endif %}
 </head>
 <body data-page-type="{{ page_type|default('product') }}" data-category="{{ content_category|default('products') }}" data-slug="{{ slug|default('') }}">
     {% include "partials/header.html" %}
@@ -161,6 +166,18 @@
     </main>
     
     {% include "partials/footer.html" %}
+
+    {% if user_authenticated %}
+    <!-- In-Place Editor (EDITOR_MODE builds) — parity with base.html -->
+    <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
+        <i class="fa-solid fa-pen"></i> Edit
+    </button>
+    <script>
+    window.GANG_API_BASE = {{ (studio_api_base or 'http://127.0.0.1:3000')|tojson }};
+    {% if studio_auth_token %}window.GANG_STUDIO_TOKEN = {{ studio_auth_token|tojson }};{% endif %}
+    </script>
+    <script src="/assets/editor-bundle.js" defer></script>
+    {% endif %}
     
     <!-- Progressive enhancement for variants (works without JS) -->
     <script src="/assets/cart.js" defer></script>
