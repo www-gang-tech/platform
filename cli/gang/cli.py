@@ -2921,7 +2921,59 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
 
-    # HTML sitemap is linked from the footer; always emit it (not gated on commerce).
+    # Cart page is linked from the global header; always emit it when templates exist.
+    try:
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        template_dir = Path(__file__).parent.parent.parent / 'templates'
+        cart_template_path = template_dir / 'cart.html'
+        if cart_template_path.exists():
+            jinja_env = Environment(
+                loader=FileSystemLoader(str(template_dir)),
+                autoescape=select_autoescape(['html', 'xml']),
+            )
+            cart_dir = dist_path / 'cart'
+            cart_dir.mkdir(parents=True, exist_ok=True)
+            build_time = datetime.now()
+            cart_html = jinja_env.get_template('cart.html').render(
+                year=build_time.year,
+                site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                site_url=config['site']['url'],
+                canonical_url=f"{config['site']['url']}/cart/",
+                lighthouse_scores=True,
+                build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
+                build_time_iso=build_time.isoformat(),
+                description=config['site']['description']
+            )
+            (cart_dir / 'index.html').write_text(cart_html)
+            all_pages.append({'url': '/cart/', 'title': 'Cart', 'type': 'utility'})
+            click.echo("🛒 Generated cart page")
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate cart page: {e}")
+    
+    # Generate search index
+    try:
+        from core.search import SearchIndexer
+        from core.scheduler import ContentScheduler
+        
+        indexer = SearchIndexer(content_path, config)
+        search_index = indexer.build_search_index(publishable_files)
+        
+        # Write search index
+        search_index_file = dist_path / 'search-index.json'
+        search_index_file.write_text(json.dumps(search_index))
+        
+        # Write search page
+        search_page = dist_path / 'search' / 'index.html'
+        search_page.parent.mkdir(parents=True, exist_ok=True)
+        search_page.write_text(indexer.generate_search_page_html())
+        all_pages.append({'url': '/search/', 'title': 'Search', 'type': 'utility'})
+        
+        click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate search index: {e}")
+
+    # HTML sitemap after cart/search so utility routes appear in the page list.
     try:
         from jinja2 import Environment, FileSystemLoader, select_autoescape
         template_dir = Path(__file__).parent.parent.parent / 'templates'
@@ -2975,58 +3027,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo("🗺️  Generated HTML sitemap")
     except Exception as e:
         click.echo(f"⚠️  Could not generate HTML sitemap: {e}")
-
-    # Cart page is linked from the global header; always emit it when templates exist.
-    try:
-        from jinja2 import Environment, FileSystemLoader, select_autoescape
-        template_dir = Path(__file__).parent.parent.parent / 'templates'
-        cart_template_path = template_dir / 'cart.html'
-        if cart_template_path.exists():
-            jinja_env = Environment(
-                loader=FileSystemLoader(str(template_dir)),
-                autoescape=select_autoescape(['html', 'xml']),
-            )
-            cart_dir = dist_path / 'cart'
-            cart_dir.mkdir(parents=True, exist_ok=True)
-            build_time = datetime.now()
-            cart_html = jinja_env.get_template('cart.html').render(
-                year=build_time.year,
-                site_title=config['site']['title'],
-                lang=config['site'].get('language', 'en'),
-                site_url=config['site']['url'],
-                canonical_url=f"{config['site']['url']}/cart/",
-                lighthouse_scores=True,
-                build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
-                build_time_iso=build_time.isoformat(),
-                description=config['site']['description']
-            )
-            (cart_dir / 'index.html').write_text(cart_html)
-            all_pages.append({'url': '/cart/', 'title': 'Cart', 'type': 'utility'})
-            click.echo("🛒 Generated cart page")
-    except Exception as e:
-        click.echo(f"⚠️  Could not generate cart page: {e}")
-    
-    # Generate search index
-    try:
-        from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
-        
-        indexer = SearchIndexer(content_path, config)
-        search_index = indexer.build_search_index(publishable_files)
-        
-        # Write search index
-        search_index_file = dist_path / 'search-index.json'
-        search_index_file.write_text(json.dumps(search_index))
-        
-        # Write search page
-        search_page = dist_path / 'search' / 'index.html'
-        search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
-        all_pages.append({'url': '/search/', 'title': 'Search', 'type': 'utility'})
-        
-        click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
-    except Exception as e:
-        click.echo(f"⚠️  Could not generate search index: {e}")
 
     # XML sitemap / feeds after all public HTML routes exist.
     click.echo("🗺️  Generating sitemap, feeds, etc...")
@@ -3261,8 +3261,60 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 cursor = end
             pieces.append(html_content[cursor:])
             preserved = ''.join(pieces)
-            # Keep conditional IE comments out of the way; drop normal comments.
-            minified = re.sub(r'<!--(?!\[if).*?-->', '', preserved, flags=re.DOTALL)
+            # Drop HTML comments outside quoted attributes so alt/title values
+            # like `alt="a <!-- note --> b"` are not corrupted.
+            comment_free = []
+            i = 0
+            n = len(preserved)
+            in_single = in_double = False
+            while i < n:
+                ch = preserved[i]
+                if in_single:
+                    comment_free.append(ch)
+                    if ch == '\\' and i + 1 < n:
+                        comment_free.append(preserved[i + 1])
+                        i += 2
+                        continue
+                    if ch == "'":
+                        in_single = False
+                    i += 1
+                    continue
+                if in_double:
+                    comment_free.append(ch)
+                    if ch == '\\' and i + 1 < n:
+                        comment_free.append(preserved[i + 1])
+                        i += 2
+                        continue
+                    if ch == '"':
+                        in_double = False
+                    i += 1
+                    continue
+                if ch == "'":
+                    in_single = True
+                    comment_free.append(ch)
+                    i += 1
+                    continue
+                if ch == '"':
+                    in_double = True
+                    comment_free.append(ch)
+                    i += 1
+                    continue
+                if preserved.startswith('<!--', i):
+                    # Preserve IE conditional comments.
+                    if preserved.startswith('<!--[if', i):
+                        end = preserved.find('-->', i + 4)
+                        if end == -1:
+                            comment_free.append(preserved[i:])
+                            break
+                        comment_free.append(preserved[i:end + 3])
+                        i = end + 3
+                        continue
+                    end = preserved.find('-->', i + 4)
+                    i = end + 3 if end != -1 else n
+                    continue
+                comment_free.append(ch)
+                i += 1
+            minified = ''.join(comment_free)
             minified = re.sub(r'>\s+<', '><', minified)
             minified = '\n'.join(
                 line.strip() for line in minified.split('\n') if line.strip()
@@ -4860,7 +4912,8 @@ def studio(ctx, port, host):
                     }).encode())
                     return
 
-                if self.path == '/api/content':
+                # Flask exposes both /api/content and /api/content/list.
+                if self.path in ('/api/content', '/api/content/list'):
                     if not require_studio_mutation_auth(self):
                         return
                     try:
@@ -5489,22 +5542,33 @@ def serve(ctx, port, host):
             def on_any_event(self, event):
                 if event.is_directory:
                     return
+                # Ignore noisy non-mutation events (opened/closed).
+                event_type = getattr(event, 'event_type', '') or ''
+                if event_type and event_type not in {
+                    'modified', 'created', 'deleted', 'moved', 'closed'
+                }:
+                    return
                 
                 # Ignore dist folder changes and hidden files
-                if str(dist_path) in event.src_path or '/__pycache__/' in event.src_path:
+                src_path = getattr(event, 'src_path', '') or ''
+                if str(dist_path) in src_path or '/__pycache__/' in src_path:
                     return
                 
-                if event.src_path.startswith('.') or '/.git/' in event.src_path:
+                if Path(src_path).name.startswith('.') or '/.git/' in src_path:
                     return
 
+                changed_name = Path(src_path).name
+
                 def run_rebuild():
+                    # Clear the timer handle under the lock, then rebuild outside
+                    # so the watcher can keep coalescing events during builds.
                     with rebuild_lock:
                         rebuild_timer['handle'] = None
-                        click.echo(f"\n📝 Change detected: {Path(event.src_path).name}")
-                        rebuild_site(ctx)
-                        # Small delay to ensure files are fully written
-                        time.sleep(0.1)
-                        notify_reload()
+                    click.echo(f"\n📝 Change detected: {changed_name}")
+                    rebuild_site(ctx)
+                    # Small delay to ensure files are fully written
+                    time.sleep(0.1)
+                    notify_reload()
 
                 # Debounce: rebuild once after a quiet period so rapid saves
                 # are not dropped by a sticky rebuild_pending flag.
