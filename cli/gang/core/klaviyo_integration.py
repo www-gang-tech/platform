@@ -451,6 +451,11 @@ class KlaviyoTemplateGenerator:
     @staticmethod
     def generate_abandoned_cart_template(cart_items: List[Dict], cart_url: str) -> str:
         """Generate abandoned cart email HTML"""
+        from html import escape as html_escape
+        try:
+            from core.html_sanitize import safe_href, is_safe_href
+        except ImportError:  # pragma: no cover
+            from html_sanitize import safe_href, is_safe_href
         
         items_html = ""
         total = 0
@@ -458,6 +463,10 @@ class KlaviyoTemplateGenerator:
         for item in cart_items:
             item_total = float(item['price']) * int(item['quantity'])
             total += item_total
+            name = html_escape(str(item.get('name') or 'Product'))
+            variant = html_escape(str(item.get('variant') or ''))
+            image = item.get('image') or ''
+            image_src = html_escape(image) if is_safe_href(image) else ''
             
             items_html += f"""
             <tr>
@@ -465,13 +474,13 @@ class KlaviyoTemplateGenerator:
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                         <tr>
                             <td width="100">
-                                <img src="{item.get('image', '')}" alt="{item['name']}" 
+                                <img src="{image_src}" alt="{name}" 
                                      style="width: 100px; height: 100px; object-fit: cover;">
                             </td>
                             <td style="padding-left: 15px;">
-                                <strong style="font-size: 16px;">{item['name']}</strong><br>
-                                {item.get('variant', '')}<br>
-                                <span style="color: #595959;">Qty: {item['quantity']}</span>
+                                <strong style="font-size: 16px;">{name}</strong><br>
+                                {variant}<br>
+                                <span style="color: #595959;">Qty: {int(item['quantity'])}</span>
                             </td>
                             <td align="right" style="font-weight: 600;">
                                 ${item_total:.2f}
@@ -482,6 +491,7 @@ class KlaviyoTemplateGenerator:
             </tr>
             """
         
+        safe_cart_url = html_escape(safe_href(cart_url, fallback='#'))
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -523,7 +533,7 @@ class KlaviyoTemplateGenerator:
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{cart_url}" 
+                                        <a href="{safe_cart_url}" 
                                            style="display: inline-block; padding: 16px 32px; background-color: #0052a3; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px;">
                                             Complete Your Purchase
                                         </a>
@@ -702,14 +712,35 @@ class KlaviyoOrchestrator:
     ) -> Dict[str, Any]:
         """Create product launch campaign"""
         
-        product_name = product.get('name', 'New Product')
-        product_url = f"{self.site_url}/products/{product.get('_meta', {}).get('slug', '')}"
+        from html import escape as html_escape
+        try:
+            from core.html_sanitize import safe_href, is_safe_href
+        except ImportError:  # pragma: no cover
+            from html_sanitize import safe_href, is_safe_href
+
+        product_name = str(product.get('name', 'New Product') or 'New Product')
+        safe_name = html_escape(product_name)
+        slug = str((product.get('_meta') or {}).get('slug') or '')
+        product_url = f"{self.site_url}/products/{slug}" if slug else self.site_url
+        safe_product_url = html_escape(safe_href(product_url, fallback='#'))
+        raw_image = product.get('image', '')
+        if isinstance(raw_image, (list, tuple)):
+            raw_image = raw_image[0] if raw_image else ''
+        image_src = html_escape(str(raw_image)) if is_safe_href(str(raw_image or '')) else ''
+        # Descriptions may contain Shopify HTML — strip tags then escape.
+        raw_description = str(product.get('description', '') or '')
+        if '<' in raw_description:
+            from bs4 import BeautifulSoup
+            description_text = BeautifulSoup(raw_description, 'html.parser').get_text(' ')
+        else:
+            description_text = raw_description
+        safe_description = html_escape(description_text)
         
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>New Product: {product_name}</title>
+    <title>New Product: {safe_name}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, sans-serif; background-color: #f5f5f5;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -718,19 +749,19 @@ class KlaviyoOrchestrator:
                 <table role="presentation" style="max-width: 600px; background: #ffffff;" cellpadding="0" cellspacing="0">
                     <tr>
                         <td style="padding: 40px 30px;">
-                            <h1 style="margin: 0 0 20px 0; font-size: 28px;">Introducing {product_name}</h1>
+                            <h1 style="margin: 0 0 20px 0; font-size: 28px;">Introducing {safe_name}</h1>
                             
-                            <img src="{product.get('image', '')}" alt="{product_name}" 
+                            <img src="{image_src}" alt="{safe_name}" 
                                  style="max-width: 100%; height: auto; margin: 20px 0;">
                             
                             <p style="font-size: 16px; line-height: 1.6; margin: 20px 0;">
-                                {product.get('description', '')}
+                                {safe_description}
                             </p>
                             
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{product_url}" 
+                                        <a href="{safe_product_url}" 
                                            style="display: inline-block; padding: 16px 32px; background-color: #0052a3; color: #ffffff; text-decoration: none; font-weight: 600;">
                                             Shop Now
                                         </a>
@@ -750,7 +781,7 @@ class KlaviyoOrchestrator:
 {product_name}
 {'=' * len(product_name)}
 
-{product.get('description', '')}
+{description_text}
 
 Shop now: {product_url}
 

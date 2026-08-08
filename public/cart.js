@@ -240,10 +240,15 @@
             container.appendChild(cartItem);
         });
         
-        // Update summary
+        // Update summary — mixed-currency carts cannot share one total label.
         const subtotalEl = document.getElementById('cart-subtotal');
         if (subtotalEl) {
-            subtotalEl.textContent = formatMoney(String(cart[0].currency || 'USD'), subtotal);
+            const currencies = [...new Set(cart.map(i => String(i.currency || 'USD')))];
+            if (currencies.length > 1) {
+                subtotalEl.textContent = 'Mixed currencies — checkout per merchant';
+            } else {
+                subtotalEl.textContent = formatMoney(currencies[0], subtotal);
+            }
         }
     }
     

@@ -258,12 +258,12 @@ class CommentsManager:
         return re.match(pattern, email) is not None
     
     def _is_valid_url(self, url: str) -> bool:
-        """Check if URL format is valid."""
+        """Check if URL format is valid (http/https only)."""
         try:
             from urllib.parse import urlparse
             result = urlparse(url)
-            return all([result.scheme, result.netloc])
-        except:
+            return result.scheme in {'http', 'https'} and bool(result.netloc)
+        except Exception:
             return False
 
 

@@ -317,7 +317,11 @@ class NewsletterManager:
         slug = title.lower()
         slug = re.sub(r'[^\w\s-]', '', slug)
         slug = re.sub(r'[-\s]+', '-', slug)
-        return slug.strip('-')
+        slug = slug.strip('-')
+        # Punctuation-only titles used to yield "" → newsletters/.md
+        if not slug or not re.fullmatch(r'[a-z0-9][a-z0-9._-]*', slug):
+            slug = f"newsletter-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        return slug
 
 
 class EmailProvider:

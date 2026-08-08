@@ -2038,7 +2038,7 @@ def list_products(ctx, format):
             source = p.get('_meta', {}).get('source', 'unknown')
             
             # Handle both single offer and array of offers
-            offers = p.get('offers', {})
+            offers = p.get('offers') or {}
             if type(offers).__name__ == 'list':
                 # Multiple offers (variants)
                 first_offer = offers[0] if offers else {}
@@ -2048,7 +2048,9 @@ def list_products(ctx, format):
                 click.echo(f"• {p['name']}")
                 click.echo(f"  Price: {currency} {price} ({variant_count} variant{'s' if variant_count != 1 else ''}) | Source: {source}")
             else:
-                # Single offer
+                # Single offer (dict); coerce None/non-mapping to empty
+                if not hasattr(offers, 'get'):
+                    offers = {}
                 price = offers.get('price', 'N/A')
                 currency = offers.get('priceCurrency', 'USD')
                 click.echo(f"• {p['name']}")
@@ -2082,12 +2084,27 @@ def generate_agentmap(ctx):
     # Keep AgentMap aligned with the same publishable content set as gang build.
     all_md_files = collect_build_content_files(content_path)
     schedule_result = scheduler.get_publishable_content(all_md_files)
-    publishable = [item['path'] for item in schedule_result['publishable']]
+    publishable = []
+    for item in schedule_result['publishable']:
+        md_file = item['path']
+        if md_file.parent.name not in ALLOWED_CONTENT_SLUG_CATEGORIES:
+            continue
+        if not is_safe_content_slug(md_file.stem):
+            click.echo(f"⚠️  Skipping unsafe slug in AgentMap: {md_file}")
+            continue
+        publishable.append(md_file)
     
     # Get products if available
     config['demo_mode'] = True
     aggregator = ProductAggregator(config)
     products = aggregator.get_normalized_products()
+    safe_products = []
+    for product in products or []:
+        meta = product.get('_meta') or {}
+        slug = meta.get('slug') or meta.get('handle')
+        if slug and is_safe_content_slug(str(slug).strip().strip('/')):
+            safe_products.append(product)
+    products = safe_products
     
     # Generate AgentMap
     generator = AgentMapGenerator(config, site_url)
@@ -2426,11 +2443,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         product_images = frontmatter.get('images') or frontmatter.get('image') or []
         if isinstance(product_images, str):
             product_images = [product_images]
-        offers = jsonld.get('offers', {}) if isinstance(jsonld, dict) else {}
+        offers = jsonld.get('offers') if isinstance(jsonld, dict) else None
         if isinstance(offers, list):
             first_offer = offers[0] if offers else {}
-        else:
+        elif isinstance(offers, dict):
             first_offer = offers
+        else:
+            # Null / non-mapping offers must not crash attribute access.
+            first_offer = {}
         
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -2753,7 +2773,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     images = []
                 
                 # Extract offer data and variants
-                offers = product.get('offers', {})
+                offers = product.get('offers')
                 variants_list = []
                 
                 if type(offers).__name__ == 'list':
@@ -2765,6 +2785,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     # First pass: collect unique colors in order they appear
                     color_order = []
                     for offer in offers:
+                        if not isinstance(offer, dict):
+                            continue
                         variant_name = offer.get('name', '')
                         if '/' in variant_name:
                             parts = variant_name.split('/')
@@ -2785,6 +2807,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     
                     # Second pass: prepare variant data with correct image mapping
                     for offer in offers:
+                        if not isinstance(offer, dict):
+                            continue
                         variant_name = offer.get('name', '')
                         color_part = ''
                         size_part = ''
@@ -2807,18 +2831,23 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             'image_index': color_to_image.get(color_part, 0) if color_part else 0
                         })
                     
-                    first_offer = offers[0]
+                    # Empty offer lists used to IndexError on offers[0].
+                    first_offer = next((o for o in offers if isinstance(o, dict)), {})
                     # Convert sets to lists without using list() to avoid Click collision
                     colors_list = [c for c in sorted(colors)]
                     sizes_list = [s for s in sorted(sizes)]
-                else:
+                elif isinstance(offers, dict):
                     first_offer = offers
+                    colors_list = []
+                    sizes_list = []
+                else:
+                    first_offer = {}
                     colors_list = []
                     sizes_list = []
                 
                 # Prepare template variables
                 brand_data = product.get('brand', '')
-                brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+                brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data or '')
                 offer_url = str(first_offer.get('url') or '')
                 parsed_offer_url = urlparse(offer_url)
                 checkout_base_url = (
@@ -2902,22 +2931,30 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 autoescape=select_autoescape(['html', 'xml']),
             )
             jinja_env.filters['safe_url'] = safe_href
-            # Prefer markdown product pages; fall back to aggregator products.
-            if all_product_pages:
-                sitemap_products = all_product_pages
-            else:
-                sitemap_products = aggregator_product_pages or []
-                if not sitemap_products:
-                    for product in products or []:
-                        meta = product.get('_meta') or {}
-                        slug = meta.get('slug') or meta.get('handle')
-                        if not slug:
-                            continue
-                        slug = quote(str(slug).strip('/'), safe='')
-                        sitemap_products.append({
-                            'url': f'/products/{slug}/',
-                            'title': product.get('name') or slug,
-                        })
+            # Include markdown AND aggregator PDPs. Preferring only markdown hid
+            # commerce-generated product URLs whenever any markdown product existed.
+            sitemap_products = list(all_product_pages or [])
+            seen_product_urls = {
+                str(item.get('url') or '').rstrip('/')
+                for item in sitemap_products
+                if item.get('url')
+            }
+            for item in aggregator_product_pages or []:
+                url = str(item.get('url') or '').rstrip('/')
+                if url and url not in seen_product_urls:
+                    sitemap_products.append(item)
+                    seen_product_urls.add(url)
+            if not sitemap_products:
+                for product in products or []:
+                    meta = product.get('_meta') or {}
+                    slug = meta.get('slug') or meta.get('handle')
+                    if not slug:
+                        continue
+                    slug = quote(str(slug).strip('/'), safe='')
+                    sitemap_products.append({
+                        'url': f'/products/{slug}/',
+                        'title': product.get('name') or slug,
+                    })
             sitemap_dir = dist_path / 'sitemap'
             sitemap_dir.mkdir(parents=True, exist_ok=True)
             sitemap_html = jinja_env.get_template('sitemap.html').render(

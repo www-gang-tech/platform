@@ -41,14 +41,21 @@ def sanitize_markdown_html(html: str) -> str:
         'script', 'style', 'iframe', 'object', 'embed', 'link', 'meta',
         'base', 'form', 'input', 'button', 'textarea', 'select',
     }
+    # Snapshot tags first: decomposing a parent invalidates children still in
+    # the list (BeautifulSoup sets attrs=None), which used to TypeError.
     for tag in list(root.find_all(True)):
+        if getattr(tag, 'decomposed', False):
+            continue
         name = (tag.name or '').lower()
         if name in forbidden_tags:
             tag.decompose()
             continue
-        for attr in list(tag.attrs):
+        attrs = tag.attrs
+        if not attrs:
+            continue
+        for attr in list(attrs):
             attr_l = str(attr).lower()
-            if attr_l.startswith('on') or attr_l in {'style', 'srcdoc'}:
+            if attr_l.startswith('on') or attr_l in {'style', 'srcdoc', 'ping', 'background'}:
                 del tag.attrs[attr]
 
     return ''.join(str(child) for child in root.contents)
@@ -84,14 +91,16 @@ def sanitize_content_hrefs(html: str) -> str:
         return f'{attr}={safe_value}'
 
     # Quoted attributes first so srcset values with spaces are preserved.
+    # Include ping/background — legacy URL sinks not covered by href/src alone.
+    url_attrs = r'href|src|action|formaction|data|poster|srcset|ping|background'
     html = re.sub(
-        r'\b(href|src|action|formaction|data|poster|srcset)\s*=\s*(["\'])(.*?)\2',
+        rf'\b({url_attrs})\s*=\s*(["\'])(.*?)\2',
         lambda m: rewrite(m.group(1), m.group(2), m.group(3)),
         html,
         flags=re.IGNORECASE | re.DOTALL,
     )
     return re.sub(
-        r'\b(href|src|action|formaction|data|poster|srcset)\s*=\s*([^"\'>\s]+)',
+        rf'\b({url_attrs})\s*=\s*([^"\'>\s]+)',
         lambda m: rewrite(m.group(1), '', m.group(2)),
         html,
         flags=re.IGNORECASE,
