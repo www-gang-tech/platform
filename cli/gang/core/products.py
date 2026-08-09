@@ -255,7 +255,7 @@ class ShopifyClient:
         self.access_token = access_token
         self.api_version = '2024-01'
     
-    def fetch_products(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def fetch_products(self, limit: int = 100) -> Optional[List[Dict[str, Any]]]:
         """Fetch products from Shopify, following Admin API pagination."""
         # Demo mode - return mock data
         if not self.access_token or self.access_token == 'demo':
@@ -309,7 +309,9 @@ class ShopifyClient:
         
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")
-            return []
+            # None signals hard failure so fetch_all can restore cache;
+            # [] means a successful empty catalog and must be writable.
+            return None
     
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Shopify products"""
@@ -360,7 +362,7 @@ class StripeClient:
     def __init__(self, secret_key: str):
         self.secret_key = secret_key
     
-    def fetch_products(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def fetch_products(self, limit: int = 100) -> Optional[List[Dict[str, Any]]]:
         """Fetch products from Stripe"""
         # Demo mode
         if not self.secret_key or self.secret_key == 'demo':
@@ -401,7 +403,7 @@ class StripeClient:
         
         except Exception as e:
             print(f"Error fetching from Stripe: {e}")
-            return []
+            return None
     
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Stripe products"""
@@ -433,7 +435,7 @@ class GumroadClient:
     def __init__(self, access_token: str):
         self.access_token = access_token
     
-    def fetch_products(self) -> List[Dict[str, Any]]:
+    def fetch_products(self) -> Optional[List[Dict[str, Any]]]:
         """Fetch products from Gumroad"""
         # Demo mode
         if not self.access_token or self.access_token == 'demo':
@@ -453,7 +455,7 @@ class GumroadClient:
         
         except Exception as e:
             print(f"Error fetching from Gumroad: {e}")
-            return []
+            return None
     
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Gumroad products"""
@@ -485,38 +487,60 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        # Track which sources completed a live fetch successfully (including
+        # empty catalogs). Failures return None and should restore cache.
+        fetched_ok = set()
+
         # Shopify
         shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
         if shopify_config[0] and shopify_config[1]:
             # Only use real Shopify if both URL and token are set
             client = ShopifyClient(shopify_config[0], shopify_config[1])
-            products['shopify'] = client.fetch_products()
+            result = client.fetch_products()
+            if result is None:
+                pass  # failure — restore from cache below
+            else:
+                products['shopify'] = result
+                fetched_ok.add('shopify')
         elif self.config.get('demo_mode', False):
             # Only use demo if explicitly enabled
             client = ShopifyClient('demo.myshopify.com', 'demo')
-            products['shopify'] = client.fetch_products()
+            products['shopify'] = client.fetch_products() or []
+            fetched_ok.add('shopify')
         
         # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
             client = StripeClient(stripe_key)
-            products['stripe'] = client.fetch_products()
+            result = client.fetch_products()
+            if result is None:
+                pass
+            else:
+                products['stripe'] = result
+                fetched_ok.add('stripe')
         
         # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
             client = GumroadClient(gumroad_token)
-            products['gumroad'] = client.fetch_products()
+            result = client.fetch_products()
+            if result is None:
+                pass
+            else:
+                products['gumroad'] = result
+                fetched_ok.add('gumroad')
         
         cached_products = self._cached_products()
         if cached_products is not None:
-            # Preserve per-source cache when a live fetch returns empty
-            # (failed/partial credentials must not wipe other platforms).
+            # Restore per-source cache only after a hard fetch failure.
+            # Successful empty catalogs must be allowed to clear stale PDPs.
             for source in ('shopify', 'stripe', 'gumroad'):
-                if not products.get(source) and cached_products.get(source):
+                if source in fetched_ok:
+                    continue
+                if cached_products.get(source):
                     products[source] = cached_products[source]
 
-        if any(products.values()):
+        if any(products.values()) or fetched_ok:
             self._save_cache(products)
         elif cached_products is not None:
             return cached_products
