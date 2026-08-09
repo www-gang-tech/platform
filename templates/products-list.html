@@ -54,15 +54,15 @@
                 {% endif %}
                     {% if product.image %}
                         {% if product.image is string %}
-                        <img src="{{ product.image }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
+                        <img src="{{ product.image|safe_url }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
                         {% else %}
-                        <img src="{{ product.image[0] }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
+                        <img src="{{ product.image[0]|safe_url }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
                         {% endif %}
                     {% endif %}
                     <div class="product-info">
                         <h2 class="product-title">{{ product.name }}</h2>
                         {% if product.description %}
-                        <p class="product-description">{{ product.description[:120] }}...</p>
+                        <p class="product-description">{{ product.description[:120] }}{% if product.description|length > 120 %}...{% endif %}</p>
                         {% endif %}
                         <p class="product-price">
                             {% if product.offers %}

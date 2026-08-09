@@ -9,6 +9,9 @@
     <title>Shopping Cart - {{ site_title }}</title>
     <meta name="description" content="Your shopping cart">
     <link rel="canonical" href="{{ canonical_url }}">
+    {% if checkout_origins %}
+    <meta name="gang-checkout-origins" content="{{ checkout_origins|join(' ') }}">
+    {% endif %}
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",

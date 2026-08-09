@@ -78,32 +78,37 @@
             });
         }
         
-        // Update form action to point to correct variant URL (http/https only)
+        // Update form action to point to correct variant URL (http/https only).
+        // Always clear/replace — truthy checks left stale checkout identity when
+        // switching to a variant with empty SKU, zero price, or missing URL.
+        let checkoutHref = '';
         if (variant.url) {
             try {
                 const parsed = new URL(variant.url, window.location.origin);
                 if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-                    form.action = parsed.href;
-                    // cart.js prefers data-checkout-url over action; keep them in sync.
-                    form.dataset.checkoutUrl = parsed.href;
+                    checkoutHref = parsed.href;
                 }
             } catch (e) {
-                // Keep the existing form action when variant URL is invalid.
+                checkoutHref = '';
             }
+        }
+        if (checkoutHref) {
+            form.action = checkoutHref;
+            form.dataset.checkoutUrl = checkoutHref;
+        } else {
+            form.action = '#';
+            delete form.dataset.checkoutUrl;
         }
 
         // Keep cart data aligned with the selected Shopify variant.
-        if (variant.id) {
-            form.dataset.variantId = String(variant.id);
-        }
-        if (variant.sku) {
-            form.dataset.sku = variant.sku;
-        }
-        if (variant.price) {
-            form.dataset.price = variant.price;
-        }
-        if (variant.currency) {
-            form.dataset.currency = variant.currency;
+        form.dataset.variantId = variant.id == null ? '' : String(variant.id);
+        form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
+        form.dataset.price = variant.price == null || variant.price === ''
+            ? '0'
+            : String(variant.price);
+        form.dataset.currency = variant.currency ? String(variant.currency) : 'USD';
+        if (Object.prototype.hasOwnProperty.call(variant, 'image') && variant.image) {
+            form.dataset.image = String(variant.image);
         }
     }
     

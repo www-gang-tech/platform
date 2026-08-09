@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
-from core.frontmatter import dump_frontmatter
+from core.frontmatter import dump_frontmatter, parse_frontmatter
 import os
 import re
 
@@ -107,20 +107,13 @@ class NewsletterManager:
     ) -> Dict[str, Any]:
         """Send newsletter via configured provider"""
         
-        import yaml
-        
         content = file_path.read_text()
         
         # Parse frontmatter
         if not content.startswith('---'):
             return {'error': 'No frontmatter found'}
         
-        parts = content.split('---', 2)
-        if len(parts) < 3:
-            return {'error': 'Invalid frontmatter'}
-        
-        frontmatter = yaml.safe_load(parts[1]) or {}
-        body = parts[2]
+        frontmatter, body = parse_frontmatter(content)
         
         # Convert markdown to HTML
         html_body = self._markdown_to_email_html(body)
@@ -180,16 +173,11 @@ class NewsletterManager:
     ) -> Dict[str, Any]:
         """Schedule newsletter for future send"""
         
-        import yaml
-        
         content = file_path.read_text()
-        parts = content.split('---', 2)
-        
-        if len(parts) < 3:
+        if not content.startswith('---'):
             return {'error': 'Invalid frontmatter'}
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
-        body = parts[2]
+        frontmatter, body = parse_frontmatter(content)
         
         # Update status and schedule
         frontmatter['status'] = 'scheduled'
@@ -208,8 +196,6 @@ class NewsletterManager:
     def get_all_newsletters(self) -> Dict[str, Any]:
         """Get all newsletters organized by status"""
         
-        import yaml
-        
         newsletters = {
             'draft': [],
             'scheduled': [],
@@ -224,8 +210,7 @@ class NewsletterManager:
                 content = file_path.read_text()
                 
                 if content.startswith('---'):
-                    parts = content.split('---', 2)
-                    frontmatter = yaml.safe_load(parts[1]) or {}
+                    frontmatter, _body = parse_frontmatter(content)
                     
                     status = str(frontmatter.get('status', 'draft') or 'draft').strip().lower()
                     # Unknown statuses (e.g. "published") used to KeyError and get dropped.

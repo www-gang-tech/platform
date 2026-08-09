@@ -888,14 +888,17 @@
                     
                     byStatus[status].forEach(p => {
                         const offers = Array.isArray(p.offers) ? p.offers[0] : p.offers;
-                        const price = offers.price || '0';
-                        const currency = offers.priceCurrency || 'USD';
+                        const price = (offers && offers.price != null && offers.price !== '')
+                            ? offers.price
+                            : '0';
+                        const currency = (offers && offers.priceCurrency) || 'USD';
+                        const source = (p._meta && p._meta.source) || 'unknown';
                         
                         html += `
                             <div class="redirect-item">
                                 <div class="redirect-info">
-                                    <div style="font-weight: 500;">${escapeHtml(p.name)}</div>
-                                    <div class="redirect-from">${escapeHtml(currency)} ${escapeHtml(price)} · ${escapeHtml(p._meta.source)}</div>
+                                    <div style="font-weight: 500;">${escapeHtml(p.name || 'Untitled')}</div>
+                                    <div class="redirect-from">${escapeHtml(currency)} ${escapeHtml(price)} · ${escapeHtml(source)}</div>
                                 </div>
                             </div>
                         `;

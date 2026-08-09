@@ -10,6 +10,11 @@ import re
 from datetime import datetime
 import yaml
 
+try:
+    from core.frontmatter import parse_frontmatter
+except ImportError:  # pragma: no cover
+    from frontmatter import parse_frontmatter
+
 
 class SearchIndexer:
     """Generate search index for static site"""
@@ -60,19 +65,7 @@ class SearchIndexer:
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
         content = file_path.read_text()
-        
-        # Parse frontmatter
-        frontmatter = {}
-        body = content
-        
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            if len(parts) >= 3:
-                try:
-                    frontmatter = yaml.safe_load(parts[1]) or {}
-                    body = parts[2]
-                except:
-                    pass
+        frontmatter, body = parse_frontmatter(content)
         
         # Extract metadata
         title = self._as_string(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())

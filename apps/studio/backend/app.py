@@ -8,6 +8,7 @@ Provides endpoints for in-place content editing
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pathlib import Path
+from urllib.parse import urlparse
 import subprocess
 import yaml
 import os
@@ -65,14 +66,15 @@ def _is_loopback_origin():
     if not origin:
         # curl / same-origin navigations often omit Origin.
         return True
-    return origin.startswith((
-        'http://127.0.0.1',
-        'http://localhost',
-        'http://[::1]',
-        'https://127.0.0.1',
-        'https://localhost',
-        'https://[::1]',
-    ))
+    try:
+        parsed = urlparse(origin)
+    except Exception:
+        return False
+    # Exact hostname match — prefix checks accept localhost.evil.com.
+    if parsed.scheme not in {'http', 'https'}:
+        return False
+    host = (parsed.hostname or '').lower()
+    return host in {'127.0.0.1', 'localhost', '::1'}
 
 
 def request_is_authenticated():

@@ -104,31 +104,47 @@ class ProductSchema:
                 # Inventory tracked and no overselling - check quantity
                 in_stock = inventory_qty > 0
             
+            raw_price = variant.get('price')
+            price = '0' if raw_price is None or raw_price == '' else str(raw_price)
+            variant_id = variant.get('id')
+            variant_id_str = '' if variant_id is None else str(variant_id).strip()
+            offer_url = ''
+            if product_url and variant_id_str and variant_id_str.lower() != 'none':
+                offer_url = f"{product_url}?variant={variant_id_str}"
             offers.append({
                 '@type': 'Offer',
-                'id': variant.get('id'),
-                'price': variant.get('price', '0'),
+                'id': variant_id,
+                'price': price,
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
-                'url': (
-                    f"{product_url}?variant={variant.get('id')}"
-                    if product_url
-                    else ''
-                ),
-                'sku': variant.get('sku', ''),
-                'name': variant.get('title', ''),
+                'url': offer_url,
+                'sku': variant.get('sku') or '',
+                'name': variant.get('title') or '',
                 'inventory_quantity': inventory_qty  # Include for debugging
             })
+
+        # Shopify body_html is markup; store plain text for PLP/JSON-LD consumers.
+        raw_description = product.get('body_html', '') or ''
+        if '<' in str(raw_description):
+            from bs4 import BeautifulSoup
+            import re
+            description = BeautifulSoup(str(raw_description), 'html.parser').get_text(' ')
+            description = re.sub(r'\s+', ' ', description).strip()
+        else:
+            description = str(raw_description).strip()
+
+        first_price = first_variant.get('price')
+        first_price = '0' if first_price is None or first_price == '' else str(first_price)
         
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
             'name': product.get('title', ''),
-            'description': product.get('body_html', ''),
+            'description': description,
             'image': images,
             'offers': offers if len(offers) > 1 else offers[0] if offers else {
                 '@type': 'Offer',
-                'price': first_variant.get('price', '0'),
+                'price': first_price,
                 'priceCurrency': 'USD',
                 'availability': 'https://schema.org/InStock'
             },
@@ -152,23 +168,34 @@ class ProductSchema:
     @staticmethod
     def _from_stripe(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Stripe product to Schema.org"""
-        prices = product.get('prices', [])
+        raw_prices = product.get('prices', [])
+        if isinstance(raw_prices, list):
+            prices = [p for p in raw_prices if isinstance(p, dict)]
+        else:
+            prices = []
         first_price = prices[0] if prices else {}
         unit_amount = first_price.get('unit_amount')
-        if unit_amount is None:
+        try:
+            unit_amount = 0 if unit_amount is None else float(unit_amount)
+        except (TypeError, ValueError):
             unit_amount = 0
+        currency = (first_price.get('currency') or 'usd')
+        currency = str(currency).upper() if currency else 'USD'
         slug = ProductSchema._slugify(product.get('name'), product.get('id') or 'stripe-product')
+        images = product.get('images', [])
+        if not isinstance(images, list):
+            images = []
         
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
             'name': product.get('name', ''),
-            'description': product.get('description', ''),
-            'image': product.get('images', []),
+            'description': product.get('description', '') or '',
+            'image': images,
             'offers': {
                 '@type': 'Offer',
                 'price': str(unit_amount / 100),
-                'priceCurrency': first_price.get('currency', 'usd').upper(),
+                'priceCurrency': currency,
                 'availability': 'https://schema.org/InStock' if product.get('active') else 'https://schema.org/OutOfStock'
             },
             '_meta': {
@@ -187,8 +214,12 @@ class ProductSchema:
     def _from_gumroad(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Gumroad product to Schema.org"""
         raw_price = product.get('price')
-        if raw_price is None:
-            raw_price = 0
+        try:
+            price_cents = 0 if raw_price is None or raw_price == '' else float(raw_price)
+        except (TypeError, ValueError):
+            price_cents = 0
+        currency = product.get('currency') or 'USD'
+        currency = str(currency).upper()
         slug = ProductSchema._slugify(
             product.get('custom_permalink') or product.get('name'),
             product.get('id') or 'gumroad-product',
@@ -197,12 +228,12 @@ class ProductSchema:
             '@context': 'https://schema.org',
             '@type': 'Product',
             'name': product.get('name', ''),
-            'description': product.get('description', ''),
+            'description': product.get('description', '') or '',
             'image': [product.get('thumbnail_url')] if product.get('thumbnail_url') else [],
             'offers': {
                 '@type': 'Offer',
-                'price': str(raw_price / 100),
-                'priceCurrency': product.get('currency', 'USD'),
+                'price': str(price_cents / 100),
+                'priceCurrency': currency,
                 'availability': 'https://schema.org/InStock'
             },
             '_meta': {

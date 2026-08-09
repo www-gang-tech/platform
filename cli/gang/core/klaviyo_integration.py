@@ -650,19 +650,15 @@ class KlaviyoOrchestrator:
         """Create Klaviyo campaign from a post"""
         
         from .email_templates import EmailTemplateGenerator
-        import yaml
         import markdown
+        try:
+            from core.frontmatter import parse_frontmatter
+        except ImportError:  # pragma: no cover
+            from frontmatter import parse_frontmatter
         
         # Parse post
         content = post_path.read_text()
-        
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        frontmatter, body = parse_frontmatter(content)
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])

@@ -57,6 +57,22 @@
             ? safeHttpUrl(form.action)
             : null;
         
+        const checkoutUrl = (checkoutFromData || checkoutFromAction || { href: '' }).href || '';
+        const checkoutBaseParsed = safeHttpUrl(form.dataset.checkoutBaseUrl || '');
+        // Prefer a base origin that agrees with the product checkout URL.
+        let checkoutBaseUrl = '';
+        if (checkoutBaseParsed && checkoutUrl) {
+            const checkoutParsed = safeHttpUrl(checkoutUrl);
+            if (checkoutParsed && checkoutParsed.origin === checkoutBaseParsed.origin) {
+                checkoutBaseUrl = checkoutBaseParsed.origin;
+            }
+        } else if (checkoutBaseParsed && !checkoutUrl) {
+            checkoutBaseUrl = checkoutBaseParsed.origin;
+        } else if (checkoutUrl) {
+            const checkoutParsed = safeHttpUrl(checkoutUrl);
+            if (checkoutParsed) checkoutBaseUrl = checkoutParsed.origin;
+        }
+
         const item = {
             id: String(form.dataset.variantId || ''),
             name: form.dataset.productName || 'Product',
@@ -68,8 +84,8 @@
             quantity: normalizeQuantity(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
             url: form.dataset.productUrl || '',
-            checkoutUrl: (checkoutFromData || checkoutFromAction || { href: '' }).href || '',
-            checkoutBaseUrl: form.dataset.checkoutBaseUrl || '',
+            checkoutUrl,
+            checkoutBaseUrl,
             sku: form.dataset.sku || ''
         };
         
@@ -130,6 +146,21 @@
         } catch {
             return null;
         }
+    }
+
+    function allowedCheckoutOrigins() {
+        const meta = document.querySelector('meta[name="gang-checkout-origins"]');
+        if (!meta || !meta.content) return null;
+        const origins = meta.content.split(/\s+/).map(s => s.trim()).filter(Boolean);
+        return origins.length ? new Set(origins) : null;
+    }
+
+    function isAllowedCheckoutUrl(parsed) {
+        if (!parsed) return false;
+        const allow = allowedCheckoutOrigins();
+        // Pages without an allowlist keep http(s)-only behavior.
+        if (!allow) return true;
+        return allow.has(parsed.origin);
     }
     
     // Render cart page
@@ -259,10 +290,13 @@
         
         const baseUrl = safeHttpUrl(cart[0].checkoutBaseUrl);
         const isNumericId = value => /^\d+$/.test(String(value || ''));
-        const sameMerchantItems = baseUrl
+        const sameMerchantItems = baseUrl && isAllowedCheckoutUrl(baseUrl)
             ? cart.filter(item => {
                 const itemBase = safeHttpUrl(item.checkoutBaseUrl);
-                return itemBase && itemBase.origin === baseUrl.origin && isNumericId(item.id);
+                return itemBase
+                    && itemBase.origin === baseUrl.origin
+                    && isAllowedCheckoutUrl(itemBase)
+                    && isNumericId(item.id);
             })
             : [];
 
@@ -276,7 +310,7 @@
 
         if (cart.length === 1) {
             const directCheckoutUrl = safeHttpUrl(cart[0].checkoutUrl);
-            if (directCheckoutUrl) {
+            if (directCheckoutUrl && isAllowedCheckoutUrl(directCheckoutUrl)) {
                 window.location.href = directCheckoutUrl.href;
                 return;
             }

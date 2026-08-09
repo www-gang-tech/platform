@@ -302,8 +302,12 @@ class InPlaceEditor {
 
     // HTML to Markdown converter
     htmlToMarkdown(html) {
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
+        // Parse off-document first so <img onerror=...> cannot fire on insert.
+        const parsed = new DOMParser().parseFromString(
+            `<div id="gang-md-root">${html || ''}</div>`,
+            'text/html'
+        );
+        const temp = parsed.getElementById('gang-md-root') || parsed.body;
 
         // Drop executable / unknown markup before it becomes persisted markdown.
         temp.querySelectorAll('script, style, iframe, object, embed').forEach(node => node.remove());
@@ -311,11 +315,11 @@ class InPlaceEditor {
             [...node.attributes].forEach(attr => {
                 const name = attr.name.toLowerCase();
                 const value = attr.value || '';
-                if (name.startsWith('on') || name === 'style') {
+                if (name.startsWith('on') || name === 'style' || name === 'srcdoc') {
                     node.removeAttribute(attr.name);
                     return;
                 }
-                if ((name === 'href' || name === 'src') && (
+                if ((name === 'href' || name === 'src' || name === 'poster' || name === 'action') && (
                     value.trim().toLowerCase().startsWith('javascript:')
                     || value.trim().toLowerCase().startsWith('data:')
                     || value.trim().startsWith('//')

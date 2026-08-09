@@ -2892,8 +2892,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'navigation': config.get('nav', {}).get('main', []),
                     'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
                     'build_time_iso': datetime.now().isoformat(),
-                    # Match markdown PDP EDITOR_MODE so product.html can show Edit UI.
-                    'user_authenticated': os.environ.get('EDITOR_MODE', '').lower() == 'true',
+                    # Aggregator-only PDPs have no markdown source; Edit UI would 404.
+                    'user_authenticated': False,
                     'studio_api_base': (
                         os.environ.get('GANG_API_BASE')
                         or os.environ.get('STUDIO_API_BASE')
@@ -2934,6 +2934,38 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             cart_dir = dist_path / 'cart'
             cart_dir.mkdir(parents=True, exist_ok=True)
             build_time = datetime.now()
+            # Build-time merchant allowlist so poisoned localStorage cannot
+            # redirect checkout. Only emit when we know at least one commerce
+            # origin — an empty/site-only list would falsely block Shopify.
+            checkout_origins = set()
+            store_url = os.environ.get('SHOPIFY_STORE_URL') or ''
+            if store_url and not store_url.startswith('http'):
+                store_url = f'https://{store_url}'
+            try:
+                store_parsed = urlparse(store_url)
+                if store_parsed.scheme in ('http', 'https') and store_parsed.netloc:
+                    checkout_origins.add(f"{store_parsed.scheme}://{store_parsed.netloc}")
+            except Exception:
+                pass
+            for product in products or []:
+                if not isinstance(product, dict):
+                    continue
+                meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
+                candidates = [meta.get('url')]
+                offers = product.get('offers')
+                if isinstance(offers, dict):
+                    candidates.append(offers.get('url'))
+                elif isinstance(offers, list):
+                    for offer in offers:
+                        if isinstance(offer, dict):
+                            candidates.append(offer.get('url'))
+                for candidate in candidates:
+                    try:
+                        parsed = urlparse(str(candidate or ''))
+                        if parsed.scheme in ('http', 'https') and parsed.netloc:
+                            checkout_origins.add(f"{parsed.scheme}://{parsed.netloc}")
+                    except Exception:
+                        pass
             cart_html = jinja_env.get_template('cart.html').render(
                 year=build_time.year,
                 site_title=config['site']['title'],
@@ -2943,7 +2975,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 lighthouse_scores=True,
                 build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
                 build_time_iso=build_time.isoformat(),
-                description=config['site']['description']
+                description=config['site']['description'],
+                checkout_origins=sorted(checkout_origins),
             )
             (cart_dir / 'index.html').write_text(cart_html)
             all_pages.append({'url': '/cart/', 'title': 'Cart', 'type': 'utility'})
@@ -4856,16 +4889,18 @@ def studio(ctx, port, host):
                 )
             # No token: allow local Studio on loopback only, and only when Origin
             # is absent or also loopback (mitigates browser CSRF to :3000).
+            # Exact hostname match — prefix checks accept localhost.evil.com.
             origin = (handler.headers.get('Origin') or '').strip()
-            if origin and not origin.startswith((
-                'http://127.0.0.1',
-                'http://localhost',
-                'http://[::1]',
-                'https://127.0.0.1',
-                'https://localhost',
-                'https://[::1]',
-            )):
-                return False
+            if origin:
+                try:
+                    parsed = urlparse(origin)
+                except Exception:
+                    return False
+                if parsed.scheme not in {'http', 'https'}:
+                    return False
+                host = (parsed.hostname or '').lower()
+                if host not in {'127.0.0.1', 'localhost', '::1'}:
+                    return False
             return is_loopback
 
         def require_studio_mutation_auth(handler):
@@ -5536,7 +5571,7 @@ def serve(ctx, port, host):
         # Track clients for live reload
         reload_clients = []
         rebuild_lock = threading.Lock()
-        rebuild_timer = {'handle': None}
+        rebuild_timer = {'handle': None, 'running': False, 'dirty': False}
         
         class ChangeHandler(FileSystemEventHandler):
             def on_any_event(self, event):
@@ -5560,15 +5595,31 @@ def serve(ctx, port, host):
                 changed_name = Path(src_path).name
 
                 def run_rebuild():
-                    # Clear the timer handle under the lock, then rebuild outside
-                    # so the watcher can keep coalescing events during builds.
+                    # Single-flight: only one rebuild at a time; coalesce dirty
+                    # events that arrive while a build is already running.
                     with rebuild_lock:
                         rebuild_timer['handle'] = None
-                    click.echo(f"\n📝 Change detected: {changed_name}")
-                    rebuild_site(ctx)
-                    # Small delay to ensure files are fully written
-                    time.sleep(0.1)
-                    notify_reload()
+                        if rebuild_timer['running']:
+                            rebuild_timer['dirty'] = True
+                            return
+                        rebuild_timer['running'] = True
+                        rebuild_timer['dirty'] = False
+                    try:
+                        while True:
+                            click.echo(f"\n📝 Change detected: {changed_name}")
+                            rebuild_site(ctx)
+                            # Small delay to ensure files are fully written
+                            time.sleep(0.1)
+                            notify_reload()
+                            with rebuild_lock:
+                                if not rebuild_timer['dirty']:
+                                    rebuild_timer['running'] = False
+                                    break
+                                rebuild_timer['dirty'] = False
+                    except Exception:
+                        with rebuild_lock:
+                            rebuild_timer['running'] = False
+                        raise
 
                 # Debounce: rebuild once after a quiet period so rapid saves
                 # are not dropped by a sticky rebuild_pending flag.

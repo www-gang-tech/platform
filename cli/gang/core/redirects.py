@@ -129,6 +129,29 @@ class RedirectManager:
         """Get all redirects"""
         return self.redirects['redirects']
     
+    def _iter_safe_redirects(self):
+        """Yield validated redirects; skip tainted entries from on-disk JSON."""
+        for redirect in self.redirects.get('redirects') or []:
+            if not isinstance(redirect, dict):
+                continue
+            try:
+                from_path = self.validate_redirect_path(
+                    redirect.get('from'), allow_external=False
+                )
+                to_path = self.validate_redirect_path(
+                    redirect.get('to'), allow_external=True
+                )
+            except ValueError:
+                continue
+            raw_status = redirect.get('status', 301)
+            try:
+                status = int(raw_status)
+            except (TypeError, ValueError):
+                continue
+            if status not in {301, 302, 303, 307, 308}:
+                continue
+            yield from_path, to_path, status
+
     def generate_cloudflare_redirects(self) -> str:
         """Generate _redirects file for Cloudflare Pages"""
         lines = []
@@ -137,11 +160,10 @@ class RedirectManager:
         lines.append(f"# Last updated: {datetime.now().isoformat()}")
         lines.append("")
         
-        for redirect in self.redirects['redirects']:
+        for from_path, to_path, status in self._iter_safe_redirects():
             # Cloudflare Pages _redirects format:
             # /old-path /new-path 301
-            status = redirect.get('status', 301)
-            lines.append(f"{redirect['from']} {redirect['to']} {status}")
+            lines.append(f"{from_path} {to_path} {status}")
         
         return '\n'.join(lines)
     
@@ -152,9 +174,9 @@ class RedirectManager:
         lines.append("# Add to your nginx config")
         lines.append("")
         
-        for redirect in self.redirects['redirects']:
-            status = redirect.get('status', 301)
-            lines.append(f"rewrite ^{redirect['from']}$ {redirect['to']} permanent;")
+        for from_path, to_path, status in self._iter_safe_redirects():
+            flag = 'permanent' if status == 301 else 'redirect'
+            lines.append(f"rewrite ^{from_path}$ {to_path} {flag};")
         
         return '\n'.join(lines)
     
@@ -162,9 +184,8 @@ class RedirectManager:
         """Generate _redirects file for Netlify"""
         lines = []
         
-        for redirect in self.redirects['redirects']:
-            status = redirect.get('status', 301)
-            lines.append(f"{redirect['from']} {redirect['to']} {status}")
+        for from_path, to_path, status in self._iter_safe_redirects():
+            lines.append(f"{from_path} {to_path} {status}")
         
         return '\n'.join(lines)
     

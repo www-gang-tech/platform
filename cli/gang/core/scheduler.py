@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 import yaml
-from core.frontmatter import dump_frontmatter
+from core.frontmatter import dump_frontmatter, parse_frontmatter
 
 
 class ContentScheduler:
@@ -40,19 +40,8 @@ class ContentScheduler:
                 })
                 continue
             
-            parts = content.split('---', 2)
-            if len(parts) < 3:
-                publishable.append({
-                    'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
-                })
-                continue
-            
-            try:
-                frontmatter = yaml.safe_load(parts[1]) or {}
-            except:
-                # Invalid YAML, include anyway
+            frontmatter, _body = parse_frontmatter(content)
+            if not frontmatter and not content.startswith('---'):
                 publishable.append({
                     'path': file_path,
                     'status': 'published',
@@ -257,13 +246,8 @@ class ContentScheduler:
             file_path.write_text(new_content)
             return True
         
-        parts = content.split('---', 2)
-        if len(parts) < 3:
-            return False
-        
-        try:
-            frontmatter = yaml.safe_load(parts[1]) or {}
-        except:
+        frontmatter, body = parse_frontmatter(content)
+        if not content.startswith('---'):
             return False
         
         # Update frontmatter
@@ -277,7 +261,6 @@ class ContentScheduler:
                 frontmatter['status'] = 'published'
         
         # Write back
-        body = parts[2]
         new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
