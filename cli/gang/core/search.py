@@ -10,6 +10,11 @@ import re
 from datetime import datetime
 import yaml
 
+try:
+    from core.frontmatter import parse_frontmatter
+except ImportError:  # pragma: no cover
+    from frontmatter import parse_frontmatter
+
 
 class SearchIndexer:
     """Generate search index for static site"""
@@ -40,41 +45,37 @@ class SearchIndexer:
         
         return index
     
+    def _published_category(self, category: str) -> str:
+        """Map source folders to generated URL folders."""
+        return 'posts' if category == 'articles' else category
+    
+    def _as_string(self, value: Any, fallback: str = '') -> str:
+        if value is None:
+            return fallback
+        text = str(value).strip()
+        return text if text else fallback
+    
+    def _normalize_tags(self, tags: Any) -> List[str]:
+        if tags is None:
+            return []
+        if type(tags).__name__ in ('list', 'tuple', 'set'):
+            return [str(tag) for tag in tags if tag is not None]
+        return [str(tags)]
+    
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
         content = file_path.read_text()
-        
-        # Parse frontmatter
-        frontmatter = {}
-        body = content
-        
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            if len(parts) >= 3:
-                try:
-                    frontmatter = yaml.safe_load(parts[1]) or {}
-                    body = parts[2]
-                except:
-                    pass
+        frontmatter, body = parse_frontmatter(content)
         
         # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
-        tags = frontmatter.get('tags', [])
-        category = file_path.parent.name
+        title = self._as_string(frontmatter.get('title'), file_path.stem.replace('-', ' ').title())
+        description = self._as_string(frontmatter.get('description') or frontmatter.get('summary'), '')
+        tags = self._normalize_tags(frontmatter.get('tags', []))
+        category = self._published_category(file_path.parent.name)
         
         # Generate URL
         slug = file_path.stem
-        if category == 'posts':
-            url = f"/posts/{slug}/"
-        elif category == 'projects':
-            url = f"/projects/{slug}/"
-        elif category == 'pages':
-            url = f"/pages/{slug}/"
-        elif category == 'people':
-            url = f"/people/{slug}/"
-        else:
-            url = f"/{category}/{slug}/"
+        url = f"/{category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -96,7 +97,13 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': self._as_string(
+                frontmatter.get('date')
+                or frontmatter.get('publish_date')
+                or frontmatter.get('sent_date')
+                or frontmatter.get('sent_at'),
+                '',
+            ),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -130,12 +137,20 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
+        site_url = str(self.config.get('site', {}).get('url', '')).rstrip('/')
+        html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self';">
     <title>Search</title>
+    <meta name="description" content="Search content across this site">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"SearchResultsPage","name":"Search","url":"__SITE_URL__/search/"}
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -162,6 +177,17 @@ class SearchIndexer:
         #searchInput:focus {
             outline: none;
             border-color: #0066cc;
+        }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
         .search-stats {
             margin-bottom: 1rem;
@@ -226,19 +252,28 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <nav aria-label="Main navigation"><a href="/">Home</a></nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
+        <label for="searchInput" class="visually-hidden">Search</label>
         <input 
-            type="text" 
+            type="search" 
             id="searchInput" 
+            name="q"
             placeholder="Search articles, projects, pages..."
             autocomplete="off"
+            aria-label="Search site content"
         >
     </div>
     
     <div id="searchStats" class="search-stats"></div>
     <div id="results"></div>
+    </main>
+    <footer><p>Search index generated at build time.</p></footer>
     
     <script>
         let searchIndex = null;
@@ -265,26 +300,24 @@ class SearchIndexer:
                 return;
             }
             
-            const terms = query.toLowerCase().trim().split(/\\s+/);
+            const terms = query.toLowerCase().trim().split(/\\s+/).filter(t => t.length >= 2);
             const results = [];
             
             for (const doc of searchIndex.documents) {
                 let score = 0;
-                const searchable = doc.searchable;
+                const searchable = doc.searchable || '';
+                const titleLower = (doc.title || '').toLowerCase();
                 
-                // Score based on term matches
+                // Score based on term matches (literal includes — avoid RegExp injection)
                 for (const term of terms) {
-                    if (term.length < 2) continue;
-                    
-                    // Title match (high weight)
-                    if (doc.title.toLowerCase().includes(term)) {
+                    if (titleLower.includes(term)) {
                         score += 10;
                     }
-                    
-                    // Exact match in content
-                    const regex = new RegExp(term, 'gi');
-                    const matches = (searchable.match(regex) || []).length;
-                    score += matches;
+                    let idx = 0;
+                    while ((idx = searchable.indexOf(term, idx)) !== -1) {
+                        score += 1;
+                        idx += term.length;
+                    }
                 }
                 
                 if (score > 0) {
@@ -316,17 +349,26 @@ class SearchIndexer:
             container.innerHTML = results.map(r => `
                 <div class="result">
                     <div class="result-title">
-                        <a href="${r.url}">${escapeHtml(r.title)}</a>
+                        <a href="${escapeAttr(r.url)}">${escapeHtml(r.title)}</a>
                     </div>
                     <div class="result-meta">
                         <span class="result-category">${escapeHtml(r.category)}</span>
-                        ${r.date ? '<span>' + r.date + '</span>' : ''}
+                        ${r.date ? '<span>' + escapeHtml(r.date) + '</span>' : ''}
                     </div>
                     <div class="result-description">
                         ${escapeHtml(r.description || r.content)}
                     </div>
                 </div>
             `).join('');
+        }
+        
+        function escapeAttr(text) {
+            // Only allow same-origin relative paths in result links.
+            const value = String(text || '');
+            if (!value.startsWith('/') || value.startsWith('//')) {
+                return '#';
+            }
+            return escapeHtml(value);
         }
         
         function escapeHtml(text) {
@@ -357,4 +399,5 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
+        return html.replace('__SITE_URL__', site_url)
 

@@ -3,10 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' https: data:; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' http://localhost:8000 http://localhost:5001; base-uri 'self'; form-action 'self' https: https://*.n8n.app https://*.n8n.io;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' https: data:; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' https://*.n8n.app https://*.n8n.io http://localhost:8000 http://127.0.0.1:8000 http://localhost:5001 http://127.0.0.1:5001 http://localhost:3000 http://127.0.0.1:3000; base-uri 'self'; form-action 'self' https: https://*.n8n.app https://*.n8n.io;">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+    <meta property="og:type" content="{{ og_type|default('website') }}">
+    <meta property="og:title" content="{{ title }} - {{ site_title }}">
+    <meta property="og:description" content="{{ description }}">
+    {% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{ title }} - {{ site_title }}">
+    <meta name="twitter:description" content="{{ description }}">
     
     <!-- JSON-LD Structured Data -->
     {% if jsonld %}
@@ -27,7 +35,7 @@
     <link rel="stylesheet" href="/assets/editor.css">
     {% endif %}
 </head>
-<body data-page-type="{{ page_type|default('page') }}" data-category="{{ category|default('') }}" data-slug="{{ slug|default('') }}">
+<body data-page-type="{{ page_type|default('page') }}" data-category="{{ content_category|default(category)|default('') }}" data-slug="{{ slug|default('') }}">
     {% include "partials/header.html" %}
     
     <main role="main" id="content">
@@ -37,14 +45,20 @@
     {% include "partials/footer.html" %}
 
     {% if user_authenticated %}
-    <!-- In-Place Editor (only for authenticated users) -->
+    <!-- In-Place Editor (only for authenticated users / EDITOR_MODE builds) -->
             <button id="edit-trigger" class="edit-btn" onclick="activateEditor()" aria-label="Edit this page">
                 <i class="fa-solid fa-pen"></i> Edit
             </button>
+    <script>
+    window.GANG_API_BASE = {{ (studio_api_base or 'http://127.0.0.1:3000')|tojson }};
+    {% if studio_auth_token %}window.GANG_STUDIO_TOKEN = {{ studio_auth_token|tojson }};{% endif %}
+    </script>
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
+    {% if comments_enabled %}
     <!-- Comments System (progressive enhancement) -->
     <script src="/assets/comments.js" defer></script>
+    {% endif %}
 </body>
 </html>

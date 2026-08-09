@@ -52,15 +52,16 @@ class SyndicationBundleGenerator:
         if len(parts) < 3:
             return None
         
-        frontmatter = yaml.safe_load(parts[1])
+        loaded = yaml.safe_load(parts[1])
+        frontmatter = loaded if isinstance(loaded, dict) else {}
         markdown_content = parts[2].strip()
         
         # Extract metadata
-        title = frontmatter.get('title', '')
-        description = frontmatter.get('description', '')
-        slug = frontmatter.get('slug', md_file.stem)
-        hero_image = frontmatter.get('image', '')
-        hero_alt = frontmatter.get('image_alt', '')
+        title = frontmatter.get('title') or ''
+        description = frontmatter.get('description') or ''
+        slug = frontmatter.get('slug') or md_file.stem
+        hero_image = frontmatter.get('image') or ''
+        hero_alt = frontmatter.get('image_alt') or ''
         
         # Generate canonical URL
         canonical = f"{self.site_url}/{content_type}s/{slug}/"

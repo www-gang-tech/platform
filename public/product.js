@@ -19,7 +19,18 @@
     
     // Get all variant data from hidden input
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            variants = JSON.parse(variantsData.textContent || '[]');
+            if (!Array.isArray(variants)) {
+                variants = [];
+            }
+        } catch (e) {
+            // Keep progressive enhancement working when variant JSON is malformed.
+            variants = [];
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
@@ -67,9 +78,37 @@
             });
         }
         
-        // Update form action to point to correct variant URL
+        // Update form action to point to correct variant URL (http/https only).
+        // Always clear/replace — truthy checks left stale checkout identity when
+        // switching to a variant with empty SKU, zero price, or missing URL.
+        let checkoutHref = '';
         if (variant.url) {
-            form.action = variant.url;
+            try {
+                const parsed = new URL(variant.url, window.location.origin);
+                if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                    checkoutHref = parsed.href;
+                }
+            } catch (e) {
+                checkoutHref = '';
+            }
+        }
+        if (checkoutHref) {
+            form.action = checkoutHref;
+            form.dataset.checkoutUrl = checkoutHref;
+        } else {
+            form.action = '#';
+            delete form.dataset.checkoutUrl;
+        }
+
+        // Keep cart data aligned with the selected Shopify variant.
+        form.dataset.variantId = variant.id == null ? '' : String(variant.id);
+        form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
+        form.dataset.price = variant.price == null || variant.price === ''
+            ? '0'
+            : String(variant.price);
+        form.dataset.currency = variant.currency ? String(variant.currency) : 'USD';
+        if (Object.prototype.hasOwnProperty.call(variant, 'image') && variant.image) {
+            form.dataset.image = String(variant.image);
         }
     }
     

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
+from core.frontmatter import dump_frontmatter, parse_frontmatter
 import os
 import re
 
@@ -90,7 +91,7 @@ class NewsletterManager:
         }
         
         # Write file
-        newsletter_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+        newsletter_content = dump_frontmatter(frontmatter, content)
         file_path.write_text(newsletter_content)
         
         return {
@@ -106,20 +107,13 @@ class NewsletterManager:
     ) -> Dict[str, Any]:
         """Send newsletter via configured provider"""
         
-        import yaml
-        
         content = file_path.read_text()
         
         # Parse frontmatter
         if not content.startswith('---'):
             return {'error': 'No frontmatter found'}
         
-        parts = content.split('---', 2)
-        if len(parts) < 3:
-            return {'error': 'Invalid frontmatter'}
-        
-        frontmatter = yaml.safe_load(parts[1]) or {}
-        body = parts[2]
+        frontmatter, body = parse_frontmatter(content)
         
         # Convert markdown to HTML
         html_body = self._markdown_to_email_html(body)
@@ -149,13 +143,18 @@ class NewsletterManager:
             frontmatter['recipients'] = result.get('recipients', 0)
             
             # Update file
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+            new_content = dump_frontmatter(frontmatter, body)
             file_path.write_text(new_content)
             
-            # Add to archive
+            # Add to archive (title may be absent when only subject is set)
+            archive_title = (
+                frontmatter.get('title')
+                or email_data.get('subject')
+                or file_path.stem
+            )
             self.archive['newsletters'].append({
                 'slug': file_path.stem,
-                'title': frontmatter['title'],
+                'title': archive_title,
                 'subject': email_data['subject'],
                 'sent_at': frontmatter['sent_at'],
                 'campaign_id': frontmatter['campaign_id'],
@@ -174,23 +173,18 @@ class NewsletterManager:
     ) -> Dict[str, Any]:
         """Schedule newsletter for future send"""
         
-        import yaml
-        
         content = file_path.read_text()
-        parts = content.split('---', 2)
-        
-        if len(parts) < 3:
+        if not content.startswith('---'):
             return {'error': 'Invalid frontmatter'}
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
-        body = parts[2]
+        frontmatter, body = parse_frontmatter(content)
         
         # Update status and schedule
         frontmatter['status'] = 'scheduled'
         frontmatter['scheduled_for'] = send_date.isoformat()
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return {
@@ -201,8 +195,6 @@ class NewsletterManager:
     
     def get_all_newsletters(self) -> Dict[str, Any]:
         """Get all newsletters organized by status"""
-        
-        import yaml
         
         newsletters = {
             'draft': [],
@@ -218,12 +210,13 @@ class NewsletterManager:
                 content = file_path.read_text()
                 
                 if content.startswith('---'):
-                    parts = content.split('---', 2)
-                    frontmatter = yaml.safe_load(parts[1]) or {}
+                    frontmatter, _body = parse_frontmatter(content)
                     
-                    status = frontmatter.get('status', 'draft')
+                    status = str(frontmatter.get('status', 'draft') or 'draft').strip().lower()
+                    # Unknown statuses (e.g. "published") used to KeyError and get dropped.
+                    bucket = status if status in newsletters else 'draft'
                     
-                    newsletters[status].append({
+                    newsletters[bucket].append({
                         'slug': file_path.stem,
                         'title': frontmatter.get('title', file_path.stem),
                         'subject': frontmatter.get('subject', ''),
@@ -233,7 +226,7 @@ class NewsletterManager:
                         'scheduled_for': frontmatter.get('scheduled_for'),
                         'recipients': frontmatter.get('recipients', 0)
                     })
-            except:
+            except Exception:
                 continue
         
         return newsletters
@@ -242,10 +235,15 @@ class NewsletterManager:
         """Convert markdown to email-safe HTML"""
         
         import markdown
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:  # pragma: no cover
+            from html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         html = md.convert(markdown_content)
+        html = sanitize_content_hrefs(sanitize_markdown_html(html))
         
         # Wrap in email template
         email_html = f'''
@@ -304,7 +302,11 @@ class NewsletterManager:
         slug = title.lower()
         slug = re.sub(r'[^\w\s-]', '', slug)
         slug = re.sub(r'[-\s]+', '-', slug)
-        return slug.strip('-')
+        slug = slug.strip('-')
+        # Punctuation-only titles used to yield "" → newsletters/.md
+        if not slug or not re.fullmatch(r'[a-z0-9][a-z0-9._-]*', slug):
+            slug = f"newsletter-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        return slug
 
 
 class EmailProvider:
@@ -347,7 +349,7 @@ class KlaviyoProvider(EmailProvider):
         try:
             import requests
             
-            # Create campaign
+            # Create campaign (campaign-messages key matches Klaviyo API / klaviyo_integration)
             campaign_data = {
                 'data': {
                     'type': 'campaign',
@@ -359,7 +361,7 @@ class KlaviyoProvider(EmailProvider):
                         'send_strategy': {
                             'method': 'immediate'
                         },
-                        'campaign_messages': {
+                        'campaign-messages': {
                             'data': [{
                                 'type': 'campaign-message',
                                 'attributes': {
@@ -394,6 +396,60 @@ class KlaviyoProvider(EmailProvider):
             if response.status_code == 201:
                 campaign = response.json()
                 campaign_id = campaign['data']['id']
+
+                # Resolve message ids via the campaign collection endpoint; create
+                # responses often only expose relationships, not nested attributes.
+                messages_response = requests.get(
+                    f"{self.base_url}/campaigns/{campaign_id}/campaign-messages/",
+                    headers=headers,
+                )
+                messages = []
+                if messages_response.status_code == 200:
+                    messages = messages_response.json().get('data') or []
+                if not messages:
+                    messages = (
+                        campaign.get('data', {})
+                        .get('relationships', {})
+                        .get('campaign-messages', {})
+                        .get('data', [])
+                    )
+                if messages:
+                    message_id = messages[0].get('id')
+                    if message_id:
+                        content_payload = {
+                            'data': {
+                                'type': 'campaign-message',
+                                'id': message_id,
+                                'attributes': {
+                                    'content': {
+                                        'subject': email_data['subject'],
+                                        'preview_text': email_data.get('preview_text', ''),
+                                        'from_email': email_data['from_email'],
+                                        'from_label': email_data['from_name'],
+                                        'html': email_data.get('html_body', ''),
+                                        'plain_text': email_data.get('text_body', ''),
+                                    }
+                                }
+                            }
+                        }
+                        content_response = requests.patch(
+                            f"{self.base_url}/campaign-messages/{message_id}/",
+                            headers=headers,
+                            json=content_payload,
+                        )
+                        if content_response.status_code not in (200, 202):
+                            return {
+                                'success': False,
+                                'error': (
+                                    f'Failed to attach campaign content: '
+                                    f'{content_response.status_code} {content_response.text}'
+                                )
+                            }
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Klaviyo campaign created without a campaign-message to attach HTML'
+                    }
                 
                 # Send campaign
                 send_response = requests.post(
