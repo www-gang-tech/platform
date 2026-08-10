@@ -12,9 +12,17 @@ def is_safe_href(value: Optional[str]) -> bool:
     if not value:
         return False
     value = str(value).strip()
-    if not value or value.startswith('//'):
+    if not value:
         return False
-    scheme_host = value.split('?', 1)[0].split('#', 1)[0]
+    # Browsers normalize backslash "protocol-relative" forms (/\evil, \\evil)
+    # into cross-origin navigations; reject those alongside //host.
+    if value.startswith(('//', '/\\', '\\')):
+        return False
+    # Collapse escapes before scheme checks so java\nscript: cannot sneak through.
+    normalized = value.replace('\\', '/')
+    if normalized.startswith('//'):
+        return False
+    scheme_host = normalized.split('?', 1)[0].split('#', 1)[0]
     if ':' in scheme_host:
         return scheme_host.lower().startswith(('http:', 'https:', 'mailto:'))
     return True
@@ -55,7 +63,10 @@ def sanitize_markdown_html(html: str) -> str:
             continue
         for attr in list(attrs):
             attr_l = str(attr).lower()
-            if attr_l.startswith('on') or attr_l in {'style', 'srcdoc', 'ping', 'background'}:
+            # dynsrc is a legacy IE URL sink; treat like other dangerous attrs.
+            if attr_l.startswith('on') or attr_l in {
+                'style', 'srcdoc', 'ping', 'background', 'dynsrc', 'lowsrc',
+            }:
                 del tag.attrs[attr]
 
     return ''.join(str(child) for child in root.contents)
@@ -92,7 +103,10 @@ def sanitize_content_hrefs(html: str) -> str:
 
     # Quoted attributes first so srcset values with spaces are preserved.
     # Include ping/background — legacy URL sinks not covered by href/src alone.
-    url_attrs = r'href|src|action|formaction|data|poster|srcset|ping|background|cite'
+    url_attrs = (
+        r'href|src|action|formaction|data|poster|srcset|ping|background|cite|'
+        r'dynsrc|lowsrc'
+    )
     html = re.sub(
         rf'\b({url_attrs})\s*=\s*(["\'])(.*?)\2',
         lambda m: rewrite(m.group(1), m.group(2), m.group(3)),
