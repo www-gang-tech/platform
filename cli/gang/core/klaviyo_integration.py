@@ -400,7 +400,33 @@ class KlaviyoShopifySync:
             flow_config['actions']
         )
     
-    def track_product_view(self, email: str, product_id: str, product_name: str, price: float):
+    def _store_origin(self) -> str:
+        """Normalize shopify_store to an https origin."""
+        store = str(self.shopify_store or '').strip().rstrip('/')
+        if not store:
+            return ''
+        if store.startswith(('http://', 'https://')):
+            return store
+        return f'https://{store}'
+
+    def _product_browse_url(self, product_id: str, product_handle: Optional[str] = None) -> str:
+        """Build a public product URL from handle (preferred) or numeric id."""
+        origin = self._store_origin()
+        if not origin:
+            return ''
+        slug = str(product_handle or product_id or '').strip().strip('/')
+        if not slug or '/' in slug or '\\' in slug or '..' in slug:
+            return ''
+        return f'{origin}/products/{slug}'
+
+    def track_product_view(
+        self,
+        email: str,
+        product_id: str,
+        product_name: str,
+        price: float,
+        product_handle: Optional[str] = None,
+    ):
         """Track product view for browse abandonment"""
         import requests
         
@@ -428,7 +454,9 @@ class KlaviyoShopifySync:
                         'product_id': product_id,
                         'product_name': product_name,
                         'price': price,
-                        'url': f"{self.shopify_store}/products/{product_id}"
+                        'url': self._product_browse_url(
+                            product_id, product_handle=product_handle
+                        ),
                     },
                     'time': datetime.now().isoformat()
                 }
@@ -458,7 +486,8 @@ class KlaviyoTemplateGenerator:
             from html_sanitize import safe_href, is_safe_href
         
         items_html = ""
-        total = 0
+        total = 0.0
+        currencies = set()
         
         for item in cart_items:
             try:
@@ -473,10 +502,13 @@ class KlaviyoTemplateGenerator:
                 quantity = 0
             item_total = price * quantity
             total += item_total
+            currency = str(item.get('currency') or 'USD').strip().upper() or 'USD'
+            currencies.add(currency)
             name = html_escape(str(item.get('name') or 'Product'))
             variant = html_escape(str(item.get('variant') or ''))
             image = item.get('image') or ''
             image_src = html_escape(image) if is_safe_href(image) else ''
+            line_label = html_escape(f'{currency} {item_total:.2f}')
             
             items_html += f"""
             <tr>
@@ -493,13 +525,20 @@ class KlaviyoTemplateGenerator:
                                 <span style="color: #595959;">Qty: {quantity}</span>
                             </td>
                             <td align="right" style="font-weight: 600;">
-                                ${item_total:.2f}
+                                {line_label}
                             </td>
                         </tr>
                     </table>
                 </td>
             </tr>
             """
+
+        if len(currencies) > 1:
+            total_label = 'Mixed currencies — see line items'
+        else:
+            currency_code = next(iter(currencies), 'USD')
+            total_label = f'{currency_code} {total:.2f}'
+        total_label = html_escape(total_label)
         
         safe_cart_url = html_escape(safe_href(cart_url, fallback='#'))
         html = f"""<!DOCTYPE html>
@@ -534,7 +573,7 @@ class KlaviyoTemplateGenerator:
                                 {items_html}
                                 <tr>
                                     <td colspan="3" style="padding: 20px 0; text-align: right; font-size: 18px; font-weight: 600;">
-                                        Total: ${total:.2f}
+                                        Total: {total_label}
                                     </td>
                                 </tr>
                             </table>

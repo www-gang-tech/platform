@@ -117,10 +117,10 @@ class ContentScheduler:
                     })
             
             except (ValueError, TypeError) as e:
-                # Invalid date format, include anyway
-                publishable.append({
+                # Invalid date must not publish scheduled/private-intent content.
+                draft.append({
                     'path': file_path,
-                    'status': status,
+                    'status': status or 'draft',
                     'publish_date': None,
                     'error': f'Invalid date format: {e}'
                 })

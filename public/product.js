@@ -31,6 +31,39 @@
             variants = [];
         }
     }
+
+    function merchantCheckoutHref(rawUrl) {
+        // Reject empty/fragment placeholders that resolve to this origin.
+        if (!rawUrl || rawUrl === '#' || rawUrl === '/') {
+            return '';
+        }
+        try {
+            // Absolute URLs only — relative/'#' would become this site.
+            const parsed = new URL(rawUrl);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return '';
+            }
+            return parsed.href;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function clearCheckoutIdentity() {
+        form.action = '#';
+        delete form.dataset.checkoutUrl;
+        form.dataset.variantId = '';
+        form.dataset.sku = '';
+        if (buyButton) {
+            buyButton.disabled = true;
+            buyButton.style.opacity = '0.5';
+            buyButton.style.cursor = 'not-allowed';
+        }
+        if (stockMessage) {
+            stockMessage.textContent = 'Select an available option';
+            stockMessage.style.color = '#dc3545';
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
@@ -43,7 +76,11 @@
             return colorMatch && sizeMatch;
         });
         
-        if (!variant) return;
+        // Impossible color×size combo must not keep the previous variant identity.
+        if (!variant) {
+            clearCheckoutIdentity();
+            return;
+        }
         
         // Update price
         if (priceDisplay) {
@@ -78,20 +115,10 @@
             });
         }
         
-        // Update form action to point to correct variant URL (http/https only).
+        // Update form action to point to correct variant URL (absolute http/https only).
         // Always clear/replace — truthy checks left stale checkout identity when
         // switching to a variant with empty SKU, zero price, or missing URL.
-        let checkoutHref = '';
-        if (variant.url) {
-            try {
-                const parsed = new URL(variant.url, window.location.origin);
-                if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-                    checkoutHref = parsed.href;
-                }
-            } catch (e) {
-                checkoutHref = '';
-            }
-        }
+        const checkoutHref = merchantCheckoutHref(variant.url);
         if (checkoutHref) {
             form.action = checkoutHref;
             form.dataset.checkoutUrl = checkoutHref;
@@ -133,4 +160,3 @@
         });
     }
 })();
-

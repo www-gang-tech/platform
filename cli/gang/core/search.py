@@ -137,7 +137,19 @@ class SearchIndexer:
     
     def generate_search_page_html(self) -> str:
         """Generate a standalone search page HTML"""
-        site_url = str(self.config.get('site', {}).get('url', '')).rstrip('/')
+        from html import escape as html_escape
+        import json as _json
+        raw_site_url = str(self.config.get('site', {}).get('url', '')).rstrip('/')
+        # Refuse values that break out of attributes or script contexts.
+        if any(ch in raw_site_url for ch in ('<', '>', '"', "'")):
+            raw_site_url = ''
+        site_url_attr = html_escape(raw_site_url, quote=True)
+        jsonld = _json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'SearchResultsPage',
+            'name': 'Search',
+            'url': f'{raw_site_url}/search/' if raw_site_url else '/search/',
+        }, separators=(',', ':'))
         html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -148,9 +160,7 @@ class SearchIndexer:
     <meta name="description" content="Search content across this site">
     <link rel="canonical" href="__SITE_URL__/search/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"SearchResultsPage","name":"Search","url":"__SITE_URL__/search/"}
-    </script>
+    <script type="application/ld+json">__SEARCH_JSONLD__</script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -399,5 +409,9 @@ class SearchIndexer:
     </script>
 </body>
 </html>'''
-        return html.replace('__SITE_URL__', site_url)
+        return (
+            html
+            .replace('__SITE_URL__', site_url_attr)
+            .replace('__SEARCH_JSONLD__', jsonld)
+        )
 

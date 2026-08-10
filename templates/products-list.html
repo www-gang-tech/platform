@@ -23,14 +23,14 @@
     
     <!-- JSON-LD Collection Page -->
     <script type="application/ld+json">
-    {
+    {{ {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": "Products",
         "description": "Product catalog",
-        "url": "{{ canonical_url }}",
-        "numberOfItems": {{ products | length }}
-    }
+        "url": canonical_url,
+        "numberOfItems": products|length
+    } | tojson }}
     </script>
     
     <link rel="stylesheet" href="/assets/style.css">

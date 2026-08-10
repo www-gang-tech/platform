@@ -42,17 +42,30 @@ class NewsletterManager:
             return KlaviyoProvider()  # Default
     
     def _load_archive(self) -> Dict[str, Any]:
-        """Load newsletter archive"""
-        if self.archive_file.exists():
-            try:
-                return json.loads(self.archive_file.read_text())
-            except:
-                pass
-        
-        return {
+        """Load newsletter archive; coerce corrupted on-disk shapes."""
+        empty = {
             'newsletters': [],
             'total_sent': 0
         }
+        if self.archive_file.exists():
+            try:
+                data = json.loads(self.archive_file.read_text())
+            except Exception:
+                return empty
+            if not isinstance(data, dict):
+                return empty
+            newsletters = data.get('newsletters')
+            if not isinstance(newsletters, list):
+                newsletters = []
+            try:
+                total_sent = int(data.get('total_sent') or 0)
+            except (TypeError, ValueError):
+                total_sent = 0
+            return {
+                'newsletters': [n for n in newsletters if isinstance(n, dict)],
+                'total_sent': total_sent,
+            }
+        return empty
     
     def _save_archive(self):
         """Save newsletter archive"""
@@ -152,6 +165,8 @@ class NewsletterManager:
                 or email_data.get('subject')
                 or file_path.stem
             )
+            if not isinstance(self.archive.get('newsletters'), list):
+                self.archive['newsletters'] = []
             self.archive['newsletters'].append({
                 'slug': file_path.stem,
                 'title': archive_title,
@@ -161,7 +176,10 @@ class NewsletterManager:
                 'recipients': frontmatter['recipients'],
                 'provider': self.provider.name
             })
-            self.archive['total_sent'] += 1
+            try:
+                self.archive['total_sent'] = int(self.archive.get('total_sent') or 0) + 1
+            except (TypeError, ValueError):
+                self.archive['total_sent'] = 1
             self._save_archive()
         
         return result

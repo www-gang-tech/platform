@@ -13,13 +13,13 @@
     <meta name="gang-checkout-origins" content="{{ checkout_origins|join(' ') }}">
     {% endif %}
     <script type="application/ld+json">
-    {
+    {{ {
         "@context": "https://schema.org",
         "@type": "WebPage",
         "name": "Shopping Cart",
         "description": "Your shopping cart",
-        "url": "{{ canonical_url }}"
-    }
+        "url": canonical_url
+    } | tojson }}
     </script>
     
     <link rel="stylesheet" href="/assets/style.css">
