@@ -38,19 +38,41 @@ class ProductSchema:
         return fallback_text or 'product'
     
     @staticmethod
+    def _normalize_store_host(store: Optional[str]) -> str:
+        """Strip scheme/slashes so host compares and URLs stay well-formed."""
+        return (
+            str(store or '')
+            .replace('https://', '')
+            .replace('http://', '')
+            .strip()
+            .strip('/')
+        )
+
+    @staticmethod
+    def _shopify_currency() -> str:
+        """Shop-level currency (Admin variants omit currency; allow env override)."""
+        raw = (
+            os.environ.get('SHOPIFY_CURRENCY')
+            or os.environ.get('SHOPIFY_SHOP_CURRENCY')
+            or 'USD'
+        )
+        currency = str(raw).strip().upper() or 'USD'
+        if not re.fullmatch(r'[A-Z]{3}', currency):
+            return 'USD'
+        return currency
+
+    @staticmethod
     def _shopify_product_url(product: Dict[str, Any]) -> str:
         """Resolve a public Shopify product URL from payload or store env."""
         existing = product.get('url')
         if existing:
-            return str(existing)
+            return str(existing).rstrip('/') if str(existing).endswith('/') else str(existing)
         handle = product.get('handle')
         if not handle:
             return ''
-        store = (
-            os.environ.get('SHOPIFY_STORE_URL')
-            or os.environ.get('SHOPIFY_STORE')
-            or ''
-        ).replace('https://', '').replace('http://', '').strip().strip('/')
+        store = ProductSchema._normalize_store_host(
+            os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE')
+        )
         if not store:
             return ''
         return f"https://{store}/products/{handle}"
@@ -64,6 +86,7 @@ class ProductSchema:
         variants = [v for v in raw_variants if isinstance(v, dict)]
         first_variant = variants[0] if variants else {}
         product_url = ProductSchema._shopify_product_url(product)
+        currency = ProductSchema._shopify_currency()
         
         # Get images — tolerate null lists and non-dict entries from Admin API.
         raw_images = product.get('images') or []
@@ -111,15 +134,22 @@ class ProductSchema:
             offer_url = ''
             if product_url and variant_id_str and variant_id_str.lower() != 'none':
                 offer_url = f"{product_url}?variant={variant_id_str}"
+            # Prefer Shopify option1/option2 over title splitting ("Red/Blue" is one color).
+            option1 = str(variant.get('option1') or '').strip()
+            option2 = str(variant.get('option2') or '').strip()
+            option3 = str(variant.get('option3') or '').strip()
             offers.append({
                 '@type': 'Offer',
                 'id': variant_id,
                 'price': price,
-                'priceCurrency': 'USD',
+                'priceCurrency': currency,
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
                 'url': offer_url,
                 'sku': variant.get('sku') or '',
                 'name': variant.get('title') or '',
+                'option1': option1,
+                'option2': option2,
+                'option3': option3,
                 'inventory_quantity': inventory_qty  # Include for debugging
             })
 
@@ -145,7 +175,7 @@ class ProductSchema:
             'offers': offers if len(offers) > 1 else offers[0] if offers else {
                 '@type': 'Offer',
                 'price': first_price,
-                'priceCurrency': 'USD',
+                'priceCurrency': currency,
                 'availability': 'https://schema.org/InStock'
             },
             'sku': first_variant.get('sku', ''),
@@ -251,7 +281,7 @@ class ShopifyClient:
     """Shopify Storefront API client"""
     
     def __init__(self, store_url: str, access_token: str):
-        self.store_url = store_url.replace('https://', '').replace('http://', '')
+        self.store_url = ProductSchema._normalize_store_host(store_url)
         self.access_token = access_token
         self.api_version = '2024-01'
     
@@ -276,8 +306,13 @@ class ShopifyClient:
             while url:
                 response = requests.get(url, headers=headers, params=params, timeout=30)
                 response.raise_for_status()
-                batch = response.json().get('products', []) or []
-                products.extend(batch)
+                payload = response.json() if response.content else {}
+                batch = payload.get('products', []) if isinstance(payload, dict) else []
+                if not isinstance(batch, list):
+                    batch = []
+                for item in batch:
+                    if isinstance(item, dict):
+                        products.append(item)
 
                 next_url = None
                 link = response.headers.get('Link') or response.headers.get('link') or ''
@@ -447,11 +482,19 @@ class GumroadClient:
             url = 'https://api.gumroad.com/v2/products'
             headers = {'Authorization': f'Bearer {self.access_token}'}
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             
-            data = response.json()
-            return data.get('products', [])
+            data = response.json() if response.content else {}
+            if not isinstance(data, dict):
+                return []
+            # Key present with null must not be treated as hard failure (None).
+            products = data.get('products', [])
+            if products is None:
+                return []
+            if not isinstance(products, list):
+                return []
+            return [p for p in products if isinstance(p, dict)]
         
         except Exception as e:
             print(f"Error fetching from Gumroad: {e}")
@@ -572,13 +615,16 @@ class ProductAggregator:
         
         return normalized
     
-    def _save_cache(self, products: Dict[str, Any]):
-        """Save products to cache file"""
-        store = (
+    def _current_store_host(self) -> str:
+        return ProductSchema._normalize_store_host(
             os.environ.get('SHOPIFY_STORE_URL')
             or os.environ.get('SHOPIFY_STORE')
-            or ''
-        ).replace('https://', '').replace('http://', '').strip().strip('/')
+            or (self.config.get('shopify') or {}).get('store_url')
+        )
+
+    def _save_cache(self, products: Dict[str, Any]):
+        """Save products to cache file"""
+        store = self._current_store_host()
         cache_data = {
             'cached_at': datetime.now().isoformat(),
             'store_url': store or None,
@@ -591,7 +637,7 @@ class ProductAggregator:
         if self.products_cache_file.exists():
             try:
                 return json.loads(self.products_cache_file.read_text())
-            except:
+            except Exception:
                 return None
         return None
     
@@ -604,15 +650,20 @@ class ProductAggregator:
             return None
         if not any(products.get(source) for source in ('shopify', 'stripe', 'gumroad')):
             return None
-        store = (
-            cache.get('store_url')
-            or (self.config.get('shopify') or {}).get('store_url')
-            or os.environ.get('SHOPIFY_STORE_URL')
-            or os.environ.get('SHOPIFY_STORE')
-            or ''
-        ).replace('https://', '').replace('http://', '').strip().strip('/')
+        current_store = self._current_store_host()
+        cached_store = ProductSchema._normalize_store_host(cache.get('store_url'))
+        # Do not restore a foreign-store Shopify catalog after SHOPIFY_STORE_URL changes.
+        shopify_products_raw = products.get('shopify', []) or []
+        if (
+            shopify_products_raw
+            and current_store
+            and cached_store
+            and current_store.lower() != cached_store.lower()
+        ):
+            shopify_products_raw = []
+        store = current_store or cached_store
         shopify_products = []
-        for product in products.get('shopify', []) or []:
+        for product in shopify_products_raw:
             if not isinstance(product, dict):
                 continue
             enriched = dict(product)
@@ -620,9 +671,18 @@ class ProductAggregator:
             if handle and not enriched.get('url') and store:
                 enriched['url'] = f"https://{store}/products/{handle}"
             shopify_products.append(enriched)
-        return {
+        stripe = products.get('stripe', [])
+        gumroad = products.get('gumroad', [])
+        if not isinstance(stripe, list):
+            stripe = []
+        if not isinstance(gumroad, list):
+            gumroad = []
+        restored = {
             'shopify': shopify_products,
-            'stripe': products.get('stripe', []),
-            'gumroad': products.get('gumroad', []),
+            'stripe': [p for p in stripe if isinstance(p, dict)],
+            'gumroad': [p for p in gumroad if isinstance(p, dict)],
         }
+        if not any(restored.values()):
+            return None
+        return restored
 
