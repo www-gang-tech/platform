@@ -44,7 +44,14 @@ def cli(ctx):
         ctx.abort()
     
     with open(config_path) as f:
-        ctx.obj = yaml.safe_load(f)
+        loaded = yaml.safe_load(f)
+    if not isinstance(loaded, dict):
+        click.echo("Error: gang.config.yml must contain a mapping", err=True)
+        ctx.abort()
+    if not isinstance(loaded.get('build'), dict) or not isinstance(loaded.get('site'), dict):
+        click.echo("Error: gang.config.yml requires site and build sections", err=True)
+        ctx.abort()
+    ctx.obj = loaded
 
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
@@ -2770,7 +2777,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 variants_list = []
                 
                 if type(offers).__name__ == 'list':
-                    # Multiple variants - extract unique colors and sizes
+                    # Multiple variants — prefer Shopify option1/option2 over
+                    # splitting titles on "/" (which breaks "Red/Blue" colors).
                     colors = set()
                     sizes = set()
                     color_to_image = {}  # Map colors to images
@@ -2780,18 +2788,27 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     for offer in offers:
                         if not isinstance(offer, dict):
                             continue
-                        variant_name = offer.get('name', '')
-                        if '/' in variant_name:
-                            parts = variant_name.split('/')
+                        option1 = str(offer.get('option1') or '').strip()
+                        option2 = str(offer.get('option2') or '').strip()
+                        variant_name = str(offer.get('name') or '')
+                        if option1 or option2:
+                            color = option1
+                            size = option2
+                        elif ' / ' in variant_name:
+                            parts = variant_name.split(' / ', 1)
                             color = parts[0].strip()
                             size = parts[1].strip() if len(parts) > 1 else ''
-                            
-                            if color not in colors:
-                                color_order.append(color)
-                                colors.add(color)
-                            
-                            if size:
-                                sizes.add(size)
+                        else:
+                            # Single-option variants (Size only, Color only, Title).
+                            color = ''
+                            size = variant_name.strip()
+                        
+                        if color and color not in colors:
+                            color_order.append(color)
+                            colors.add(color)
+                        
+                        if size:
+                            sizes.add(size)
                     
                     # Map each color to an image (assume images are in same order as colors appear)
                     for idx, color in enumerate(color_order):
@@ -2802,14 +2819,24 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     for offer in offers:
                         if not isinstance(offer, dict):
                             continue
-                        variant_name = offer.get('name', '')
-                        color_part = ''
-                        size_part = ''
-                        
-                        if '/' in variant_name:
-                            parts = variant_name.split('/')
+                        option1 = str(offer.get('option1') or '').strip()
+                        option2 = str(offer.get('option2') or '').strip()
+                        variant_name = str(offer.get('name') or '')
+                        if option1 or option2:
+                            color_part = option1
+                            size_part = option2
+                        elif ' / ' in variant_name:
+                            parts = variant_name.split(' / ', 1)
                             color_part = parts[0].strip()
                             size_part = parts[1].strip() if len(parts) > 1 else ''
+                        else:
+                            color_part = ''
+                            size_part = variant_name.strip()
+
+                        offer_url = str(offer.get('url') or '').strip()
+                        # Never use '#' — product.js would resolve it to this origin.
+                        if offer_url in {'', '#', '/'}:
+                            offer_url = ''
                         
                         variants_list.append({
                             'id': offer.get('id'),
@@ -2819,7 +2846,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             'price': offer.get('price', '0'),
                             'currency': offer.get('priceCurrency', 'USD'),
                             'availability': offer.get('availability', 'InStock'),
-                            'url': offer.get('url', '#'),
+                            'url': offer_url,
                             'sku': offer.get('sku', ''),
                             'image_index': color_to_image.get(color_part, 0) if color_part else 0
                         })
@@ -2861,6 +2888,61 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     product_description_html = html_escape(str(raw_description)).replace('\n', '<br>\n')
                     product_description_text = str(raw_description)
 
+                # Public JSON-LD: drop internal `_meta` and non-schema offer fields.
+                public_offers = product.get('offers')
+                if isinstance(public_offers, list):
+                    cleaned_offers = []
+                    for offer in public_offers:
+                        if not isinstance(offer, dict):
+                            continue
+                        cleaned = {
+                            k: v for k, v in offer.items()
+                            if k not in {
+                                '_meta', 'inventory_quantity', 'option1',
+                                'option2', 'option3',
+                            }
+                        }
+                        if not cleaned.get('url'):
+                            cleaned['url'] = f"{config['site']['url']}/products/{slug}/"
+                        cleaned_offers.append(cleaned)
+                    public_offers = cleaned_offers if len(cleaned_offers) != 1 else (
+                        cleaned_offers[0] if cleaned_offers else {}
+                    )
+                elif isinstance(public_offers, dict):
+                    public_offers = {
+                        k: v for k, v in public_offers.items()
+                        if k not in {
+                            '_meta', 'inventory_quantity', 'option1',
+                            'option2', 'option3',
+                        }
+                    }
+                    if not public_offers.get('url'):
+                        public_offers['url'] = f"{config['site']['url']}/products/{slug}/"
+                else:
+                    public_offers = {
+                        '@type': 'Offer',
+                        'price': first_offer.get('price', '0'),
+                        'priceCurrency': first_offer.get('priceCurrency', 'USD'),
+                        'availability': first_offer.get('availability', 'https://schema.org/InStock'),
+                        'url': f"{config['site']['url']}/products/{slug}/",
+                    }
+                public_jsonld = {
+                    '@context': 'https://schema.org',
+                    '@type': 'Product',
+                    'name': product.get('name', ''),
+                    'description': product_description_text,
+                    'image': images,
+                    'offers': public_offers,
+                    'sku': product.get('sku', ''),
+                    'brand': product.get('brand') or {'@type': 'Brand', 'name': brand_name},
+                    'category': product.get('category', ''),
+                    'url': f"{config['site']['url']}/products/{slug}/",
+                }
+
+                buy_url = str(first_offer.get('url') or '').strip()
+                if buy_url in {'', '#', '/'}:
+                    buy_url = ''
+
                 pdp_context = {
                     'lang': config['site'].get('language', 'en'),
                     'site_title': config['site']['title'],
@@ -2873,7 +2955,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'currency': first_offer.get('priceCurrency', 'USD'),
                     'recurring': None,
                     'content': product_description_html,
-                    'buy_url': first_offer.get('url', '#'),
+                    'buy_url': buy_url or '#',
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
@@ -2887,7 +2969,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'page_type': 'product',
                     'slug': slug,
                     'availability': first_offer.get('availability', 'InStock'),
-                    'jsonld': product,
+                    'jsonld': public_jsonld,
                     'year': datetime.now().year,
                     'navigation': config.get('nav', {}).get('main', []),
                     'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -4912,6 +4994,33 @@ def studio(ctx, port, host):
             handler.end_headers()
             handler.wfile.write(json.dumps({'error': 'Unauthorized'}).encode())
             return False
+
+        def coerce_bool(value, default=False):
+            """Coerce JSON booleans; treat string 'false'/'0'/'no' as False."""
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {'', 'false', '0', 'no', 'off', 'null', 'none'}:
+                    return False
+                if normalized in {'true', '1', 'yes', 'on'}:
+                    return True
+                return default
+            return bool(value)
+
+        def read_json_body(handler):
+            """Read JSON body without KeyError when Content-Length is absent."""
+            content_length = int(handler.headers.get('Content-Length', '0') or '0')
+            if content_length < 0:
+                content_length = 0
+            body = handler.rfile.read(content_length) if content_length else b''
+            if not body:
+                return {}
+            return json.loads(body.decode())
         
         class StudioHandler(SimpleHTTPRequestHandler):
             def log_message(self, format, *args):
@@ -5034,7 +5143,9 @@ def studio(ctx, port, host):
                         self.send_error(500)
                 
                 elif self.path == '/api/redirects':
-                    # List redirects (GET); studio.html uses GET for Flask parity.
+                    # List redirects (GET); require auth — redirect map is sensitive.
+                    if not require_studio_mutation_auth(self):
+                        return
                     try:
                         sys.path.insert(0, str(Path(__file__).parent))
                         from core.redirects import RedirectManager
@@ -5100,10 +5211,7 @@ def studio(ctx, port, host):
                     if not require_studio_mutation_auth(self):
                         return
                     try:
-                        # Read request body
-                        content_length = int(self.headers['Content-Length'])
-                        body = self.rfile.read(content_length)
-                        data = json.loads(body.decode())
+                        data = read_json_body(self)
                         
                         content = data.get('content', '')
                         category = (data.get('category') or data.get('content_category') or '').strip()
@@ -5149,15 +5257,12 @@ def studio(ctx, port, host):
                     if not require_studio_mutation_auth(self):
                         return
                     try:
-                        # Read request body
-                        content_length = int(self.headers['Content-Length'])
-                        body = self.rfile.read(content_length)
-                        data = json.loads(body.decode())
+                        data = read_json_body(self)
                         
                         old_slug = data.get('old_slug')
                         new_slug = data.get('new_slug')
                         category = data.get('category')
-                        create_redirect = data.get('create_redirect', True)
+                        create_redirect = coerce_bool(data.get('create_redirect', True), default=True)
                         
                         click.echo(f"🔄 Rename request: {old_slug} → {new_slug} (redirect: {create_redirect})")
                         
@@ -5193,17 +5298,8 @@ def studio(ctx, port, host):
                             }).encode())
                             return
                         
-                        # Rename file
-                        old_file.rename(new_file)
-                        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
-
-                        try:
-                            from core.frontmatter import update_slug_in_file
-                            update_slug_in_file(new_file, new_slug)
-                        except Exception as slug_exc:
-                            click.echo(f"⚠️  Could not update frontmatter slug: {slug_exc}")
-                        
-                        # Create redirect if requested
+                        # Persist redirect before rename so failures cannot leave
+                        # a renamed slug without its 301.
                         redirect_info = None
                         if create_redirect:
                             # Articles publish under /posts/; keep redirects on public URLs.
@@ -5215,6 +5311,16 @@ def studio(ctx, port, host):
                             result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
+
+                        # Rename file
+                        old_file.rename(new_file)
+                        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
+
+                        try:
+                            from core.frontmatter import update_slug_in_file
+                            update_slug_in_file(new_file, new_slug)
+                        except Exception as slug_exc:
+                            click.echo(f"⚠️  Could not update frontmatter slug: {slug_exc}")
                         
                         # Return success response
                         self.send_response(200)
@@ -5570,6 +5676,7 @@ def serve(ctx, port, host):
         
         # Track clients for live reload
         reload_clients = []
+        reload_clients_lock = threading.Lock()
         rebuild_lock = threading.Lock()
         rebuild_timer = {'handle': None, 'running': False, 'dirty': False}
         
@@ -5607,10 +5714,12 @@ def serve(ctx, port, host):
                     try:
                         while True:
                             click.echo(f"\n📝 Change detected: {changed_name}")
-                            rebuild_site(ctx)
+                            ok = rebuild_site(ctx)
                             # Small delay to ensure files are fully written
                             time.sleep(0.1)
-                            notify_reload()
+                            # Never reload browsers onto a failed/partial dist.
+                            if ok:
+                                notify_reload()
                             with rebuild_lock:
                                 if not rebuild_timer['dirty']:
                                     rebuild_timer['running'] = False
@@ -5682,25 +5791,36 @@ def serve(ctx, port, host):
                     optimize_images=False,
                     profile=False,
                 )
+                return True
             except SystemExit as e:
                 # Click commands may raise SystemExit on failure; keep the watcher alive.
                 if e.code not in (0, None):
                     click.echo(f"❌ Build failed with exit code {e.code}", err=True)
+                    return False
+                return True
             except Exception as e:
                 click.echo(f"❌ Build error: {e}", err=True)
                 import traceback
                 traceback.print_exc()
+                return False
 
         def notify_reload():
             """Notify all connected clients to reload"""
-            click.echo(f"📡 Notifying {len(reload_clients)} connected clients")
-            for client in reload_clients[:]:
+            with reload_clients_lock:
+                clients = list(reload_clients)
+            click.echo(f"📡 Notifying {len(clients)} connected clients")
+            stale = []
+            for client in clients:
                 try:
                     client.wfile.write(b"data: reload\n\n")
                     client.wfile.flush()
-                except Exception as e:
-                    if client in reload_clients:
-                        reload_clients.remove(client)
+                except Exception:
+                    stale.append(client)
+            if stale:
+                with reload_clients_lock:
+                    for client in stale:
+                        if client in reload_clients:
+                            reload_clients.remove(client)
         
         class LiveReloadHandler(SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
@@ -5722,18 +5842,20 @@ def serve(ctx, port, host):
                         self.send_header('Access-Control-Allow-Origin', '*')
                         self.end_headers()
                         
-                        reload_clients.append(self)
+                        with reload_clients_lock:
+                            reload_clients.append(self)
                         
                         # Keep connection alive - just wait, no pings needed
                         try:
                             # Block until client disconnects or we send reload
                             while True:
                                 time.sleep(60)
-                        except:
+                        except Exception:
                             pass
                         finally:
-                            if self in reload_clients:
-                                reload_clients.remove(self)
+                            with reload_clients_lock:
+                                if self in reload_clients:
+                                    reload_clients.remove(self)
                         return
 
                     # Inject live-reload into HTML responses so the full build

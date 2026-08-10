@@ -95,13 +95,34 @@ def request_is_authenticated():
     return _is_loopback_request() and _is_loopback_origin()
 
 
+def coerce_bool(value, default=False):
+    """Coerce JSON/form booleans; treat string 'false'/'0'/'no' as False."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {'', 'false', '0', 'no', 'off', 'null', 'none'}:
+            return False
+        if normalized in {'true', '1', 'yes', 'on'}:
+            return True
+        return default
+    return bool(value)
+
+
 @app.before_request
 def protect_studio_api():
-    """Require auth for mutations and content reads outside trusted local use."""
+    """Require auth for mutations and sensitive reads outside trusted local use."""
     path = request.path or ''
     is_mutation = request.method in {'POST', 'PUT', 'DELETE'}
     is_content_read = request.method == 'GET' and path.startswith('/api/content')
-    if not (is_mutation or is_content_read):
+    is_redirect_read = request.method == 'GET' and (
+        path == '/api/redirects' or path.startswith('/api/redirects/')
+    )
+    if not (is_mutation or is_content_read or is_redirect_read):
         return None
     if request_is_authenticated():
         return None
@@ -382,7 +403,7 @@ def rename_slug():
     old_slug = data.get('old_slug')
     new_slug = data.get('new_slug')
     category = data.get('category')
-    create_redirect = data.get('create_redirect', True)
+    create_redirect = coerce_bool(data.get('create_redirect', True), default=True)
 
     try:
         old_file = _resolve_slug_file(category, old_slug)
@@ -400,13 +421,8 @@ def rename_slug():
         sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
         from core.redirects import RedirectManager
 
-        old_file.rename(new_file)
-        try:
-            from core.frontmatter import update_slug_in_file
-            update_slug_in_file(new_file, new_slug)
-        except Exception as slug_exc:
-            # Keep rename durable, but surface FM sync failures for operators.
-            print(f'Warning: could not update frontmatter slug: {slug_exc}')
+        # Persist redirect intent before rename so a mid-flight failure cannot
+        # leave a renamed slug without its 301 (non-atomic FS + JSON store).
         redirect_info = None
         if create_redirect:
             output_category = 'posts' if category == 'articles' else category
@@ -414,6 +430,14 @@ def rename_slug():
             new_url = f'/{output_category}/{new_slug}/'
             manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
             redirect_info = manager.add_redirect(old_url, new_url, reason='slug_rename_cms').get('redirect')
+
+        old_file.rename(new_file)
+        try:
+            from core.frontmatter import update_slug_in_file
+            update_slug_in_file(new_file, new_slug)
+        except Exception as slug_exc:
+            # Keep rename durable, but surface FM sync failures for operators.
+            print(f'Warning: could not update frontmatter slug: {slug_exc}')
 
         # Editor clients expect extensionless paths (resolve_content_file rejects ".md").
         old_editor_path = f'{category}/{old_slug}'
