@@ -9,6 +9,7 @@ from datetime import datetime
 import json
 import os
 import hashlib
+from core.frontmatter import dump_frontmatter, parse_frontmatter
 
 
 class ContentSyndicator:
@@ -51,23 +52,18 @@ class ContentSyndicator:
         Returns results for each platform.
         """
         
-        import yaml
-        
         content = file_path.read_text()
         
         # Parse frontmatter
         if not content.startswith('---'):
             return {'error': 'No frontmatter found'}
         
-        parts = content.split('---', 2)
-        if len(parts) < 3:
-            return {'error': 'Invalid frontmatter'}
-        
-        frontmatter = yaml.safe_load(parts[1]) or {}
-        body = parts[2]
+        frontmatter, body = parse_frontmatter(content)
         
         # Check if already syndicated
         syndicated = frontmatter.get('syndicated', {})
+        if not isinstance(syndicated, dict):
+            syndicated = {}
         
         # Determine platforms
         if not platforms:
@@ -309,27 +305,24 @@ class ContentSyndicator:
     ) -> bool:
         """Update file frontmatter with syndication URLs"""
         
-        import yaml
-        
         content = file_path.read_text()
-        parts = content.split('---', 2)
-        
-        if len(parts) < 3:
+        if not content.startswith('---'):
             return False
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
-        body = parts[2]
+        frontmatter, body = parse_frontmatter(content)
         
         # Add syndication URLs
-        if 'syndicated' not in frontmatter:
-            frontmatter['syndicated'] = {}
+        syndicated = frontmatter.get('syndicated')
+        if not isinstance(syndicated, dict):
+            syndicated = {}
+            frontmatter['syndicated'] = syndicated
         
         for platform, result in results.items():
             if result.get('status') == 'success' and result.get('url'):
-                frontmatter['syndicated'][platform] = result['url']
+                syndicated[platform] = result['url']
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return True

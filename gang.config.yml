@@ -156,12 +156,12 @@ syndication:
 shopify:
   enabled: false
   webhook_secret: "${SHOPIFY_WEBHOOK_SECRET}"
-  sync_path: "./content/shop"
+  sync_path: "./content/products"
   
 # Hosting
 hosting:
   provider: "cloudflare"
-  pages_project: "gang-platform"
+  pages_project: "platform"
   r2_bucket: "gang-media"
   
 # Security headers

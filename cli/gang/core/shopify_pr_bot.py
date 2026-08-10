@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 import json
 import yaml
 import subprocess
+from core.frontmatter import dump_frontmatter
 from datetime import datetime
 import os
 
@@ -67,28 +68,42 @@ class ShopifyPRBot:
         return frontmatter
     
     def _extract_field(self, data: Dict, field_path: str) -> Any:
-        """Extract nested field using dot notation"""
+        """Extract nested field using dot notation / array indexes / wildcards."""
         
         parts = field_path.split('.')
         value = data
         
-        for part in parts:
+        for i, part in enumerate(parts):
             if '[' in part:
                 # Array access: variants[0] or images[*]
                 key = part.split('[')[0]
                 index = part.split('[')[1].rstrip(']')
                 
-                if key in value:
-                    if index == '*':
-                        # Get all items
-                        return value[key]
-                    elif index.isdigit():
-                        # Get specific index
-                        idx = int(index)
-                        if idx < len(value[key]):
-                            value = value[key][idx]
-                        else:
-                            return None
+                if not isinstance(value, dict) or key not in value:
+                    return None
+                collection = value.get(key)
+                if collection is None:
+                    return None
+                if not isinstance(collection, list):
+                    return None
+                if index == '*':
+                    remaining = parts[i + 1:]
+                    if not remaining:
+                        return collection
+                    extracted = []
+                    for item in collection:
+                        nested = self._extract_field(
+                            item if isinstance(item, dict) else {},
+                            '.'.join(remaining),
+                        )
+                        if nested is not None:
+                            extracted.append(nested)
+                    return extracted
+                if index.isdigit():
+                    idx = int(index)
+                    if idx < 0 or idx >= len(collection):
+                        return None
+                    value = collection[idx]
                 else:
                     return None
             else:
@@ -130,26 +145,27 @@ class ShopifyPRBot:
     
     def generate_markdown_file(self, product_data: Dict[str, Any]) -> Path:
         """Generate markdown file for product"""
+        import re
         
         frontmatter = self.convert_to_frontmatter(product_data)
         
-        # Get slug
-        slug = frontmatter.get('slug', 'unknown')
+        # Get slug — reject path separators / traversal before writing.
+        slug = str(frontmatter.get('slug', 'unknown') or 'unknown').strip()
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug):
+            raise ValueError(f'Unsafe Shopify product slug/handle: {slug!r}')
+        frontmatter['slug'] = slug
         
         # Create file path
-        products_dir = self.content_path / 'products'
+        products_dir = (self.content_path / 'products').resolve()
         products_dir.mkdir(exist_ok=True)
         
-        file_path = products_dir / f"{slug}.md"
+        file_path = (products_dir / f"{slug}.md").resolve()
+        try:
+            file_path.relative_to(products_dir)
+        except ValueError as exc:
+            raise ValueError(f'Slug escaped products directory: {slug!r}') from exc
         
-        # Generate markdown content
-        content_lines = ['---']
-        content_lines.append(yaml.dump(frontmatter, default_flow_style=False))
-        content_lines.append('---')
-        content_lines.append('')
-        content_lines.append(frontmatter.get('description', ''))
-        
-        content = '\n'.join(content_lines)
+        content = dump_frontmatter(frontmatter, frontmatter.get('description', ''))
         
         file_path.write_text(content)
         

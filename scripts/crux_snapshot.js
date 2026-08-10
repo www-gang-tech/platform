@@ -12,13 +12,35 @@ const path = require('path');
 const SITE_URL = process.env.SITE_URL || 'https://example.com';
 const PSI_API_KEY = process.env.PSI_API_KEY || '';
 
-// URLs to test
-const TEST_URLS = [
-  '/',
-  '/posts/qi2-launch/',
-  '/projects/platform/',
-  '/products/example-shirt/'
-];
+function loadTestUrls() {
+  // Prefer live sitemap routes when available so nightly stays aligned with
+  // what the site actually publishes.
+  const sitemapPath = path.join(__dirname, '..', 'dist', 'sitemap.xml');
+  if (fs.existsSync(sitemapPath)) {
+    const xml = fs.readFileSync(sitemapPath, 'utf8');
+    const locs = [...xml.matchAll(/<loc>(.*?)<\/loc>/g)].map((m) => m[1]);
+    const paths = [];
+    for (const loc of locs) {
+      try {
+        const u = new URL(loc);
+        paths.push(u.pathname.endsWith('/') ? u.pathname : `${u.pathname}/`);
+      } catch {
+        // ignore malformed locs
+      }
+    }
+    const unique = [...new Set(paths)];
+    if (unique.length) {
+      return unique.slice(0, 10);
+    }
+  }
+  return [
+    '/',
+    '/posts/qi2-launch/',
+    '/products/example-shirt/'
+  ];
+}
+
+const TEST_URLS = loadTestUrls();
 
 async function fetchCrUXData(url) {
   const fullUrl = `${SITE_URL}${url}`;
@@ -35,6 +57,14 @@ async function fetchCrUXData(url) {
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`PSI HTTP ${res.statusCode}: ${json.error?.message || data.slice(0, 180)}`));
+            return;
+          }
+          if (json.error) {
+            reject(new Error(json.error.message || 'PSI API error'));
+            return;
+          }
           
           // Extract CrUX field data
           const cruxMetrics = json.loadingExperience?.metrics || {};
@@ -50,7 +80,7 @@ async function fetchCrUXData(url) {
               inp: extractMetric(cruxMetrics.INTERACTION_TO_NEXT_PAINT),
               ttfb: extractMetric(cruxMetrics.EXPERIMENTAL_TIME_TO_FIRST_BYTE)
             },
-            overall_category: cruxMetrics.OVERALL_CATEGORY || 'UNKNOWN'
+            overall_category: json.loadingExperience?.overall_category || cruxMetrics.OVERALL_CATEGORY || 'UNKNOWN'
           };
           
           resolve(result);
@@ -149,6 +179,12 @@ async function runSnapshot() {
   
   // Copy current to previous for next run
   fs.writeFileSync(previousPath, JSON.stringify(results, null, 2));
+
+  const failures = results.urls.filter((r) => r.error);
+  if (failures.length) {
+    console.error(`\n❌ ${failures.length} CrUX URL(s) failed`);
+    process.exit(1);
+  }
 }
 
 // Run if called directly

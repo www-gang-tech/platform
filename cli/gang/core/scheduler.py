@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 import yaml
+from core.frontmatter import dump_frontmatter, parse_frontmatter
 
 
 class ContentScheduler:
@@ -39,19 +40,8 @@ class ContentScheduler:
                 })
                 continue
             
-            parts = content.split('---', 2)
-            if len(parts) < 3:
-                publishable.append({
-                    'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
-                })
-                continue
-            
-            try:
-                frontmatter = yaml.safe_load(parts[1]) or {}
-            except:
-                # Invalid YAML, include anyway
+            frontmatter, _body = parse_frontmatter(content)
+            if not frontmatter and not content.startswith('---'):
                 publishable.append({
                     'path': file_path,
                     'status': 'published',
@@ -61,12 +51,16 @@ class ContentScheduler:
             
             # Get status
             status = frontmatter.get('status', 'published')
-            
-            # If status is draft, skip
-            if status == 'draft':
+            status_norm = str(status or 'published').strip().lower()
+            blocked_statuses = {
+                'draft', 'private', 'archived', 'unlisted', 'hidden', 'deleted'
+            }
+
+            # Non-public statuses never publish, even with a past publish_date.
+            if status_norm in blocked_statuses:
                 draft.append({
                     'path': file_path,
-                    'status': 'draft',
+                    'status': status_norm,
                     'publish_date': None,
                     'title': frontmatter.get('title', file_path.stem)
                 })
@@ -74,6 +68,16 @@ class ContentScheduler:
             
             # Check publish_date
             publish_date_str = frontmatter.get('publish_date')
+
+            # Explicitly scheduled content without a date stays unpublished.
+            if status_norm == 'scheduled' and not publish_date_str:
+                scheduled_future.append({
+                    'path': file_path,
+                    'status': 'scheduled',
+                    'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem)
+                })
+                continue
             
             if not publish_date_str:
                 # No publish date, publish immediately
@@ -113,10 +117,10 @@ class ContentScheduler:
                     })
             
             except (ValueError, TypeError) as e:
-                # Invalid date format, include anyway
-                publishable.append({
+                # Invalid date must not publish scheduled/private-intent content.
+                draft.append({
                     'path': file_path,
-                    'status': status,
+                    'status': status or 'draft',
                     'publish_date': None,
                     'error': f'Invalid date format: {e}'
                 })
@@ -156,20 +160,39 @@ class ContentScheduler:
             lines.append("\n📋 Upcoming Scheduled Posts:")
             lines.append("-" * 60)
             
-            # Sort by publish date
+            # Sort by publish date; undated scheduled items sort last.
+            from datetime import datetime, timezone
+            max_dt = datetime.max.replace(tzinfo=timezone.utc)
+
+            def _schedule_sort_key(item):
+                pub_date = item.get('publish_date')
+                if isinstance(pub_date, datetime):
+                    if pub_date.tzinfo is None:
+                        return pub_date.replace(tzinfo=timezone.utc)
+                    return pub_date
+                return max_dt
+
             sorted_items = sorted(
                 summary['scheduled_items'],
-                key=lambda x: x['publish_date']
+                key=_schedule_sort_key,
             )
             
             for item in sorted_items:
                 pub_date = item['publish_date']
                 title = item['title']
                 path = item['path']
+
+                if not isinstance(pub_date, datetime):
+                    lines.append("  📅 (no publish_date)")
+                    lines.append(f"     {title}")
+                    lines.append(f"     {path.relative_to(self.content_path)}")
+                    lines.append("")
+                    continue
                 
                 # Format relative time
-                from datetime import datetime, timezone
                 now = datetime.now(timezone.utc)
+                if pub_date.tzinfo is None:
+                    pub_date = pub_date.replace(tzinfo=timezone.utc)
                 delta = pub_date - now
                 
                 if delta.days > 0:
@@ -219,17 +242,12 @@ class ContentScheduler:
             if publish_date:
                 frontmatter['publish_date'] = publish_date.isoformat()
             
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+            new_content = dump_frontmatter(frontmatter, content)
             file_path.write_text(new_content)
             return True
         
-        parts = content.split('---', 2)
-        if len(parts) < 3:
-            return False
-        
-        try:
-            frontmatter = yaml.safe_load(parts[1]) or {}
-        except:
+        frontmatter, body = parse_frontmatter(content)
+        if not content.startswith('---'):
             return False
         
         # Update frontmatter
@@ -243,8 +261,7 @@ class ContentScheduler:
                 frontmatter['status'] = 'published'
         
         # Write back
-        body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = dump_frontmatter(frontmatter, body)
         file_path.write_text(new_content)
         
         return True

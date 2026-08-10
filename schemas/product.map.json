@@ -28,10 +28,11 @@
       "type": "number"
     },
     "currency": {
-      "shopify_field": "variants[0].currency",
+      "shopify_field": "currency",
       "frontmatter_field": "currency",
       "type": "string",
-      "default": "USD"
+      "default": "USD",
+      "description": "Shop currency (Admin variants omit currency; set via SHOPIFY_CURRENCY or default)"
     },
     "sku": {
       "shopify_field": "variants[0].sku",
