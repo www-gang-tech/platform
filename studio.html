@@ -644,7 +644,14 @@
             document.getElementById('status').textContent = '🔍 Validating headings...';
             
             try {
-                const markdown = editor.getMarkdown();
+                // Validate body only — YAML `# comments` are not markdown headings.
+                let markdown = editor.getMarkdown() || '';
+                if (markdown.startsWith('---')) {
+                    const end = markdown.indexOf('\n---', 3);
+                    if (end !== -1) {
+                        markdown = markdown.slice(end + 4).replace(/^\s*\n/, '');
+                    }
+                }
                 const category = currentFile ? currentFile.split('/')[0] : '';
                 
                 const response = await fetch('/api/validate-headings', {

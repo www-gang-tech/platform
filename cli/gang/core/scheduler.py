@@ -10,6 +10,26 @@ import yaml
 from core.frontmatter import dump_frontmatter, parse_frontmatter
 
 
+def normalize_publish_status(status: Any, default: str = 'published') -> str:
+    """
+    Coerce YAML frontmatter status into a lowercase string token.
+
+    PyYAML turns bare `yes`/`no`/`on`/`off`/`true`/`false` into booleans.
+    Lists like `[draft]` must not stringify to \"['draft']\" and slip past
+    the blocked-status allowlist.
+    """
+    if isinstance(status, bool):
+        # YAML `no`/`false`/`off` → False must stay unpublished.
+        return 'published' if status else 'draft'
+    if isinstance(status, (list, tuple)):
+        if not status:
+            return 'draft'
+        return normalize_publish_status(status[0], default=default)
+    if status is None or status == '':
+        return default
+    return str(status).strip().lower()
+
+
 class ContentScheduler:
     """Manage scheduled content publishing"""
     
@@ -51,10 +71,11 @@ class ContentScheduler:
             
             # Get status
             status = frontmatter.get('status', 'published')
-            status_norm = str(status or 'published').strip().lower()
+            status_norm = normalize_publish_status(status)
             blocked_statuses = {
                 'draft', 'private', 'archived', 'unlisted', 'hidden', 'deleted'
             }
+            item_title = frontmatter.get('title', file_path.stem)
 
             # Non-public statuses never publish, even with a past publish_date.
             if status_norm in blocked_statuses:
@@ -62,7 +83,7 @@ class ContentScheduler:
                     'path': file_path,
                     'status': status_norm,
                     'publish_date': None,
-                    'title': frontmatter.get('title', file_path.stem)
+                    'title': item_title
                 })
                 continue
             
@@ -75,7 +96,7 @@ class ContentScheduler:
                     'path': file_path,
                     'status': 'scheduled',
                     'publish_date': None,
-                    'title': frontmatter.get('title', file_path.stem)
+                    'title': item_title
                 })
                 continue
             
@@ -83,7 +104,7 @@ class ContentScheduler:
                 # No publish date, publish immediately
                 publishable.append({
                     'path': file_path,
-                    'status': status,
+                    'status': status_norm,
                     'publish_date': None
                 })
                 continue
@@ -106,22 +127,23 @@ class ContentScheduler:
                         'path': file_path,
                         'status': 'published',
                         'publish_date': publish_date,
-                        'title': frontmatter.get('title', file_path.stem)
+                        'title': item_title
                     })
                 else:
                     scheduled_future.append({
                         'path': file_path,
                         'status': 'scheduled',
                         'publish_date': publish_date,
-                        'title': frontmatter.get('title', file_path.stem)
+                        'title': item_title
                     })
             
             except (ValueError, TypeError) as e:
                 # Invalid date must not publish scheduled/private-intent content.
                 draft.append({
                     'path': file_path,
-                    'status': status or 'draft',
+                    'status': status_norm or 'draft',
                     'publish_date': None,
+                    'title': item_title,
                     'error': f'Invalid date format: {e}'
                 })
         
@@ -213,8 +235,17 @@ class ContentScheduler:
             lines.append("\n📝 Draft Posts:")
             lines.append("-" * 60)
             for item in summary['draft_items']:
-                lines.append(f"  • {item['title']}")
-                lines.append(f"    {item['path'].relative_to(self.content_path)}")
+                title = item.get('title')
+                if not title:
+                    path = item.get('path')
+                    title = path.stem if hasattr(path, 'stem') else 'Untitled'
+                lines.append(f"  • {title}")
+                path = item.get('path')
+                if path is not None:
+                    try:
+                        lines.append(f"    {path.relative_to(self.content_path)}")
+                    except Exception:
+                        lines.append(f"    {path}")
         
         return '\n'.join(lines)
     

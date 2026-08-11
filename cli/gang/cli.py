@@ -2469,6 +2469,90 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             if parsed_buy_url.scheme in ('http', 'https') and parsed_buy_url.netloc
             else ''
         )
+
+        # Normalize markdown product variants for product.js (color/size/material).
+        md_variants = frontmatter.get('variants', []) or []
+        md_colors = frontmatter.get('colors', []) or []
+        md_sizes = frontmatter.get('sizes', []) or []
+        md_materials = frontmatter.get('materials', []) or []
+        md_availability = first_offer.get('availability', 'https://schema.org/InStock')
+        if content_type == 'products' and isinstance(md_variants, list) and md_variants:
+            normalized_variants = []
+            color_set, size_set, material_set = set(), set(), set()
+            for variant in md_variants:
+                if not isinstance(variant, dict):
+                    continue
+                option1 = str(
+                    variant.get('option1') or variant.get('color') or ''
+                ).strip()
+                option2 = str(
+                    variant.get('option2') or variant.get('size') or ''
+                ).strip()
+                option3 = str(
+                    variant.get('option3') or variant.get('material') or ''
+                ).strip()
+                title_part = str(variant.get('title') or variant.get('name') or '').strip()
+                if not (option1 or option2 or option3) and title_part:
+                    if ' / ' in title_part:
+                        parts = [p.strip() for p in title_part.split(' / ')]
+                        option1 = parts[0] if parts else ''
+                        option2 = parts[1] if len(parts) > 1 else ''
+                        option3 = parts[2] if len(parts) > 2 else ''
+                    else:
+                        option2 = title_part
+                availability = variant.get('availability')
+                if not availability:
+                    raw_qty = variant.get('inventory_quantity', variant.get('inventory'))
+                    try:
+                        qty = int(raw_qty) if raw_qty is not None else None
+                    except (TypeError, ValueError):
+                        qty = None
+                    if qty is None:
+                        availability = 'https://schema.org/InStock'
+                    else:
+                        availability = (
+                            'https://schema.org/InStock'
+                            if qty > 0
+                            else 'https://schema.org/OutOfStock'
+                        )
+                offer_url = str(
+                    variant.get('url') or variant.get('buy_url') or ''
+                ).strip()
+                if offer_url in {'', '#', '/'}:
+                    offer_url = ''
+                if option1:
+                    color_set.add(option1)
+                if option2:
+                    size_set.add(option2)
+                if option3:
+                    material_set.add(option3)
+                normalized_variants.append({
+                    'id': variant.get('id'),
+                    'name': title_part,
+                    'color': option1,
+                    'size': option2,
+                    'material': option3,
+                    'price': variant.get('price', frontmatter.get('price', '0')),
+                    'currency': (
+                        variant.get('currency')
+                        or frontmatter.get('currency')
+                        or 'USD'
+                    ),
+                    'availability': availability,
+                    'url': offer_url,
+                    'sku': variant.get('sku', ''),
+                })
+            md_variants = normalized_variants
+            if not md_colors:
+                md_colors = [c for c in sorted(color_set)]
+            if not md_sizes:
+                md_sizes = [s for s in sorted(size_set)]
+            if not md_materials:
+                md_materials = [m for m in sorted(material_set)]
+            if normalized_variants:
+                md_availability = normalized_variants[0].get(
+                    'availability', md_availability
+                )
         
         context = {
             'site_title': config['site']['title'],
@@ -2500,13 +2584,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'currency': frontmatter.get('currency') or first_offer.get('priceCurrency', 'USD'),
             'recurring': frontmatter.get('recurring'),
             'buy_url': buy_url or '#',
-            'variants': frontmatter.get('variants', []),
-            'colors': frontmatter.get('colors', []),
-            'sizes': frontmatter.get('sizes', []),
+            'variants': md_variants if content_type == 'products' else frontmatter.get('variants', []),
+            'colors': md_colors if content_type == 'products' else frontmatter.get('colors', []),
+            'sizes': md_sizes if content_type == 'products' else frontmatter.get('sizes', []),
+            'materials': md_materials if content_type == 'products' else frontmatter.get('materials', []),
             'sku': frontmatter.get('sku', ''),
             'brand': frontmatter.get('brand', ''),
             'category': frontmatter.get('category', ''),
-            'availability': first_offer.get('availability', 'https://schema.org/InStock'),
+            'availability': md_availability,
             'variant_id': frontmatter.get('variant_id') or first_offer.get('id', ''),
             'product_slug': slug if content_type == 'products' else '',
             'checkout_base_url': markdown_checkout_base,
@@ -2777,10 +2862,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 variants_list = []
                 
                 if type(offers).__name__ == 'list':
-                    # Multiple variants — prefer Shopify option1/option2 over
+                    # Multiple variants — prefer Shopify option1/option2/option3 over
                     # splitting titles on "/" (which breaks "Red/Blue" colors).
                     colors = set()
                     sizes = set()
+                    materials = set()
                     color_to_image = {}  # Map colors to images
                     
                     # First pass: collect unique colors in order they appear
@@ -2790,18 +2876,22 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             continue
                         option1 = str(offer.get('option1') or '').strip()
                         option2 = str(offer.get('option2') or '').strip()
+                        option3 = str(offer.get('option3') or '').strip()
                         variant_name = str(offer.get('name') or '')
-                        if option1 or option2:
+                        if option1 or option2 or option3:
                             color = option1
                             size = option2
+                            material = option3
                         elif ' / ' in variant_name:
-                            parts = variant_name.split(' / ', 1)
-                            color = parts[0].strip()
-                            size = parts[1].strip() if len(parts) > 1 else ''
+                            parts = [p.strip() for p in variant_name.split(' / ')]
+                            color = parts[0] if parts else ''
+                            size = parts[1] if len(parts) > 1 else ''
+                            material = parts[2] if len(parts) > 2 else ''
                         else:
                             # Single-option variants (Size only, Color only, Title).
                             color = ''
                             size = variant_name.strip()
+                            material = ''
                         
                         if color and color not in colors:
                             color_order.append(color)
@@ -2809,6 +2899,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                         
                         if size:
                             sizes.add(size)
+                        if material:
+                            materials.add(material)
                     
                     # Map each color to an image (assume images are in same order as colors appear)
                     for idx, color in enumerate(color_order):
@@ -2821,17 +2913,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             continue
                         option1 = str(offer.get('option1') or '').strip()
                         option2 = str(offer.get('option2') or '').strip()
+                        option3 = str(offer.get('option3') or '').strip()
                         variant_name = str(offer.get('name') or '')
-                        if option1 or option2:
+                        if option1 or option2 or option3:
                             color_part = option1
                             size_part = option2
+                            material_part = option3
                         elif ' / ' in variant_name:
-                            parts = variant_name.split(' / ', 1)
-                            color_part = parts[0].strip()
-                            size_part = parts[1].strip() if len(parts) > 1 else ''
+                            parts = [p.strip() for p in variant_name.split(' / ')]
+                            color_part = parts[0] if parts else ''
+                            size_part = parts[1] if len(parts) > 1 else ''
+                            material_part = parts[2] if len(parts) > 2 else ''
                         else:
                             color_part = ''
                             size_part = variant_name.strip()
+                            material_part = ''
 
                         offer_url = str(offer.get('url') or '').strip()
                         # Never use '#' — product.js would resolve it to this origin.
@@ -2843,6 +2939,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                             'name': variant_name,
                             'color': color_part,
                             'size': size_part,
+                            'material': material_part,
                             'price': offer.get('price', '0'),
                             'currency': offer.get('priceCurrency', 'USD'),
                             'availability': offer.get('availability', 'InStock'),
@@ -2856,14 +2953,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     # Convert sets to lists without using list() to avoid Click collision
                     colors_list = [c for c in sorted(colors)]
                     sizes_list = [s for s in sorted(sizes)]
+                    materials_list = [m for m in sorted(materials)]
                 elif isinstance(offers, dict):
                     first_offer = offers
                     colors_list = []
                     sizes_list = []
+                    materials_list = []
                 else:
                     first_offer = {}
                     colors_list = []
                     sizes_list = []
+                    materials_list = []
                 
                 # Prepare template variables
                 brand_data = product.get('brand', '')
@@ -2959,6 +3059,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                     'variants': variants_list,
                     'colors': colors_list,
                     'sizes': sizes_list,
+                    'materials': materials_list,
                     'sku': product.get('sku', ''),
                     'variant_id': first_offer.get('id', ''),
                     'checkout_base_url': checkout_base_url,
@@ -3617,15 +3718,19 @@ def is_safe_content_slug(slug: str) -> bool:
 
 def resolve_content_slug_file(content_root: Path, category: str, slug: str) -> Path:
     """Resolve category/slug.md under content_root without path traversal."""
+    if not isinstance(category, str) or not isinstance(slug, str):
+        raise ValueError(f"Invalid slug path: {category}/{slug}")
     if category not in ALLOWED_CONTENT_SLUG_CATEGORIES:
         raise ValueError(f"Invalid content category: {category}")
     if not is_safe_content_slug(slug):
         raise ValueError(f"Invalid slug: {slug}")
     base = Path(content_root).resolve()
-    category_root = (base / category).resolve()
-    full_path = (category_root / f'{slug}.md').resolve()
+    # Keep the category directory unresolved so a symlinked category cannot
+    # make relative_to() succeed against an escaped realpath (Flask parity).
+    category_dir = base / category
+    full_path = (category_dir / f'{slug}.md').resolve()
     try:
-        full_path.relative_to(category_root)
+        full_path.relative_to(category_dir)
     except ValueError as exc:
         raise ValueError(f"Invalid slug path: {category}/{slug}") from exc
     return full_path
@@ -4927,10 +5032,11 @@ def studio(ctx, port, host):
             if not is_safe_content_slug(slug):
                 raise ValueError('Invalid slug')
             content_base = Path(config['build']['content']).resolve()
-            category_root = (content_base / category).resolve()
-            content_path = (category_root / f'{slug}.md').resolve()
+            # Unresolved category dir — match resolve_content_slug_file / Flask.
+            category_dir = content_base / category
+            content_path = (category_dir / f'{slug}.md').resolve()
             try:
-                content_path.relative_to(category_root)
+                content_path.relative_to(category_dir)
             except ValueError as exc:
                 raise ValueError('Invalid content path') from exc
             return content_base, content_path
@@ -5214,6 +5320,10 @@ def studio(ctx, port, host):
                         data = read_json_body(self)
                         
                         content = data.get('content', '')
+                        if content is None:
+                            content = ''
+                        if not isinstance(content, str):
+                            content = str(content)
                         category = (data.get('category') or data.get('content_category') or '').strip()
                         template_owns_h1 = category in TEMPLATE_OWNS_H1
                         
@@ -5269,6 +5379,7 @@ def studio(ctx, port, host):
                         # Import redirect manager
                         sys.path.insert(0, str(Path(__file__).parent))
                         from core.redirects import RedirectManager
+                        from core.content_fs import rename_content_file_exclusive
                         
                         content_base, old_file = resolve_studio_slug_path(category, old_slug)
                         _, new_file = resolve_studio_slug_path(category, new_slug)
@@ -5299,8 +5410,10 @@ def studio(ctx, port, host):
                             return
                         
                         # Persist redirect before rename so failures cannot leave
-                        # a renamed slug without its 301.
+                        # a renamed slug without its 301. Roll back if rename fails.
                         redirect_info = None
+                        redirect_manager = None
+                        old_url = new_url = None
                         if create_redirect:
                             # Articles publish under /posts/; keep redirects on public URLs.
                             output_category = output_content_type(category)
@@ -5312,8 +5425,24 @@ def studio(ctx, port, host):
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
 
-                        # Rename file
-                        old_file.rename(new_file)
+                        try:
+                            rename_content_file_exclusive(old_file, new_file)
+                        except FileExistsError:
+                            if redirect_manager is not None and old_url:
+                                redirect_manager.remove_redirect(old_url)
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            send_studio_cors(self)
+                            self.end_headers()
+                            self.wfile.write(json.dumps({
+                                'error': 'Slug already exists',
+                                'message': f'A file with slug "{new_slug}" already exists'
+                            }).encode())
+                            return
+                        except Exception:
+                            if redirect_manager is not None and old_url:
+                                redirect_manager.remove_redirect(old_url)
+                            raise
                         click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
 
                         try:
@@ -5438,27 +5567,18 @@ def studio(ctx, port, host):
                             check=True,
                             cwd=project_root,
                         )
-                        if not status.stdout.strip():
-                            self.send_response(200)
-                            self.send_header('Content-type', 'application/json')
-                            send_studio_cors(self)
-                            self.end_headers()
-                            self.wfile.write(json.dumps({
-                                'status': 'no_changes',
-                                'message': 'No changes to commit',
-                            }).encode())
-                            return
-
-                        subprocess.run(
-                            ['git', 'add', 'content/'],
-                            check=True,
-                            cwd=project_root,
-                        )
-                        subprocess.run(
-                            ['git', 'commit', '-m', commit_message],
-                            check=True,
-                            cwd=project_root,
-                        )
+                        has_content_changes = bool(status.stdout.strip())
+                        if has_content_changes:
+                            subprocess.run(
+                                ['git', 'add', 'content/'],
+                                check=True,
+                                cwd=project_root,
+                            )
+                            subprocess.run(
+                                ['git', 'commit', '-m', commit_message],
+                                check=True,
+                                cwd=project_root,
+                            )
 
                         env = os.environ.copy()
                         env['EDITOR_MODE'] = 'true'
@@ -5482,11 +5602,17 @@ def studio(ctx, port, host):
                         self.send_header('Content-type', 'application/json')
                         send_studio_cors(self)
                         self.end_headers()
-                        # Use `committed` for Flask / editor-bundle.js parity
-                        # (in-place editor reloads only on status === 'committed').
+                        # Use `committed`/`rebuilt` for Flask / editor-bundle.js parity
+                        # (in-place editor reloads on committed|published).
+                        if has_content_changes:
+                            build_status = 'committed'
+                            build_message = 'Content committed and site rebuilt'
+                        else:
+                            build_status = 'rebuilt'
+                            build_message = 'No content changes to commit; site rebuilt'
                         self.wfile.write(json.dumps({
-                            'status': 'committed',
-                            'message': 'Content committed and site rebuilt',
+                            'status': build_status,
+                            'message': build_message,
                         }).encode())
                     except Exception as e:
                         import traceback

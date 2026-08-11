@@ -121,6 +121,17 @@
                         </select>
                     </div>
                     {% endif %}
+
+                    {% if materials %}
+                    <div class="form-group">
+                        <label for="material">Material:</label>
+                        <select name="material" id="material" required>
+                            {% for material in materials %}
+                            <option value="{{ material }}">{{ material }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     
                     <div class="form-group">
                         <label for="quantity">Quantity:</label>
@@ -131,7 +142,7 @@
                         {% if 'InStock' in availability %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
                     </p>
                     
-                    <button type="submit" class="buy-button">
+                    <button type="submit" class="buy-button"{% if 'InStock' not in availability %} disabled aria-disabled="true"{% endif %}>
                         Add to Cart
                     </button>
                 </form>

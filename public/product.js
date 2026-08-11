@@ -11,6 +11,7 @@
     
     const colorSelect = form.querySelector('[name="color"]');
     const sizeSelect = form.querySelector('[name="size"]');
+    const materialSelect = form.querySelector('[name="material"]');
     const quantityInput = form.querySelector('[name="quantity"]');
     const priceDisplay = document.querySelector('[data-price]');
     const stockMessage = document.querySelector('[data-stock-message]');
@@ -68,15 +69,17 @@
     function updateProduct() {
         const selectedColor = colorSelect?.value;
         const selectedSize = sizeSelect?.value;
+        const selectedMaterial = materialSelect?.value;
         
-        // Find matching variant
+        // Find matching variant (include option3/material when present).
         const variant = variants.find(v => {
             const colorMatch = !selectedColor || v.color === selectedColor;
             const sizeMatch = !selectedSize || v.size === selectedSize;
-            return colorMatch && sizeMatch;
+            const materialMatch = !selectedMaterial || v.material === selectedMaterial;
+            return colorMatch && sizeMatch && materialMatch;
         });
         
-        // Impossible color×size combo must not keep the previous variant identity.
+        // Impossible combo must not keep the previous variant identity.
         if (!variant) {
             clearCheckoutIdentity();
             return;
@@ -146,6 +149,10 @@
     
     if (sizeSelect) {
         sizeSelect.addEventListener('change', updateProduct);
+    }
+
+    if (materialSelect) {
+        materialSelect.addEventListener('change', updateProduct);
     }
     
     // Initial update

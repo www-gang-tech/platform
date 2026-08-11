@@ -41,6 +41,10 @@ class RedirectManager:
                 raise ValueError(f'Invalid external redirect URL: {path}')
             if any(ch.isspace() for ch in value) or '\n' in value or '\r' in value:
                 raise ValueError(f'Invalid external redirect URL: {path}')
+            # Reject nginx/config metacharacters that break rewrite lines when
+            # destinations are interpolated into `rewrite ^…$ <to> permanent;`.
+            if any(ch in value for ch in ';{}"\'\\'):
+                raise ValueError(f'Invalid external redirect URL: {path}')
             return value
         if not value.startswith('/'):
             raise ValueError(f'Redirect path must start with /: {path}')
@@ -202,7 +206,10 @@ class RedirectManager:
             flag = 'permanent' if status == 301 else 'redirect'
             # Escape regex metacharacters so paths are matched literally.
             escaped_from = re.escape(from_path)
-            lines.append(f"rewrite ^{escaped_from}$ {to_path} {flag};")
+            # Quote destinations so unexpected characters cannot terminate the
+            # rewrite directive (validate_redirect_path already rejects ;{}).
+            escaped_to = to_path.replace('\\', '\\\\').replace('"', '\\"')
+            lines.append(f'rewrite ^{escaped_from}$ "{escaped_to}" {flag};')
         
         return '\n'.join(lines)
     

@@ -257,10 +257,7 @@ class InPlaceEditor {
             const url = prompt('Enter URL:');
             if (url) {
                 const trimmed = url.trim();
-                const safe = trimmed
-                    && !trimmed.startsWith('//')
-                    && /^(https?:|mailto:|\/|#)/i.test(trimmed);
-                if (safe) {
+                if (this.isSafeHref(trimmed)) {
                     document.execCommand('createLink', false, trimmed);
                 } else {
                     alert('Only http(s), mailto, site paths, or #anchors are allowed.');
@@ -269,6 +266,23 @@ class InPlaceEditor {
         }
         
         this.hideFloatingToolbar();
+    }
+
+    // Match Python is_safe_href: reject //host and backslash protocol-relative forms.
+    isSafeHref(href) {
+        if (!href || typeof href !== 'string') return false;
+        const trimmed = href.trim();
+        if (!trimmed) return false;
+        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+            return false;
+        }
+        const normalized = trimmed.replace(/\\/g, '/');
+        if (normalized.startsWith('//')) return false;
+        const schemeHost = normalized.split('?', 1)[0].split('#', 1)[0];
+        if (schemeHost.includes(':')) {
+            return /^(https?:|mailto:)/i.test(schemeHost);
+        }
+        return /^(https?:|mailto:|\/|#)/i.test(trimmed);
     }
 
     // Markdown to HTML converter
@@ -287,13 +301,7 @@ class InPlaceEditor {
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
             .replace(/\[(.+?)\]\((.+?)\)/g, (_match, text, href) => {
-                // Reject protocol-relative URLs (//evil.example) while allowing
-                // http(s), mailto, same-origin paths, and in-page anchors.
-                const safeHref = (
-                    href
-                    && !href.startsWith('//')
-                    && /^(https?:|mailto:|\/|#)/i.test(href)
-                ) ? href : '#';
+                const safeHref = this.isSafeHref(href) ? href : '#';
                 return `<a href="${safeHref}">${text}</a>`;
             })
             .replace(/`(.+?)`/g, '<code>$1</code>')
@@ -322,7 +330,7 @@ class InPlaceEditor {
                 if ((name === 'href' || name === 'src' || name === 'poster' || name === 'action') && (
                     value.trim().toLowerCase().startsWith('javascript:')
                     || value.trim().toLowerCase().startsWith('data:')
-                    || value.trim().startsWith('//')
+                    || !this.isSafeHref(value)
                 )) {
                     node.setAttribute(name, '#');
                 }
@@ -336,11 +344,7 @@ class InPlaceEditor {
             .replace(/<strong>(.+?)<\/strong>/g, '**$1**')
             .replace(/<em>(.+?)<\/em>/g, '*$1*')
             .replace(/<a href="(.+?)">(.+?)<\/a>/g, (_m, href, text) => {
-                const safeHref = (
-                    href
-                    && !href.startsWith('//')
-                    && /^(https?:|mailto:|\/|#)/i.test(href)
-                ) ? href : '#';
+                const safeHref = this.isSafeHref(href) ? href : '#';
                 return `[${text}](${safeHref})`;
             })
             .replace(/<code>(.+?)<\/code>/g, '`$1`')
@@ -447,7 +451,12 @@ class InPlaceEditor {
                 throw new Error(buildResult.message || 'Build failed');
             }
             
-            if (buildResult.status === 'committed' || buildResult.status === 'published') {
+            if (
+                buildResult.status === 'committed'
+                || buildResult.status === 'published'
+                || buildResult.status === 'building'
+                || buildResult.status === 'rebuilt'
+            ) {
                 this.showNotification('Changes committed and site rebuilt! Page will reload in 3 seconds...', 'success');
                 setTimeout(() => {
                     location.reload();

@@ -487,7 +487,13 @@ class GumroadClient:
             
             data = response.json() if response.content else {}
             if not isinstance(data, dict):
-                return []
+                return None
+            # Gumroad auth/API failures often return HTTP 200 with
+            # {"success": false, "message": "..."}. Treat that as a hard
+            # failure so fetch_all restores cache instead of wiping it.
+            if data.get('success') is False:
+                print(f"Error fetching from Gumroad: {data.get('message') or 'success=false'}")
+                return None
             # Key present with null must not be treated as hard failure (None).
             products = data.get('products', [])
             if products is None:
@@ -653,14 +659,12 @@ class ProductAggregator:
         current_store = self._current_store_host()
         cached_store = ProductSchema._normalize_store_host(cache.get('store_url'))
         # Do not restore a foreign-store Shopify catalog after SHOPIFY_STORE_URL changes.
+        # Legacy caches without store_url also refuse restore when a live store is
+        # configured — otherwise foreign handles get rewritten onto the new host.
         shopify_products_raw = products.get('shopify', []) or []
-        if (
-            shopify_products_raw
-            and current_store
-            and cached_store
-            and current_store.lower() != cached_store.lower()
-        ):
-            shopify_products_raw = []
+        if shopify_products_raw and current_store:
+            if not cached_store or current_store.lower() != cached_store.lower():
+                shopify_products_raw = []
         store = current_store or cached_store
         shopify_products = []
         for product in shopify_products_raw:

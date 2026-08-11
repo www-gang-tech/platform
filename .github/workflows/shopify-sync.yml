@@ -56,8 +56,22 @@ jobs:
           out = Path('.shopify-sync/product.json')
           raw = os.environ.get('PRODUCT_JSON') or 'null'
           handle = (os.environ.get('PRODUCT_HANDLE') or '').strip()
-          store = (os.environ.get('SHOPIFY_STORE') or '').strip()
+          store_raw = (os.environ.get('SHOPIFY_STORE') or '').strip()
           token = (os.environ.get('SHOPIFY_ACCESS_TOKEN') or '').strip()
+
+          def normalize_store_host(value):
+              value = (value or '').strip()
+              if not value:
+                  return ''
+              # Accept host, https://host, or https://host/ trailing slash.
+              from urllib.parse import urlparse
+              if '://' in value:
+                  parsed = urlparse(value)
+              else:
+                  parsed = urlparse(f'https://{value}')
+              return (parsed.netloc or parsed.path or '').strip('/').lower()
+
+          store = normalize_store_host(store_raw)
 
           product = None
           if raw not in ('', 'null'):
@@ -143,7 +157,18 @@ jobs:
           import os
           import yaml
           from pathlib import Path
+          from urllib.parse import urlparse
           from bs4 import BeautifulSoup
+
+          def normalize_store_host(value):
+              value = (value or '').strip()
+              if not value:
+                  return ''
+              if '://' in value:
+                  parsed = urlparse(value)
+              else:
+                  parsed = urlparse(f'https://{value}')
+              return (parsed.netloc or parsed.path or '').strip('/').lower()
           
           # Load mapping schema
           with open('schemas/product.map.json') as f:
@@ -206,12 +231,40 @@ jobs:
               for variant in value:
                   if not isinstance(variant, dict):
                       continue
+                  raw_qty = variant.get('inventory_quantity', variant.get('inventory', 0))
+                  try:
+                      inventory_qty = int(raw_qty) if raw_qty is not None else 0
+                  except (TypeError, ValueError):
+                      inventory_qty = 0
+                  inventory_management = variant.get('inventory_management')
+                  inventory_policy = variant.get('inventory_policy', 'deny')
+                  if inventory_management in (None, ''):
+                      in_stock = True
+                  elif inventory_policy == 'continue':
+                      in_stock = True
+                  else:
+                      in_stock = inventory_qty > 0
+                  option1 = str(variant.get('option1') or '').strip()
+                  option2 = str(variant.get('option2') or '').strip()
+                  option3 = str(variant.get('option3') or '').strip()
                   normalized.append({
                       'id': variant.get('id'),
                       'title': variant.get('title'),
-                      'price': variant.get('price'),
-                      'sku': variant.get('sku'),
-                      'inventory': variant.get('inventory_quantity', 0),
+                      'price': '0' if variant.get('price') in (None, '') else str(variant.get('price')),
+                      'sku': variant.get('sku') or '',
+                      'inventory': inventory_qty,
+                      'availability': (
+                          'https://schema.org/InStock'
+                          if in_stock
+                          else 'https://schema.org/OutOfStock'
+                      ),
+                      'option1': option1,
+                      'option2': option2,
+                      'option3': option3,
+                      'color': option1,
+                      'size': option2 or (str(variant.get('title') or '').strip() if not option1 else ''),
+                      'material': option3,
+                      'url': '',
                   })
               return normalized
 
@@ -252,12 +305,33 @@ jobs:
                   
                   if value is not None:
                       front_matter[target] = value
+
+              # Admin product JSON has no top-level currency; honor env override.
+              shop_currency = (
+                  os.environ.get('SHOPIFY_CURRENCY')
+                  or os.environ.get('SHOPIFY_SHOP_CURRENCY')
+                  or ''
+              ).strip()
+              if shop_currency:
+                  front_matter['currency'] = shop_currency
+              elif not front_matter.get('currency'):
+                  front_matter['currency'] = 'USD'
               
               # Generate front-matter file (path-safe handle only)
               handle = safe_product_handle(
                   front_matter.get('slug') or product.get('handle') or 'unknown'
               )
               front_matter['slug'] = handle
+              store_host = normalize_store_host(os.environ.get('SHOPIFY_STORE') or '')
+              for variant in front_matter.get('variants') or []:
+                  if not isinstance(variant, dict):
+                      continue
+                  vid = variant.get('id')
+                  if store_host and vid and not variant.get('url'):
+                      variant['url'] = (
+                          f'https://{store_host}/products/{handle}?variant={vid}'
+                      )
+                      variant['buy_url'] = variant['url']
               output_file = (content_dir / f'{handle}.md').resolve()
               try:
                   output_file.relative_to(content_dir)

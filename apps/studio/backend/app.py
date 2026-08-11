@@ -46,9 +46,11 @@ def resolve_content_file(file_path):
         raise ValueError('Invalid file path')
 
     content_root = CONTENT_DIR.resolve()
-    full_path = (content_root / category / f'{slug}.md').resolve()
+    # Unresolved category dir so symlinked categories cannot escape.
+    category_dir = content_root / category
+    full_path = (category_dir / f'{slug}.md').resolve()
     try:
-        full_path.relative_to(content_root / category)
+        full_path.relative_to(category_dir)
     except ValueError as exc:
         raise ValueError('Invalid file path') from exc
     return full_path
@@ -203,6 +205,10 @@ def validate_headings():
         return jsonify({'error': 'No content provided'}), 400
     
     content = data['content']
+    if content is None:
+        content = ''
+    if not isinstance(content, str):
+        content = str(content)
     category = (data.get('category') or data.get('content_category') or '').strip()
     # Templates for these content types render the visible H1 from frontmatter.
     template_owns_h1 = category in {
@@ -251,32 +257,31 @@ def trigger_build():
             cwd=PROJECT_ROOT
         )
         
-        if not status.stdout.strip():
-            return jsonify({
-                'status': 'no_changes',
-                'message': 'No changes to commit'
-            })
-        
-        # Add content changes
-        subprocess.run(
-            ['git', 'add', 'content/'],
-            check=True,
-            cwd=PROJECT_ROOT
-        )
-        
-        # Commit changes
+        has_content_changes = bool(status.stdout.strip())
         try:
-            json_data = request.get_json()
-            commit_message = json_data.get('message', 'Content update via in-place editor') if json_data else 'Content update via in-place editor'
-        except:
+            json_data = request.get_json(silent=True)
+            commit_message = (
+                json_data.get('message', 'Content update via in-place editor')
+                if json_data else 'Content update via in-place editor'
+            )
+        except Exception:
             commit_message = 'Content update via in-place editor'
-        subprocess.run(
-            ['git', 'commit', '-m', commit_message],
-            check=True,
-            cwd=PROJECT_ROOT
-        )
+
+        if has_content_changes:
+            # Add content changes
+            subprocess.run(
+                ['git', 'add', 'content/'],
+                check=True,
+                cwd=PROJECT_ROOT
+            )
+            subprocess.run(
+                ['git', 'commit', '-m', commit_message],
+                check=True,
+                cwd=PROJECT_ROOT
+            )
         
-        # Rebuild the site
+        # Always rebuild so template/public/config edits ship even when
+        # content/ is clean (Studio "Build" must not no-op).
         print("🔄 Rebuilding site...")
         env = os.environ.copy()
         env['EDITOR_MODE'] = 'true'
@@ -292,6 +297,13 @@ def trigger_build():
             cwd=PROJECT_ROOT
         )
         print("✅ Site rebuilt successfully")
+
+        if not has_content_changes:
+            return jsonify({
+                'status': 'rebuilt',
+                'deploying': False,
+                'message': 'No content changes to commit; site rebuilt.',
+            })
         
         # Optional: Auto-push (can be disabled for safety)
         auto_push = os.environ.get('AUTO_PUSH', 'false').lower() == 'true'
@@ -309,8 +321,9 @@ def trigger_build():
                 check=True,
                 cwd=PROJECT_ROOT
             )
+            # Use committed/published so in-place editor reloads after success.
             return jsonify({
-                'status': 'building',
+                'status': 'published',
                 'deploying': True,
                 'message': 'Changes committed and pushed. GitHub Actions will deploy.'
             })
@@ -377,6 +390,8 @@ def list_content():
 def _resolve_slug_file(category, slug):
     """Resolve category/slug markdown under the content root."""
     import re
+    if not isinstance(category, str) or not isinstance(slug, str):
+        raise ValueError('category and slug are required')
     if not category or not slug:
         raise ValueError('category and slug are required')
     if category not in ALLOWED_CONTENT_CATEGORIES:
@@ -388,9 +403,11 @@ def _resolve_slug_file(category, slug):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug):
         raise ValueError('Invalid slug')
     content_root = CONTENT_DIR.resolve()
-    full_path = (content_root / category / f'{slug}.md').resolve()
+    # Unresolved category keeps symlink escapes from passing relative_to().
+    category_dir = content_root / category
+    full_path = (category_dir / f'{slug}.md').resolve()
     try:
-        full_path.relative_to(content_root)
+        full_path.relative_to(category_dir)
     except ValueError as exc:
         raise ValueError('Invalid category or slug') from exc
     return full_path
@@ -420,10 +437,14 @@ def rename_slug():
         import sys
         sys.path.insert(0, str(PROJECT_ROOT / 'cli' / 'gang'))
         from core.redirects import RedirectManager
+        from core.content_fs import rename_content_file_exclusive
 
         # Persist redirect intent before rename so a mid-flight failure cannot
         # leave a renamed slug without its 301 (non-atomic FS + JSON store).
+        # Roll the redirect back if the exclusive rename fails.
         redirect_info = None
+        manager = None
+        old_url = None
         if create_redirect:
             output_category = 'posts' if category == 'articles' else category
             old_url = f'/{output_category}/{old_slug}/'
@@ -431,7 +452,19 @@ def rename_slug():
             manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
             redirect_info = manager.add_redirect(old_url, new_url, reason='slug_rename_cms').get('redirect')
 
-        old_file.rename(new_file)
+        try:
+            rename_content_file_exclusive(old_file, new_file)
+        except FileExistsError:
+            if manager is not None and old_url:
+                manager.remove_redirect(old_url)
+            return jsonify({
+                'error': 'Slug already exists',
+                'message': f'A file with slug "{new_slug}" already exists',
+            }), 400
+        except Exception:
+            if manager is not None and old_url:
+                manager.remove_redirect(old_url)
+            raise
         try:
             from core.frontmatter import update_slug_in_file
             update_slug_in_file(new_file, new_slug)
@@ -494,6 +527,11 @@ def sync_products():
         config_path = PROJECT_ROOT / 'gang.config.yml'
         with open(config_path) as f:
             config = yaml.safe_load(f)
+        if not isinstance(config, dict):
+            return jsonify({
+                'error': 'Invalid configuration',
+                'message': 'gang.config.yml must contain a mapping',
+            }), 500
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='all')
         return jsonify({
