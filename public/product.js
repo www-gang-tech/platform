@@ -11,6 +11,7 @@
     
     const colorSelect = form.querySelector('[name="color"]');
     const sizeSelect = form.querySelector('[name="size"]');
+    const materialSelect = form.querySelector('[name="material"]');
     const quantityInput = form.querySelector('[name="quantity"]');
     const priceDisplay = document.querySelector('[data-price]');
     const stockMessage = document.querySelector('[data-stock-message]');
@@ -19,20 +20,70 @@
     
     // Get all variant data from hidden input
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    if (variantsData) {
+        try {
+            variants = JSON.parse(variantsData.textContent || '[]');
+            if (!Array.isArray(variants)) {
+                variants = [];
+            }
+        } catch (e) {
+            // Keep progressive enhancement working when variant JSON is malformed.
+            variants = [];
+        }
+    }
+
+    function merchantCheckoutHref(rawUrl) {
+        // Reject empty/fragment placeholders that resolve to this origin.
+        if (!rawUrl || rawUrl === '#' || rawUrl === '/') {
+            return '';
+        }
+        try {
+            // Absolute URLs only — relative/'#' would become this site.
+            const parsed = new URL(rawUrl);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return '';
+            }
+            return parsed.href;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function clearCheckoutIdentity() {
+        form.action = '#';
+        delete form.dataset.checkoutUrl;
+        form.dataset.variantId = '';
+        form.dataset.sku = '';
+        if (buyButton) {
+            buyButton.disabled = true;
+            buyButton.style.opacity = '0.5';
+            buyButton.style.cursor = 'not-allowed';
+        }
+        if (stockMessage) {
+            stockMessage.textContent = 'Select an available option';
+            stockMessage.style.color = '#dc3545';
+        }
+    }
     
     function updateProduct() {
         const selectedColor = colorSelect?.value;
         const selectedSize = sizeSelect?.value;
+        const selectedMaterial = materialSelect?.value;
         
-        // Find matching variant
+        // Find matching variant (include option3/material when present).
         const variant = variants.find(v => {
             const colorMatch = !selectedColor || v.color === selectedColor;
             const sizeMatch = !selectedSize || v.size === selectedSize;
-            return colorMatch && sizeMatch;
+            const materialMatch = !selectedMaterial || v.material === selectedMaterial;
+            return colorMatch && sizeMatch && materialMatch;
         });
         
-        if (!variant) return;
+        // Impossible combo must not keep the previous variant identity.
+        if (!variant) {
+            clearCheckoutIdentity();
+            return;
+        }
         
         // Update price
         if (priceDisplay) {
@@ -67,9 +118,27 @@
             });
         }
         
-        // Update form action to point to correct variant URL
-        if (variant.url) {
-            form.action = variant.url;
+        // Update form action to point to correct variant URL (absolute http/https only).
+        // Always clear/replace — truthy checks left stale checkout identity when
+        // switching to a variant with empty SKU, zero price, or missing URL.
+        const checkoutHref = merchantCheckoutHref(variant.url);
+        if (checkoutHref) {
+            form.action = checkoutHref;
+            form.dataset.checkoutUrl = checkoutHref;
+        } else {
+            form.action = '#';
+            delete form.dataset.checkoutUrl;
+        }
+
+        // Keep cart data aligned with the selected Shopify variant.
+        form.dataset.variantId = variant.id == null ? '' : String(variant.id);
+        form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
+        form.dataset.price = variant.price == null || variant.price === ''
+            ? '0'
+            : String(variant.price);
+        form.dataset.currency = variant.currency ? String(variant.currency) : 'USD';
+        if (Object.prototype.hasOwnProperty.call(variant, 'image') && variant.image) {
+            form.dataset.image = String(variant.image);
         }
     }
     
@@ -80,6 +149,10 @@
     
     if (sizeSelect) {
         sizeSelect.addEventListener('change', updateProduct);
+    }
+
+    if (materialSelect) {
+        materialSelect.addEventListener('change', updateProduct);
     }
     
     // Initial update
@@ -94,4 +167,3 @@
         });
     }
 })();
-

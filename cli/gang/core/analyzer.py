@@ -26,14 +26,12 @@ class ContentAnalyzer:
         """Analyze a markdown file and return quality metrics"""
         content = file_path.read_text()
         
-        # Parse frontmatter and body
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        # Parse frontmatter and body (null/empty YAML must not crash .items())
+        try:
+            from core.frontmatter import parse_frontmatter
+        except ImportError:  # pragma: no cover
+            from frontmatter import parse_frontmatter
+        frontmatter, body = parse_frontmatter(content)
         
         # Convert to HTML for structure analysis
         md = markdown.Markdown(extensions=['extra', 'meta'])

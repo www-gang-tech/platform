@@ -104,15 +104,21 @@ class TaxonomyManager:
             'uncategorized': []
         }
         
+        try:
+            from core.frontmatter import parse_frontmatter
+        except ImportError:  # pragma: no cover
+            from frontmatter import parse_frontmatter
+
         for md_file in self.content_path.rglob('*.md'):
             content = md_file.read_text()
             if content.startswith('---'):
-                parts = content.split('---', 2)
-                frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                frontmatter, _body = parse_frontmatter(content)
                 
-                title = frontmatter.get('title', md_file.stem)
+                title = frontmatter.get('title')
+                if title is None or not str(title).strip():
+                    title = md_file.stem
                 category = frontmatter.get('category')
-                tags = frontmatter.get('tags', [])
+                tags = frontmatter.get('tags') or []
                 
                 relative_path = md_file.relative_to(self.content_path)
                 
@@ -145,14 +151,18 @@ class TaxonomyManager:
         """Find related content based on category and tags"""
         related = []
         
+        try:
+            from core.frontmatter import parse_frontmatter
+        except ImportError:  # pragma: no cover
+            from frontmatter import parse_frontmatter
+
         for md_file in self.content_path.rglob('*.md'):
             content = md_file.read_text()
             if content.startswith('---'):
-                parts = content.split('---', 2)
-                frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                frontmatter, _body = parse_frontmatter(content)
                 
                 file_category = frontmatter.get('category')
-                file_tags = frontmatter.get('tags', [])
+                file_tags = frontmatter.get('tags') or []
                 
                 # Score based on matches
                 score = 0

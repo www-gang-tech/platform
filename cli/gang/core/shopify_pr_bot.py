@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Optional
 import json
 import yaml
 import subprocess
+from core.frontmatter import dump_frontmatter
 from datetime import datetime
 import os
 
@@ -67,28 +68,42 @@ class ShopifyPRBot:
         return frontmatter
     
     def _extract_field(self, data: Dict, field_path: str) -> Any:
-        """Extract nested field using dot notation"""
+        """Extract nested field using dot notation / array indexes / wildcards."""
         
         parts = field_path.split('.')
         value = data
         
-        for part in parts:
+        for i, part in enumerate(parts):
             if '[' in part:
                 # Array access: variants[0] or images[*]
                 key = part.split('[')[0]
                 index = part.split('[')[1].rstrip(']')
                 
-                if key in value:
-                    if index == '*':
-                        # Get all items
-                        return value[key]
-                    elif index.isdigit():
-                        # Get specific index
-                        idx = int(index)
-                        if idx < len(value[key]):
-                            value = value[key][idx]
-                        else:
-                            return None
+                if not isinstance(value, dict) or key not in value:
+                    return None
+                collection = value.get(key)
+                if collection is None:
+                    return None
+                if not isinstance(collection, list):
+                    return None
+                if index == '*':
+                    remaining = parts[i + 1:]
+                    if not remaining:
+                        return collection
+                    extracted = []
+                    for item in collection:
+                        nested = self._extract_field(
+                            item if isinstance(item, dict) else {},
+                            '.'.join(remaining),
+                        )
+                        if nested is not None:
+                            extracted.append(nested)
+                    return extracted
+                if index.isdigit():
+                    idx = int(index)
+                    if idx < 0 or idx >= len(collection):
+                        return None
+                    value = collection[idx]
                 else:
                     return None
             else:
@@ -113,43 +128,75 @@ class ShopifyPRBot:
             return value
         
         elif transform == 'normalize_variants':
-            # Normalize variant structure
-            if isinstance(value, list):
-                return [
-                    {
-                        'id': v.get('id'),
-                        'title': v.get('title'),
-                        'price': v.get('price'),
-                        'sku': v.get('sku'),
-                        'inventory': v.get('inventory_quantity', 0)
-                    }
-                    for v in value
-                ]
+            # Normalize variant structure for markdown PDPs / product.js.
+            if not isinstance(value, list):
+                return []
+            normalized = []
+            for v in value:
+                if not isinstance(v, dict):
+                    continue
+                raw_qty = v.get('inventory_quantity', v.get('inventory', 0))
+                try:
+                    inventory_qty = int(raw_qty) if raw_qty is not None else 0
+                except (TypeError, ValueError):
+                    inventory_qty = 0
+                inventory_management = v.get('inventory_management')
+                inventory_policy = v.get('inventory_policy', 'deny')
+                if inventory_management in (None, ''):
+                    in_stock = True
+                elif inventory_policy == 'continue':
+                    in_stock = True
+                else:
+                    in_stock = inventory_qty > 0
+                option1 = str(v.get('option1') or '').strip()
+                option2 = str(v.get('option2') or '').strip()
+                option3 = str(v.get('option3') or '').strip()
+                normalized.append({
+                    'id': v.get('id'),
+                    'title': v.get('title'),
+                    'price': '0' if v.get('price') in (None, '') else str(v.get('price')),
+                    'sku': v.get('sku') or '',
+                    'inventory': inventory_qty,
+                    'availability': (
+                        'https://schema.org/InStock'
+                        if in_stock
+                        else 'https://schema.org/OutOfStock'
+                    ),
+                    'option1': option1,
+                    'option2': option2,
+                    'option3': option3,
+                    # product.js matches color/size; map Shopify options.
+                    'color': option1,
+                    'size': option2 or (str(v.get('title') or '').strip() if not option1 else ''),
+                    'material': option3,
+                })
+            return normalized
         
         return value
     
     def generate_markdown_file(self, product_data: Dict[str, Any]) -> Path:
         """Generate markdown file for product"""
+        import re
         
         frontmatter = self.convert_to_frontmatter(product_data)
         
-        # Get slug
-        slug = frontmatter.get('slug', 'unknown')
+        # Get slug — reject path separators / traversal before writing.
+        slug = str(frontmatter.get('slug', 'unknown') or 'unknown').strip()
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug):
+            raise ValueError(f'Unsafe Shopify product slug/handle: {slug!r}')
+        frontmatter['slug'] = slug
         
         # Create file path
-        products_dir = self.content_path / 'products'
+        products_dir = (self.content_path / 'products').resolve()
         products_dir.mkdir(exist_ok=True)
         
-        file_path = products_dir / f"{slug}.md"
+        file_path = (products_dir / f"{slug}.md").resolve()
+        try:
+            file_path.relative_to(products_dir)
+        except ValueError as exc:
+            raise ValueError(f'Slug escaped products directory: {slug!r}') from exc
         
-        # Generate markdown content
-        content_lines = ['---']
-        content_lines.append(yaml.dump(frontmatter, default_flow_style=False))
-        content_lines.append('---')
-        content_lines.append('')
-        content_lines.append(frontmatter.get('description', ''))
-        
-        content = '\n'.join(content_lines)
+        content = dump_frontmatter(frontmatter, frontmatter.get('description', ''))
         
         file_path.write_text(content)
         
@@ -239,6 +286,18 @@ class ShopifyPRBot:
         # Create PR
         title = f"🛒 Update product: {product_data.get('title', product_data.get('handle'))}"
         
+        variants = product_data.get('variants')
+        first_variant = {}
+        if isinstance(variants, list):
+            first_variant = next((v for v in variants if isinstance(v, dict)), {})
+        elif isinstance(variants, dict):
+            first_variant = variants
+        price = first_variant.get('price', 'N/A')
+        inventory = first_variant.get(
+            'inventory_quantity',
+            first_variant.get('inventory', 'N/A'),
+        )
+
         body = f"""## Product Update
         
 **Product:** {product_data.get('title')}  
@@ -246,8 +305,8 @@ class ShopifyPRBot:
 **Updated:** {product_data.get('updated_at')}  
 
 ### Changes
-- Price: ${product_data.get('variants', [{}])[0].get('price', 'N/A')}
-- Inventory: {product_data.get('variants', [{}])[0].get('inventory_quantity', 'N/A')} units
+- Price: ${price}
+- Inventory: {inventory} units
 
 This PR was automatically generated by Shopify PR Bot.
 """

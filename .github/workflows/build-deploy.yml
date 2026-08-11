@@ -33,7 +33,7 @@ jobs:
           cd cli/gang && pip install -e . && cd ../..
       
       - name: Run AI optimization (optional)
-        if: env.ANTHROPIC_API_KEY != ''
+        if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: gang optimize
@@ -44,8 +44,7 @@ jobs:
       
       - name: Validate contracts
         id: validate
-        run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+        run: gang check --output validation-report.json
       
       - name: Upload validation report
         if: always()
@@ -84,8 +83,7 @@ jobs:
         run: npm install -g @lhci/cli@0.13.x
       
       - name: Run Lighthouse CI
-        run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+        run: lhci autorun --config=lighthouserc.json
       
       - name: Upload Lighthouse reports
         if: always()
@@ -138,20 +136,38 @@ jobs:
           node-version: '20'
       
       - name: Install axe-cli
-        run: npm install -g @axe-core/cli
+        run: npm install -g @axe-core/cli http-server@14.1.1
       
       - name: Run axe accessibility tests
         run: |
-          # Start simple HTTP server in background
-          npx http-server dist -p 8080 &
+          npx --no-install http-server dist -p 8080 &
           SERVER_PID=$!
-          sleep 3
-          
-          # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
-          
-          # Cleanup
-          kill $SERVER_PID
+          trap 'kill $SERVER_PID' EXIT
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+
+          URLS=$(node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          function walk(dir) {
+            return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory()) return walk(full);
+              return entry.name === 'index.html' ? [full] : [];
+            });
+          }
+          console.log(walk('dist').map((file) => {
+            const rel = path.dirname(path.relative('dist', file));
+            return 'http://localhost:8080/' + (rel === '.' ? '' : `${rel}/`);
+          }).join(' '));
+          NODE
+          )
+          axe $URLS --exit
 
   deploy:
     name: Deploy to Cloudflare Pages
