@@ -10,13 +10,13 @@
     <meta name="description" content="Complete sitemap of all pages, posts, projects, and products">
     <link rel="canonical" href="{{ site_url }}/sitemap/">
     <script type="application/ld+json">
-    {
+    {{ {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": "Sitemap",
         "description": "Complete sitemap of all pages, posts, projects, and products",
-        "url": "{{ site_url }}/sitemap/"
-    }
+        "url": (site_url|default('')) ~ "/sitemap/"
+    } | tojson }}
     </script>
     
     <link rel="stylesheet" href="/assets/style.css">

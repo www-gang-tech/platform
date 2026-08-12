@@ -16,7 +16,7 @@
     <meta property="og:description" content="{{ description }}">
     <meta property="og:url" content="{{ canonical_url }}">
     {% if product_image %}
-    <meta property="og:image" content="{{ product_image }}">
+    <meta property="og:image" content="{{ product_image|safe_url }}">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     {% endif %}
@@ -28,7 +28,7 @@
     <meta name="twitter:title" content="{{ title }}">
     <meta name="twitter:description" content="{{ description }}">
     {% if product_image %}
-    <meta name="twitter:image" content="{{ product_image }}">
+    <meta name="twitter:image" content="{{ product_image|safe_url }}">
     {% endif %}
     
     <!-- JSON-LD Product Schema -->
@@ -54,7 +54,7 @@
                 {% if product_images %}
                     {% if product_images is string %}
                         <!-- Fallback: product_images came as string, use product_image -->
-                        <img src="{{ product_image }}" 
+                        <img src="{{ product_image|safe_url }}" 
                              alt="{{ title }}" 
                              width="800" 
                              height="800" 
@@ -62,7 +62,7 @@
                              decoding="async">
                     {% else %}
                         {% for image in product_images %}
-                        <img src="{{ image }}" 
+                        <img src="{{ image|safe_url }}" 
                              alt="{{ title }}" 
                              width="800" 
                              height="800" 
@@ -88,15 +88,15 @@
                 
                 <!-- Product Form (works without JS, enhanced with JS) -->
                 <form class="product-form" 
-                      action="{% if checkout_base_url %}{{ buy_url }}{% else %}#{% endif %}" 
+                      action="{% if checkout_base_url %}{{ buy_url|safe_url }}{% else %}#{% endif %}" 
                       method="GET"
                       data-product-name="{{ title }}"
                       data-price="{{ price }}"
                       data-currency="{{ currency }}"
-                      data-image="{{ product_image }}"
+                      data-image="{{ product_image|safe_url }}"
                       data-product-url="/products/{{ product_slug }}/"
-                      data-checkout-url="{% if checkout_base_url %}{{ buy_url }}{% endif %}"
-                      data-checkout-base-url="{{ checkout_base_url }}"
+                      data-checkout-url="{% if checkout_base_url %}{{ buy_url|safe_url }}{% endif %}"
+                      data-checkout-base-url="{{ checkout_base_url|safe_url }}"
                       data-sku="{{ sku }}"
                       data-variant-id="{{ variant_id }}">
                     

@@ -14,6 +14,17 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+
+    @staticmethod
+    def _rule_names(items: List[Any]) -> List[str]:
+        """Flatten contract rule entries; ignore empty dicts safely."""
+        names = []
+        for item in items or []:
+            if isinstance(item, str):
+                names.append(item)
+            elif isinstance(item, dict) and item:
+                names.append(next(iter(item.keys())))
+        return names
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -86,9 +97,10 @@ class ContractValidator:
                         'message': f'Alt text coverage {coverage:.1f}% < required {alt_coverage}%',
                     })
         
+        accessibility_rules = self._rule_names(self.contracts.get('accessibility', []))
+
         # Check color contrast (basic check for inline styles)
-        if 'color_contrast' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                 for item in self.contracts.get('accessibility', [])]:
+        if 'color_contrast' in accessibility_rules:
             elements_with_style = soup.find_all(style=True)
             for elem in elements_with_style:
                 style = elem.get('style', '')
@@ -98,8 +110,7 @@ class ContractValidator:
                     pass
         
         # Check keyboard navigation (check for tabindex misuse)
-        if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('accessibility', [])]:
+        if 'keyboard_nav' in accessibility_rules:
             def has_positive_tabindex(value):
                 try:
                     return int(value) > 0
@@ -120,9 +131,10 @@ class ContractValidator:
         issues = []
         soup = BeautifulSoup(html, 'html.parser')
         
+        seo_rules = self._rule_names(self.contracts.get('seo', []))
+
         # Check meta description
-        if 'meta_description' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                   for item in self.contracts.get('seo', [])]:
+        if 'meta_description' in seo_rules:
             meta_desc = soup.find('meta', attrs={'name': 'description'})
             if not meta_desc or not meta_desc.get('content'):
                 issues.append({
@@ -132,8 +144,7 @@ class ContractValidator:
                 })
         
         # Check canonical URL
-        if 'canonical_url' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                for item in self.contracts.get('seo', [])]:
+        if 'canonical_url' in seo_rules:
             canonical = soup.find('link', attrs={'rel': 'canonical'})
             if not canonical:
                 issues.append({
@@ -143,12 +154,13 @@ class ContractValidator:
                 })
         
         # Check valid JSON-LD
-        if 'valid_jsonld' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('seo', [])]:
+        if 'valid_jsonld' in seo_rules:
             jsonld_scripts = soup.find_all('script', attrs={'type': 'application/ld+json'})
             for script in jsonld_scripts:
                 try:
-                    json.loads(script.string)
+                    # .string is None when a script node has multiple children.
+                    raw = script.string if script.string is not None else script.get_text()
+                    json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
                     issues.append({
                         'severity': 'error',

@@ -238,7 +238,8 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
     # Batch analysis mode
     if analyze_all:
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        # Same publishable set as gang build (exclude examples/comments).
+        md_files = collect_build_content_files(content_path)
         
         if not md_files:
             click.echo("⚠️  No markdown files found", err=True)
@@ -2233,7 +2234,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        # Align with gang build — examples/comments are not publishable pages.
+        md_files = collect_build_content_files(content_path)
         
         failed_files = []
         for md_file in md_files:
@@ -3375,11 +3377,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         def minify_html_safely(html_content: str) -> str:
             """Minify HTML while preserving pre/code/textarea/script/style bodies."""
             protected = []
+            # Per-call nonce so page content cannot collide with restore tokens
+            # (a literal GANGMINIFYPROTECT0ENDPROTECT in HTML used to be overwritten).
+            import secrets
+            protect_nonce = secrets.token_hex(16)
 
             def stash_block(block: str) -> str:
                 protected.append(block)
                 # Use a non-comment token so later comment stripping cannot drop it.
-                return f'GANGMINIFYPROTECT{len(protected) - 1}ENDPROTECT'
+                return f'GANGMINIFY{protect_nonce}PROTECT{len(protected) - 1}ENDPROTECT'
 
             # Protect sensitive blocks with a scanner so an early "</script>"
             # inside a JS/JSON string cannot truncate the protected region.
@@ -3536,7 +3542,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 line.strip() for line in minified.split('\n') if line.strip()
             )
             for idx, block in enumerate(protected):
-                minified = minified.replace(f'GANGMINIFYPROTECT{idx}ENDPROTECT', block)
+                minified = minified.replace(
+                    f'GANGMINIFY{protect_nonce}PROTECT{idx}ENDPROTECT', block
+                )
             return minified
 
         css_files = [f for f in dist_path.rglob('*.css')]
@@ -3618,6 +3626,21 @@ def make_json_safe(value):
     if isinstance(value, (list, tuple, set)):
         return [make_json_safe(item) for item in value]
     return value
+
+
+
+def json_for_script(value, *, indent: int = 2) -> str:
+    """Serialize JSON for a <script> body without </script> breakout."""
+    # Match Jinja's tojson hardening: escape HTML-significant characters so a
+    # title/description containing </script> cannot terminate the script element.
+    return (
+        json.dumps(make_json_safe(value), indent=indent)
+        .replace('<', '\u003c')
+        .replace('>', '\u003e')
+        .replace('&', '\u0026')
+        .replace(' ', '\u2028')
+        .replace(' ', '\u2029')
+    )
 
 
 try:
@@ -4095,8 +4118,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         "description": config['site']['description'],
         "url": config['site']['url']
     }
-    import json
-    jsonld_str = json.dumps(jsonld, indent=2)
+    jsonld_str = json_for_script(jsonld)
     
     # Build timestamp
     build_time = datetime.now()
@@ -4221,7 +4243,6 @@ def create_list_page_simple(
         items_html += '</li>\n'
     
     # Create JSON-LD structured data
-    import json
     page_url = config['site']['url'].rstrip('/')
     if canonical_path:
         page_url = f"{page_url}{canonical_path}"
@@ -4232,7 +4253,7 @@ def create_list_page_simple(
         "description": config['site']['description'],
         "url": page_url
     }
-    jsonld_str = json.dumps(jsonld, indent=2)
+    jsonld_str = json_for_script(jsonld)
     
     # Build timestamp
     build_time = datetime.now()
@@ -4316,7 +4337,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     safe_site_title = html_escape(str(config['site']['title']))
     safe_description = html_escape(description, quote=True)
     canonical_url = f"{str(config['site']['url']).rstrip('/')}/{content_type}/{quote(md_file.stem, safe='')}/"
-    fallback_jsonld = json.dumps({
+    fallback_jsonld = json_for_script({
         "@context": "https://schema.org",
         "@type": "WebPage",
         "name": str(title),
@@ -4801,7 +4822,7 @@ def check(ctx, output):
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
 def audit(ctx, output):
-    """Run Lighthouse + axe audits (auto-discovers all pages)"""
+    """Run Lighthouse CI audits (auto-discovers all pages in dist/)"""
     import subprocess
     from pathlib import Path
     
