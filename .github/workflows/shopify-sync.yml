@@ -151,6 +151,11 @@ jobs:
       
       - name: Convert to front-matter
         id: convert
+        env:
+          # Convert enriches variant URLs / currency from the same secrets as Extract.
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          SHOPIFY_CURRENCY: ${{ secrets.SHOPIFY_CURRENCY }}
         run: |
           python3 << 'EOF'
           import json

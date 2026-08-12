@@ -142,6 +142,41 @@ class RedirectManager:
             return True
         
         return False
+
+    def rollback_redirect(
+        self,
+        old_path: str,
+        *,
+        created: bool,
+        prior: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Undo add_redirect for a failed rename.
+
+        Newly created redirects are removed. Updated redirects restore the
+        prior ``to``/metadata so concurrent or pre-existing 301s survive.
+        """
+        if created or not prior:
+            self.remove_redirect(old_path)
+            return
+        try:
+            prior_to = prior.get('to')
+            if not prior_to:
+                self.remove_redirect(old_path)
+                return
+            reason = prior.get('reason') or 'slug_change'
+            permanent = int(prior.get('status', 301) or 301) == 301
+            self.add_redirect(old_path, prior_to, reason=reason, permanent=permanent)
+            # Preserve original created timestamp when present.
+            current = self.get_redirect(old_path)
+            if current and prior.get('created'):
+                current['created'] = prior['created']
+                if 'updated' in prior:
+                    current['updated'] = prior['updated']
+                elif 'updated' in current:
+                    del current['updated']
+                self._save_redirects()
+        except Exception:
+            self.remove_redirect(old_path)
     
     def get_redirect(self, old_path: str) -> Optional[Dict[str, Any]]:
         """Get redirect for a path"""

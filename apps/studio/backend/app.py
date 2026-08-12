@@ -260,12 +260,14 @@ def trigger_build():
         has_content_changes = bool(status.stdout.strip())
         try:
             json_data = request.get_json(silent=True)
-            commit_message = (
+            raw_message = (
                 json_data.get('message', 'Content update via in-place editor')
-                if json_data else 'Content update via in-place editor'
+                if isinstance(json_data, dict) else 'Content update via in-place editor'
             )
         except Exception:
-            commit_message = 'Content update via in-place editor'
+            raw_message = 'Content update via in-place editor'
+        # git commit -m requires a string; null/objects from JSON must not 500.
+        commit_message = str(raw_message).strip() or 'Content update via in-place editor'
 
         if has_content_changes:
             # Add content changes
@@ -441,29 +443,40 @@ def rename_slug():
 
         # Persist redirect intent before rename so a mid-flight failure cannot
         # leave a renamed slug without its 301 (non-atomic FS + JSON store).
-        # Roll the redirect back if the exclusive rename fails.
+        # Roll the redirect back if the exclusive rename fails — restore any
+        # pre-existing redirect that add_redirect only updated.
         redirect_info = None
         manager = None
         old_url = None
+        redirect_created = False
+        prior_redirect = None
         if create_redirect:
             output_category = 'posts' if category == 'articles' else category
             old_url = f'/{output_category}/{old_slug}/'
             new_url = f'/{output_category}/{new_slug}/'
             manager = RedirectManager(CONTENT_DIR, PROJECT_ROOT / 'dist')
-            redirect_info = manager.add_redirect(old_url, new_url, reason='slug_rename_cms').get('redirect')
+            prior = manager.get_redirect(old_url)
+            prior_redirect = dict(prior) if isinstance(prior, dict) else None
+            add_result = manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
+            redirect_created = bool(add_result.get('created'))
+            redirect_info = add_result.get('redirect')
 
         try:
             rename_content_file_exclusive(old_file, new_file)
         except FileExistsError:
             if manager is not None and old_url:
-                manager.remove_redirect(old_url)
+                manager.rollback_redirect(
+                    old_url, created=redirect_created, prior=prior_redirect
+                )
             return jsonify({
                 'error': 'Slug already exists',
                 'message': f'A file with slug "{new_slug}" already exists',
             }), 400
         except Exception:
             if manager is not None and old_url:
-                manager.remove_redirect(old_url)
+                manager.rollback_redirect(
+                    old_url, created=redirect_created, prior=prior_redirect
+                )
             raise
         try:
             from core.frontmatter import update_slug_in_file

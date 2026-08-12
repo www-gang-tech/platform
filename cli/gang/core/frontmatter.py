@@ -14,7 +14,11 @@ def dump_frontmatter(frontmatter: Dict[str, Any], body: str) -> str:
 
 
 def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
-    """Parse YAML frontmatter; always return a dict (never None/list/scalar)."""
+    """Parse YAML frontmatter; always return a dict (never None/list/scalar).
+
+    Malformed YAML fails closed as ``status: draft`` so schedulers cannot
+    publish files whose draft marker was lost to a parse error.
+    """
     if not content.startswith('---'):
         return {}, content
     parts = content.split('---', 2)
@@ -23,7 +27,8 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
     try:
         loaded = yaml.safe_load(parts[1]) if parts[1].strip() else {}
     except Exception:
-        loaded = {}
+        body = parts[2] if len(parts) > 2 else ''
+        return {'status': 'draft', '_yaml_error': True}, body
     frontmatter = loaded if isinstance(loaded, dict) else {}
     body = parts[2] if len(parts) > 2 else ''
     return frontmatter, body

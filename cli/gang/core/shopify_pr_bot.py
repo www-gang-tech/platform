@@ -49,9 +49,9 @@ class ShopifyPRBot:
             # Extract value from Shopify data
             value = self._extract_field(product_data, shopify_field)
             
-            # Apply transformation if specified
+            # Apply transformation if specified (including empty lists / zero).
             transform = mapping.get('transform')
-            if transform and value:
+            if transform and value is not None:
                 value = self._apply_transform(value, transform)
             
             # Use default if value is None and default is specified
@@ -64,8 +64,49 @@ class ShopifyPRBot:
         # Add metadata
         frontmatter['shopify_updated_at'] = datetime.utcnow().isoformat()
         frontmatter['source'] = 'shopify'
+
+        # Admin REST omits public variant URLs; enrich like shopify-sync Convert.
+        self._enrich_variant_urls(frontmatter, product_data)
         
         return frontmatter
+
+    @staticmethod
+    def _normalize_store_host(value: str) -> str:
+        from urllib.parse import urlparse
+        value = (value or '').strip()
+        if not value:
+            return ''
+        if '://' in value:
+            parsed = urlparse(value)
+        else:
+            parsed = urlparse(f'https://{value}')
+        return (parsed.netloc or parsed.path or '').strip('/').lower()
+
+    def _enrich_variant_urls(self, frontmatter: Dict[str, Any], product_data: Dict[str, Any]) -> None:
+        """Fill variant url/buy_url from SHOPIFY_STORE(+URL) + handle + variant id."""
+        store_host = self._normalize_store_host(
+            os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
+        )
+        handle = str(
+            frontmatter.get('slug') or product_data.get('handle') or ''
+        ).strip()
+        if not store_host or not handle:
+            return
+        variants = frontmatter.get('variants')
+        if not isinstance(variants, list):
+            return
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            vid = variant.get('id')
+            if not vid:
+                continue
+            if not variant.get('url'):
+                variant['url'] = (
+                    f'https://{store_host}/products/{handle}?variant={vid}'
+                )
+            if not variant.get('buy_url'):
+                variant['buy_url'] = variant['url']
     
     def _extract_field(self, data: Dict, field_path: str) -> Any:
         """Extract nested field using dot notation / array indexes / wildcards."""

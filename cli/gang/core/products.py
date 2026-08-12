@@ -540,11 +540,14 @@ class ProductAggregator:
         # empty catalogs). Failures return None and should restore cache.
         fetched_ok = set()
 
-        # Shopify
-        shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
-        if shopify_config[0] and shopify_config[1]:
-            # Only use real Shopify if both URL and token are set
-            client = ShopifyClient(shopify_config[0], shopify_config[1])
+        # Shopify — accept SHOPIFY_STORE (sync workflow) or SHOPIFY_STORE_URL (local/build).
+        shopify_store = (
+            os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
+        ).strip()
+        shopify_token = (os.environ.get('SHOPIFY_ACCESS_TOKEN') or '').strip()
+        if shopify_store and shopify_token:
+            # Only use real Shopify if both store and token are set
+            client = ShopifyClient(shopify_store, shopify_token)
             result = client.fetch_products()
             if result is None:
                 pass  # failure — restore from cache below

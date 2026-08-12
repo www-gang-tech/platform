@@ -1016,12 +1016,38 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     if not click.confirm("Proceed with rename?"):
         click.echo("Cancelled")
         return
-    
-    # Rename file
+
     try:
-        old_file.rename(new_file)
+        from core.content_fs import rename_content_file_exclusive
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.content_fs import rename_content_file_exclusive
+
+    # Persist redirect before rename (Studio API parity). Roll back on failure.
+    redirect_manager = None
+    redirect_created = False
+    prior_redirect = None
+    if create_redirect:
+        redirect_manager = RedirectManager(content_path, dist_path)
+        prior = redirect_manager.get_redirect(old_url)
+        prior_redirect = dict(prior) if isinstance(prior, dict) else None
+        result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename')
+        redirect_created = bool(result.get('created'))
+        if redirect_created:
+            click.echo("✅ 301 redirect created")
+        elif result.get('updated'):
+            click.echo("✅ Redirect updated (was already tracking this path)")
+        click.echo("📄 Redirects file: .redirects.json")
+
+    try:
+        rename_content_file_exclusive(old_file, new_file)
         click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
     except Exception as e:
+        if redirect_manager is not None:
+            redirect_manager.rollback_redirect(
+                old_url, created=redirect_created, prior=prior_redirect
+            )
         click.echo(f"❌ Rename failed: {e}")
         ctx.exit(1)
 
@@ -1031,18 +1057,6 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
             click.echo(f"✅ Frontmatter slug updated to '{new_slug}'")
     except Exception as e:
         click.echo(f"⚠️  Could not update frontmatter slug: {e}")
-    
-    # Create redirect if requested
-    if create_redirect:
-        redirect_manager = RedirectManager(content_path, dist_path)
-        result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename')
-        
-        if result.get('created'):
-            click.echo(f"✅ 301 redirect created")
-        elif result.get('updated'):
-            click.echo(f"✅ Redirect updated (was already tracking this path)")
-        
-        click.echo(f"📄 Redirects file: .redirects.json")
     
     # Create git commit
     if click.confirm("\nCreate git commit?"):
@@ -2461,16 +2475,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             or os.environ.get('STUDIO_API_BASE')
             or 'http://127.0.0.1:3000'
         )
-            # Never bake bearer tokens into static HTML — EDITOR_MODE builds must
+        # Never bake bearer tokens into static HTML — EDITOR_MODE builds must
         # remain deployable. The editor reads tokens from local/session storage.
         studio_auth_token = ''
-        buy_url = str(frontmatter.get('buy_url') or first_offer.get('url') or '')
-        parsed_buy_url = urlparse(buy_url)
-        markdown_checkout_base = (
-            f"{parsed_buy_url.scheme}://{parsed_buy_url.netloc}"
-            if parsed_buy_url.scheme in ('http', 'https') and parsed_buy_url.netloc
-            else ''
-        )
 
         # Normalize markdown product variants for product.js (color/size/material).
         md_variants = frontmatter.get('variants', []) or []
@@ -2552,9 +2559,57 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             if not md_materials:
                 md_materials = [m for m in sorted(material_set)]
             if normalized_variants:
-                md_availability = normalized_variants[0].get(
-                    'availability', md_availability
+                # Prefer first in-stock variant for SSR availability / defaults.
+                in_stock = next(
+                    (
+                        v for v in normalized_variants
+                        if 'OutOfStock' not in str(v.get('availability') or '')
+                    ),
+                    normalized_variants[0],
                 )
+                md_availability = in_stock.get('availability', md_availability)
+
+        # Checkout must use a merchant origin — never the site canonical from
+        # fallback JSON-LD offers.url (that breaks Shopify cart permalinks).
+        site_origin = ''
+        try:
+            site_parsed = urlparse(str(config.get('site', {}).get('url') or ''))
+            if site_parsed.scheme in ('http', 'https') and site_parsed.netloc:
+                site_origin = f"{site_parsed.scheme}://{site_parsed.netloc}"
+        except Exception:
+            site_origin = ''
+
+        def _merchant_origin(url: str) -> str:
+            try:
+                parsed = urlparse(str(url or ''))
+            except Exception:
+                return ''
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+                return ''
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            if site_origin and origin.rstrip('/').lower() == site_origin.rstrip('/').lower():
+                return ''
+            return origin
+
+        buy_url = str(frontmatter.get('buy_url') or '').strip()
+        if buy_url in {'', '#', '/'}:
+            buy_url = ''
+        markdown_checkout_base = _merchant_origin(buy_url)
+        if not markdown_checkout_base and content_type == 'products':
+            for variant in md_variants if isinstance(md_variants, list) else []:
+                if not isinstance(variant, dict):
+                    continue
+                markdown_checkout_base = _merchant_origin(variant.get('url') or '')
+                if markdown_checkout_base:
+                    if not buy_url:
+                        buy_url = str(variant.get('url') or '').strip()
+                    break
+        if not markdown_checkout_base:
+            # Explicit frontmatter buy_url on a foreign host only; never JSON-LD site URL.
+            offer_candidate = str(first_offer.get('url') or '').strip()
+            markdown_checkout_base = _merchant_origin(offer_candidate)
+            if markdown_checkout_base and not buy_url:
+                buy_url = offer_candidate
         
         context = {
             'site_title': config['site']['title'],
@@ -3123,7 +3178,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             # redirect checkout. Only emit when we know at least one commerce
             # origin — an empty/site-only list would falsely block Shopify.
             checkout_origins = set()
-            store_url = os.environ.get('SHOPIFY_STORE_URL') or ''
+            store_url = (
+                os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
+            ).strip()
             if store_url and not store_url.startswith('http'):
                 store_url = f'https://{store_url}'
             try:
@@ -3983,6 +4040,50 @@ def build_default_jsonld(
             images = [images]
         price = frontmatter.get('price', '0')
         currency = frontmatter.get('currency', 'USD')
+        availability = 'https://schema.org/InStock'
+        offer_url = canonical_url
+        variants = frontmatter.get('variants')
+        if isinstance(variants, list) and variants:
+            chosen = None
+            for variant in variants:
+                if not isinstance(variant, dict):
+                    continue
+                avail = str(variant.get('availability') or '')
+                if 'OutOfStock' in avail:
+                    if chosen is None:
+                        chosen = variant
+                    continue
+                chosen = variant
+                break
+            if chosen is None:
+                chosen = next((v for v in variants if isinstance(v, dict)), {})
+            if chosen:
+                price = chosen.get('price', price)
+                currency = chosen.get('currency') or currency
+                avail = str(chosen.get('availability') or '')
+                if avail:
+                    availability = (
+                        avail if avail.startswith('http')
+                        else f'https://schema.org/{avail}'
+                    )
+                merchant_url = str(
+                    chosen.get('url') or chosen.get('buy_url') or ''
+                ).strip()
+                if merchant_url and merchant_url not in {'#', '/'}:
+                    offer_url = merchant_url
+            # If every variant is OOS, surface OutOfStock.
+            if all(
+                isinstance(v, dict) and 'OutOfStock' in str(v.get('availability') or '')
+                for v in variants
+                if isinstance(v, dict)
+            ) and any(isinstance(v, dict) for v in variants):
+                availability = 'https://schema.org/OutOfStock'
+        elif frontmatter.get('availability'):
+            avail = str(frontmatter.get('availability'))
+            availability = avail if avail.startswith('http') else f'https://schema.org/{avail}'
+        fm_buy = str(frontmatter.get('buy_url') or '').strip()
+        if fm_buy and fm_buy not in {'#', '/'}:
+            offer_url = fm_buy
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
@@ -3993,10 +4094,10 @@ def build_default_jsonld(
             'brand': {'@type': 'Brand', 'name': str(frontmatter.get('brand', site_name))},
             'offers': {
                 '@type': 'Offer',
-                'price': str(price),
-                'priceCurrency': str(currency),
-                'availability': 'https://schema.org/InStock',
-                'url': canonical_url,
+                'price': str(price if price is not None else '0'),
+                'priceCurrency': str(currency or 'USD'),
+                'availability': availability,
+                'url': offer_url,
             },
         }
     return {
@@ -5434,6 +5535,8 @@ def studio(ctx, port, host):
                         # a renamed slug without its 301. Roll back if rename fails.
                         redirect_info = None
                         redirect_manager = None
+                        redirect_created = False
+                        prior_redirect = None
                         old_url = new_url = None
                         if create_redirect:
                             # Articles publish under /posts/; keep redirects on public URLs.
@@ -5442,7 +5545,10 @@ def studio(ctx, port, host):
                             new_url = f"/{output_category}/{new_slug}/"
                             
                             redirect_manager = RedirectManager(content_base, dist_path)
+                            prior = redirect_manager.get_redirect(old_url)
+                            prior_redirect = dict(prior) if isinstance(prior, dict) else None
                             result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
+                            redirect_created = bool(result.get('created'))
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
 
@@ -5450,7 +5556,11 @@ def studio(ctx, port, host):
                             rename_content_file_exclusive(old_file, new_file)
                         except FileExistsError:
                             if redirect_manager is not None and old_url:
-                                redirect_manager.remove_redirect(old_url)
+                                redirect_manager.rollback_redirect(
+                                    old_url,
+                                    created=redirect_created,
+                                    prior=prior_redirect,
+                                )
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
                             send_studio_cors(self)
@@ -5462,7 +5572,11 @@ def studio(ctx, port, host):
                             return
                         except Exception:
                             if redirect_manager is not None and old_url:
-                                redirect_manager.remove_redirect(old_url)
+                                redirect_manager.rollback_redirect(
+                                    old_url,
+                                    created=redirect_created,
+                                    prior=prior_redirect,
+                                )
                             raise
                         click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
 
