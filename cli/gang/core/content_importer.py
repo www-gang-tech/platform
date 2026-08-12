@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Tuple, Optional
 from datetime import datetime
 import hashlib
 from PIL import Image
+from core.frontmatter import dump_frontmatter
 
 
 class ContentImporter:
@@ -390,15 +391,7 @@ Respond with just the alt text, no quotes or formatting."""
         if metadata:
             frontmatter.update(metadata)
         
-        # Create markdown content
-        import yaml
-        frontmatter_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
-        
-        markdown_content = f"""---
-{frontmatter_str}---
-
-{content}
-"""
+        markdown_content = dump_frontmatter(frontmatter, content)
         
         # Determine file path
         file_path = self.content_path / category / f"{slug}.md"

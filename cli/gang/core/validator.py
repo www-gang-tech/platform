@@ -6,7 +6,7 @@ Enforces Template Contracts: semantics, a11y, budgets, JSON-LD
 from bs4 import BeautifulSoup
 import json
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 class ContractValidator:
@@ -14,6 +14,17 @@ class ContractValidator:
         self.config = config
         self.contracts = config.get('contracts', {})
         self.budgets = config.get('budgets', {})
+
+    @staticmethod
+    def _rule_names(items: List[Any]) -> List[str]:
+        """Flatten contract rule entries; ignore empty dicts safely."""
+        names = []
+        for item in items or []:
+            if isinstance(item, str):
+                names.append(item)
+            elif isinstance(item, dict) and item:
+                names.append(next(iter(item.keys())))
+        return names
     
     def check_semantic(self, html: str) -> List[Dict]:
         """Check semantic HTML structure"""
@@ -86,9 +97,10 @@ class ContractValidator:
                         'message': f'Alt text coverage {coverage:.1f}% < required {alt_coverage}%',
                     })
         
+        accessibility_rules = self._rule_names(self.contracts.get('accessibility', []))
+
         # Check color contrast (basic check for inline styles)
-        if 'color_contrast' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                 for item in self.contracts.get('accessibility', [])]:
+        if 'color_contrast' in accessibility_rules:
             elements_with_style = soup.find_all(style=True)
             for elem in elements_with_style:
                 style = elem.get('style', '')
@@ -98,9 +110,13 @@ class ContractValidator:
                     pass
         
         # Check keyboard navigation (check for tabindex misuse)
-        if 'keyboard_nav' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('accessibility', [])]:
-            bad_tabindex = soup.find_all(attrs={'tabindex': lambda x: x and int(x) > 0})
+        if 'keyboard_nav' in accessibility_rules:
+            def has_positive_tabindex(value):
+                try:
+                    return int(value) > 0
+                except (TypeError, ValueError):
+                    return False
+            bad_tabindex = soup.find_all(attrs={'tabindex': has_positive_tabindex})
             if bad_tabindex:
                 issues.append({
                     'severity': 'warning',
@@ -115,9 +131,10 @@ class ContractValidator:
         issues = []
         soup = BeautifulSoup(html, 'html.parser')
         
+        seo_rules = self._rule_names(self.contracts.get('seo', []))
+
         # Check meta description
-        if 'meta_description' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                   for item in self.contracts.get('seo', [])]:
+        if 'meta_description' in seo_rules:
             meta_desc = soup.find('meta', attrs={'name': 'description'})
             if not meta_desc or not meta_desc.get('content'):
                 issues.append({
@@ -127,23 +144,23 @@ class ContractValidator:
                 })
         
         # Check canonical URL
-        if 'canonical_url' in [item if isinstance(item, str) else list(item.keys())[0] 
-                                for item in self.contracts.get('seo', [])]:
+        if 'canonical_url' in seo_rules:
             canonical = soup.find('link', attrs={'rel': 'canonical'})
             if not canonical:
                 issues.append({
-                    'severity': 'warning',
+                    'severity': 'error',
                     'rule': 'canonical_url',
                     'message': 'Missing canonical URL',
                 })
         
         # Check valid JSON-LD
-        if 'valid_jsonld' in [item if isinstance(item, str) else list(item.keys())[0] 
-                               for item in self.contracts.get('seo', [])]:
+        if 'valid_jsonld' in seo_rules:
             jsonld_scripts = soup.find_all('script', attrs={'type': 'application/ld+json'})
             for script in jsonld_scripts:
                 try:
-                    json.loads(script.string)
+                    # .string is None when a script node has multiple children.
+                    raw = script.string if script.string is not None else script.get_text()
+                    json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
                     issues.append({
                         'severity': 'error',
@@ -167,35 +184,124 @@ class ContractValidator:
                 'message': f'HTML size {html_size} bytes exceeds budget {html_budget} bytes',
             })
         
-        # Check inline CSS size
+        # CSS budget = inline <style> bytes + same-origin linked stylesheets.
+        # External CDN CSS is not counted (uncontrolled), but local /assets/*.css is.
         with open(html_path, 'r') as f:
             content = f.read()
-            style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
-            css_size = sum(len(style) for style in style_tags)
-            css_budget = self.budgets.get('css', float('inf'))
-            
-            if css_size > css_budget:
-                issues.append({
-                    'severity': 'error',
-                    'rule': 'css_budget',
-                    'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
-                })
+        soup = BeautifulSoup(content, 'html.parser')
+        style_tags = re.findall(r'<style[^>]*>(.*?)</style>', content, re.DOTALL)
+        css_size = sum(len(style) for style in style_tags)
+        dist_root = self._guess_dist_root(html_path)
+        for link in soup.find_all('link', href=True):
+            rel = ' '.join(link.get('rel') or []).lower()
+            if 'stylesheet' not in rel:
+                continue
+            href = (link.get('href') or '').strip()
+            local_css = self._resolve_local_asset(dist_root, href)
+            if local_css is not None and local_css.exists():
+                css_size += local_css.stat().st_size
+        css_budget = self.budgets.get('css', float('inf'))
+
+        if css_size > css_budget:
+            issues.append({
+                'severity': 'error',
+                'rule': 'css_budget',
+                'message': f'CSS size {css_size} bytes exceeds budget {css_budget} bytes',
+            })
         
         # Check for JavaScript (should be 0 on content pages)
         js_budget = self.budgets.get('js', float('inf'))
         if js_budget == 0:
-            soup = BeautifulSoup(content, 'html.parser')
-            scripts = soup.find_all('script', src=True)
-            inline_scripts = soup.find_all('script', src=False)
+            # Interactive utility shells may include their own JS. Product detail
+            # pages are limited to cart/product helpers; arbitrary product-path
+            # scripts are not a free pass.
+            utility_sections = {'search', 'cart', 'studio'}
+            comment_sections = {'posts', 'articles'}
+            relative_parts = html_path.parts
+            scripts = [
+                script for script in soup.find_all('script', src=True)
+                if script.get('type', '').lower() not in ('application/ld+json', 'application/json')
+            ]
+            inline_scripts = [
+                script for script in soup.find_all('script', src=False)
+                if script.get('type', '').lower() not in ('application/ld+json', 'application/json')
+            ]
+            comments_only = (
+                not inline_scripts
+                and scripts
+                and all(
+                    (script.get('src') or '').rstrip('/').endswith('comments.js')
+                    for script in scripts
+                )
+                and any(part in comment_sections for part in relative_parts)
+            )
+            product_detail_only = (
+                not inline_scripts
+                and scripts
+                and all(
+                    (script.get('src') or '').rstrip('/').endswith(('cart.js', 'product.js'))
+                    for script in scripts
+                )
+                and 'products' in relative_parts
+                and html_path.name == 'index.html'
+                and html_path.parent.name != 'products'
+            )
+            js_allowed = (
+                any(part in utility_sections for part in relative_parts)
+                or comments_only
+                or product_detail_only
+            )
             
-            if scripts or inline_scripts:
+            if not js_allowed and (scripts or inline_scripts):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
                     'message': 'JavaScript detected, but budget is 0 bytes',
                 })
+        elif js_budget < float('inf'):
+            # Non-zero JS budgets still need to account for linked file bytes.
+            js_size = 0
+            for script in soup.find_all('script'):
+                typ = (script.get('type') or '').lower()
+                if typ in ('application/ld+json', 'application/json'):
+                    continue
+                src = (script.get('src') or '').strip()
+                if src:
+                    local_js = self._resolve_local_asset(dist_root, src)
+                    if local_js is not None and local_js.exists():
+                        js_size += local_js.stat().st_size
+                else:
+                    js_size += len(script.string or '')
+            if js_size > js_budget:
+                issues.append({
+                    'severity': 'error',
+                    'rule': 'js_budget',
+                    'message': f'JavaScript size {js_size} bytes exceeds budget {js_budget} bytes',
+                })
         
         return issues
+
+    def _guess_dist_root(self, html_path: Path) -> Path:
+        """Best-effort dist root so /assets/* resolves beside built HTML."""
+        path = html_path.resolve()
+        for parent in [path.parent, *path.parents]:
+            if (parent / 'assets').is_dir():
+                return parent
+        return path.parent
+
+    def _resolve_local_asset(self, dist_root: Path, href: str) -> Optional[Path]:
+        """Resolve same-origin asset paths; ignore absolute external URLs."""
+        if not href or href.startswith(('http://', 'https://', '//', 'data:')):
+            return None
+        clean = href.split('?', 1)[0].split('#', 1)[0]
+        if not clean.startswith('/'):
+            return None
+        candidate = (dist_root / clean.lstrip('/')).resolve()
+        try:
+            candidate.relative_to(dist_root.resolve())
+        except ValueError:
+            return None
+        return candidate
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
@@ -218,7 +324,7 @@ class ContractValidator:
             'total_issues': len(all_issues),
             'errors': len([i for i in all_issues if i['severity'] == 'error']),
             'warnings': len([i for i in all_issues if i['severity'] == 'warning']),
-            'passed': len(all_issues) == 0,
+            'passed': len([i for i in all_issues if i['severity'] == 'error']) == 0,
         }
         
         return results

@@ -17,12 +17,14 @@ class HeadingValidator:
     def __init__(self):
         self.md = markdown.Markdown()
     
-    def validate_markdown(self, content: str) -> Dict[str, any]:
+    def validate_markdown(self, content: str, template_owns_h1: bool = False) -> Dict[str, any]:
         """
         Validate heading order in markdown content
         
         Args:
             content: Markdown content string
+            template_owns_h1: When True, the HTML template supplies the page H1,
+                so the markdown body may start at H2 without a body H1.
         
         Returns:
             Dict with validation results:
@@ -60,21 +62,24 @@ class HeadingValidator:
             return result
         
         # Validate heading order
-        errors = self._validate_heading_sequence(headings)
+        errors = self._validate_heading_sequence(headings, template_owns_h1=template_owns_h1)
         
         if errors:
             result['valid'] = False
             result['errors'] = errors
-            result['suggestions'] = self._generate_suggestions(headings, errors)
+            result['suggestions'] = self._generate_suggestions(
+                headings, errors, template_owns_h1=template_owns_h1
+            )
         
         return result
     
-    def validate_html(self, html: str) -> Dict[str, any]:
+    def validate_html(self, html: str, template_owns_h1: bool = False) -> Dict[str, any]:
         """
         Validate heading order in HTML content
         
         Args:
             html: HTML content string
+            template_owns_h1: When True, tolerate a missing body H1 (template owns it).
         
         Returns:
             Dict with validation results
@@ -103,21 +108,29 @@ class HeadingValidator:
             return result
         
         # Validate heading order
-        errors = self._validate_heading_sequence(headings)
+        errors = self._validate_heading_sequence(headings, template_owns_h1=template_owns_h1)
         
         if errors:
             result['valid'] = False
             result['errors'] = errors
-            result['suggestions'] = self._generate_suggestions(headings, errors)
+            result['suggestions'] = self._generate_suggestions(
+                headings, errors, template_owns_h1=template_owns_h1
+            )
         
         return result
     
-    def _validate_heading_sequence(self, headings: List[Tuple[int, str, Optional[int]]]) -> List[str]:
+    def _validate_heading_sequence(
+        self,
+        headings: List[Tuple[int, str, Optional[int]]],
+        template_owns_h1: bool = False,
+    ) -> List[str]:
         """
         Check if headings are in sequential order (no skips)
         
         Args:
             headings: List of (level, text, line_number) tuples
+            template_owns_h1: When True, a missing H1 is allowed because the
+                page template renders the visible title H1.
         
         Returns:
             List of error messages
@@ -127,14 +140,16 @@ class HeadingValidator:
         # Check for multiple h1s
         h1_count = sum(1 for level, _, _ in headings if level == 1)
         if h1_count == 0:
-            errors.append("Missing h1 heading. Every page should have exactly one h1.")
+            if not template_owns_h1:
+                errors.append("Missing h1 heading. Every page should have exactly one h1.")
         elif h1_count > 1:
             h1_headings = [f"'{text}' (line {line})" if line else f"'{text}'" 
                           for level, text, line in headings if level == 1]
             errors.append(f"Multiple h1 headings found ({h1_count}): {', '.join(h1_headings)}. Only one h1 is allowed per page.")
         
-        # Check for heading skips
-        prev_level = 0
+        # Check for heading skips. When the template owns H1 and the body has
+        # none, treat the sequence as starting after a virtual H1 so ## is valid.
+        prev_level = 1 if (template_owns_h1 and h1_count == 0) else 0
         for i, (level, text, line_num) in enumerate(headings):
             if prev_level > 0 and level > prev_level + 1:
                 location = f" (line {line_num})" if line_num else ""
@@ -149,7 +164,7 @@ class HeadingValidator:
         return errors
     
     def _generate_suggestions(self, headings: List[Tuple[int, str, Optional[int]]], 
-                            errors: List[str]) -> List[str]:
+                            errors: List[str], template_owns_h1: bool = False) -> List[str]:
         """Generate helpful suggestions to fix heading issues"""
         
         suggestions = []
@@ -164,7 +179,10 @@ class HeadingValidator:
             suggestions.append("Use h2 (##) for main sections instead.")
         
         if any("missing h1" in error.lower() for error in errors):
-            suggestions.append("Fix: Add a main title with h1 (# in markdown) at the top of your content.")
+            if template_owns_h1:
+                suggestions.append("Fix: Start body sections at ## when the template owns the page title.")
+            else:
+                suggestions.append("Fix: Add a main title with h1 (# in markdown) at the top of your content.")
         
         # Show corrected structure
         suggestions.append("\nCurrent heading structure:")

@@ -27,9 +27,22 @@ class LinkValidator:
         # Track all internal pages
         self.internal_pages: Set[str] = set()
         
+    # Same top-level folders as gang build (exclude examples/comments ghosts).
+    BUILD_CONTENT_DIRS = (
+        'posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products',
+    )
+
+    def _publishable_markdown_files(self) -> List[Path]:
+        md_files: List[Path] = []
+        for category in self.BUILD_CONTENT_DIRS:
+            category_path = self.content_path / category
+            if category_path.is_dir():
+                md_files.extend(sorted(category_path.glob('*.md')))
+        return md_files
+
     def scan_all_files(self) -> Dict[str, Any]:
-        """Scan all markdown files and validate links"""
-        md_files = list(self.content_path.rglob('*.md'))
+        """Scan publishable markdown files and validate links"""
+        md_files = self._publishable_markdown_files()
         
         # Get git remotes to whitelist
         git_remotes = self.get_git_remotes()
@@ -202,10 +215,10 @@ class LinkValidator:
         content_type = parts[0]  # posts, pages, projects, etc.
         slug = rel_path.stem
         
-        if content_type in ['posts', 'projects', 'people']:
+        if content_type == 'articles':
+            return f'/posts/{slug}/'
+        if content_type in ['posts', 'projects', 'people', 'newsletters', 'products', 'pages']:
             return f'/{content_type}/{slug}/'
-        elif content_type == 'pages':
-            return f'/pages/{slug}/'
         
         return None
     
