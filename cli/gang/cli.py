@@ -3631,15 +3631,15 @@ def make_json_safe(value):
 
 def json_for_script(value, *, indent: int = 2) -> str:
     """Serialize JSON for a <script> body without </script> breakout."""
-    # Match Jinja's tojson hardening: escape HTML-significant characters so a
-    # title/description containing </script> cannot terminate the script element.
+    # Match Jinja tojson hardening so </script> cannot break out of the script element.
+    dumped = json.dumps(make_json_safe(value), indent=indent)
     return (
-        json.dumps(make_json_safe(value), indent=indent)
-        .replace('<', '\u003c')
-        .replace('>', '\u003e')
-        .replace('&', '\u0026')
-        .replace(' ', '\u2028')
-        .replace(' ', '\u2029')
+        dumped
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('&', '\\u0026')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
     )
 
 
