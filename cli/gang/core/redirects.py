@@ -67,6 +67,11 @@ class RedirectManager:
         
         return {'created': True, 'redirect': redirect}
     
+    def restore_redirects(self, redirects: List[Dict[str, Any]]) -> None:
+        """Replace the redirect list (used to roll back a failed rename)."""
+        self.redirects['redirects'] = [dict(item) for item in redirects]
+        self._save_redirects()
+
     def remove_redirect(self, old_path: str) -> bool:
         """Remove a redirect"""
         original_count = len(self.redirects['redirects'])
