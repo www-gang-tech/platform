@@ -34,6 +34,7 @@
     {% endif %}
 </article>
 
+{% if comments_enabled %}
 <section id="comments" aria-label="Comments">
     <h2>Comments ({{ comments|length }})</h2>
     
@@ -112,5 +113,6 @@
         <p class="form-status" aria-live="polite"></p>
     </form>
 </section>
+{% endif %}
 {% endblock %}
 
