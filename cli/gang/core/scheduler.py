@@ -50,12 +50,23 @@ class ContentScheduler:
             
             try:
                 frontmatter = yaml.safe_load(parts[1]) or {}
-            except:
-                # Invalid YAML, include anyway
-                publishable.append({
+            except Exception:
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                })
+                continue
+
+            if not isinstance(frontmatter, dict):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
                 })
                 continue
             
