@@ -359,11 +359,11 @@ __JSONLD__
             container.innerHTML = results.map(r => `
                 <div class="result">
                     <div class="result-title">
-                        <a href="${r.url}">${escapeHtml(r.title)}</a>
+                        <a href="${escapeHtml(r.url)}">${escapeHtml(r.title)}</a>
                     </div>
                     <div class="result-meta">
                         <span class="result-category">${escapeHtml(r.category)}</span>
-                        ${r.date ? '<span>' + r.date + '</span>' : ''}
+                        ${r.date ? '<span>' + escapeHtml(r.date) + '</span>' : ''}
                     </div>
                     <div class="result-description">
                         ${escapeHtml(r.description || r.content)}
