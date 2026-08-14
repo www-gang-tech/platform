@@ -6,8 +6,13 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
     
     <title>Shopping Cart - GANG</title>
-    <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
+    <meta name="description" content="{{ description|default('Your shopping cart') }}">
+    <link rel="canonical" href="{{ site_url|default('') }}/cart/">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
