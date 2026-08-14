@@ -30,70 +30,87 @@ class ProductSchema:
     @staticmethod
     def _from_shopify(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Shopify product to Schema.org"""
-        variants = product.get('variants', [])
-        first_variant = variants[0] if variants else {}
+        variants = product.get('variants') or []
+        if not isinstance(variants, list):
+            variants = []
+        first_variant = variants[0] if variants and isinstance(variants[0], dict) else {}
         
-        # Get images
-        images = [img.get('src') for img in product.get('images', [])]
+        images = []
+        raw_images = product.get('images') or []
+        if isinstance(raw_images, list):
+            for img in raw_images:
+                if isinstance(img, dict) and img.get('src'):
+                    images.append(img.get('src'))
+                elif isinstance(img, str) and img:
+                    images.append(img)
         
-        # Build offers from variants
+        currency = os.environ.get('SHOPIFY_CURRENCY') or 'USD'
+        product_url = product.get('url') or ''
+        
         offers = []
         for variant in variants:
-            # Shopify Admin REST API uses different field names than GraphQL
-            # REST API: inventory_quantity, inventory_management, inventory_policy
-            # GraphQL: inventoryQuantity, availableForSale
-            
+            if not isinstance(variant, dict):
+                continue
             inventory_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
-            inventory_management = variant.get('inventory_management')  # 'shopify' if tracked, None if not
-            inventory_policy = variant.get('inventory_policy', 'deny')  # 'continue' allows selling when out of stock
+            try:
+                inventory_qty = int(inventory_qty or 0)
+            except (TypeError, ValueError):
+                inventory_qty = 0
+            inventory_management = variant.get('inventory_management')
+            inventory_policy = variant.get('inventory_policy', 'deny')
             
-            # Determine availability:
-            # - If inventory not tracked: Always in stock
-            # - If inventory tracked: Check quantity > 0 OR policy allows overselling
             if inventory_management is None or inventory_management == '':
-                # Not tracking inventory - always available
                 in_stock = True
             elif inventory_policy == 'continue':
-                # Allow overselling - always available
                 in_stock = True
             else:
-                # Inventory tracked and no overselling - check quantity
                 in_stock = inventory_qty > 0
+            
+            price = variant.get('price')
+            if price is None or price == '':
+                price = '0'
+            
+            variant_id = variant.get('id', '')
+            offer_url = product_url
+            if offer_url and variant_id not in (None, ''):
+                offer_url = f"{offer_url}?variant={variant_id}"
             
             offers.append({
                 '@type': 'Offer',
-                'price': variant.get('price', '0'),
-                'priceCurrency': 'USD',
+                'price': str(price),
+                'priceCurrency': currency,
                 'availability': 'https://schema.org/InStock' if in_stock else 'https://schema.org/OutOfStock',
-                'url': f"{product.get('url')}?variant={variant.get('id')}",
-                'sku': variant.get('sku', ''),
-                'name': variant.get('title', ''),
-                'inventory_quantity': inventory_qty  # Include for debugging
+                'url': offer_url,
+                'sku': variant.get('sku') or '',
+                'name': variant.get('title') or '',
+                'inventory_quantity': inventory_qty
             })
+        
+        default_offer = {
+            '@type': 'Offer',
+            'price': str(first_variant.get('price') or '0'),
+            'priceCurrency': currency,
+            'availability': 'https://schema.org/InStock'
+        }
         
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
             'name': product.get('title', ''),
-            'description': product.get('body_html', ''),
+            'description': product.get('body_html') or '',
             'image': images,
-            'offers': offers if len(offers) > 1 else offers[0] if offers else {
-                '@type': 'Offer',
-                'price': first_variant.get('price', '0'),
-                'priceCurrency': 'USD',
-                'availability': 'https://schema.org/InStock'
-            },
-            'sku': first_variant.get('sku', ''),
+            'offers': offers if len(offers) > 1 else (offers[0] if offers else default_offer),
+            'sku': first_variant.get('sku') or '',
             'brand': {
                 '@type': 'Brand',
-                'name': product.get('vendor', '')
+                'name': product.get('vendor') or ''
             },
-            'category': product.get('product_type', ''),
+            'category': product.get('product_type') or '',
             '_meta': {
                 'source': 'shopify',
                 'id': product.get('id'),
                 'handle': product.get('handle'),
-                'url': product.get('url'),
+                'url': product_url,
                 'variants': variants,
                 'created_at': product.get('created_at'),
                 'updated_at': product.get('updated_at')
@@ -103,8 +120,18 @@ class ProductSchema:
     @staticmethod
     def _from_stripe(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Stripe product to Schema.org"""
-        prices = product.get('prices', [])
-        first_price = prices[0] if prices else {}
+        prices = product.get('prices') or []
+        if not isinstance(prices, list):
+            prices = [prices] if isinstance(prices, dict) else []
+        first_price = prices[0] if prices and isinstance(prices[0], dict) else {}
+        unit_amount = first_price.get('unit_amount') or 0
+        try:
+            price = str(int(unit_amount) / 100)
+        except (TypeError, ValueError):
+            price = '0'
+        currency = (first_price.get('currency') or 'usd')
+        if not isinstance(currency, str):
+            currency = 'usd'
         
         return {
             '@context': 'https://schema.org',
@@ -114,8 +141,8 @@ class ProductSchema:
             'image': product.get('images', []),
             'offers': {
                 '@type': 'Offer',
-                'price': str(first_price.get('unit_amount', 0) / 100),
-                'priceCurrency': first_price.get('currency', 'usd').upper(),
+                'price': price,
+                'priceCurrency': currency.upper(),
                 'availability': 'https://schema.org/InStock' if product.get('active') else 'https://schema.org/OutOfStock'
             },
             '_meta': {
@@ -131,6 +158,11 @@ class ProductSchema:
     @staticmethod
     def _from_gumroad(product: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Gumroad product to Schema.org"""
+        raw_price = product.get('price') or 0
+        try:
+            gumroad_price = str(int(raw_price) / 100)
+        except (TypeError, ValueError):
+            gumroad_price = '0'
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
@@ -139,8 +171,8 @@ class ProductSchema:
             'image': [product.get('thumbnail_url')] if product.get('thumbnail_url') else [],
             'offers': {
                 '@type': 'Offer',
-                'price': str(product.get('price', 0) / 100),
-                'priceCurrency': product.get('currency', 'USD'),
+                'price': gumroad_price,
+                'priceCurrency': product.get('currency') or 'USD',
                 'availability': 'https://schema.org/InStock'
             },
             '_meta': {
@@ -180,11 +212,19 @@ class ShopifyClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('products', [])
+            products = data.get('products') or []
+            store_host = self.store_url.split('/')[0]
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                handle = product.get('handle')
+                if handle and not product.get('url'):
+                    product['url'] = f"https://{store_host}/products/{handle}"
+            return products
         
         except Exception as e:
             print(f"Error fetching from Shopify: {e}")
-            return []
+            return None
     
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Shopify products"""
@@ -276,7 +316,7 @@ class StripeClient:
         
         except Exception as e:
             print(f"Error fetching from Stripe: {e}")
-            return []
+            return None
     
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Stripe products"""
@@ -324,11 +364,11 @@ class GumroadClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('products', [])
+            return data.get('products') or []
         
         except Exception as e:
             print(f"Error fetching from Gumroad: {e}")
-            return []
+            return None
     
     def _demo_products(self) -> List[Dict[str, Any]]:
         """Return demo Gumroad products"""
@@ -360,32 +400,55 @@ class ProductAggregator:
             'stripe': [],
             'gumroad': []
         }
+        live_configured = False
+        fetch_failed = False
         
-        # Shopify
-        shopify_config = os.environ.get('SHOPIFY_STORE_URL'), os.environ.get('SHOPIFY_ACCESS_TOKEN')
-        if shopify_config[0] and shopify_config[1]:
-            # Only use real Shopify if both URL and token are set
-            client = ShopifyClient(shopify_config[0], shopify_config[1])
-            products['shopify'] = client.fetch_products()
+        shopify_url = os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE')
+        shopify_token = os.environ.get('SHOPIFY_ACCESS_TOKEN')
+        if shopify_url and shopify_token:
+            live_configured = True
+            client = ShopifyClient(shopify_url, shopify_token)
+            fetched = client.fetch_products()
+            if fetched is None:
+                fetch_failed = True
+            else:
+                products['shopify'] = fetched
         elif self.config.get('demo_mode', False):
-            # Only use demo if explicitly enabled
             client = ShopifyClient('demo.myshopify.com', 'demo')
-            products['shopify'] = client.fetch_products()
+            products['shopify'] = client.fetch_products() or []
         
-        # Stripe - only if explicitly configured
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
+            live_configured = True
             client = StripeClient(stripe_key)
-            products['stripe'] = client.fetch_products()
+            fetched = client.fetch_products()
+            if fetched is None:
+                fetch_failed = True
+            else:
+                products['stripe'] = fetched
         
-        # Gumroad - only if explicitly configured
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
+            live_configured = True
             client = GumroadClient(gumroad_token)
-            products['gumroad'] = client.fetch_products()
+            fetched = client.fetch_products()
+            if fetched is None:
+                fetch_failed = True
+            else:
+                products['gumroad'] = fetched
         
-        # Cache results
-        self._save_cache(products)
+        # Restore cache when nothing is configured, or when a live fetch failed
+        cached = self.load_cache()
+        if (not live_configured or fetch_failed) and cached and cached.get('products'):
+            if not live_configured:
+                return cached['products']
+            for source, items in cached['products'].items():
+                if not products.get(source):
+                    products[source] = items
+        
+        has_products = any(products.get(source) for source in products)
+        if has_products or (live_configured and not fetch_failed):
+            self._save_cache(products)
         
         return products
     
