@@ -14,11 +14,30 @@ import re
 import os
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for local development
+CORS(app)
 
-# Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
+
+
+def _safe_content_file(file_path: str) -> Path:
+    if not file_path or file_path.startswith('/') or '\0' in file_path:
+        raise ValueError('Invalid file path')
+    relative = file_path if file_path.endswith('.md') else file_path + '.md'
+    base = CONTENT_DIR.resolve()
+    candidate = (base / relative).resolve()
+    candidate.relative_to(base)
+    return candidate
+
+
+def _require_auth():
+    token = os.environ.get('STUDIO_AUTH_TOKEN', '')
+    if not token:
+        return None
+    header = request.headers.get('Authorization', '')
+    if header != f'Bearer {token}':
+        return jsonify({'error': 'Unauthorized'}), 401
+    return None
 
 
 @app.route('/api/health')
@@ -47,12 +66,13 @@ def auth_status():
 @app.route('/api/content/<path:file_path>')
 def get_content(file_path):
     """Get markdown content for editing"""
-    # Ensure file_path is safe (no directory traversal)
-    if '..' in file_path or file_path.startswith('/'):
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+    try:
+        full_path = _safe_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
-    
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
     
     if not full_path.exists():
         return jsonify({'error': 'File not found'}), 404
@@ -67,8 +87,12 @@ def get_content(file_path):
 @app.route('/api/content/<path:file_path>', methods=['PUT'])
 def save_content(file_path):
     """Save edited markdown content"""
-    # Ensure file_path is safe
-    if '..' in file_path or file_path.startswith('/'):
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+    try:
+        full_path = _safe_content_file(file_path)
+    except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
     
     # Get content from request body
@@ -77,10 +101,7 @@ def save_content(file_path):
     if not content:
         return jsonify({'error': 'No content provided'}), 400
     
-    # Construct full path
-    full_path = CONTENT_DIR / (file_path + '.md')
-    
-    # Ensure parent directory exists
+    # Ensure parent directory exists (still inside content root)
     full_path.parent.mkdir(parents=True, exist_ok=True)
     
     try:
@@ -181,7 +202,9 @@ def trigger_build():
         try:
             json_data = request.get_json()
             commit_message = json_data.get('message', 'Content update via in-place editor') if json_data else 'Content update via in-place editor'
-        except:
+            if not isinstance(commit_message, str):
+                commit_message = str(commit_message)
+        except Exception:
             commit_message = 'Content update via in-place editor'
         subprocess.run(
             ['git', 'commit', '-m', commit_message],
@@ -238,7 +261,7 @@ def list_content():
     """List all editable content files"""
     content_files = []
     
-    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products']:
+    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products', 'people']:
         type_dir = CONTENT_DIR / content_type
         if type_dir.exists():
             for md_file in type_dir.glob('*.md'):
@@ -248,6 +271,8 @@ def list_content():
                     if content.startswith('---'):
                         parts = content.split('---', 2)
                         frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                        if not isinstance(frontmatter, dict):
+                            frontmatter = {}
                         title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
                     else:
                         title = md_file.stem.replace('-', ' ').title()
@@ -266,26 +291,22 @@ def list_content():
 
 
 if __name__ == '__main__':
-    # Use port 5001 to avoid conflict with macOS AirPlay Receiver
     port = int(os.environ.get('PORT', 5001))
+    host = os.environ.get('STUDIO_HOST', '127.0.0.1')
     
     print("🚀 GANG Studio Backend starting...")
     print("📁 Content directory: " + str(CONTENT_DIR))
     print("🔧 Project root: " + str(PROJECT_ROOT))
     print("")
     print("Available endpoints:")
-    print("  GET  http://localhost:" + str(port) + "/api/health")
-    print("  GET  http://localhost:" + str(port) + "/api/auth/status")
-    print("  GET  http://localhost:" + str(port) + "/api/content/<path>")
-    print("  PUT  http://localhost:" + str(port) + "/api/content/<path>")
-    print("  POST http://localhost:" + str(port) + "/api/validate-headings")
-    print("  POST http://localhost:" + str(port) + "/api/build")
-    print("  GET  http://localhost:" + str(port) + "/api/content/list")
-    print("")
-    print("📝 TIP: If using Python 3.9.6, make sure Flask is installed")
-    print("🔧 To change port: PORT=8080 python app.py")
+    print("  GET  http://" + host + ":" + str(port) + "/api/health")
+    print("  GET  http://" + host + ":" + str(port) + "/api/auth/status")
+    print("  GET  http://" + host + ":" + str(port) + "/api/content/<path>")
+    print("  PUT  http://" + host + ":" + str(port) + "/api/content/<path>")
+    print("  POST http://" + host + ":" + str(port) + "/api/validate-headings")
+    print("  POST http://" + host + ":" + str(port) + "/api/build")
+    print("  GET  http://" + host + ":" + str(port) + "/api/content/list")
     print("")
     
-    # Run on configurable port (default 5001 to avoid macOS AirPlay)
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host=host, port=port, debug=False)
 
