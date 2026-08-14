@@ -19,6 +19,7 @@ class TemplateEngine:
         
         # Add custom filters
         self.env.filters['formatdate'] = self._format_date
+        self.env.filters['date'] = self._format_date
     
     def _format_date(self, date_str: str, format: str = '%B %d, %Y') -> str:
         """Format date string"""
@@ -26,9 +27,9 @@ class TemplateEngine:
             try:
                 date_obj = datetime.fromisoformat(str(date_str))
                 return date_obj.strftime(format)
-            except:
+            except Exception:
                 return date_str
-        elif isinstance(date_str, datetime):
+        elif hasattr(date_str, 'strftime'):
             return date_str.strftime(format)
         return str(date_str)
     
