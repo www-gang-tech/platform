@@ -57,6 +57,156 @@ def json_for_script(data: Any) -> str:
     )
 
 
+def template_environment(templates_path: Path):
+    """Jinja env with HTML autoescape so product/cart titles cannot break markup."""
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    env = Environment(
+        loader=FileSystemLoader(str(templates_path)),
+        autoescape=select_autoescape(['html', 'xml']),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    env.filters['tojson_script'] = json_for_script
+    return env
+
+
+def offer_is_in_stock(offer: Any) -> bool:
+    if not isinstance(offer, dict):
+        return False
+    avail = str(offer.get('availability') or '')
+    return 'InStock' in avail and 'OutOfStock' not in avail
+
+
+def safe_http_url(value: Any) -> str:
+    """Allow only relative or http(s) merchant URLs, never www.shopify.com."""
+    if not isinstance(value, str):
+        return ''
+    value = value.strip()
+    if not value or value == '#':
+        return ''
+    if value.startswith('/') and not value.startswith('//'):
+        return value
+    from urllib.parse import urlparse
+    parsed = urlparse(value)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        return ''
+    if parsed.netloc.lower() in ('www.shopify.com', 'shopify.com'):
+        return ''
+    return value
+
+
+def split_variant_name(variant_name: str) -> Tuple[str, str]:
+    if '/' in (variant_name or ''):
+        parts = variant_name.split('/')
+        return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else '')
+    return '', ''
+
+
+def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str) -> Dict[str, Any]:
+    """Normalize product + offers into template context, preferring in-stock defaults."""
+    raw_images = product.get('image', [])
+    type_name = type(raw_images).__name__
+    if type_name in ('list', 'tuple'):
+        images = [str(img) for img in raw_images if img]
+    elif raw_images:
+        images = [str(raw_images)]
+    else:
+        images = []
+
+    offers = product.get('offers', {})
+    variants_list: List[Dict[str, Any]] = []
+    colors_list: List[str] = []
+    sizes_list: List[str] = []
+    first_offer: Dict[str, Any] = {}
+
+    if type(offers).__name__ == 'list':
+        color_order: List[str] = []
+        size_order: List[str] = []
+        colors = set()
+        color_to_image: Dict[str, int] = {}
+        dict_offers = [offer for offer in offers if isinstance(offer, dict)]
+
+        for offer in dict_offers:
+            color, size = split_variant_name(str(offer.get('name') or ''))
+            if color and color not in colors:
+                color_order.append(color)
+                colors.add(color)
+            if size and size not in size_order:
+                size_order.append(size)
+
+        for idx, color in enumerate(color_order):
+            if idx < len(images):
+                color_to_image[color] = idx
+
+        for offer in dict_offers:
+            color_part, size_part = split_variant_name(str(offer.get('name') or ''))
+            variants_list.append({
+                'name': offer.get('name', ''),
+                'color': color_part,
+                'size': size_part,
+                'price': offer.get('price', '0'),
+                'currency': offer.get('priceCurrency', 'USD'),
+                'availability': offer.get('availability', 'InStock'),
+                'url': safe_http_url(offer.get('url')),
+                'sku': offer.get('sku', ''),
+                'image_index': color_to_image.get(color_part, 0) if color_part else 0,
+            })
+
+        in_stock_colors = [
+            color for color in color_order
+            if any(
+                offer_is_in_stock(offer) and split_variant_name(str(offer.get('name') or ''))[0] == color
+                for offer in dict_offers
+            )
+        ]
+        colors_list = in_stock_colors + [color for color in color_order if color not in in_stock_colors]
+        in_stock_sizes = [
+            size for size in size_order
+            if any(
+                offer_is_in_stock(offer) and split_variant_name(str(offer.get('name') or ''))[1] == size
+                for offer in dict_offers
+            )
+        ]
+        sizes_list = in_stock_sizes + [size for size in size_order if size not in in_stock_sizes]
+        in_stock_offers = [offer for offer in dict_offers if offer_is_in_stock(offer)]
+        first_offer = (in_stock_offers or dict_offers or [{}])[0]
+    elif isinstance(offers, dict):
+        first_offer = offers
+
+    if not isinstance(first_offer, dict):
+        first_offer = {}
+
+    brand_data = product.get('brand', '')
+    brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+
+    return {
+        'lang': config['site'].get('language', 'en'),
+        'site_title': config['site']['title'],
+        'title': product.get('name', ''),
+        'description': product.get('description', ''),
+        'canonical_url': f"{config['site']['url']}/products/{slug}/",
+        'product_image': images[0] if images else '',
+        'product_images': images,
+        'price': first_offer.get('price', '0'),
+        'currency': first_offer.get('priceCurrency', 'USD'),
+        'recurring': None,
+        'content': product.get('description', ''),
+        'buy_url': safe_http_url(first_offer.get('url')),
+        'variants': variants_list,
+        'colors': colors_list,
+        'sizes': sizes_list,
+        'sku': product.get('sku', ''),
+        'brand': brand_name,
+        'category': product.get('category', ''),
+        'availability': first_offer.get('availability', 'InStock'),
+        'jsonld': product,
+        'year': datetime.now().year,
+        'navigation': config.get('nav', {}).get('main', []),
+        'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'build_time_iso': datetime.now().isoformat(),
+    }
+
+
 def comments_are_enabled(config: Dict[str, Any]) -> bool:
     comments = config.get('comments') or {}
     if not comments.get('enabled'):
@@ -1114,7 +1264,7 @@ def import_content(ctx, source, title, category, compress_images, commit):
 @cli.command()
 @click.argument('old_slug')
 @click.argument('new_slug')
-@click.option('--category', type=click.Choice(['posts', 'pages', 'projects']), required=True, help='Content category')
+@click.option('--category', type=click.Choice(['posts', 'pages', 'projects', 'people', 'newsletters', 'products']), required=True, help='Content category')
 @click.option('--redirect', is_flag=True, default=True, help='Create 301 redirect (default: yes)')
 @click.option('--no-redirect', is_flag=True, help='Skip creating redirect')
 @click.pass_context
@@ -1171,25 +1321,28 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
         click.echo("Cancelled")
         return
     
-    # Rename file
-    try:
-        old_file.rename(new_file)
-        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
-    except Exception as e:
-        click.echo(f"❌ Rename failed: {e}")
-        ctx.exit(1)
-    
-    # Create redirect if requested
+    # Record the redirect before renaming so a failed rename can roll it back.
+    redirect_manager = None
+    prior_redirects = None
     if create_redirect:
         redirect_manager = RedirectManager(content_path, dist_path)
+        prior_redirects = [dict(item) for item in redirect_manager.list_all_redirects()]
         result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename')
-        
         if result.get('created'):
             click.echo(f"✅ 301 redirect created")
         elif result.get('updated'):
             click.echo(f"✅ Redirect updated (was already tracking this path)")
-        
         click.echo(f"📄 Redirects file: .redirects.json")
+
+    try:
+        old_file.rename(new_file)
+        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
+    except Exception as e:
+        if redirect_manager is not None and prior_redirects is not None:
+            redirect_manager.restore_redirects(prior_redirects)
+            click.echo("↩️  Redirect rolled back after rename failure")
+        click.echo(f"❌ Rename failed: {e}")
+        ctx.exit(1)
     
     # Create git commit
     if click.confirm("\nCreate git commit?"):
@@ -2715,7 +2868,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     products = []
     try:
         from core.products import ProductAggregator
-        from jinja2 import Environment, FileSystemLoader
         
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
@@ -2723,9 +2875,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         if products:
             click.echo(f"🛒 Generating {len(products)} product page(s)...")
             
-            # Setup Jinja2
             template_dir = Path(__file__).parent.parent.parent / 'templates'
-            jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+            jinja_env = template_environment(template_dir)
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -2753,116 +2904,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
                 pdp_dir = products_path / slug
                 pdp_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Handle images FIRST (can be string or list)
-                raw_images = product.get('image', [])
-                
-                # Ensure we have a proper Python list (avoid isinstance for Click compatibility)
-                type_name = type(raw_images).__name__
-                if type_name in ('list', 'tuple'):
-                    images = [str(img) for img in raw_images if img]
-                elif raw_images:
-                    images = [str(raw_images)]
-                else:
-                    images = []
-                
-                # Extract offer data and variants
-                offers = product.get('offers', {})
-                variants_list = []
-                
-                if type(offers).__name__ == 'list':
-                    # Multiple variants - extract unique colors and sizes
-                    colors = set()
-                    sizes = set()
-                    color_to_image = {}  # Map colors to images
-                    
-                    # First pass: collect unique colors in order they appear
-                    color_order = []
-                    for offer in offers:
-                        variant_name = offer.get('name', '')
-                        if '/' in variant_name:
-                            parts = variant_name.split('/')
-                            color = parts[0].strip()
-                            size = parts[1].strip() if len(parts) > 1 else ''
-                            
-                            if color not in colors:
-                                color_order.append(color)
-                                colors.add(color)
-                            
-                            if size:
-                                sizes.add(size)
-                    
-                    # Map each color to an image (assume images are in same order as colors appear)
-                    for idx, color in enumerate(color_order):
-                        if idx < len(images):
-                            color_to_image[color] = idx
-                    
-                    # Second pass: prepare variant data with correct image mapping
-                    for offer in offers:
-                        variant_name = offer.get('name', '')
-                        color_part = ''
-                        size_part = ''
-                        
-                        if '/' in variant_name:
-                            parts = variant_name.split('/')
-                            color_part = parts[0].strip()
-                            size_part = parts[1].strip() if len(parts) > 1 else ''
-                        
-                        variants_list.append({
-                            'name': variant_name,
-                            'color': color_part,
-                            'size': size_part,
-                            'price': offer.get('price', '0'),
-                            'currency': offer.get('priceCurrency', 'USD'),
-                            'availability': offer.get('availability', 'InStock'),
-                            'url': offer.get('url', '#'),
-                            'sku': offer.get('sku', ''),
-                            'image_index': color_to_image.get(color_part, 0) if color_part else 0
-                        })
-                    
-                    first_offer = offers[0]
-                    colors_list = [c for c in sorted(colors)]
-                    sizes_list = [s for s in sorted(sizes)]
-                else:
-                    first_offer = offers
-                    colors_list = []
-                    sizes_list = []
-                
-                if not isinstance(first_offer, dict):
-                    first_offer = {}
-                
-                # Prepare template variables
-                brand_data = product.get('brand', '')
-                brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
-                
-                pdp_context = {
-                    'lang': config['site'].get('language', 'en'),
-                    'site_title': config['site']['title'],
-                    'title': product.get('name', ''),
-                    'description': product.get('description', ''),
-                    'canonical_url': f"{config['site']['url']}/products/{slug}/",
-                    'product_image': images[0] if images else '',
-                    'product_images': images,
-                    'price': first_offer.get('price', '0'),
-                    'currency': first_offer.get('priceCurrency', 'USD'),
-                    'recurring': None,
-                    'content': product.get('description', ''),
-                    'buy_url': first_offer.get('url', '#'),
-                    'variants': variants_list,
-                    'colors': colors_list,
-                    'sizes': sizes_list,
-                    'sku': product.get('sku', ''),
-                    'brand': brand_name,
-                    'category': product.get('category', ''),
-                    'availability': first_offer.get('availability', 'InStock'),
-                    'jsonld': product,
-                    'year': datetime.now().year,
-                    'navigation': config.get('nav', {}).get('main', []),
-                    'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                    'build_time_iso': datetime.now().isoformat()
-                }
-                
-                pdp_html = pdp_template.render(**pdp_context)
+                pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
                 (pdp_dir / 'index.html').write_text(pdp_html)
             
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
@@ -2872,9 +2914,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Always emit cart + HTML sitemap (footer links to /sitemap/ even with an empty catalog)
     try:
-        from jinja2 import Environment, FileSystemLoader
         template_dir = Path(__file__).parent.parent.parent / 'templates'
-        jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+        jinja_env = template_environment(template_dir)
         build_time = datetime.now()
         
         cart_dir = dist_path / 'cart'
@@ -3116,14 +3157,12 @@ def format_bytes(bytes_size: int) -> str:
 
 def render_header(config: Dict, templates_path: Path = None) -> str:
     """Render header partial template from HTML file"""
-    from jinja2 import Environment, FileSystemLoader
-    
     if templates_path is None:
         # Default to templates directory relative to project root
         templates_path = Path(__file__).parent.parent.parent / 'templates'
     
     try:
-        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        env = template_environment(templates_path)
         template = env.get_template('partials/header.html')
         return template.render(site_title=config['site']['title'])
     except Exception as e:
@@ -3149,7 +3188,6 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
                   build_time_iso: str = None, lighthouse_scores: bool = True, 
                   description: str = None, templates_path: Path = None) -> str:
     """Render footer partial template from HTML file"""
-    from jinja2 import Environment, FileSystemLoader
     from datetime import datetime
     
     if templates_path is None:
@@ -3160,7 +3198,7 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
         year = datetime.now().year
     
     try:
-        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        env = template_environment(templates_path)
         template = env.get_template('partials/footer.html')
         return template.render(
             site_title=config['site']['title'],
@@ -4765,15 +4803,13 @@ def serve(ctx, port, host):
                 # Generate product pages (only active products)
                 try:
                     from core.products import ProductAggregator
-                    from jinja2 import Environment, FileSystemLoader
                     
                     aggregator = ProductAggregator(config)
                     products = aggregator.get_normalized_products(status_filter='active')
                     
                     if products:
-                        # Setup Jinja2
                         template_dir = Path(__file__).parent.parent.parent / 'templates'
-                        jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+                        jinja_env = template_environment(template_dir)
                         
                         products_path = dist_path / 'products'
                         products_path.mkdir(parents=True, exist_ok=True)
@@ -4804,109 +4840,7 @@ def serve(ctx, port, host):
                             
                             pdp_dir = products_path / slug
                             pdp_dir.mkdir(parents=True, exist_ok=True)
-                            
-                            # Handle images FIRST
-                            raw_images = product.get('image', [])
-                            type_name = type(raw_images).__name__
-                            if type_name in ('list', 'tuple'):
-                                images = [str(img) for img in raw_images if img]
-                            elif raw_images:
-                                images = [str(raw_images)]
-                            else:
-                                images = []
-                            
-                            # Extract offer data and variants
-                            offers = product.get('offers', {})
-                            variants_list = []
-                            
-                            if type(offers).__name__ == 'list':
-                                colors = set()
-                                sizes = set()
-                                color_to_image = {}
-                                color_order = []
-                                
-                                for offer in offers:
-                                    variant_name = offer.get('name', '')
-                                    if '/' in variant_name:
-                                        parts = variant_name.split('/')
-                                        color = parts[0].strip()
-                                        size = parts[1].strip() if len(parts) > 1 else ''
-                                        
-                                        if color not in colors:
-                                            color_order.append(color)
-                                            colors.add(color)
-                                        if size:
-                                            sizes.add(size)
-                                
-                                for idx, color in enumerate(color_order):
-                                    if idx < len(images):
-                                        color_to_image[color] = idx
-                                
-                                for offer in offers:
-                                    variant_name = offer.get('name', '')
-                                    color_part = ''
-                                    size_part = ''
-                                    
-                                    if '/' in variant_name:
-                                        parts = variant_name.split('/')
-                                        color_part = parts[0].strip()
-                                        size_part = parts[1].strip() if len(parts) > 1 else ''
-                                    
-                                    variants_list.append({
-                                        'name': variant_name,
-                                        'color': color_part,
-                                        'size': size_part,
-                                        'price': offer.get('price', '0'),
-                                        'currency': offer.get('priceCurrency', 'USD'),
-                                        'availability': offer.get('availability', 'InStock'),
-                                        'url': offer.get('url', '#'),
-                                        'sku': offer.get('sku', ''),
-                                        'image_index': color_to_image.get(color_part, 0) if color_part else 0
-                                    })
-                                
-                                first_offer = offers[0]
-                                colors_list = [c for c in sorted(colors)]
-                                sizes_list = [s for s in sorted(sizes)]
-                            else:
-                                first_offer = offers
-                                colors_list = []
-                                sizes_list = []
-                            
-                            if not isinstance(first_offer, dict):
-                                first_offer = {}
-                            
-                            # Prepare template variables
-                            brand_data = product.get('brand', '')
-                            brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
-                            
-                            pdp_context = {
-                                'lang': config['site'].get('language', 'en'),
-                                'site_title': config['site']['title'],
-                                'title': product.get('name', ''),
-                                'description': product.get('description', ''),
-                                'canonical_url': f"{config['site']['url']}/products/{slug}/",
-                                'product_image': images[0] if images else '',
-                                'product_images': images,
-                                'price': first_offer.get('price', '0'),
-                                'currency': first_offer.get('priceCurrency', 'USD'),
-                                'recurring': None,
-                                'content': product.get('description', ''),
-                                'buy_url': first_offer.get('url', '#'),
-                                'variants': variants_list,
-                                'colors': colors_list,
-                                'sizes': sizes_list,
-                                'sku': product.get('sku', ''),
-                                'brand': brand_name,
-                                'category': product.get('category', ''),
-                                'availability': first_offer.get('availability', 'InStock'),
-                                'jsonld': product,
-                                'year': datetime.now().year,
-                                'navigation': config.get('nav', {}).get('main', []),
-                                'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                'build_time_iso': datetime.now().isoformat()
-                            }
-                            
-                            pdp_html = pdp_template.render(**pdp_context)
+                            pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
                             # Inject live reload
                             if '</body>' in pdp_html:
                                 pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
