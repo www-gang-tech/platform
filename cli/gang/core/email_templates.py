@@ -46,7 +46,7 @@ class EmailTemplateGenerator:
         site_url = self.site_url if str(self.site_url).startswith(('http://', 'https://')) else '#'
         canonical_url = canonical_url if str(canonical_url).startswith(('http://', 'https://', '/')) else '#'
         
-        html = f"""<!DOCTYPE html>
+        rendered = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -237,7 +237,7 @@ class EmailTemplateGenerator:
 </body>
 </html>"""
         
-        return html
+        return rendered
     
     def generate_plain_text(
         self, 
