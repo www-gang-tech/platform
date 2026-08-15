@@ -212,7 +212,7 @@ class InPlaceEditor {
             document.execCommand('formatBlock', false, '<code>');
         } else if (cmd === 'link') {
             const url = prompt('Enter URL:');
-            if (url) {
+            if (url && this.isSafeHref(url)) {
                 document.execCommand('createLink', false, url);
             }
         }
@@ -220,17 +220,45 @@ class InPlaceEditor {
         this.hideFloatingToolbar();
     }
 
+    escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    isSafeHref(value) {
+        if (!value || typeof value !== 'string') return false;
+        const trimmed = value.trim();
+        if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/')) {
+            return true;
+        }
+        try {
+            const url = new URL(trimmed, window.location.origin);
+            return url.protocol === 'https:' || url.protocol === 'http:';
+        } catch (err) {
+            return false;
+        }
+    }
+
     // Markdown to HTML converter
     markdownToHtml(markdown) {
-        return markdown
+        const self = this;
+        const text = this.escapeHtml(markdown);
+        return text
             .replace(/^### (.+)$/gm, '<h3>$1</h3>')
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
             .replace(/^# (.+)$/gm, '<h1>$1</h1>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+            .replace(/\[(.+?)\]\((.+?)\)/g, function(_, label, href) {
+                const rawHref = String(href).replace(/&amp;/g, '&');
+                const url = self.isSafeHref(rawHref) ? rawHref : '#';
+                return '<a href="' + self.escapeHtml(url) + '">' + label + '</a>';
+            })
             .replace(/`(.+?)`/g, '<code>$1</code>')
-            .split('\n\n').map(p => `<p>${p}</p>`).join('');
+            .split('\n\n').map(function(p) { return '<p>' + p + '</p>'; }).join('');
     }
 
     // HTML to Markdown converter
@@ -299,7 +327,10 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const details = (result.errors && result.errors.length)
+                    ? result.errors.join(', ')
+                    : (result.message || 'heading issues');
+                this.showNotification('Validation failed: ' + details, 'error');
             }
             
         } catch (error) {

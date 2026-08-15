@@ -478,6 +478,15 @@
         let currentFile = null;
         let editor = null;
         let validationPassed = false;
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         
         // Initialize Toast UI Editor
         function initEditor() {
@@ -535,15 +544,15 @@
                     const item = document.createElement('div');
                     item.className = 'content-item';
                     item.innerHTML = `
-                        <div class="content-item-name">${file.name}</div>
-                        <div class="content-item-type">${file.type}</div>
+                        <div class="content-item-name">${escapeHtml(file.name)}</div>
+                        <div class="content-item-type">${escapeHtml(file.type)}</div>
                     `;
                     item.onclick = () => loadFile(file.path);
                     listEl.appendChild(item);
                 });
             } catch (e) {
                 console.error('Failed to load content list:', e);
-                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
+                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${escapeHtml(e.message)}<br><br>Check browser console for details</div>`;
             }
         }
         
@@ -643,9 +652,11 @@
                     <div style="background: #f0f9f0; border: 1px solid #4caf50; padding: 1rem; border-radius: 4px;">
                         <strong>Found ${result.headings.length} heading(s):</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.headings.map(([level, text]) => 
-                                `<li>h${level}: ${text}</li>`
-                            ).join('')}
+                            ${result.headings.map((heading) => {
+                                const level = heading.level != null ? heading.level : heading[0];
+                                const text = heading.text != null ? heading.text : heading[1];
+                                return `<li>h${escapeHtml(level)}: ${escapeHtml(text)}</li>`;
+                            }).join('')}
                         </ul>
                     </div>
                 `;
@@ -659,14 +670,14 @@
                     <div style="background: #ffebee; border: 1px solid #ef5350; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                         <strong>Errors:</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.errors.map(error => `<li>${error}</li>`).join('')}
+                            ${result.errors.map(error => `<li>${escapeHtml(error)}</li>`).join('')}
                         </ul>
                     </div>
                     ${result.suggestions && result.suggestions.length > 0 ? `
                         <div style="background: #fff3e0; border: 1px solid #ff9800; padding: 1rem; border-radius: 4px;">
                             <strong>How to fix:</strong>
                             <ul style="margin-top: 0.5rem;">
-                                ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+                                ${result.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
                             </ul>
                         </div>
                     ` : ''}
@@ -825,8 +836,8 @@
                         html += `
                             <div class="redirect-item">
                                 <div class="redirect-info">
-                                    <div style="font-weight: 500;">${p.name}</div>
-                                    <div class="redirect-from">${currency} ${price} · ${p._meta.source}</div>
+                                    <div style="font-weight: 500;">${escapeHtml(p.name)}</div>
+                                    <div class="redirect-from">${escapeHtml(currency)} ${escapeHtml(price)} · ${escapeHtml(p._meta && p._meta.source)}</div>
                                 </div>
                             </div>
                         `;
@@ -973,12 +984,17 @@
                 listEl.innerHTML = redirects.map(r => `
                     <div class="redirect-item">
                         <div class="redirect-info">
-                            <div class="redirect-from">${r.from}</div>
-                            <div class="redirect-to">→ ${r.to}</div>
+                            <div class="redirect-from">${escapeHtml(r.from)}</div>
+                            <div class="redirect-to">→ ${escapeHtml(r.to)}</div>
                         </div>
-                        <button class="redirect-delete" onclick="deleteRedirect('${r.from}')">Delete</button>
+                        <button class="redirect-delete" data-from="${escapeHtml(r.from)}">Delete</button>
                     </div>
                 `).join('');
+                listEl.querySelectorAll('.redirect-delete').forEach(function(button) {
+                    button.addEventListener('click', function() {
+                        deleteRedirect(button.getAttribute('data-from'));
+                    });
+                });
             } catch (e) {
                 console.error('Failed to load redirects:', e);
                 document.getElementById('redirectsList').innerHTML = '<p style="color: #ff6b6b;">Failed to load redirects</p>';
