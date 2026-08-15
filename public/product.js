@@ -83,6 +83,38 @@
         if (isSafeActionUrl(variant.url)) {
             form.action = variant.url;
         }
+        if (variant.id) {
+            form.dataset.variantId = String(variant.id);
+        }
+        if (variant.sku) {
+            form.dataset.sku = String(variant.sku);
+        }
+        if (variant.price !== undefined && variant.price !== null) {
+            form.dataset.price = String(variant.price);
+        }
+        if (variant.currency) {
+            form.dataset.currency = String(variant.currency);
+        }
+    }
+
+    function applyInStockDefaults() {
+        const current = findVariant(
+            colorSelect ? colorSelect.value : undefined,
+            sizeSelect ? sizeSelect.value : undefined
+        );
+        if (current && isInStock(current)) {
+            return;
+        }
+        const inStock = variants.find(isInStock);
+        if (!inStock) {
+            return;
+        }
+        if (colorSelect && inStock.color) {
+            colorSelect.value = inStock.color;
+        }
+        if (sizeSelect && inStock.size) {
+            sizeSelect.value = inStock.size;
+        }
     }
     
     if (colorSelect) {
@@ -93,6 +125,7 @@
         sizeSelect.addEventListener('change', updateProduct);
     }
     
+    applyInStockDefaults();
     updateProduct();
     
     if (quantityInput) {
