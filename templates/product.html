@@ -90,14 +90,14 @@
                       data-image="{{ product_image }}"
                       data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ sku }}">
+                      data-variant-id="{{ variant_id or sku }}">
                     
                     {% if colors %}
                     <div class="form-group">
                         <label for="color">Color:</label>
                         <select name="color" id="color" required>
                             {% for color in colors %}
-                            <option value="{{ color }}">{{ color }}</option>
+                            <option value="{{ color }}"{% if color == default_color %} selected{% endif %}>{{ color }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -108,7 +108,7 @@
                         <label for="size">Size:</label>
                         <select name="size" id="size" required>
                             {% for size in sizes %}
-                            <option value="{{ size }}">{{ size }}</option>
+                            <option value="{{ size }}"{% if size == default_size %} selected{% endif %}>{{ size }}</option>
                             {% endfor %}
                         </select>
                     </div>
