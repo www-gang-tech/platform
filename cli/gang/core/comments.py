@@ -6,12 +6,15 @@ Integrates with the build system to include approved comments in templates.
 """
 
 import os
+import re
 import yaml
 import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import click
+
+_SAFE_SLUG = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 
 class CommentsManager:
@@ -26,16 +29,32 @@ class CommentsManager:
         # Ensure directories exist
         self.posts_comments_path.mkdir(parents=True, exist_ok=True)
         self.products_comments_path.mkdir(parents=True, exist_ok=True)
+
+    def _safe_slug(self, page_slug: str) -> str:
+        slug = str(page_slug or '').strip()
+        if not _SAFE_SLUG.match(slug) or '..' in slug:
+            raise ValueError(f"Invalid page slug: {page_slug!r}")
+        return slug
+
+    def _comments_dir(self, page_slug: str, page_type: str) -> Path:
+        slug = self._safe_slug(page_slug)
+        if page_type == "post":
+            root = self.posts_comments_path
+        elif page_type == "product":
+            root = self.products_comments_path
+        else:
+            raise ValueError(f"Unsupported page type: {page_type}")
+        target = (root / slug).resolve()
+        target.relative_to(root.resolve())
+        return target
     
     def get_comments_for_page(self, page_slug: str, page_type: str) -> List[Dict[str, Any]]:
         """Get all approved comments for a specific page."""
         comments = []
         
-        if page_type == "post":
-            comments_dir = self.posts_comments_path / page_slug
-        elif page_type == "product":
-            comments_dir = self.products_comments_path / page_slug
-        else:
+        try:
+            comments_dir = self._comments_dir(page_slug, page_type)
+        except ValueError:
             return comments
         
         if not comments_dir.exists():
@@ -46,6 +65,8 @@ class CommentsManager:
             try:
                 with open(comment_file, 'r', encoding='utf-8') as f:
                     comment_data = yaml.safe_load(f)
+                if not isinstance(comment_data, dict):
+                    continue
                 
                 # Only include approved comments
                 if comment_data.get('status') == 'approved':
@@ -88,13 +109,7 @@ class CommentsManager:
             'parent_id': None
         }
         
-        # Determine target directory
-        if page_type == "post":
-            target_dir = self.posts_comments_path / page_slug
-        elif page_type == "product":
-            target_dir = self.products_comments_path / page_slug
-        else:
-            raise ValueError(f"Unsupported page type: {page_type}")
+        target_dir = self._comments_dir(page_slug, page_type)
         
         # Create directory if it doesn't exist
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -158,6 +173,8 @@ class CommentsManager:
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
                                 comment_data = yaml.safe_load(f)
+                            if not isinstance(comment_data, dict):
+                                continue
                             
                             # Apply status filter
                             if status_filter and comment_data.get('status') != status_filter:
@@ -247,8 +264,8 @@ class CommentsManager:
         try:
             from urllib.parse import urlparse
             result = urlparse(url)
-            return all([result.scheme, result.netloc])
-        except:
+            return result.scheme in ('http', 'https') and bool(result.netloc)
+        except Exception:
             return False
 
 
