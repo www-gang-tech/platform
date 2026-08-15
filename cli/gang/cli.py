@@ -7,15 +7,377 @@ GANG CLI - Single binary for all build operations
 import click
 import yaml
 import os
+import sys
 import hashlib
 import json
 import shutil
 import markdown
 import time
 import threading
+import html as html_module
+import uuid
+import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
+from urllib.parse import quote
+
+PUBLISHABLE_CATEGORIES = [
+    'posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products'
+]
+TEMPLATE_OWNS_H1 = {
+    'posts', 'articles', 'projects', 'newsletters', 'people', 'products'
+}
+PLACEHOLDER_WEBHOOK_MARKERS = ('your-n8n.app', 'example.com', 'placeholder', 'changeme')
+
+
+def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
+    """Parse YAML frontmatter, always returning a dict even for empty/invalid YAML."""
+    if content.startswith('---'):
+        parts = content.split('---', 2)
+        raw = None
+        if len(parts) > 1:
+            try:
+                raw = yaml.safe_load(parts[1])
+            except yaml.YAMLError:
+                raw = None
+        body = parts[2] if len(parts) > 2 else ''
+        frontmatter = raw if isinstance(raw, dict) else {}
+        return frontmatter, body
+    return {}, content
+
+
+def json_for_script(data: Any) -> str:
+    """Serialize JSON for embedding in <script> without </script> breakout."""
+    return (
+        json.dumps(data, indent=2, default=str)
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('&', '\\u0026')
+    )
+
+
+def template_environment(templates_path: Path):
+    """Jinja env with HTML autoescape so product/cart titles cannot break markup."""
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    env = Environment(
+        loader=FileSystemLoader(str(templates_path)),
+        autoescape=select_autoescape(['html', 'xml']),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    env.filters['tojson_script'] = json_for_script
+    return env
+
+
+def offer_is_in_stock(offer: Any) -> bool:
+    if not isinstance(offer, dict):
+        return False
+    avail = str(offer.get('availability') or '')
+    return 'InStock' in avail and 'OutOfStock' not in avail
+
+
+def safe_http_url(value: Any) -> str:
+    """Allow only relative or http(s) merchant URLs, never www.shopify.com."""
+    if not isinstance(value, str):
+        return ''
+    value = value.strip()
+    if not value or value == '#':
+        return ''
+    if value.startswith('/') and not value.startswith('//'):
+        return value
+    from urllib.parse import urlparse
+    parsed = urlparse(value)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        return ''
+    if parsed.netloc.lower() in ('www.shopify.com', 'shopify.com'):
+        return ''
+    return value
+
+
+def split_variant_name(variant_name: str) -> Tuple[str, str]:
+    if '/' in (variant_name or ''):
+        parts = variant_name.split('/')
+        return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else '')
+    return '', ''
+
+
+def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str) -> Dict[str, Any]:
+    """Normalize product + offers into template context, preferring in-stock defaults."""
+    raw_images = product.get('image', [])
+    type_name = type(raw_images).__name__
+    if type_name in ('list', 'tuple'):
+        images = [str(img) for img in raw_images if img]
+    elif raw_images:
+        images = [str(raw_images)]
+    else:
+        images = []
+
+    offers = product.get('offers', {})
+    variants_list: List[Dict[str, Any]] = []
+    colors_list: List[str] = []
+    sizes_list: List[str] = []
+    first_offer: Dict[str, Any] = {}
+
+    if type(offers).__name__ == 'list':
+        color_order: List[str] = []
+        size_order: List[str] = []
+        colors = set()
+        color_to_image: Dict[str, int] = {}
+        dict_offers = [offer for offer in offers if isinstance(offer, dict)]
+
+        for offer in dict_offers:
+            color, size = split_variant_name(str(offer.get('name') or ''))
+            if color and color not in colors:
+                color_order.append(color)
+                colors.add(color)
+            if size and size not in size_order:
+                size_order.append(size)
+
+        for idx, color in enumerate(color_order):
+            if idx < len(images):
+                color_to_image[color] = idx
+
+        for offer in dict_offers:
+            color_part, size_part = split_variant_name(str(offer.get('name') or ''))
+            variant_id = offer.get('id')
+            if variant_id in (None, ''):
+                offer_url = str(offer.get('url') or '')
+                marker = 'variant='
+                if marker in offer_url:
+                    variant_id = offer_url.split(marker, 1)[1].split('&', 1)[0]
+            variants_list.append({
+                'name': offer.get('name', ''),
+                'color': color_part,
+                'size': size_part,
+                'price': offer.get('price', '0'),
+                'currency': offer.get('priceCurrency', 'USD'),
+                'availability': offer.get('availability', 'InStock'),
+                'url': safe_http_url(offer.get('url')),
+                'sku': offer.get('sku', ''),
+                'id': '' if variant_id in (None, '') else str(variant_id),
+                'image_index': color_to_image.get(color_part, 0) if color_part else 0,
+            })
+
+        in_stock_colors = [
+            color for color in color_order
+            if any(
+                offer_is_in_stock(offer) and split_variant_name(str(offer.get('name') or ''))[0] == color
+                for offer in dict_offers
+            )
+        ]
+        colors_list = in_stock_colors + [color for color in color_order if color not in in_stock_colors]
+        in_stock_sizes = [
+            size for size in size_order
+            if any(
+                offer_is_in_stock(offer) and split_variant_name(str(offer.get('name') or ''))[1] == size
+                for offer in dict_offers
+            )
+        ]
+        sizes_list = in_stock_sizes + [size for size in size_order if size not in in_stock_sizes]
+        in_stock_offers = [offer for offer in dict_offers if offer_is_in_stock(offer)]
+        first_offer = (in_stock_offers or dict_offers or [{}])[0]
+        default_variant = next((item for item in variants_list if offer_is_in_stock({
+            'availability': item.get('availability')
+        })), variants_list[0] if variants_list else {})
+        if default_variant.get('color') and default_variant['color'] in colors_list:
+            colors_list = [default_variant['color']] + [
+                color for color in colors_list if color != default_variant['color']
+            ]
+        if default_variant.get('size') and default_variant['size'] in sizes_list:
+            sizes_list = [default_variant['size']] + [
+                size for size in sizes_list if size != default_variant['size']
+            ]
+    elif isinstance(offers, dict):
+        first_offer = offers
+
+    if not isinstance(first_offer, dict):
+        first_offer = {}
+
+    brand_data = product.get('brand', '')
+    brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+
+    default_color = colors_list[0] if colors_list else ''
+    default_size = sizes_list[0] if sizes_list else ''
+    matching_default = next(
+        (
+            item for item in variants_list
+            if (not default_color or item.get('color') == default_color)
+            and (not default_size or item.get('size') == default_size)
+        ),
+        variants_list[0] if variants_list else {},
+    )
+    default_variant_id = str(matching_default.get('id') or first_offer.get('id') or '')
+
+    return {
+        'lang': config['site'].get('language', 'en'),
+        'site_title': config['site']['title'],
+        'title': product.get('name', ''),
+        'description': product.get('description', ''),
+        'canonical_url': f"{config['site']['url']}/products/{slug}/",
+        'product_image': images[0] if images else '',
+        'product_images': images,
+        'price': first_offer.get('price', '0'),
+        'currency': first_offer.get('priceCurrency', 'USD'),
+        'recurring': None,
+        'content': product.get('description', ''),
+        'buy_url': safe_http_url(first_offer.get('url')),
+        'variants': variants_list,
+        'colors': colors_list,
+        'sizes': sizes_list,
+        'default_color': default_color,
+        'default_size': default_size,
+        'variant_id': default_variant_id,
+        'sku': matching_default.get('sku') or product.get('sku', ''),
+        'brand': brand_name,
+        'category': product.get('category', ''),
+        'availability': first_offer.get('availability', 'InStock'),
+        'jsonld': product,
+        'year': datetime.now().year,
+        'navigation': config.get('nav', {}).get('main', []),
+        'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'build_time_iso': datetime.now().isoformat(),
+    }
+
+
+def comments_are_enabled(config: Dict[str, Any]) -> bool:
+    comments = config.get('comments') or {}
+    if not comments.get('enabled'):
+        return False
+    url = str(comments.get('webhook_url') or '').strip()
+    if not url.lower().startswith('https://'):
+        return False
+    lowered = url.lower()
+    return not any(marker in lowered for marker in PLACEHOLDER_WEBHOOK_MARKERS)
+
+
+def strip_leading_markdown_h1(body: str) -> str:
+    stripped = body.lstrip('\n')
+    if stripped.startswith('# '):
+        newline = stripped.find('\n')
+        if newline == -1:
+            return ''
+        return stripped[newline + 1:].lstrip('\n')
+    return body
+
+
+def resolve_under_root(root: Path, relative: str) -> Optional[Path]:
+    """Resolve a relative path and reject traversal outside root (including symlinks)."""
+    if not relative or relative.startswith('/') or '\0' in relative:
+        return None
+    try:
+        base = root.resolve()
+        candidate = (base / relative).resolve()
+        candidate.relative_to(base)
+        return candidate
+    except (ValueError, OSError):
+        return None
+
+
+def collect_category_markdown(content_path: Path) -> List[Path]:
+    files = []
+    for category_dir in PUBLISHABLE_CATEGORIES:
+        category_path = content_path / category_dir
+        if category_path.exists():
+            files.extend(sorted(category_path.glob('*.md')))
+    return files
+
+
+def fallback_jsonld(
+    content_type: str,
+    title: str,
+    description: str,
+    url: str,
+    date_val: Any,
+    site_title: str,
+) -> Dict[str, Any]:
+    date_str = ''
+    if date_val is not None:
+        date_str = date_val.isoformat() if hasattr(date_val, 'isoformat') else str(date_val)
+    if content_type in ('posts', 'articles'):
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            'headline': title,
+            'description': description,
+            'datePublished': date_str,
+            'author': {'@type': 'Organization', 'name': site_title},
+            'publisher': {'@type': 'Organization', 'name': site_title},
+            'url': url,
+        }
+    if content_type == 'people':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'Person',
+            'name': title,
+            'description': description,
+            'url': url,
+        }
+    if content_type == 'projects':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': title,
+            'description': description,
+            'author': {'@type': 'Organization', 'name': site_title},
+            'dateCreated': date_str,
+            'url': url,
+        }
+    if content_type == 'newsletters':
+        return {
+            '@context': 'https://schema.org',
+            '@type': 'Article',
+            'headline': title,
+            'description': description,
+            'datePublished': date_str,
+            'url': url,
+        }
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        'name': title,
+        'description': description,
+        'url': url,
+    }
+
+
+def minify_js_source(js_content: str) -> str:
+    """Strip full-line comments only so URL literals such as https:// stay intact."""
+    js_content = re.sub(r'(?m)^[ \t]*//[^\n]*\n?', '', js_content)
+    js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
+    js_content = re.sub(r'\n[ \t]+', '\n', js_content)
+    js_content = re.sub(r'[ \t]{2,}', ' ', js_content)
+    js_content = '\n'.join(line for line in js_content.split('\n') if line.strip())
+    return js_content.strip()
+
+
+def minify_html_source(original_html: str) -> str:
+    """Minify HTML while protecting script/style bodies with a per-call nonce."""
+    nonce = uuid.uuid4().hex
+    protected: List[str] = []
+
+    def _protect(match: re.Match) -> str:
+        protected.append(match.group(0))
+        return f'GANGMINIFY{nonce}{len(protected) - 1}END'
+
+    work = re.sub(
+        r'<script\b[^>]*>.*?</script>',
+        _protect,
+        original_html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    work = re.sub(
+        r'<style\b[^>]*>.*?</style>',
+        _protect,
+        work,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    work = re.sub(r'<!--.*?-->', '', work, flags=re.DOTALL)
+    work = re.sub(r'>\s+<', '><', work)
+    work = '\n'.join(line.strip() for line in work.split('\n') if line.strip())
+    for index, block in enumerate(protected):
+        work = work.replace(f'GANGMINIFY{nonce}{index}END', block)
+    return work
 
 @click.group()
 @click.pass_context
@@ -91,11 +453,11 @@ def report(ctx, answerability, format):
         else:
             click.echo(f"\n✅ Answerability check passed!")
 
-@cli.command()
+@cli.command(name='check-contracts')
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
 @click.pass_context
-def check(ctx, verbose):
-    """Validate site against contracts and standards"""
+def check_contracts(ctx, verbose):
+    """Validate page-type YAML contracts (posts, pages, people, products)"""
     try:
         from core.contract_validator import ContractValidator
     except ImportError:
@@ -123,7 +485,8 @@ def check(ctx, verbose):
         'posts': 'post',
         'pages': 'page',
         'projects': 'project',
-        'products': 'product'
+        'products': 'product',
+        'people': 'person',
     }
     
     for content_type_dir, contract_type in type_mapping.items():
@@ -132,6 +495,9 @@ def check(ctx, verbose):
             continue
         
         for html_file in type_path.rglob('index.html'):
+            # Collection indexes are CollectionPage, not detail-page contracts
+            if html_file.parent == type_path:
+                continue
             result = validator.validate_file(html_file, contract_type)
             results.append(result)
             
@@ -173,7 +539,7 @@ def optimize(ctx, force):
         return
     
     content_path = Path(config['build']['content'])
-    md_files = list(content_path.rglob('*.md'))
+    md_files = collect_category_markdown(content_path)
     
     click.echo(f"Found {len(md_files)} content files")
     
@@ -184,15 +550,7 @@ def optimize(ctx, force):
     optimized_count = 0
     for md_file in md_files:
         content = md_file.read_text()
-        
-        # Parse frontmatter
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        frontmatter, body = parse_frontmatter_text(content)
         
         content_type = md_file.parent.name
         
@@ -200,8 +558,8 @@ def optimize(ctx, force):
         optimized = optimizer.optimize_content(body, frontmatter, content_type)
         
         if optimized != frontmatter:
-            # Write back with optimized frontmatter
-            new_content = f"---\n{yaml.dump(optimized, default_flow_style=False)}---\n{body}"
+            dumped = yaml.dump(optimized, default_flow_style=False, allow_unicode=True).strip()
+            new_content = f"---\n{dumped}\n---\n{body.lstrip(chr(10))}"
             md_file.write_text(new_content)
             optimized_count += 1
             click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
@@ -229,7 +587,7 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
     # Batch analysis mode
     if analyze_all:
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = collect_category_markdown(content_path)
         
         if not md_files:
             click.echo("⚠️  No markdown files found", err=True)
@@ -672,11 +1030,11 @@ def upload(ctx, source, path):
             click.echo(f"\n💡 Use in markdown:")
             click.echo(f"   ![Alt text]({result['public_url']})")
 
-@media.command()
+@media.command(name='list')
 @click.option('--prefix', default='', help='Filter by prefix (e.g., images/)')
 @click.option('--limit', default=100, type=int, help='Max files to show')
 @click.pass_context
-def list(ctx, prefix, limit):
+def list_media_files(ctx, prefix, limit):
     """List files in R2 bucket"""
     try:
         from core.r2_storage import R2Storage
@@ -939,7 +1297,7 @@ def import_content(ctx, source, title, category, compress_images, commit):
 @cli.command()
 @click.argument('old_slug')
 @click.argument('new_slug')
-@click.option('--category', type=click.Choice(['posts', 'pages', 'projects']), required=True, help='Content category')
+@click.option('--category', type=click.Choice(['posts', 'pages', 'projects', 'people', 'newsletters', 'products']), required=True, help='Content category')
 @click.option('--redirect', is_flag=True, default=True, help='Create 301 redirect (default: yes)')
 @click.option('--no-redirect', is_flag=True, help='Skip creating redirect')
 @click.pass_context
@@ -996,25 +1354,28 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
         click.echo("Cancelled")
         return
     
-    # Rename file
-    try:
-        old_file.rename(new_file)
-        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
-    except Exception as e:
-        click.echo(f"❌ Rename failed: {e}")
-        ctx.exit(1)
-    
-    # Create redirect if requested
+    # Record the redirect before renaming so a failed rename can roll it back.
+    redirect_manager = None
+    prior_redirects = None
     if create_redirect:
         redirect_manager = RedirectManager(content_path, dist_path)
+        prior_redirects = [dict(item) for item in redirect_manager.list_all_redirects()]
         result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename')
-        
         if result.get('created'):
             click.echo(f"✅ 301 redirect created")
         elif result.get('updated'):
             click.echo(f"✅ Redirect updated (was already tracking this path)")
-        
         click.echo(f"📄 Redirects file: .redirects.json")
+
+    try:
+        old_file.rename(new_file)
+        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
+    except Exception as e:
+        if redirect_manager is not None and prior_redirects is not None:
+            redirect_manager.restore_redirects(prior_redirects)
+            click.echo("↩️  Redirect rolled back after rename failure")
+        click.echo(f"❌ Rename failed: {e}")
+        ctx.exit(1)
     
     # Create git commit
     if click.confirm("\nCreate git commit?"):
@@ -1109,12 +1470,16 @@ def add_redirect(ctx, from_path, to_path, temporary):
     dist_path = Path(config['build']['output'])
     
     manager = RedirectManager(content_path, dist_path)
-    result = manager.add_redirect(
-        from_path, 
-        to_path, 
-        reason='manual',
-        permanent=not temporary
-    )
+    try:
+        result = manager.add_redirect(
+            from_path, 
+            to_path, 
+            reason='manual',
+            permanent=not temporary
+        )
+    except ValueError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        ctx.exit(1)
     
     status = 302 if temporary else 301
     if result.get('created'):
@@ -2172,7 +2537,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("Score Running content quality checks...")
         analyzer = ContentAnalyzer(config)
         content_path = Path(config['build']['content'])
-        md_files = list(content_path.rglob('*.md'))
+        md_files = collect_category_markdown(content_path)
         
         failed_files = []
         for md_file in md_files:
@@ -2261,6 +2626,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+        headers_src = public_path / '_headers'
+        if headers_src.exists():
+            shutil.copy2(headers_src, dist_path / '_headers')
     
     # Build content
     content_path = Path(config['build']['content'])
@@ -2268,6 +2636,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_posts = []
     all_projects = []
     all_newsletters = []
+    all_people = []
     
     # Parse markdown files
     if profiler:
@@ -2283,13 +2652,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     scheduler = ContentScheduler(content_path)
     
-    # Manually collect .md files to avoid Click recursion issue
-    all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
-        category_path = content_path / category_dir
-        if category_path.exists():
-            for md_file in category_path.glob('*.md'):
-                all_md_files.append(md_file)
+    # Collect publishable markdown (exclude examples/comments)
+    all_md_files = collect_category_markdown(content_path)
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     
@@ -2307,13 +2671,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Parse markdown with frontmatter
         content = md_file.read_text()
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
+        frontmatter, body = parse_frontmatter_text(content)
+        if content_type in TEMPLATE_OWNS_H1:
+            body = strip_leading_markdown_h1(body)
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
@@ -2329,25 +2689,62 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
         
+        description = (
+            frontmatter.get('summary')
+            or (frontmatter.get('seo') or {}).get('description')
+            or config['site']['description']
+        )
+        if isinstance(description, str):
+            description = description.strip() or config['site']['description']
+        else:
+            description = config['site']['description']
+        
+        title = frontmatter.get('title') or md_file.stem.replace('-', ' ').title()
+        tags = frontmatter.get('tags') or []
+        if isinstance(tags, str):
+            tags = [tags]
+        elif not isinstance(tags, list):
+            tags = []
+        tags = [str(tag) for tag in tags]
+        
+        comments_enabled = comments_are_enabled(config) and content_type in ('posts', 'articles')
+        page_comments = []
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                from gang.core.comments import get_comments_for_build
+            comment_type = 'post' if content_type in ('posts', 'articles') else 'product'
+            page_comments = get_comments_for_build(content_path, slug, comment_type)
+        
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': title,
+            'description': description,
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
             'date': frontmatter.get('date'),
             'date_formatted': str(frontmatter.get('date', '')),
-            'tags': frontmatter.get('tags', []),
+            'tags': tags,
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
-            # In-place editor context
-            'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
-            'category': content_type,  # 'posts', 'pages', 'projects', etc.
+            'og_type': 'article' if content_type in ('posts', 'articles', 'projects') else 'website',
+            'page_type': content_type.rstrip('s'),
+            'category': content_type,
             'slug': slug,
             'user_authenticated': user_authenticated,
+            'comments_enabled': comments_enabled,
+            'comments': page_comments,
+            'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
+            'role': frontmatter.get('role', ''),
+            'image': frontmatter.get('image', ''),
+            'social_links': frontmatter.get('social_links') or [],
+            'summary': frontmatter.get('summary') or '',
+            'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
+            'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
         }
         
         # Treat articles as posts
@@ -2369,13 +2766,26 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
         
+        jsonld = context.get('jsonld')
+        if not jsonld:
+            context['jsonld'] = fallback_jsonld(
+                content_type,
+                context['title'],
+                context['description'],
+                context['canonical_url'],
+                context.get('date'),
+                config['site']['title'],
+            )
+        
         # Select template
         if content_type == 'posts':
             template_name = 'post.html'
         elif content_type == 'projects':
-            template_name = 'article.html'  # Use article template for projects
+            template_name = 'article.html'
         elif content_type == 'newsletters':
             template_name = 'newsletter.html'
+        elif content_type == 'people':
+            template_name = 'person.html'
         else:
             template_name = 'page.html'
         
@@ -2412,6 +2822,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             all_newsletters.append(page_data)
         elif content_type == 'pages':
             all_pages.append(page_data)
+        elif content_type == 'people':
+            all_people.append(page_data)
     
     # Create index page
     click.echo("🏠 Creating index page...")
@@ -2456,6 +2868,16 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
     
+    if all_people:
+        click.echo("📄 Creating people index...")
+        people_html = create_list_page_simple(config, all_people, 'People', templates_path, path='/people/')
+        page_size_bytes = len(people_html.encode('utf-8'))
+        people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+        (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+        (dist_path / 'people' / 'index.html').write_text(people_html)
+    
+    write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
+    
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
     all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
@@ -2463,9 +2885,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_people:
+        all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_people
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2486,9 +2910,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo(f"⚠️  Could not generate redirects: {e}")
     
     # Generate product pages (only active products)
+    products = []
     try:
         from core.products import ProductAggregator
-        from jinja2 import Environment, FileSystemLoader
         
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
@@ -2496,9 +2920,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         if products:
             click.echo(f"🛒 Generating {len(products)} product page(s)...")
             
-            # Setup Jinja2
             template_dir = Path(__file__).parent.parent.parent / 'templates'
-            jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+            jinja_env = template_environment(template_dir)
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -2526,182 +2949,83 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
                 pdp_dir = products_path / slug
                 pdp_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Handle images FIRST (can be string or list)
-                raw_images = product.get('image', [])
-                
-                # Ensure we have a proper Python list (avoid isinstance for Click compatibility)
-                type_name = type(raw_images).__name__
-                if type_name in ('list', 'tuple'):
-                    images = [str(img) for img in raw_images if img]
-                elif raw_images:
-                    images = [str(raw_images)]
-                else:
-                    images = []
-                
-                # Extract offer data and variants
-                offers = product.get('offers', {})
-                variants_list = []
-                
-                if type(offers).__name__ == 'list':
-                    # Multiple variants - extract unique colors and sizes
-                    colors = set()
-                    sizes = set()
-                    color_to_image = {}  # Map colors to images
-                    
-                    # First pass: collect unique colors in order they appear
-                    color_order = []
-                    for offer in offers:
-                        variant_name = offer.get('name', '')
-                        if '/' in variant_name:
-                            parts = variant_name.split('/')
-                            color = parts[0].strip()
-                            size = parts[1].strip() if len(parts) > 1 else ''
-                            
-                            if color not in colors:
-                                color_order.append(color)
-                                colors.add(color)
-                            
-                            if size:
-                                sizes.add(size)
-                    
-                    # Map each color to an image (assume images are in same order as colors appear)
-                    for idx, color in enumerate(color_order):
-                        if idx < len(images):
-                            color_to_image[color] = idx
-                    
-                    # Second pass: prepare variant data with correct image mapping
-                    for offer in offers:
-                        variant_name = offer.get('name', '')
-                        color_part = ''
-                        size_part = ''
-                        
-                        if '/' in variant_name:
-                            parts = variant_name.split('/')
-                            color_part = parts[0].strip()
-                            size_part = parts[1].strip() if len(parts) > 1 else ''
-                        
-                        variants_list.append({
-                            'name': variant_name,
-                            'color': color_part,
-                            'size': size_part,
-                            'price': offer.get('price', '0'),
-                            'currency': offer.get('priceCurrency', 'USD'),
-                            'availability': offer.get('availability', 'InStock'),
-                            'url': offer.get('url', '#'),
-                            'sku': offer.get('sku', ''),
-                            'image_index': color_to_image.get(color_part, 0) if color_part else 0
-                        })
-                    
-                    first_offer = offers[0]
-                    # Convert sets to lists without using list() to avoid Click collision
-                    colors_list = [c for c in sorted(colors)]
-                    sizes_list = [s for s in sorted(sizes)]
-                else:
-                    first_offer = offers
-                    colors_list = []
-                    sizes_list = []
-                
-                # Prepare template variables
-                brand_data = product.get('brand', '')
-                brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
-                
-                pdp_context = {
-                    'lang': config['site'].get('language', 'en'),
-                    'site_title': config['site']['title'],
-                    'title': product.get('name', ''),
-                    'description': product.get('description', ''),
-                    'canonical_url': f"{config['site']['url']}/products/{slug}/",
-                    'product_image': images[0] if images else '',
-                    'product_images': images,
-                    'price': first_offer.get('price', '0'),
-                    'currency': first_offer.get('priceCurrency', 'USD'),
-                    'recurring': None,
-                    'content': product.get('description', ''),
-                    'buy_url': first_offer.get('url', '#'),
-                    'variants': variants_list,
-                    'colors': colors_list,
-                    'sizes': sizes_list,
-                    'sku': product.get('sku', ''),
-                    'brand': brand_name,
-                    'category': product.get('category', ''),
-                    'availability': first_offer.get('availability', 'InStock'),
-                    'jsonld': product,
-                    'year': datetime.now().year,
-                    'navigation': config.get('nav', {}).get('main', []),
-                    'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                    'build_time_iso': datetime.now().isoformat()
-                }
-                
-                pdp_html = pdp_template.render(**pdp_context)
+                pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
                 (pdp_dir / 'index.html').write_text(pdp_html)
             
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
-            
-            # Generate cart page
-            cart_dir = dist_path / 'cart'
-            cart_dir.mkdir(parents=True, exist_ok=True)
-            
-            build_time = datetime.now()
-            build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
-            build_time_iso = build_time.isoformat()
-            
-            cart_template = jinja_env.get_template('cart.html')
-            cart_html = cart_template.render(
-                year=datetime.now().year,
-                site_title=config['site']['title'],
-                lighthouse_scores=True,
-                build_time=build_time_formatted,
-                build_time_iso=build_time_iso,
-                description=config['site']['description']
-            )
-            (cart_dir / 'index.html').write_text(cart_html)
-            
-            click.echo("🛒 Generated cart page")
-            
-            # Generate HTML sitemap
-            sitemap_dir = dist_path / 'sitemap'
-            sitemap_dir.mkdir(parents=True, exist_ok=True)
-            
-            sitemap_template = jinja_env.get_template('sitemap.html')
-            sitemap_html = sitemap_template.render(
-                site_title=config['site']['title'],
-                site_url=config['site']['url'],
-                pages=all_pages,
-                posts=all_posts,
-                projects=all_projects,
-                products=products,
-                year=datetime.now().year,
-                build_time_iso=datetime.now().isoformat()
-            )
-            (sitemap_dir / 'index.html').write_text(sitemap_html)
-            
-            click.echo("🗺️  Generated HTML sitemap")
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
+        products = []
     
-    # Generate search index
+    # Always emit cart + HTML sitemap (footer links to /sitemap/ even with an empty catalog)
+    try:
+        template_dir = Path(__file__).parent.parent.parent / 'templates'
+        jinja_env = template_environment(template_dir)
+        build_time = datetime.now()
+        
+        cart_dir = dist_path / 'cart'
+        cart_dir.mkdir(parents=True, exist_ok=True)
+        cart_jsonld = {
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': 'Shopping Cart',
+            'description': config['site']['description'],
+            'url': f"{str(config['site']['url']).rstrip('/')}/cart/",
+        }
+        cart_template = jinja_env.get_template('cart.html')
+        cart_html = cart_template.render(
+            year=datetime.now().year,
+            site_title=config['site']['title'],
+            lighthouse_scores=True,
+            build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
+            build_time_iso=build_time.isoformat(),
+            description=config['site']['description'],
+            jsonld=cart_jsonld,
+            site_url=config['site']['url'],
+        )
+        (cart_dir / 'index.html').write_text(cart_html)
+        click.echo("🛒 Generated cart page")
+        
+        sitemap_dir = dist_path / 'sitemap'
+        sitemap_dir.mkdir(parents=True, exist_ok=True)
+        sitemap_jsonld = {
+            '@context': 'https://schema.org',
+            '@type': 'CollectionPage',
+            'name': 'Sitemap',
+            'description': 'Complete sitemap of all pages',
+            'url': f"{str(config['site']['url']).rstrip('/')}/sitemap/",
+        }
+        sitemap_template = jinja_env.get_template('sitemap.html')
+        sitemap_html = sitemap_template.render(
+            site_title=config['site']['title'],
+            site_url=config['site']['url'],
+            pages=all_pages,
+            posts=all_posts,
+            projects=all_projects,
+            products=products,
+            people=all_people,
+            jsonld=sitemap_jsonld,
+            year=datetime.now().year,
+            build_time_iso=datetime.now().isoformat()
+        )
+        (sitemap_dir / 'index.html').write_text(sitemap_html)
+        click.echo("🗺️  Generated HTML sitemap")
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate cart/sitemap: {e}")
+    
+    # Generate search index from the same publishable set the build rendered
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
-        
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
         
         indexer = SearchIndexer(content_path, config)
-        search_index = indexer.build_search_index(publishable)
+        search_index = indexer.build_search_index(publishable_files)
         
-        # Write search index
         search_index_file = dist_path / 'search-index.json'
-        search_index_file.write_text(json.dumps(search_index))
+        search_index_file.write_text(json.dumps(search_index, default=str))
         
-        # Write search page
         search_page = dist_path / 'search' / 'index.html'
         search_page.parent.mkdir(parents=True, exist_ok=True)
-        search_page.write_text(indexer.generate_search_page_html())
+        search_page.write_text(indexer.generate_search_page_html(config, templates_path))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
@@ -2712,14 +3036,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
         
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
+        publishable_paths = [
+            Path(item) if not isinstance(item, Path) else item
+            for item in publishable_files
+        ]
         
-        # Get products
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
         
@@ -2768,17 +3089,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 
             js_content = js_file.read_text()
             js_original += len(js_content)
-            # Remove single-line comments (but preserve URLs)
-            js_content = re.sub(r'(?<!["\'/])//[^\n]*', '', js_content)
-            # Remove multi-line comments
-            js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
-            # Remove extra whitespace (but not all - preserve some for safety)
-            js_content = re.sub(r'\n\s+', '\n', js_content)
-            js_content = re.sub(r'\s{2,}', ' ', js_content)
-            # Remove empty lines
-            js_content = '\n'.join(line for line in js_content.split('\n') if line.strip())
-            js_minified += len(js_content.strip())
-            js_file.write_text(js_content.strip())
+            js_content = minify_js_source(js_content)
+            js_minified += len(js_content)
+            js_file.write_text(js_content)
         
         if js_files:
             js_savings = ((js_original - js_minified) / js_original * 100) if js_original > 0 else 0
@@ -2813,15 +3126,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         for html_file in html_files:
             original_html = html_file.read_text()
             original_size += len(original_html)
-            
-            # Simple minification:
-            # 1. Remove HTML comments
-            minified = re.sub(r'<!--.*?-->', '', original_html, flags=re.DOTALL)
-            # 2. Remove whitespace between tags
-            minified = re.sub(r'>\s+<', '><', minified)
-            # 3. Remove leading/trailing whitespace on lines
-            minified = '\n'.join(line.strip() for line in minified.split('\n') if line.strip())
-            
+            minified = minify_html_source(original_html)
             minified_size += len(minified)
             html_file.write_text(minified)
             minified_count += 1
@@ -2897,14 +3202,12 @@ def format_bytes(bytes_size: int) -> str:
 
 def render_header(config: Dict, templates_path: Path = None) -> str:
     """Render header partial template from HTML file"""
-    from jinja2 import Environment, FileSystemLoader
-    
     if templates_path is None:
         # Default to templates directory relative to project root
         templates_path = Path(__file__).parent.parent.parent / 'templates'
     
     try:
-        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        env = template_environment(templates_path)
         template = env.get_template('partials/header.html')
         return template.render(site_title=config['site']['title'])
     except Exception as e:
@@ -2930,7 +3233,6 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
                   build_time_iso: str = None, lighthouse_scores: bool = True, 
                   description: str = None, templates_path: Path = None) -> str:
     """Render footer partial template from HTML file"""
-    from jinja2 import Environment, FileSystemLoader
     from datetime import datetime
     
     if templates_path is None:
@@ -2941,7 +3243,7 @@ def render_footer(config: Dict, year: int = None, page_size: str = None, build_t
         year = datetime.now().year
     
     try:
-        env = Environment(loader=FileSystemLoader(str(templates_path)))
+        env = template_environment(templates_path)
         template = env.get_template('partials/footer.html')
         return template.render(
             site_title=config['site']['title'],
@@ -2965,9 +3267,10 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     """Create simple index page"""
     posts_html = ""
     for post in recent_posts:
-        posts_html += f'<li><a href="{post["url"]}">{post["title"]}</a></li>\n'
+        url = html_module.escape(str(post.get('url') or ''), quote=True)
+        title = html_module.escape(str(post.get('title') or ''))
+        posts_html += f'<li><a href="{url}">{title}</a></li>\n'
     
-    # Create JSON-LD structured data
     jsonld = {
         "@context": "https://schema.org",
         "@type": "WebSite",
@@ -2975,8 +3278,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
         "description": config['site']['description'],
         "url": config['site']['url']
     }
-    import json
-    jsonld_str = json.dumps(jsonld, indent=2)
+    jsonld_str = json_for_script(jsonld)
+    site_url = str(config['site']['url']).rstrip('/')
     
     # Build timestamp
     build_time = datetime.now()
@@ -2988,7 +3291,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     footer_html = render_footer(
         config,
         year=datetime.now().year,
-        page_size=None,  # Will be replaced with __PAGE_SIZE__ placeholder
+        page_size=None,
         build_time=build_time_formatted,
         build_time_iso=build_time_iso,
         lighthouse_scores=True,
@@ -2997,19 +3300,19 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     )
     
     html = f"""<!DOCTYPE html>
-<html lang="{config['site']['language']}">
+<html lang="{html_module.escape(config['site']['language'])}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    <title>{config['site']['title']}</title>
-    <meta name="description" content="{config['site']['description']}">
+    <title>{html_module.escape(config['site']['title'])}</title>
+    <meta name="description" content="{html_module.escape(config['site']['description'])}">
+    <link rel="canonical" href="{html_module.escape(site_url + '/', quote=True)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
     <link rel="stylesheet" href="/assets/style.css">
     <style>
-        /* Page-specific: unstyled list */
         ul {{
             list-style: none;
         }}
@@ -3018,8 +3321,8 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 <body>
     {header_html}
     <main>
-        <h1>{config['site']['title']}</h1>
-        <p>{config['site']['description']}</p>
+        <h1>{html_module.escape(config['site']['title'])}</h1>
+        <p>{html_module.escape(config['site']['description'])}</p>
         
         <h2>Latest Posts</h2>
         <ul  class="unstyled">
@@ -3034,25 +3337,33 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
     return html
 
 
-def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None) -> str:
+def create_list_page_simple(config: Dict, items: List, title: str, templates_path: Path = None, path: str = None) -> str:
     """Create simple list page"""
     items_html = ""
     for item in items:
-        items_html += f'<li><a href="{item["url"]}">{item["title"]}</a>'
+        item_url = html_module.escape(str(item.get('url') or ''), quote=True)
+        item_title = html_module.escape(str(item.get('title') or ''))
+        items_html += f'<li><a href="{item_url}">{item_title}</a>'
         if item.get('summary'):
-            items_html += f'<p>{item["summary"]}</p>'
+            items_html += f'<p>{html_module.escape(str(item["summary"]))}</p>'
         items_html += '</li>\n'
     
-    # Create JSON-LD structured data
-    import json
+    list_path = path or f"/{title.lower().strip('/')}/"
+    if not list_path.startswith('/'):
+        list_path = '/' + list_path
+    if not list_path.endswith('/'):
+        list_path += '/'
+    site_url = str(config['site']['url']).rstrip('/')
+    canonical = f"{site_url}{list_path}"
+    
     jsonld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": title,
         "description": config['site']['description'],
-        "url": config['site']['url']
+        "url": canonical
     }
-    jsonld_str = json.dumps(jsonld, indent=2)
+    jsonld_str = json_for_script(jsonld)
     
     # Build timestamp
     build_time = datetime.now()
@@ -3078,8 +3389,9 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    <title>{title} - {config['site']['title']}</title>
-    <meta name="description" content="{config['site']['description']}">
+    <title>{html_module.escape(title)} - {html_module.escape(config['site']['title'])}</title>
+    <meta name="description" content="{html_module.escape(config['site']['description'])}">
+    <link rel="canonical" href="{html_module.escape(canonical, quote=True)}">
     <script type="application/ld+json">
 {jsonld_str}
     </script>
@@ -3107,6 +3419,41 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
 </html>"""
     
     return html
+
+
+def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_path: Path = None) -> None:
+    """Emit /tags/ and /tags/<tag>/ collection pages linked from content templates."""
+    by_tag: Dict[str, List[Dict]] = {}
+    for item in items:
+        for tag in item.get('tags') or []:
+            tag_name = str(tag).strip()
+            if not tag_name or tag_name in ('.', '..'):
+                continue
+            by_tag.setdefault(tag_name, []).append(item)
+    if not by_tag:
+        return
+    
+    tags_index_items = []
+    for tag_name in sorted(by_tag.keys(), key=str.lower):
+        encoded = quote(tag_name, safe='')
+        tag_path = f"/tags/{encoded}/"
+        tag_html = create_list_page_simple(
+            config, by_tag[tag_name], f"Tag: {tag_name}", templates_path, path=tag_path
+        )
+        tag_dir = dist_path / 'tags' / encoded
+        tag_dir.mkdir(parents=True, exist_ok=True)
+        (tag_dir / 'index.html').write_text(tag_html)
+        tags_index_items.append({
+            'url': tag_path,
+            'title': tag_name,
+            'summary': f"{len(by_tag[tag_name])} item(s)",
+        })
+    
+    tags_html = create_list_page_simple(config, tags_index_items, 'Tags', templates_path, path='/tags/')
+    tags_root = dist_path / 'tags'
+    tags_root.mkdir(parents=True, exist_ok=True)
+    (tags_root / 'index.html').write_text(tags_html)
+    click.echo(f"🏷️  Generated {len(by_tag)} tag page(s)")
 
 
 def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
@@ -3553,13 +3900,13 @@ def check(ctx, output):
     
     click.echo("✅ Validating contracts...")
     config = ctx.obj
-    validator = ContractValidator(config)
     
     dist_path = Path(config['build']['output'])
     if not dist_path.exists():
         click.echo("Error: dist/ directory not found. Run 'gang build' first.", err=True)
-        return
+        ctx.exit(1)
     
+    validator = ContractValidator(config, dist_path=dist_path)
     results = validator.validate_directory(dist_path)
     
     # Print summary
@@ -3574,7 +3921,11 @@ def check(ctx, output):
     for file_result in results['files']:
         file_summary = file_result['summary']
         if not file_summary['passed']:
-            click.echo(f"\n❌ {Path(file_result['file']).name}")
+            try:
+                display_path = Path(file_result['file']).resolve().relative_to(dist_path.resolve())
+            except ValueError:
+                display_path = Path(file_result['file'])
+            click.echo(f"\n❌ {display_path}")
             click.echo(f"   Errors: {file_summary['errors']}, Warnings: {file_summary['warnings']}")
             
             # Show issues
@@ -3599,7 +3950,7 @@ def check(ctx, output):
 @click.option('--output', '-o', type=click.Path(), help='Output JSON report to file')
 @click.pass_context
 def audit(ctx, output):
-    """Run Lighthouse + axe audits (auto-discovers all pages)"""
+    """Run Lighthouse CI audits (auto-discovers all pages)"""
     import subprocess
     from pathlib import Path
     
@@ -3774,6 +4125,8 @@ def image(ctx, source_dir, output, analyze, check_alt):
     output_path = Path(output) if output else Path(config['build']['output']) / 'assets' / 'images'
     
     image_map = processor.process_all_images(source_path, output_path)
+    if isinstance(image_map, dict) and 'images' in image_map:
+        image_map = image_map['images']
     
     total_variants = sum(len(variants) for variants in image_map.values())
     click.echo(f"✅ Processed {len(image_map)} images into {total_variants} variants")
@@ -3804,6 +4157,18 @@ def studio(ctx, port, host):
             def log_message(self, format, *args):
                 # Suppress HTTP request logs
                 pass
+
+            def _send_cors(self):
+                origin = self.headers.get('Origin', '')
+                allowed = {
+                    f'http://127.0.0.1:{port}',
+                    f'http://localhost:{port}',
+                    'http://127.0.0.1:5001',
+                    'http://localhost:5001',
+                }
+                if origin in allowed:
+                    self.send_header('Access-Control-Allow-Origin', origin)
+                    self.send_header('Vary', 'Origin')
             
             def do_GET(self):
                 if self.path == '/api/content':
@@ -3818,7 +4183,7 @@ def studio(ctx, port, host):
                             click.echo(f"⚠️  Content directory not found: {content_path}")
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps([]).encode())
                             return
@@ -3834,7 +4199,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps(files).encode())
                     except Exception as e:
@@ -3845,10 +4210,13 @@ def studio(ctx, port, host):
                 
                 elif self.path.startswith('/api/content/'):
                     try:
-                        # Get specific content file
-                        file_path = self.path.replace('/api/content/', '')
+                        file_path = self.path.replace('/api/content/', '').lstrip('/')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = resolve_under_root(content_base, file_path)
+                        
+                        if content_path is None:
+                            self.send_error(403)
+                            return
                         
                         click.echo(f"📖 Reading file: {content_path}")
                         
@@ -3856,7 +4224,7 @@ def studio(ctx, port, host):
                             content = content_path.read_text()
                             self.send_response(200)
                             self.send_header('Content-type', 'text/plain')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(content.encode())
                         else:
@@ -3920,7 +4288,7 @@ def studio(ctx, port, host):
                         # Return validation result
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps(result, default=str).encode())
                         
@@ -3930,7 +4298,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Internal server error',
@@ -3964,7 +4332,7 @@ def studio(ctx, port, host):
                         if not old_file.exists():
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'File not found',
@@ -3977,7 +4345,7 @@ def studio(ctx, port, host):
                         if new_file.exists():
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'Slug already exists',
@@ -3996,14 +4364,22 @@ def studio(ctx, port, host):
                             new_url = f"/{category}/{new_slug}/"
                             
                             redirect_manager = RedirectManager(content_path, dist_path)
-                            result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
+                            try:
+                                result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
+                            except ValueError as exc:
+                                self.send_response(400)
+                                self.send_header('Content-type', 'application/json')
+                                self._send_cors()
+                                self.end_headers()
+                                self.wfile.write(json.dumps({'error': str(exc)}).encode())
+                                return
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
                         
                         # Return success response
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4018,7 +4394,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Internal server error',
@@ -4039,7 +4415,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps(redirects_list).encode())
                         
@@ -4061,7 +4437,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4084,23 +4460,36 @@ def studio(ctx, port, host):
                 """Handle PUT requests"""
                 if self.path.startswith('/api/content/'):
                     try:
-                        # Get file path and content
-                        file_path = self.path.replace('/api/content/', '')
+                        file_path = self.path.replace('/api/content/', '').lstrip('/')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = content_base / file_path
+                        content_path = resolve_under_root(content_base, file_path)
                         
-                        # Read request body
-                        content_length = int(self.headers['Content-Length'])
+                        if content_path is None:
+                            self.send_response(403)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'Invalid file path'}).encode())
+                            return
+                        
+                        content_length = int(self.headers.get('Content-Length', 0) or 0)
                         body = self.rfile.read(content_length)
                         content = body.decode()
+                        if not content.strip():
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'No content provided'}).encode())
+                            return
                         
-                        # Save file
+                        content_path.parent.mkdir(parents=True, exist_ok=True)
                         content_path.write_text(content)
                         click.echo(f"✅ Saved file: {content_path}")
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4113,7 +4502,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Failed to save',
@@ -4141,7 +4530,7 @@ def studio(ctx, port, host):
                             click.echo(f"✅ Redirect removed: {from_path}")
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'success': True,
@@ -4150,7 +4539,7 @@ def studio(ctx, port, host):
                         else:
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'Redirect not found'
@@ -4479,15 +4868,13 @@ def serve(ctx, port, host):
                 # Generate product pages (only active products)
                 try:
                     from core.products import ProductAggregator
-                    from jinja2 import Environment, FileSystemLoader
                     
                     aggregator = ProductAggregator(config)
                     products = aggregator.get_normalized_products(status_filter='active')
                     
                     if products:
-                        # Setup Jinja2
                         template_dir = Path(__file__).parent.parent.parent / 'templates'
-                        jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+                        jinja_env = template_environment(template_dir)
                         
                         products_path = dist_path / 'products'
                         products_path.mkdir(parents=True, exist_ok=True)
@@ -4518,106 +4905,7 @@ def serve(ctx, port, host):
                             
                             pdp_dir = products_path / slug
                             pdp_dir.mkdir(parents=True, exist_ok=True)
-                            
-                            # Handle images FIRST
-                            raw_images = product.get('image', [])
-                            type_name = type(raw_images).__name__
-                            if type_name in ('list', 'tuple'):
-                                images = [str(img) for img in raw_images if img]
-                            elif raw_images:
-                                images = [str(raw_images)]
-                            else:
-                                images = []
-                            
-                            # Extract offer data and variants
-                            offers = product.get('offers', {})
-                            variants_list = []
-                            
-                            if type(offers).__name__ == 'list':
-                                colors = set()
-                                sizes = set()
-                                color_to_image = {}
-                                color_order = []
-                                
-                                for offer in offers:
-                                    variant_name = offer.get('name', '')
-                                    if '/' in variant_name:
-                                        parts = variant_name.split('/')
-                                        color = parts[0].strip()
-                                        size = parts[1].strip() if len(parts) > 1 else ''
-                                        
-                                        if color not in colors:
-                                            color_order.append(color)
-                                            colors.add(color)
-                                        if size:
-                                            sizes.add(size)
-                                
-                                for idx, color in enumerate(color_order):
-                                    if idx < len(images):
-                                        color_to_image[color] = idx
-                                
-                                for offer in offers:
-                                    variant_name = offer.get('name', '')
-                                    color_part = ''
-                                    size_part = ''
-                                    
-                                    if '/' in variant_name:
-                                        parts = variant_name.split('/')
-                                        color_part = parts[0].strip()
-                                        size_part = parts[1].strip() if len(parts) > 1 else ''
-                                    
-                                    variants_list.append({
-                                        'name': variant_name,
-                                        'color': color_part,
-                                        'size': size_part,
-                                        'price': offer.get('price', '0'),
-                                        'currency': offer.get('priceCurrency', 'USD'),
-                                        'availability': offer.get('availability', 'InStock'),
-                                        'url': offer.get('url', '#'),
-                                        'sku': offer.get('sku', ''),
-                                        'image_index': color_to_image.get(color_part, 0) if color_part else 0
-                                    })
-                                
-                                first_offer = offers[0]
-                                colors_list = [c for c in sorted(colors)]
-                                sizes_list = [s for s in sorted(sizes)]
-                            else:
-                                first_offer = offers
-                                colors_list = []
-                                sizes_list = []
-                            
-                            # Prepare template variables
-                            brand_data = product.get('brand', '')
-                            brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
-                            
-                            pdp_context = {
-                                'lang': config['site'].get('language', 'en'),
-                                'site_title': config['site']['title'],
-                                'title': product.get('name', ''),
-                                'description': product.get('description', ''),
-                                'canonical_url': f"{config['site']['url']}/products/{slug}/",
-                                'product_image': images[0] if images else '',
-                                'product_images': images,
-                                'price': first_offer.get('price', '0'),
-                                'currency': first_offer.get('priceCurrency', 'USD'),
-                                'recurring': None,
-                                'content': product.get('description', ''),
-                                'buy_url': first_offer.get('url', '#'),
-                                'variants': variants_list,
-                                'colors': colors_list,
-                                'sizes': sizes_list,
-                                'sku': product.get('sku', ''),
-                                'brand': brand_name,
-                                'category': product.get('category', ''),
-                                'availability': first_offer.get('availability', 'InStock'),
-                                'jsonld': product,
-                                'year': datetime.now().year,
-                                'navigation': config.get('nav', {}).get('main', []),
-                                'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                'build_time_iso': datetime.now().isoformat()
-                            }
-                            
-                            pdp_html = pdp_template.render(**pdp_context)
+                            pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
                             # Inject live reload
                             if '</body>' in pdp_html:
                                 pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
@@ -4688,6 +4976,12 @@ def serve(ctx, port, host):
                 # Log requests for debugging
                 if len(args) > 0:
                     click.echo(f"[REQUEST] {args[0]}")
+
+            def _send_cors(self):
+                origin = self.headers.get('Origin', '')
+                if origin.startswith('http://127.0.0.1:') or origin.startswith('http://localhost:'):
+                    self.send_header('Access-Control-Allow-Origin', origin)
+                    self.send_header('Vary', 'Origin')
             
             def do_GET(self):
                 try:
@@ -4697,7 +4991,7 @@ def serve(ctx, port, host):
                         self.send_header('Content-Type', 'text/event-stream')
                         self.send_header('Cache-Control', 'no-cache')
                         self.send_header('Connection', 'keep-alive')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         
                         reload_clients.append(self)
