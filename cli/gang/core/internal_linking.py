@@ -34,14 +34,19 @@ class InternalLinkingSuggester:
         # Parse frontmatter
         if source_content.startswith('---'):
             parts = source_content.split('---', 2)
-            source_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            source_fm = raw_fm if isinstance(raw_fm, dict) else {}
             source_body = parts[2] if len(parts) > 2 else source_content
         else:
             source_fm = {}
             source_body = source_content
         
         source_title = source_fm.get('title', file_path.stem)
-        source_tags = source_fm.get('tags', [])
+        source_tags = source_fm.get('tags') or []
+        if isinstance(source_tags, str):
+            source_tags = [source_tags]
+        elif not isinstance(source_tags, list):
+            source_tags = []
         
         # Build context about other content
         other_content = []
@@ -53,17 +58,23 @@ class InternalLinkingSuggester:
                 other_text = other_file.read_text()
                 if other_text.startswith('---'):
                     parts = other_text.split('---', 2)
-                    other_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                    raw_other = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                    other_fm = raw_other if isinstance(raw_other, dict) else {}
                 else:
                     other_fm = {}
                 
+                other_tags = other_fm.get('tags') or []
+                if isinstance(other_tags, str):
+                    other_tags = [other_tags]
+                elif not isinstance(other_tags, list):
+                    other_tags = []
                 other_content.append({
                     'path': other_file,
                     'slug': other_file.stem,
                     'category': other_file.parent.name,
                     'title': other_fm.get('title', other_file.stem),
                     'summary': other_fm.get('summary', ''),
-                    'tags': other_fm.get('tags', [])
+                    'tags': other_tags
                 })
             except:
                 continue

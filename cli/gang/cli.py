@@ -140,6 +140,12 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
 
         for offer in dict_offers:
             color_part, size_part = split_variant_name(str(offer.get('name') or ''))
+            variant_id = offer.get('id')
+            if variant_id in (None, ''):
+                offer_url = str(offer.get('url') or '')
+                marker = 'variant='
+                if marker in offer_url:
+                    variant_id = offer_url.split(marker, 1)[1].split('&', 1)[0]
             variants_list.append({
                 'name': offer.get('name', ''),
                 'color': color_part,
@@ -149,6 +155,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'availability': offer.get('availability', 'InStock'),
                 'url': safe_http_url(offer.get('url')),
                 'sku': offer.get('sku', ''),
+                'id': '' if variant_id in (None, '') else str(variant_id),
                 'image_index': color_to_image.get(color_part, 0) if color_part else 0,
             })
 
@@ -170,6 +177,17 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         sizes_list = in_stock_sizes + [size for size in size_order if size not in in_stock_sizes]
         in_stock_offers = [offer for offer in dict_offers if offer_is_in_stock(offer)]
         first_offer = (in_stock_offers or dict_offers or [{}])[0]
+        default_variant = next((item for item in variants_list if offer_is_in_stock({
+            'availability': item.get('availability')
+        })), variants_list[0] if variants_list else {})
+        if default_variant.get('color') and default_variant['color'] in colors_list:
+            colors_list = [default_variant['color']] + [
+                color for color in colors_list if color != default_variant['color']
+            ]
+        if default_variant.get('size') and default_variant['size'] in sizes_list:
+            sizes_list = [default_variant['size']] + [
+                size for size in sizes_list if size != default_variant['size']
+            ]
     elif isinstance(offers, dict):
         first_offer = offers
 
@@ -178,6 +196,18 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
 
     brand_data = product.get('brand', '')
     brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
+
+    default_color = colors_list[0] if colors_list else ''
+    default_size = sizes_list[0] if sizes_list else ''
+    matching_default = next(
+        (
+            item for item in variants_list
+            if (not default_color or item.get('color') == default_color)
+            and (not default_size or item.get('size') == default_size)
+        ),
+        variants_list[0] if variants_list else {},
+    )
+    default_variant_id = str(matching_default.get('id') or first_offer.get('id') or '')
 
     return {
         'lang': config['site'].get('language', 'en'),
@@ -195,7 +225,10 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'variants': variants_list,
         'colors': colors_list,
         'sizes': sizes_list,
-        'sku': product.get('sku', ''),
+        'default_color': default_color,
+        'default_size': default_size,
+        'variant_id': default_variant_id,
+        'sku': matching_default.get('sku') or product.get('sku', ''),
         'brand': brand_name,
         'category': product.get('category', ''),
         'availability': first_offer.get('availability', 'InStock'),
@@ -1437,12 +1470,16 @@ def add_redirect(ctx, from_path, to_path, temporary):
     dist_path = Path(config['build']['output'])
     
     manager = RedirectManager(content_path, dist_path)
-    result = manager.add_redirect(
-        from_path, 
-        to_path, 
-        reason='manual',
-        permanent=not temporary
-    )
+    try:
+        result = manager.add_redirect(
+            from_path, 
+            to_path, 
+            reason='manual',
+            permanent=not temporary
+        )
+    except ValueError as exc:
+        click.echo(f"❌ {exc}", err=True)
+        ctx.exit(1)
     
     status = 302 if temporary else 301
     if result.get('created'):
@@ -2671,6 +2708,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         tags = [str(tag) for tag in tags]
         
         comments_enabled = comments_are_enabled(config) and content_type in ('posts', 'articles')
+        page_comments = []
+        if comments_enabled:
+            try:
+                from core.comments import get_comments_for_build
+            except ImportError:
+                from gang.core.comments import get_comments_for_build
+            comment_type = 'post' if content_type in ('posts', 'articles') else 'product'
+            page_comments = get_comments_for_build(content_path, slug, comment_type)
         
         context = {
             'site_title': config['site']['title'],
@@ -2692,7 +2737,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'slug': slug,
             'user_authenticated': user_authenticated,
             'comments_enabled': comments_enabled,
-            'comments': [],
+            'comments': page_comments,
             'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
             'role': frontmatter.get('role', ''),
             'image': frontmatter.get('image', ''),
@@ -4112,6 +4157,18 @@ def studio(ctx, port, host):
             def log_message(self, format, *args):
                 # Suppress HTTP request logs
                 pass
+
+            def _send_cors(self):
+                origin = self.headers.get('Origin', '')
+                allowed = {
+                    f'http://127.0.0.1:{port}',
+                    f'http://localhost:{port}',
+                    'http://127.0.0.1:5001',
+                    'http://localhost:5001',
+                }
+                if origin in allowed:
+                    self.send_header('Access-Control-Allow-Origin', origin)
+                    self.send_header('Vary', 'Origin')
             
             def do_GET(self):
                 if self.path == '/api/content':
@@ -4126,7 +4183,7 @@ def studio(ctx, port, host):
                             click.echo(f"⚠️  Content directory not found: {content_path}")
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps([]).encode())
                             return
@@ -4142,7 +4199,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps(files).encode())
                     except Exception as e:
@@ -4167,7 +4224,7 @@ def studio(ctx, port, host):
                             content = content_path.read_text()
                             self.send_response(200)
                             self.send_header('Content-type', 'text/plain')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(content.encode())
                         else:
@@ -4231,7 +4288,7 @@ def studio(ctx, port, host):
                         # Return validation result
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps(result, default=str).encode())
                         
@@ -4241,7 +4298,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Internal server error',
@@ -4275,7 +4332,7 @@ def studio(ctx, port, host):
                         if not old_file.exists():
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'File not found',
@@ -4288,7 +4345,7 @@ def studio(ctx, port, host):
                         if new_file.exists():
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'Slug already exists',
@@ -4307,14 +4364,22 @@ def studio(ctx, port, host):
                             new_url = f"/{category}/{new_slug}/"
                             
                             redirect_manager = RedirectManager(content_path, dist_path)
-                            result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
+                            try:
+                                result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
+                            except ValueError as exc:
+                                self.send_response(400)
+                                self.send_header('Content-type', 'application/json')
+                                self._send_cors()
+                                self.end_headers()
+                                self.wfile.write(json.dumps({'error': str(exc)}).encode())
+                                return
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
                         
                         # Return success response
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4329,7 +4394,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Internal server error',
@@ -4350,7 +4415,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps(redirects_list).encode())
                         
@@ -4372,7 +4437,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4402,7 +4467,7 @@ def studio(ctx, port, host):
                         if content_path is None:
                             self.send_response(403)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({'error': 'Invalid file path'}).encode())
                             return
@@ -4413,7 +4478,7 @@ def studio(ctx, port, host):
                         if not content.strip():
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({'error': 'No content provided'}).encode())
                             return
@@ -4424,7 +4489,7 @@ def studio(ctx, port, host):
                         
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'success': True,
@@ -4437,7 +4502,7 @@ def studio(ctx, port, host):
                         click.echo(traceback.format_exc())
                         self.send_response(500)
                         self.send_header('Content-type', 'application/json')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         self.wfile.write(json.dumps({
                             'error': 'Failed to save',
@@ -4465,7 +4530,7 @@ def studio(ctx, port, host):
                             click.echo(f"✅ Redirect removed: {from_path}")
                             self.send_response(200)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'success': True,
@@ -4474,7 +4539,7 @@ def studio(ctx, port, host):
                         else:
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
-                            self.send_header('Access-Control-Allow-Origin', '*')
+                            self._send_cors()
                             self.end_headers()
                             self.wfile.write(json.dumps({
                                 'error': 'Redirect not found'
@@ -4911,6 +4976,12 @@ def serve(ctx, port, host):
                 # Log requests for debugging
                 if len(args) > 0:
                     click.echo(f"[REQUEST] {args[0]}")
+
+            def _send_cors(self):
+                origin = self.headers.get('Origin', '')
+                if origin.startswith('http://127.0.0.1:') or origin.startswith('http://localhost:'):
+                    self.send_header('Access-Control-Allow-Origin', origin)
+                    self.send_header('Vary', 'Origin')
             
             def do_GET(self):
                 try:
@@ -4920,7 +4991,7 @@ def serve(ctx, port, host):
                         self.send_header('Content-Type', 'text/event-stream')
                         self.send_header('Cache-Control', 'no-cache')
                         self.send_header('Connection', 'keep-alive')
-                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self._send_cors()
                         self.end_headers()
                         
                         reload_clients.append(self)
