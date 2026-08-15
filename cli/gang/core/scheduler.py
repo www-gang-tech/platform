@@ -70,11 +70,17 @@ class ContentScheduler:
                 })
                 continue
             
-            # Get status
-            status = frontmatter.get('status', 'published')
+            # Get status (YAML `no`/`false` and list wrappers must not publish)
+            raw_status = frontmatter.get('status', 'published')
+            if isinstance(raw_status, list) and raw_status:
+                raw_status = raw_status[0]
+            if raw_status is False:
+                status = 'draft'
+            else:
+                status = str(raw_status or 'published').strip().lower()
             
             # If status is draft, skip
-            if status == 'draft':
+            if status in ('draft', 'false', 'no', '0'):
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -124,11 +130,13 @@ class ContentScheduler:
                     })
             
             except (ValueError, TypeError) as e:
-                # Invalid date format, include anyway
-                publishable.append({
+                # Invalid date format — fail closed so a typo cannot publish early
+                draft.append({
                     'path': file_path,
-                    'status': status,
+                    'status': 'draft',
                     'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem),
+                    '_date_error': True,
                     'error': f'Invalid date format: {e}'
                 })
         
