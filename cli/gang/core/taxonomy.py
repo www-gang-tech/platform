@@ -10,6 +10,21 @@ import json
 from collections import defaultdict
 
 
+def _as_frontmatter(raw: Any) -> Dict[str, Any]:
+    return raw if isinstance(raw, dict) else {}
+
+
+def _as_tag_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        tag = value.strip()
+        return [tag] if tag else []
+    if isinstance(value, list):
+        return [str(tag).strip() for tag in value if tag not in (None, '')]
+    return []
+
+
 class TaxonomyManager:
     """Manage hierarchical taxonomies across content"""
     
@@ -108,11 +123,11 @@ class TaxonomyManager:
             content = md_file.read_text()
             if content.startswith('---'):
                 parts = content.split('---', 2)
-                frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                frontmatter = _as_frontmatter(yaml.safe_load(parts[1]) if len(parts) > 1 else {})
                 
                 title = frontmatter.get('title', md_file.stem)
                 category = frontmatter.get('category')
-                tags = frontmatter.get('tags', [])
+                tags = _as_tag_list(frontmatter.get('tags'))
                 
                 relative_path = md_file.relative_to(self.content_path)
                 
@@ -144,15 +159,16 @@ class TaxonomyManager:
     def get_related_content(self, category: Optional[str], tags: List[str]) -> List[Dict[str, Any]]:
         """Find related content based on category and tags"""
         related = []
+        tags = _as_tag_list(tags)
         
         for md_file in self.content_path.rglob('*.md'):
             content = md_file.read_text()
             if content.startswith('---'):
                 parts = content.split('---', 2)
-                frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                frontmatter = _as_frontmatter(yaml.safe_load(parts[1]) if len(parts) > 1 else {})
                 
                 file_category = frontmatter.get('category')
-                file_tags = frontmatter.get('tags', [])
+                file_tags = _as_tag_list(frontmatter.get('tags'))
                 
                 # Score based on matches
                 score = 0
