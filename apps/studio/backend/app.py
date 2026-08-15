@@ -14,7 +14,12 @@ import re
 import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[
+    'http://127.0.0.1:3000',
+    'http://localhost:3000',
+    'http://127.0.0.1:5001',
+    'http://localhost:5001',
+])
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
@@ -30,10 +35,22 @@ def _safe_content_file(file_path: str) -> Path:
     return candidate
 
 
+def _is_direct_loopback():
+    """True only for a direct TCP peer on loopback, not a reverse-proxied client."""
+    addr = request.remote_addr or ''
+    if addr not in ('127.0.0.1', '::1'):
+        return False
+    if request.headers.get('X-Forwarded-For') or request.headers.get('X-Real-IP'):
+        return False
+    return True
+
+
 def _require_auth():
-    token = os.environ.get('STUDIO_AUTH_TOKEN', '')
+    token = os.environ.get('STUDIO_AUTH_TOKEN', '').strip()
     if not token:
-        return None
+        if _is_direct_loopback():
+            return None
+        return jsonify({'error': 'Unauthorized'}), 401
     header = request.headers.get('Authorization', '')
     if header != f'Bearer {token}':
         return jsonify({'error': 'Unauthorized'}), 401
@@ -120,6 +137,9 @@ def save_content(file_path):
 @app.route('/api/validate-headings', methods=['POST'])
 def validate_headings():
     """Validate heading structure for WCAG compliance"""
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     data = request.get_json()
     
     if not data or 'content' not in data:
@@ -174,6 +194,9 @@ def validate_headings():
 @app.route('/api/build', methods=['POST'])
 def trigger_build():
     """Trigger git commit and build deployment"""
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     try:
         # Change to project root
         os.chdir(PROJECT_ROOT)
@@ -259,6 +282,9 @@ def trigger_build():
 @app.route('/api/content/list')
 def list_content():
     """List all editable content files"""
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     content_files = []
     
     for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products', 'people']:
