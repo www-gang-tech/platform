@@ -38,7 +38,7 @@ class EmailTemplateGenerator:
         # Process content for email
         email_content = self._process_content_for_email(content_html)
         
-        html = f"""<!DOCTYPE html>
+        rendered = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -229,7 +229,7 @@ class EmailTemplateGenerator:
 </body>
 </html>"""
         
-        return html
+        return rendered
     
     def generate_plain_text(
         self, 
