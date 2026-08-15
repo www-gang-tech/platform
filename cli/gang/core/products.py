@@ -83,6 +83,7 @@ class ProductSchema:
                 'url': offer_url,
                 'sku': variant.get('sku') or '',
                 'name': variant.get('title') or '',
+                'id': variant_id,
                 'inventory_quantity': inventory_qty
             })
         
