@@ -132,6 +132,9 @@ class CommentsManager:
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
                                 comment_data = yaml.safe_load(f)
+                            if not isinstance(comment_data, dict):
+                                click.echo(f"Error updating comment {comment_id}: invalid YAML", err=True)
+                                return False
                             
                             comment_data['status'] = status
                             
