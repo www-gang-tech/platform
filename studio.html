@@ -547,7 +547,7 @@
                         <div class="content-item-name">${escapeHtml(file.name)}</div>
                         <div class="content-item-type">${escapeHtml(file.type)}</div>
                     `;
-                    item.onclick = () => loadFile(file.path);
+                    item.onclick = (event) => loadFile(file.path, event);
                     listEl.appendChild(item);
                 });
             } catch (e) {
@@ -557,7 +557,7 @@
         }
         
         // Load specific file
-        async function loadFile(path) {
+        async function loadFile(path, event) {
             if (!editor) return;
             
             try {
@@ -571,7 +571,12 @@
                 document.querySelectorAll('.content-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                event.target.closest('.content-item').classList.add('active');
+                const clicked = event && event.target && event.target.closest
+                    ? event.target.closest('.content-item')
+                    : null;
+                if (clicked) {
+                    clicked.classList.add('active');
+                }
                 
                 // Enable rename button when a file is loaded
                 document.getElementById('renameSlugBtn').disabled = false;
@@ -620,7 +625,10 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ content: markdown })
+                    body: JSON.stringify({
+                        content: markdown,
+                        category: (currentFile || '').split('/')[0] || ''
+                    })
                 });
                 
                 const result = await response.json();
