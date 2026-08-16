@@ -42,15 +42,17 @@ class ShopifyPRBot:
         mappings = self.field_mapping.get('mappings', {})
         
         for key, mapping in mappings.items():
-            shopify_field = mapping['shopify_field']
-            frontmatter_field = mapping['frontmatter_field']
+            shopify_field = mapping.get('shopify_field') or mapping.get('source')
+            frontmatter_field = mapping.get('frontmatter_field') or mapping.get('target') or key
+            if not shopify_field:
+                continue
             
             # Extract value from Shopify data
             value = self._extract_field(product_data, shopify_field)
             
-            # Apply transformation if specified
+            # Apply transformation if specified (including 0 / empty-string values)
             transform = mapping.get('transform')
-            if transform and value:
+            if transform is not None and value is not None:
                 value = self._apply_transform(value, transform)
             
             # Use default if value is None and default is specified
@@ -67,35 +69,49 @@ class ShopifyPRBot:
         return frontmatter
     
     def _extract_field(self, data: Dict, field_path: str) -> Any:
-        """Extract nested field using dot notation"""
+        """Extract nested field using dot notation, including images[*].src."""
         
         parts = field_path.split('.')
         value = data
         
-        for part in parts:
+        for i, part in enumerate(parts):
+            if not isinstance(value, dict):
+                return None
             if '[' in part:
-                # Array access: variants[0] or images[*]
                 key = part.split('[')[0]
                 index = part.split('[')[1].rstrip(']')
-                
-                if key in value:
-                    if index == '*':
-                        # Get all items
-                        return value[key]
-                    elif index.isdigit():
-                        # Get specific index
-                        idx = int(index)
-                        if idx < len(value[key]):
-                            value = value[key][idx]
-                        else:
-                            return None
+                items = value.get(key)
+                if not isinstance(items, list):
+                    return None
+                if index == '*':
+                    rest = parts[i + 1:]
+                    if not rest:
+                        return items
+                    extracted = []
+                    for item in items:
+                        sub = item
+                        ok = True
+                        for rest_part in rest:
+                            if isinstance(sub, dict) and rest_part in sub:
+                                sub = sub[rest_part]
+                            else:
+                                ok = False
+                                break
+                        if ok and sub is not None:
+                            extracted.append(sub)
+                    return extracted
+                if index.isdigit():
+                    idx = int(index)
+                    if 0 <= idx < len(items):
+                        value = items[idx]
+                    else:
+                        return None
                 else:
                     return None
+            elif part in value:
+                value = value[part]
             else:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    return None
+                return None
         
         return value
     
@@ -121,9 +137,10 @@ class ShopifyPRBot:
                         'title': v.get('title'),
                         'price': v.get('price'),
                         'sku': v.get('sku'),
-                        'inventory': v.get('inventory_quantity', 0)
+                        'inventory': v.get('inventory_quantity', 0),
+                        'url': v.get('url') or v.get('buy_url'),
                     }
-                    for v in value
+                    for v in value if isinstance(v, dict)
                 ]
         
         return value
@@ -143,15 +160,9 @@ class ShopifyPRBot:
         file_path = products_dir / f"{slug}.md"
         
         # Generate markdown content
-        content_lines = ['---']
-        content_lines.append(yaml.dump(frontmatter, default_flow_style=False))
-        content_lines.append('---')
-        content_lines.append('')
-        content_lines.append(frontmatter.get('description', ''))
-        
-        content = '\n'.join(content_lines)
-        
-        file_path.write_text(content)
+        dumped = yaml.dump(frontmatter, default_flow_style=False).strip()
+        body = frontmatter.get('description') or ''
+        file_path.write_text(f"---\n{dumped}\n---\n{body}\n")
         
         return file_path
     

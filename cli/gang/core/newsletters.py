@@ -222,6 +222,8 @@ class NewsletterManager:
                     frontmatter = yaml.safe_load(parts[1]) or {}
                     
                     status = frontmatter.get('status', 'draft')
+                    if status not in newsletters:
+                        status = 'draft'
                     
                     newsletters[status].append({
                         'slug': file_path.stem,
@@ -394,6 +396,33 @@ class KlaviyoProvider(EmailProvider):
             if response.status_code == 201:
                 campaign = response.json()
                 campaign_id = campaign['data']['id']
+                messages = (
+                    campaign.get('data', {})
+                    .get('attributes', {})
+                    .get('campaign-messages', {})
+                    .get('data', [])
+                )
+                html_body = email_data.get('html_body') or email_data.get('html') or ''
+                text_body = email_data.get('text_body') or email_data.get('text') or ''
+                if messages and html_body:
+                    message_id = messages[0].get('id')
+                    if message_id:
+                        requests.patch(
+                            f"{self.base_url}/campaign-messages/{message_id}/",
+                            headers=headers,
+                            json={
+                                'data': {
+                                    'type': 'campaign-message',
+                                    'id': message_id,
+                                    'attributes': {
+                                        'content': {
+                                            'html': html_body,
+                                            'plain_text': text_body,
+                                        }
+                                    }
+                                }
+                            },
+                        )
                 
                 # Send campaign
                 send_response = requests.post(
