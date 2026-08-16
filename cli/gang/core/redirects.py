@@ -157,6 +157,10 @@ class RedirectManager:
         lines = []
         
         for redirect in self.redirects['redirects']:
+            if not self._valid_redirect_target(redirect.get('from', '')):
+                continue
+            if not self._valid_redirect_target(redirect.get('to', '')):
+                continue
             status = redirect.get('status', 301)
             lines.append(f"{redirect['from']} {redirect['to']} {status}")
         
