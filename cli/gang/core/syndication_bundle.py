@@ -77,7 +77,11 @@ class SyndicationBundleGenerator:
             'slug': slug,
             'title': title,
             'summary': summary,
-            'hero_image': hero_image if hero_image.startswith('http') else f"{self.site_url}{hero_image}",
+            'hero_image': (
+                hero_image if str(hero_image).startswith(('http://', 'https://'))
+                else f"{str(self.site_url).rstrip('/')}/{str(hero_image).lstrip('/')}" if hero_image
+                else ''
+            ),
             'hero_alt': hero_alt,
             'key_points': key_points,
             'cta': 'Read more',
