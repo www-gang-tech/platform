@@ -88,7 +88,8 @@
                       data-price="{{ price }}"
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
-                      data-product-url="/products/{{ title | lower | replace(' ', '-') }}/"
+                      data-product-url="/products/{{ slug }}/"
+                      data-checkout-url="{{ buy_url }}"
                       data-sku="{{ sku }}"
                       data-variant-id="{{ variant_id or sku }}">
                     
@@ -123,7 +124,7 @@
                         {% if 'InStock' in availability %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
                     </p>
                     
-                    <button type="submit" class="buy-button">
+                    <button type="submit" class="buy-button"{% if 'InStock' not in availability %} disabled{% endif %}>
                         Add to Cart
                     </button>
                 </form>
