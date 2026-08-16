@@ -65,15 +65,9 @@ def health():
 
 @app.route('/api/auth/status')
 def auth_status():
-    """Check authentication status (simplified for MVP)"""
-    # For MVP, we'll just check if a simple auth token is present
-    # In production, use Cloudflare Access or proper OAuth
-    auth_header = request.headers.get('Authorization', '')
-    
-    # Simple check: if any auth header is present, consider authenticated
-    # TODO: Implement proper authentication in production
-    authenticated = bool(auth_header) or os.environ.get('EDITOR_MODE') == 'true'
-    
+    """Report whether the current request satisfies Studio auth."""
+    auth_error = _require_auth()
+    authenticated = auth_error is None
     return jsonify({
         'authenticated': authenticated,
         'user': {'email': 'local@dev'} if authenticated else None
@@ -146,6 +140,10 @@ def validate_headings():
         return jsonify({'error': 'No content provided'}), 400
     
     content = data['content']
+    category = str(data.get('category') or data.get('page_type') or '')
+    template_owns_h1 = category in {
+        'posts', 'articles', 'projects', 'newsletters', 'people', 'products'
+    }
     
     # Extract headings from markdown
     heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
@@ -163,8 +161,8 @@ def validate_headings():
     # Convert to heading levels
     heading_levels = [len(h[0]) for h in headings]
     
-    # Rule 1: First heading should be H1
-    if heading_levels[0] != 1:
+    # Rule 1: First heading should be H1 unless the template owns the page H1
+    if heading_levels[0] != 1 and not template_owns_h1:
         errors.append('First heading is H' + str(heading_levels[0]) + ', should be H1')
         suggestions.append('Start with a single # for the main title')
     

@@ -11,6 +11,11 @@ from pathlib import Path
 
 # Interactive utility surfaces may ship executable JS; content pages stay at JS=0.
 JS_ALLOWED_SECTIONS = {'search', 'cart', 'products', 'studio'}
+ALLOWED_SCRIPT_SRCS = {
+    '/assets/comments.js',
+    '/assets/cart.js',
+    '/assets/product.js',
+}
 NON_EXECUTABLE_SCRIPT_TYPES = {
     'application/ld+json',
     'application/json',
@@ -219,7 +224,7 @@ class ContractValidator:
                     continue
                 executable.append(script)
             
-            if executable:
+            if executable and not self._js_allowed(html_path, executable):
                 issues.append({
                     'severity': 'error',
                     'rule': 'js_budget',
@@ -228,10 +233,20 @@ class ContractValidator:
         
         return issues
 
-    def _js_allowed(self, html_path: Path) -> bool:
-        """Allow executable JS on known interactive utility sections."""
+    def _js_allowed(self, html_path: Path, executable: Optional[List[Any]] = None) -> bool:
+        """Allow executable JS on known interactive utility sections or allowlisted assets."""
         parts = {part.lower() for part in Path(html_path).parts}
-        return bool(parts & JS_ALLOWED_SECTIONS)
+        if parts & JS_ALLOWED_SECTIONS:
+            return True
+        if not executable:
+            return False
+        srcs = []
+        for script in executable:
+            src = (script.get('src') or '').split('?')[0]
+            if not src or src not in ALLOWED_SCRIPT_SRCS:
+                return False
+            srcs.append(src)
+        return bool(srcs)
     
     def validate_file(self, html_path: Path) -> Dict[str, Any]:
         """Validate a single HTML file against all contracts"""
