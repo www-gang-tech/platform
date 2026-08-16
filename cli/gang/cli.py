@@ -29,6 +29,13 @@ TEMPLATE_OWNS_H1 = {
     'posts', 'articles', 'projects', 'newsletters', 'people', 'products'
 }
 PLACEHOLDER_WEBHOOK_MARKERS = ('your-n8n.app', 'example.com', 'placeholder', 'changeme')
+SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+
+
+def is_safe_content_slug(slug: str) -> bool:
+    """Reject empty, traversal, and path-like slugs before any filesystem rename."""
+    value = str(slug or '').strip()
+    return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
 
 
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
@@ -208,20 +215,63 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         variants_list[0] if variants_list else {},
     )
     default_variant_id = str(matching_default.get('id') or first_offer.get('id') or '')
+    title = product.get('name', '')
+    raw_description = product.get('description', '')
+    description = re.sub(r'<[^>]+>', '', str(raw_description or ''))
+    description = html_module.unescape(description).strip()
+    buy_url = safe_http_url(first_offer.get('url'))
+    jsonld_offers = []
+    if variants_list:
+        for item in variants_list:
+            offer = {
+                '@type': 'Offer',
+                'price': str(item.get('price') or '0'),
+                'priceCurrency': item.get('currency') or 'USD',
+                'availability': item.get('availability') or 'https://schema.org/OutOfStock',
+            }
+            if item.get('url'):
+                offer['url'] = item['url']
+            if item.get('sku'):
+                offer['sku'] = item['sku']
+            jsonld_offers.append(offer)
+    elif first_offer:
+        offer = {
+            '@type': 'Offer',
+            'price': str(first_offer.get('price') or '0'),
+            'priceCurrency': first_offer.get('priceCurrency') or 'USD',
+            'availability': first_offer.get('availability') or 'https://schema.org/OutOfStock',
+        }
+        if buy_url:
+            offer['url'] = buy_url
+        jsonld_offers.append(offer)
+
+    jsonld = {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        'name': title,
+        'description': description,
+        'url': f"{config['site']['url']}/products/{slug}/",
+        'image': images,
+        'sku': matching_default.get('sku') or product.get('sku', ''),
+        'offers': jsonld_offers[0] if len(jsonld_offers) == 1 else jsonld_offers,
+    }
+    if brand_name:
+        jsonld['brand'] = {'@type': 'Brand', 'name': brand_name}
 
     return {
         'lang': config['site'].get('language', 'en'),
         'site_title': config['site']['title'],
-        'title': product.get('name', ''),
-        'description': product.get('description', ''),
+        'title': title,
+        'description': description,
         'canonical_url': f"{config['site']['url']}/products/{slug}/",
+        'slug': slug,
         'product_image': images[0] if images else '',
         'product_images': images,
         'price': first_offer.get('price', '0'),
         'currency': first_offer.get('priceCurrency', 'USD'),
         'recurring': None,
-        'content': product.get('description', ''),
-        'buy_url': safe_http_url(first_offer.get('url')),
+        'content': description,
+        'buy_url': buy_url,
         'variants': variants_list,
         'colors': colors_list,
         'sizes': sizes_list,
@@ -231,8 +281,8 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'sku': matching_default.get('sku') or product.get('sku', ''),
         'brand': brand_name,
         'category': product.get('category', ''),
-        'availability': first_offer.get('availability', 'InStock'),
-        'jsonld': product,
+        'availability': first_offer.get('availability', 'https://schema.org/OutOfStock'),
+        'jsonld': jsonld,
         'year': datetime.now().year,
         'navigation': config.get('nav', {}).get('main', []),
         'build_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -249,6 +299,18 @@ def comments_are_enabled(config: Dict[str, Any]) -> bool:
         return False
     lowered = url.lower()
     return not any(marker in lowered for marker in PLACEHOLDER_WEBHOOK_MARKERS)
+
+
+def comments_webhook_origin(config: Dict[str, Any]) -> str:
+    """Origin of the comments webhook for CSP connect-src, or empty."""
+    if not comments_are_enabled(config):
+        return ''
+    url = str((config.get('comments') or {}).get('webhook_url') or '').strip()
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme == 'https' and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return ''
 
 
 def strip_leading_markdown_h1(body: str) -> str:
@@ -1315,6 +1377,10 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     config = ctx.obj
     content_path = Path(config['build']['content'])
     dist_path = Path(config['build']['output'])
+
+    if not is_safe_content_slug(old_slug) or not is_safe_content_slug(new_slug):
+        click.echo("❌ Slugs may only contain letters, numbers, dots, underscores, or hyphens")
+        ctx.exit(1)
     
     # Check old file exists
     old_file = content_path / category / f"{old_slug}.md"
@@ -2739,6 +2805,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'comments_enabled': comments_enabled,
             'comments': page_comments,
             'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
+            'comments_webhook_origin': comments_webhook_origin(config) if comments_enabled else '',
             'role': frontmatter.get('role', ''),
             'image': frontmatter.get('image', ''),
             'social_links': frontmatter.get('social_links') or [],
@@ -2887,9 +2954,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
     if all_people:
         all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects + all_people
+    all_content = all_pages + all_posts + all_projects + all_people + all_newsletters
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2951,7 +3020,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 pdp_dir.mkdir(parents=True, exist_ok=True)
                 pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
                 (pdp_dir / 'index.html').write_text(pdp_html)
+                all_content.append({
+                    'url': f'/products/{slug}/',
+                    'title': product.get('name', slug),
+                    'type': 'product',
+                })
             
+            all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
+            generators.generate_all(dist_path, all_content, all_posts)
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
@@ -4158,6 +4234,27 @@ def studio(ctx, port, host):
                 # Suppress HTTP request logs
                 pass
 
+            def _is_direct_loopback(self) -> bool:
+                addr = self.client_address[0] if self.client_address else ''
+                if addr not in ('127.0.0.1', '::1'):
+                    return False
+                if self.headers.get('X-Forwarded-For') or self.headers.get('X-Real-IP'):
+                    return False
+                return True
+
+            def _auth_ok(self) -> bool:
+                token = os.environ.get('STUDIO_AUTH_TOKEN', '').strip()
+                if not token:
+                    return self._is_direct_loopback()
+                return self.headers.get('Authorization', '') == f'Bearer {token}'
+
+            def _reject_unauthorized(self) -> None:
+                self.send_response(401)
+                self.send_header('Content-type', 'application/json')
+                self._send_cors()
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'Unauthorized'}).encode())
+
             def _send_cors(self):
                 origin = self.headers.get('Origin', '')
                 allowed = {
@@ -4171,6 +4268,9 @@ def studio(ctx, port, host):
                     self.send_header('Vary', 'Origin')
             
             def do_GET(self):
+                if self.path.startswith('/api/') and not self._auth_ok():
+                    self._reject_unauthorized()
+                    return
                 if self.path == '/api/content':
                     try:
                         # List all content files
@@ -4262,6 +4362,9 @@ def studio(ctx, port, host):
             
             def do_POST(self):
                 """Handle POST requests"""
+                if not self._auth_ok():
+                    self._reject_unauthorized()
+                    return
                 if self.path == '/api/validate-headings':
                     try:
                         # Read request body
@@ -4278,7 +4381,11 @@ def studio(ctx, port, host):
                         from core.heading_validator import HeadingValidator
                         
                         validator = HeadingValidator()
-                        result = validator.validate_markdown(content)
+                        category = str(data.get('category') or data.get('page_type') or '')
+                        result = validator.validate_markdown(
+                            content,
+                            template_owns_h1=category in TEMPLATE_OWNS_H1,
+                        )
                         
                         # Add formatted report
                         result['report'] = validator.generate_error_report(result)
@@ -4326,6 +4433,17 @@ def studio(ctx, port, host):
                         
                         content_path = Path(config['build']['content'])
                         dist_path = Path(config['build']['output'])
+
+                        if category not in PUBLISHABLE_CATEGORIES or not is_safe_content_slug(old_slug) or not is_safe_content_slug(new_slug):
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({
+                                'error': 'Invalid slug or category',
+                                'message': 'Slugs may only contain letters, numbers, dots, underscores, or hyphens'
+                            }).encode())
+                            return
                         
                         # Check old file exists
                         old_file = content_path / category / f"{old_slug}.md"
@@ -4353,17 +4471,14 @@ def studio(ctx, port, host):
                             }).encode())
                             return
                         
-                        # Rename file
-                        old_file.rename(new_file)
-                        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
-                        
-                        # Create redirect if requested
                         redirect_info = None
+                        redirect_manager = None
+                        prior_redirects = None
                         if create_redirect:
                             old_url = f"/{category}/{old_slug}/"
                             new_url = f"/{category}/{new_slug}/"
-                            
                             redirect_manager = RedirectManager(content_path, dist_path)
+                            prior_redirects = [dict(item) for item in redirect_manager.list_all_redirects()]
                             try:
                                 result = redirect_manager.add_redirect(old_url, new_url, reason='slug_rename_cms')
                             except ValueError as exc:
@@ -4375,6 +4490,14 @@ def studio(ctx, port, host):
                                 return
                             redirect_info = result.get('redirect')
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
+
+                        try:
+                            old_file.rename(new_file)
+                        except Exception:
+                            if redirect_manager is not None and prior_redirects is not None:
+                                redirect_manager.restore_redirects(prior_redirects)
+                            raise
+                        click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
                         
                         # Return success response
                         self.send_response(200)
@@ -4458,6 +4581,9 @@ def studio(ctx, port, host):
             
             def do_PUT(self):
                 """Handle PUT requests"""
+                if not self._auth_ok():
+                    self._reject_unauthorized()
+                    return
                 if self.path.startswith('/api/content/'):
                     try:
                         file_path = self.path.replace('/api/content/', '').lstrip('/')
@@ -4513,6 +4639,9 @@ def studio(ctx, port, host):
             
             def do_DELETE(self):
                 """Handle DELETE requests"""
+                if not self._auth_ok():
+                    self._reject_unauthorized()
+                    return
                 if self.path.startswith('/api/redirects/'):
                     try:
                         # Get redirect path

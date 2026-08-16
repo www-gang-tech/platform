@@ -6,8 +6,30 @@ Fetch products from multiple platforms and normalize to Schema.org
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+import html
 import json
 import os
+import re
+
+
+def _plain_text(value: Any) -> str:
+    text = re.sub(r'<[^>]+>', '', str(value or ''))
+    return html.unescape(text).strip()
+
+
+def shopify_storefront_url(product: Dict[str, Any]) -> str:
+    """Build a merchant product URL from handle + store host when Admin API omits it."""
+    existing = product.get('url') or ''
+    if isinstance(existing, str) and existing.startswith(('http://', 'https://')):
+        return existing
+    handle = product.get('handle') or ''
+    store = os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
+    if not handle or not store:
+        return existing if isinstance(existing, str) else ''
+    host = store.replace('https://', '').replace('http://', '').split('/')[0]
+    if not host or host.lower() in ('www.shopify.com', 'shopify.com'):
+        return ''
+    return f"https://{host}/products/{handle}"
 
 
 class ProductSchema:
@@ -45,7 +67,7 @@ class ProductSchema:
                     images.append(img)
         
         currency = os.environ.get('SHOPIFY_CURRENCY') or 'USD'
-        product_url = product.get('url') or ''
+        product_url = shopify_storefront_url(product)
         
         offers = []
         for variant in variants:
@@ -91,14 +113,14 @@ class ProductSchema:
             '@type': 'Offer',
             'price': str(first_variant.get('price') or '0'),
             'priceCurrency': currency,
-            'availability': 'https://schema.org/InStock'
+            'availability': 'https://schema.org/OutOfStock'
         }
         
         return {
             '@context': 'https://schema.org',
             '@type': 'Product',
             'name': product.get('title', ''),
-            'description': product.get('body_html') or '',
+            'description': _plain_text(product.get('body_html') or ''),
             'image': images,
             'offers': offers if len(offers) > 1 else (offers[0] if offers else default_offer),
             'sku': first_variant.get('sku') or '',
@@ -463,6 +485,9 @@ class ProductAggregator:
         
         for source, products in all_products.items():
             for product in products:
+                if source == 'shopify' and isinstance(product, dict) and not product.get('url'):
+                    product = dict(product)
+                    product['url'] = shopify_storefront_url(product)
                 norm_product = ProductSchema.normalize(product, source)
                 
                 # Add status (default to 'active' for Shopify published products)
