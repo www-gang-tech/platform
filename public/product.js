@@ -82,6 +82,7 @@
         
         if (isSafeActionUrl(variant.url)) {
             form.action = variant.url;
+            form.dataset.checkoutUrl = variant.url;
         }
         if (variant.id) {
             form.dataset.variantId = String(variant.id);
