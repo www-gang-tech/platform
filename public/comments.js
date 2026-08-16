@@ -62,7 +62,14 @@
             });
             
             if (response.ok) {
-                const result = await response.json();
+                const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+                if (contentType.indexOf('json') !== -1) {
+                    try {
+                        await response.json();
+                    } catch (parseError) {
+                        // Webhook accepted the comment; body is optional.
+                    }
+                }
                 showStatus(status, '✓ Comment submitted! It will appear after approval.', 'success');
                 form.reset();
                 resetButton(button);

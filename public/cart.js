@@ -46,6 +46,29 @@
     function isNumericVariantId(value) {
         return /^\d+$/.test(String(value || ''));
     }
+
+    function checkoutUrlFromForm(form) {
+        const fromData = form.dataset.checkoutUrl || '';
+        if (isSafeHttpUrl(fromData)) {
+            return fromData;
+        }
+        const rawAction = form.getAttribute('action') || '';
+        if (!rawAction || rawAction === '#') {
+            return '';
+        }
+        if (!isSafeHttpUrl(rawAction)) {
+            return '';
+        }
+        try {
+            const url = new URL(rawAction, window.location.origin);
+            if (url.origin === window.location.origin) {
+                return '';
+            }
+            return url.href;
+        } catch {
+            return '';
+        }
+    }
     
     function updateCartCount() {
         const cart = getCart();
@@ -63,6 +86,7 @@
         const form = e.target;
         const formData = new FormData(form);
         
+        const checkoutUrl = checkoutUrlFromForm(form);
         const item = {
             id: form.dataset.variantId || '',
             name: form.dataset.productName || 'Product',
@@ -73,7 +97,9 @@
             currency: form.dataset.currency || 'USD',
             quantity: toQuantity(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
-            url: form.dataset.productUrl || form.dataset.checkoutUrl || '',
+            url: checkoutUrl || form.dataset.productUrl || '',
+            checkoutUrl: checkoutUrl,
+            productUrl: form.dataset.productUrl || '',
             sku: form.dataset.sku || ''
         };
         
@@ -235,7 +261,7 @@
         const items = [];
         cart.forEach(item => {
             if (!isNumericVariantId(item.id)) return;
-            const source = item.url || item.checkoutUrl || '';
+            const source = item.checkoutUrl || item.url || '';
             if (!isSafeHttpUrl(source)) return;
             try {
                 const origin = new URL(source, window.location.origin).origin;

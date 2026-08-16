@@ -42,8 +42,10 @@ class ShopifyPRBot:
         mappings = self.field_mapping.get('mappings', {})
         
         for key, mapping in mappings.items():
-            shopify_field = mapping['shopify_field']
-            frontmatter_field = mapping['frontmatter_field']
+            shopify_field = mapping.get('shopify_field') or mapping.get('source')
+            frontmatter_field = mapping.get('frontmatter_field') or mapping.get('target') or key
+            if not shopify_field:
+                continue
             
             # Extract value from Shopify data
             value = self._extract_field(product_data, shopify_field)
