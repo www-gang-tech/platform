@@ -88,7 +88,11 @@ class SchemaMaximizer:
         
         # Add image if available
         if frontmatter.get('image'):
-            schema['image'] = f"{self.site_url}/{frontmatter['image']}"
+            image = str(frontmatter['image'])
+            if image.startswith(('http://', 'https://')):
+                schema['image'] = image
+            else:
+                schema['image'] = f"{self.site_url.rstrip('/')}/{image.lstrip('/')}"
         
         # Word count
         word_count = len(content.split())
