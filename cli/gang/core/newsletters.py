@@ -248,6 +248,8 @@ class NewsletterManager:
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         html = md.convert(markdown_content)
+        html = re.sub(r'(?is)<script[^>]*>.*?</script>', '', html)
+        html = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
         
         # Wrap in email template
         email_html = f'''
