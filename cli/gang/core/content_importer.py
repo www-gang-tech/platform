@@ -468,7 +468,7 @@ class SlugChecker:
         duplicates = {}
         
         # Scan all content types
-        for content_type in ['posts', 'pages', 'projects', 'newsletters', 'people']:
+        for content_type in ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue

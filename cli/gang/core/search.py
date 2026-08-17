@@ -5,6 +5,7 @@ Generate search index and provide search functionality.
 
 from pathlib import Path
 from typing import Dict, List, Any
+import html as html_module
 import json
 import re
 from datetime import datetime
@@ -404,10 +405,10 @@ __JSONLD__
 </body>
 </html>'''
         return (
-            html.replace('__LANG__', lang)
-                .replace('__SITE_TITLE__', site_title)
-                .replace('__DESCRIPTION__', description)
-                .replace('__SITE_URL__', site_url)
+            html.replace('__LANG__', html_module.escape(str(lang or 'en'), quote=True))
+                .replace('__SITE_TITLE__', html_module.escape(str(site_title or '')))
+                .replace('__DESCRIPTION__', html_module.escape(str(description or ''), quote=True))
+                .replace('__SITE_URL__', html_module.escape(str(site_url or ''), quote=True))
                 .replace('__JSONLD__', jsonld)
         )
 
