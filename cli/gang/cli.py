@@ -74,7 +74,12 @@ def template_environment(templates_path: Path):
         lstrip_blocks=True,
     )
     env.filters['tojson_script'] = json_for_script
+    env.filters['safe_url'] = _jinja_safe_url
     return env
+
+
+def _jinja_safe_url(value: Any) -> str:
+    return safe_http_url(value)
 
 
 def offer_is_in_stock(offer: Any) -> bool:
@@ -114,11 +119,12 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     raw_images = product.get('image', [])
     type_name = type(raw_images).__name__
     if type_name in ('list', 'tuple'):
-        images = [str(img) for img in raw_images if img]
+        raw_list = [str(img) for img in raw_images if img]
     elif raw_images:
-        images = [str(raw_images)]
+        raw_list = [str(raw_images)]
     else:
-        images = []
+        raw_list = []
+    images = [url for url in (safe_http_url(img) for img in raw_list) if url]
 
     offers = product.get('offers', {})
     variants_list: List[Dict[str, Any]] = []
@@ -334,6 +340,63 @@ def resolve_under_root(root: Path, relative: str) -> Optional[Path]:
         return candidate
     except (ValueError, OSError):
         return None
+
+
+def resolve_content_arg(content_root: Path, file_path: str) -> Optional[Path]:
+    """Resolve a CLI file argument and reject paths outside the content root."""
+    if not file_path or '\0' in str(file_path):
+        return None
+    try:
+        base = content_root.resolve()
+        raw = Path(file_path)
+        candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, base / raw]
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+                resolved.relative_to(base)
+                return resolved
+            except (ValueError, OSError):
+                continue
+        return None
+    except (ValueError, OSError):
+        return None
+
+
+def is_publishable_relpath(relative: str) -> bool:
+    """Allow only {publishable-category}/{safe-slug}.md."""
+    rel = str(relative or '').replace('\\', '/').lstrip('/')
+    if not rel.endswith('.md'):
+        rel = f'{rel}.md'
+    parts = rel.split('/')
+    if len(parts) != 2:
+        return False
+    category, filename = parts
+    if category not in PUBLISHABLE_CATEGORIES or not filename.endswith('.md'):
+        return False
+    return is_safe_content_slug(filename[:-3])
+
+
+def frontmatter_seo(frontmatter: Any) -> Dict[str, Any]:
+    """Return SEO mapping only when frontmatter.seo is a dict."""
+    if not isinstance(frontmatter, dict):
+        return {}
+    seo = frontmatter.get('seo')
+    return seo if isinstance(seo, dict) else {}
+
+
+def sanitize_social_links(raw: Any) -> List[Dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    links = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        url = safe_http_url(item.get('url'))
+        if not url:
+            continue
+        platform = str(item.get('platform') or item.get('name') or 'Social link')
+        links.append({'url': url, 'platform': platform})
+    return links
 
 
 def collect_category_markdown(content_path: Path) -> List[Path]:
@@ -1648,7 +1711,10 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     content_path = Path(config['build']['content'])
     scheduler = ContentScheduler(content_path)
     
-    file_path = Path(file_path)
+    file_path = resolve_content_arg(content_path, file_path)
+    if file_path is None:
+        click.echo("❌ File path must stay inside the content directory")
+        ctx.exit(1)
     
     if now:
         # Remove schedule, publish now
@@ -1733,7 +1799,10 @@ def history(ctx, file_path, limit):
     content_path = Path(config['build']['content'])
     
     versioning = ContentVersioning(content_path)
-    file_path = Path(file_path)
+    file_path = resolve_content_arg(content_path, file_path)
+    if file_path is None:
+        click.echo("❌ File path must stay inside the content directory")
+        ctx.exit(1)
     
     history_list = versioning.get_file_history(file_path, limit)
     
@@ -1762,7 +1831,10 @@ def restore(ctx, file_path, commit):
     content_path = Path(config['build']['content'])
     
     versioning = ContentVersioning(content_path)
-    file_path = Path(file_path)
+    file_path = resolve_content_arg(content_path, file_path)
+    if file_path is None:
+        click.echo("❌ File path must stay inside the content directory")
+        ctx.exit(1)
     
     # Show what we're restoring
     history = versioning.get_file_history(file_path, limit=50)
@@ -2734,6 +2806,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     click.echo(f"📝 Processing {len(publishable_files)} publishable content file(s)...")
     for md_file in publishable_files:
         content_type = md_file.parent.name
+        if content_type not in PUBLISHABLE_CATEGORIES or not is_safe_content_slug(md_file.stem):
+            click.echo(f"⚠️  Skipping unsafe content path: {md_file.relative_to(content_path)}")
+            continue
         
         # Parse markdown with frontmatter
         content = md_file.read_text()
@@ -2757,7 +2832,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         description = (
             frontmatter.get('summary')
-            or (frontmatter.get('seo') or {}).get('description')
+            or frontmatter_seo(frontmatter).get('description')
             or config['site']['description']
         )
         if isinstance(description, str):
@@ -2807,8 +2882,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
             'comments_webhook_origin': comments_webhook_origin(config) if comments_enabled else '',
             'role': frontmatter.get('role', ''),
-            'image': frontmatter.get('image', ''),
-            'social_links': frontmatter.get('social_links') or [],
+            'image': safe_http_url(frontmatter.get('image', '')),
+            'social_links': sanitize_social_links(frontmatter.get('social_links')),
             'summary': frontmatter.get('summary') or '',
             'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
             'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
@@ -3000,6 +3075,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             plp_html = plp_template.render(
                 products=products,
                 site_title=config['site']['title'],
+                lang=config['site'].get('language', 'en'),
+                site_url=config['site']['url'],
+                canonical_url=f"{str(config['site']['url']).rstrip('/')}/products/",
                 year=datetime.now().year,
                 navigation=config.get('nav', {}).get('main', []),
                 build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -3014,6 +3092,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 slug = product['_meta'].get('slug') or product['_meta'].get('handle')
                 if not slug:
                     click.echo(f"⚠️  Skipping product without slug/handle: {product.get('name')}")
+                    continue
+                if not is_safe_content_slug(str(slug)):
+                    click.echo(f"⚠️  Skipping product with unsafe slug/handle: {slug}")
                     continue
                 
                 pdp_dir = products_path / slug
@@ -3080,6 +3161,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             projects=all_projects,
             products=products,
             people=all_people,
+            newsletters=all_newsletters,
             jsonld=sitemap_jsonld,
             year=datetime.now().year,
             build_time_iso=datetime.now().isoformat()
@@ -3460,7 +3542,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     )
     
     html = f"""<!DOCTYPE html>
-<html lang="{config['site']['language']}">
+<html lang="{html_module.escape(str(config['site']['language']), quote=True)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -3485,7 +3567,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
 <body>
     {header_html}
     <main>
-        <h1>{title}</h1>
+        <h1>{html_module.escape(title)}</h1>
         <ul>
             {items_html}
         </ul>
@@ -3536,14 +3618,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     """Process a markdown file into HTML"""
     content = md_file.read_text()
     
-    # Parse frontmatter
-    if content.startswith('---'):
-        parts = content.split('---', 2)
-        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-        body = parts[2] if len(parts) > 2 else ''
-    else:
-        frontmatter = {}
-        body = content
+    frontmatter, body = parse_frontmatter_text(content)
     
     # Convert markdown to HTML
     md = markdown.Markdown(extensions=['extra', 'meta'])
@@ -3552,8 +3627,11 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     # Process external links to open in new tabs
     body_html = process_external_links(body_html)
     
-    title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-    description = frontmatter.get('summary', config['site']['description'])
+    title = html_module.escape(str(frontmatter.get('title') or md_file.stem.replace('-', ' ').title()))
+    description = html_module.escape(
+        str(frontmatter.get('summary') or frontmatter_seo(frontmatter).get('description') or config['site']['description']),
+        quote=True,
+    )
     
     # Build time for footer
     build_time = datetime.now()
@@ -3565,12 +3643,12 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     
     # Build HTML page
     page_html = f"""<!DOCTYPE html>
-<html lang="{config['site']['language']}">
+<html lang="{html_module.escape(str(config['site']['language']), quote=True)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'self'; form-action 'self';">
-    <title>{title} - {config['site']['title']}</title>
+    <title>{title} - {html_module.escape(str(config['site']['title']))}</title>
     <meta name="description" content="{description}">
     <style>
         :root {{
@@ -3949,7 +4027,7 @@ def create_list_page(config: Dict, items: List, title: str) -> str:
 <body>
     {header_html}
     <main>
-        <h1>{title}</h1>
+        <h1>{html_module.escape(title)}</h1>
         <ul>
             {items_links}
         </ul>
@@ -4288,12 +4366,18 @@ def studio(ctx, port, host):
                             self.wfile.write(json.dumps([]).encode())
                             return
                         
-                        for md_file in content_path.rglob('*.md'):
-                            files.append({
-                                'path': str(md_file.relative_to(content_path)),
-                                'type': md_file.parent.name,
-                                'name': md_file.stem
-                            })
+                        for category in PUBLISHABLE_CATEGORIES:
+                            category_path = content_path / category
+                            if not category_path.exists():
+                                continue
+                            for md_file in sorted(category_path.glob('*.md')):
+                                if not is_safe_content_slug(md_file.stem):
+                                    continue
+                                files.append({
+                                    'path': str(md_file.relative_to(content_path)),
+                                    'type': category,
+                                    'name': md_file.stem
+                                })
                         
                         click.echo(f"📂 Found {len(files)} content files: {[f['name'] for f in files]}")
                         
@@ -4312,7 +4396,10 @@ def studio(ctx, port, host):
                     try:
                         file_path = self.path.replace('/api/content/', '').lstrip('/')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = resolve_under_root(content_base, file_path)
+                        if not is_publishable_relpath(file_path):
+                            self.send_error(403)
+                            return
+                        content_path = resolve_under_root(content_base, file_path if file_path.endswith('.md') else f'{file_path}.md')
                         
                         if content_path is None:
                             self.send_error(403)
@@ -4588,7 +4675,14 @@ def studio(ctx, port, host):
                     try:
                         file_path = self.path.replace('/api/content/', '').lstrip('/')
                         content_base = Path(config['build']['content']).resolve()
-                        content_path = resolve_under_root(content_base, file_path)
+                        if not is_publishable_relpath(file_path):
+                            self.send_response(403)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'Invalid file path'}).encode())
+                            return
+                        content_path = resolve_under_root(content_base, file_path if file_path.endswith('.md') else f'{file_path}.md')
                         
                         if content_path is None:
                             self.send_response(403)
@@ -4654,6 +4748,13 @@ def studio(ctx, port, host):
                         dist_path = Path(config['build']['output'])
                         
                         manager = RedirectManager(content_path, dist_path)
+                        if not manager._valid_redirect_target(from_path):
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'Invalid redirect path'}).encode())
+                            return
                         
                         if manager.remove_redirect(from_path):
                             click.echo(f"✅ Redirect removed: {from_path}")
@@ -4850,18 +4951,22 @@ def serve(ctx, port, host):
                 all_posts = []
                 all_projects = []
                 
-                for md_file in content_path.rglob('*.md'):
+                try:
+                    from core.scheduler import ContentScheduler
+                except ImportError:
+                    from gang.core.scheduler import ContentScheduler
+                scheduler = ContentScheduler(content_path)
+                schedule_result = scheduler.get_publishable_content(collect_category_markdown(content_path))
+                publishable_files = [item['path'] for item in schedule_result['publishable']]
+
+                for md_file in publishable_files:
                     content_type = md_file.parent.name
+                    if content_type not in PUBLISHABLE_CATEGORIES or not is_safe_content_slug(md_file.stem):
+                        continue
                     
                     # Parse markdown with frontmatter
                     content = md_file.read_text()
-                    if content.startswith('---'):
-                        parts = content.split('---', 2)
-                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-                        body = parts[2] if len(parts) > 2 else ''
-                    else:
-                        frontmatter = {}
-                        body = content
+                    frontmatter, body = parse_frontmatter_text(content)
                     
                     # Convert markdown to HTML
                     md_converter = markdown.Markdown(extensions=['extra', 'meta'])
@@ -4889,18 +4994,24 @@ def serve(ctx, port, host):
                     
                     # Check if editor mode is enabled (for in-place editing)
                     user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+                    tags = frontmatter.get('tags') or []
+                    if isinstance(tags, str):
+                        tags = [tags]
+                    elif not isinstance(tags, list):
+                        tags = []
+                    tags = [str(tag) for tag in tags]
                     
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
-                        'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                        'description': frontmatter.get('summary', config['site']['description']),
+                        'title': frontmatter.get('title') or slug.replace('-', ' ').title(),
+                        'description': frontmatter.get('summary') or frontmatter_seo(frontmatter).get('description') or config['site']['description'],
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
                         'date': frontmatter.get('date'),
                         'date_formatted': str(frontmatter.get('date', '')),
-                        'tags': frontmatter.get('tags', []),
+                        'tags': tags,
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
@@ -5029,7 +5140,7 @@ def serve(ctx, port, host):
                         pdp_template = jinja_env.get_template('product.html')
                         for product in products:
                             slug = product['_meta'].get('slug') or product['_meta'].get('handle')
-                            if not slug:
+                            if not slug or not is_safe_content_slug(str(slug)):
                                 continue
                             
                             pdp_dir = products_path / slug
@@ -5402,16 +5513,25 @@ def create_studio_html(output_path: Path):
                 files.forEach(file => {
                     const item = document.createElement('div');
                     item.className = 'content-item';
-                    item.innerHTML = `
-                        <div class="content-item-name">${file.name}</div>
-                        <div class="content-item-type">${file.type}</div>
-                    `;
+                    const nameEl = document.createElement('div');
+                    nameEl.className = 'content-item-name';
+                    nameEl.textContent = file.name || '';
+                    const typeEl = document.createElement('div');
+                    typeEl.className = 'content-item-type';
+                    typeEl.textContent = file.type || '';
+                    item.appendChild(nameEl);
+                    item.appendChild(typeEl);
                     item.onclick = () => loadFile(file.path);
                     listEl.appendChild(item);
                 });
             } catch (e) {
                 console.error('Failed to load content list:', e);
-                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
+                listEl.textContent = '';
+                const err = document.createElement('div');
+                err.className = 'loading';
+                err.style.color = '#ff6b6b';
+                err.textContent = 'Error: ' + (e && e.message ? e.message : 'failed') + '. Check browser console for details';
+                listEl.appendChild(err);
             }
         }
         
@@ -5436,9 +5556,14 @@ def create_studio_html(output_path: Path):
         }
         
         // Update preview
+        function escapePreview(text) {
+            const div = document.createElement('div');
+            div.textContent = text == null ? '' : String(text);
+            return div.innerHTML;
+        }
         function updatePreview(markdown) {
-            // Simple markdown to HTML (just for preview)
-            const html = markdown
+            // Escape first so authored HTML cannot run in the preview pane
+            const html = escapePreview(markdown)
                 .replace(/^# (.+)$/gm, '<h1>$1</h1>')
                 .replace(/^## (.+)$/gm, '<h2>$1</h2>')
                 .replace(/^### (.+)$/gm, '<h3>$1</h3>')

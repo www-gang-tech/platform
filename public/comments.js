@@ -110,7 +110,11 @@
         const urlField = form.querySelector('input[type="url"]');
         if (urlField && urlField.value) {
             try {
-                new URL(urlField.value);
+                const parsed = new URL(urlField.value);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    urlField.focus();
+                    return false;
+                }
             } catch {
                 urlField.focus();
                 return false;

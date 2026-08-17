@@ -72,8 +72,9 @@ class AIOptimizer:
         
         # Don't overwrite human-written content
         if self.ai_config.get('never_overwrite_human', True):
-            if frontmatter.get('seo', {}).get('title') and frontmatter.get('seo', {}).get('description'):
-                return frontmatter.get('seo', {})
+            seo = frontmatter.get('seo') if isinstance(frontmatter.get('seo'), dict) else {}
+            if seo.get('title') and seo.get('description'):
+                return seo
         
         prompt = f"""You are an SEO expert. Given this content, generate an SEO-optimized title and description.
 
