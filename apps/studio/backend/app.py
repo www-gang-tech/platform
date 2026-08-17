@@ -23,12 +23,22 @@ CORS(app, origins=[
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 CONTENT_DIR = PROJECT_ROOT / 'content'
+PUBLISHABLE_CATEGORIES = {
+    'posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products'
+}
+SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 
 def _safe_content_file(file_path: str) -> Path:
     if not file_path or file_path.startswith('/') or '\0' in file_path:
         raise ValueError('Invalid file path')
     relative = file_path if file_path.endswith('.md') else file_path + '.md'
+    parts = Path(relative).parts
+    if len(parts) != 2 or parts[0] not in PUBLISHABLE_CATEGORIES:
+        raise ValueError('Invalid file path')
+    filename = parts[1]
+    if not filename.endswith('.md') or not SAFE_SLUG_RE.match(filename[:-3]) or '..' in filename:
+        raise ValueError('Invalid file path')
     base = CONTENT_DIR.resolve()
     candidate = (base / relative).resolve()
     candidate.relative_to(base)
@@ -285,10 +295,12 @@ def list_content():
         return auth_error
     content_files = []
     
-    for content_type in ['pages', 'posts', 'projects', 'newsletters', 'products', 'people']:
+    for content_type in ['pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people']:
         type_dir = CONTENT_DIR / content_type
         if type_dir.exists():
             for md_file in type_dir.glob('*.md'):
+                if not SAFE_SLUG_RE.match(md_file.stem) or '..' in md_file.stem:
+                    continue
                 # Parse frontmatter to get title
                 try:
                     content = md_file.read_text(encoding='utf-8')
