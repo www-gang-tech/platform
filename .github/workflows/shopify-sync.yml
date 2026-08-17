@@ -37,13 +37,33 @@ jobs:
       - name: Extract product data
         id: extract
         run: |
-          # Parse webhook payload or fetch from Shopify API
-          PRODUCT_HANDLE="${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}"
-          echo "handle=$PRODUCT_HANDLE" >> $GITHUB_OUTPUT
-          
-          # Save product JSON (from webhook or API)
-          mkdir -p .shopify-sync
-          echo '${{ toJSON(github.event.client_payload.product) }}' > .shopify-sync/product.json
+          python3 << 'EOF'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          event_path = os.environ.get('GITHUB_EVENT_PATH')
+          event = json.loads(Path(event_path).read_text()) if event_path and Path(event_path).exists() else {}
+          product = (event.get('client_payload') or {}).get('product') or {}
+          if not isinstance(product, dict):
+              product = {}
+
+          handle = str(product.get('handle') or '').strip()
+          if not handle:
+              inputs = event.get('inputs') or {}
+              handle = str(inputs.get('product_handle') or '').strip()
+
+          safe = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+          if handle and (not safe.match(handle) or '..' in handle or '/' in handle):
+              raise SystemExit('Invalid product handle')
+
+          Path('.shopify-sync').mkdir(parents=True, exist_ok=True)
+          Path('.shopify-sync/product.json').write_text(json.dumps(product))
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'handle={handle}\n')
+          EOF
       
       - name: Convert to front-matter
         id: convert
@@ -112,7 +132,11 @@ jobs:
                   front_matter[key] = value
           
           # Generate front-matter file
-          handle = front_matter.get('handle', 'unknown')
+          import re
+          handle = str(front_matter.get('handle') or product.get('handle') or '')
+          if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', handle) or '..' in handle:
+              print('Invalid product handle')
+              exit(1)
           content_dir = Path('content/shop')
           content_dir.mkdir(parents=True, exist_ok=True)
           
