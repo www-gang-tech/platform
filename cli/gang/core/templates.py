@@ -21,6 +21,23 @@ class TemplateEngine:
         self.env.filters['formatdate'] = self._format_date
         self.env.filters['date'] = self._format_date
         self.env.filters['tojson_script'] = self._tojson_script
+        self.env.filters['safe_url'] = self._safe_url
+
+    @staticmethod
+    def _safe_url(value):
+        """Allow only relative site paths or http(s) URLs."""
+        if not isinstance(value, str):
+            return ''
+        value = value.strip()
+        if not value or value == '#':
+            return ''
+        if value.startswith('/') and not value.startswith('//'):
+            return value
+        from urllib.parse import urlparse
+        parsed = urlparse(value)
+        if parsed.scheme in ('http', 'https') and parsed.netloc:
+            return value
+        return ''
 
     @staticmethod
     def _tojson_script(data):
