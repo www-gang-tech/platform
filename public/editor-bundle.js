@@ -44,7 +44,7 @@ class InPlaceEditor {
         overlay.innerHTML = `
             <div class="editor-container">
                 <div class="editor-header">
-                    <h2>Edit: ${this.getPageTitle()}</h2>
+                    <h2></h2>
                     <div class="editor-header-actions">
                         <button class="editor-actions-btn" id="actions-toggle">
                             <i class="fa-solid fa-bars"></i> Actions
@@ -67,6 +67,11 @@ class InPlaceEditor {
                 </div>
             </div>
         `;
+        
+        const titleEl = overlay.querySelector('h2');
+        if (titleEl) {
+            titleEl.textContent = 'Edit: ' + this.getPageTitle();
+        }
         
         // Create editor content area
         const container = overlay.querySelector('.editor-container');
@@ -385,7 +390,7 @@ class InPlaceEditor {
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
         }
         
