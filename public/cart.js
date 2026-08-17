@@ -90,9 +90,7 @@
         const item = {
             id: form.dataset.variantId || '',
             name: form.dataset.productName || 'Product',
-            variant: formData.get('color') && formData.get('size')
-                ? `${formData.get('color')} / ${formData.get('size')}`
-                : '',
+            variant: [formData.get('color'), formData.get('size')].filter(Boolean).join(' / '),
             price: toPrice(form.dataset.price || '0'),
             currency: form.dataset.currency || 'USD',
             quantity: toQuantity(formData.get('quantity') || '1'),
@@ -172,7 +170,7 @@
             if (isSafeHttpUrl(item.image) || (typeof item.image === 'string' && item.image.startsWith('/'))) {
                 const img = document.createElement('img');
                 img.src = item.image;
-                img.alt = '';
+                img.alt = String(item.name || 'Product');
                 img.width = 80;
                 img.height = 80;
                 img.className = 'cart-item-image';
@@ -261,10 +259,11 @@
         const items = [];
         cart.forEach(item => {
             if (!isNumericVariantId(item.id)) return;
-            const source = item.checkoutUrl || item.url || '';
+            const source = item.checkoutUrl || '';
             if (!isSafeHttpUrl(source)) return;
             try {
                 const origin = new URL(source, window.location.origin).origin;
+                if (origin === window.location.origin) return;
                 if (origin === 'https://www.shopify.com') return;
                 origins.add(origin);
                 items.push(item.id + ':' + toQuantity(item.quantity));
