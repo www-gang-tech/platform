@@ -76,6 +76,28 @@
             </ul>
         </section>
         {% endif %}
+        
+        {% if newsletters %}
+        <section style="margin-top: 2rem;">
+            <h2>Newsletters</h2>
+            <ul class="unstyled">
+                {% for issue in newsletters %}
+                <li><a href="{{ issue.url }}">{{ issue.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+        
+        {% if people %}
+        <section style="margin-top: 2rem;">
+            <h2>People</h2>
+            <ul class="unstyled">
+                {% for person in people %}
+                <li><a href="{{ person.url }}">{{ person.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
     </main>
     
     {% include "partials/footer.html" %}
