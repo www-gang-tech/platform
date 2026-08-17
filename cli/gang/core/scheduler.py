@@ -76,11 +76,14 @@ class ContentScheduler:
                 raw_status = raw_status[0]
             if raw_status is False:
                 status = 'draft'
+            elif raw_status is True or isinstance(raw_status, (int, float)):
+                # Bool/numeric YAML must not silently publish
+                status = 'draft'
             else:
                 status = str(raw_status or 'published').strip().lower()
             
-            # If status is draft, skip
-            if status in ('draft', 'false', 'no', '0'):
+            # Allowlist only: unknown/archived/pending/true/yes fail closed as draft
+            if status not in ('published', 'scheduled', 'live', 'public'):
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -248,7 +251,9 @@ class ContentScheduler:
         
         try:
             frontmatter = yaml.safe_load(parts[1]) or {}
-        except:
+        except Exception:
+            return False
+        if not isinstance(frontmatter, dict):
             return False
         
         # Update frontmatter
