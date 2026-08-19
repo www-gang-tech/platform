@@ -268,8 +268,29 @@ class InPlaceEditor {
 
     // HTML to Markdown converter
     htmlToMarkdown(html) {
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
+        const parsed = new DOMParser().parseFromString(
+            '<div id="gang-md-root">' + (html || '') + '</div>',
+            'text/html'
+        );
+        const temp = parsed.getElementById('gang-md-root') || parsed.body;
+        temp.querySelectorAll('script, style, iframe, object, embed, form').forEach(function(node) {
+            node.remove();
+        });
+        temp.querySelectorAll('*').forEach(function(node) {
+            Array.from(node.attributes).forEach(function(attr) {
+                const name = attr.name.toLowerCase();
+                if (name.indexOf('on') === 0) {
+                    node.removeAttribute(attr.name);
+                    return;
+                }
+                if (['href', 'src', 'action', 'formaction'].indexOf(name) !== -1) {
+                    const val = String(attr.value || '').trim().toLowerCase();
+                    if (val.indexOf('javascript:') === 0 || val.indexOf('data:') === 0 || val.indexOf('vbscript:') === 0 || val.indexOf('//') === 0) {
+                        node.setAttribute(attr.name, '#');
+                    }
+                }
+            });
+        });
         
         return temp.innerHTML
             .replace(/<h1>(.+?)<\/h1>/g, '# $1\n\n')
