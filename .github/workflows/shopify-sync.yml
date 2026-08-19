@@ -137,7 +137,7 @@ jobs:
           if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', handle) or '..' in handle:
               print('Invalid product handle')
               exit(1)
-          content_dir = Path('content/shop')
+          content_dir = Path('content/products')
           content_dir.mkdir(parents=True, exist_ok=True)
           
           output_file = content_dir / f"{handle}.md"
@@ -171,7 +171,7 @@ jobs:
           git checkout -b "$BRANCH"
           
           # Stage changes
-          git add content/shop/
+          git add content/products/
           
           # Check if there are changes
           if git diff --staged --quiet; then
