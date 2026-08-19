@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 PUBLISHABLE_CATEGORIES = [
     'posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products'
@@ -36,6 +36,63 @@ def is_safe_content_slug(slug: str) -> bool:
     """Reject empty, traversal, and path-like slugs before any filesystem rename."""
     value = str(slug or '').strip()
     return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
+
+
+def public_content_url(category: str, slug: str) -> str:
+    """Public URL for a content file. Articles publish under /posts/."""
+    if category == 'articles':
+        category = 'posts'
+    return f"/{category}/{slug}/"
+
+
+def convert_markdown_html(body: str) -> str:
+    """Markdown → HTML with sanitizer + external-link processing."""
+    md = markdown.Markdown(extensions=['extra', 'meta'])
+    content_html = md.convert(body)
+    try:
+        from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+    except ImportError:
+        from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+    content_html = sanitize_markdown_html(content_html)
+    content_html = sanitize_content_hrefs(content_html)
+    return process_external_links(content_html)
+
+
+def collect_checkout_origins(products: Optional[List[Any]] = None) -> List[str]:
+    """Merchant origins allowed for cart checkout redirects."""
+    origins = set()
+    store_url = (
+        os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
+    ).strip()
+    if store_url and not store_url.startswith('http'):
+        store_url = f'https://{store_url}'
+    parsed = urlparse(store_url)
+    if parsed.scheme in ('http', 'https') and parsed.netloc:
+        if parsed.netloc.lower() not in ('www.shopify.com', 'shopify.com'):
+            origins.add(f"{parsed.scheme}://{parsed.netloc}")
+    for product in products or []:
+        if not isinstance(product, dict):
+            continue
+        meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
+        candidates = [meta.get('url'), product.get('url')]
+        offers = product.get('offers')
+        if isinstance(offers, dict):
+            candidates.append(offers.get('url'))
+        elif isinstance(offers, list):
+            for offer in offers:
+                if isinstance(offer, dict):
+                    candidates.append(offer.get('url'))
+        for candidate in candidates:
+            safe = safe_http_url(candidate)
+            if not safe or safe.startswith('/'):
+                continue
+            try:
+                parsed = urlparse(safe)
+                if parsed.scheme in ('http', 'https') and parsed.netloc:
+                    origins.add(f"{parsed.scheme}://{parsed.netloc}")
+            except Exception:
+                continue
+    return sorted(origins)
 
 
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
@@ -674,6 +731,9 @@ def optimize(ctx, force):
     
     optimized_count = 0
     for md_file in md_files:
+        if not is_safe_content_slug(md_file.stem):
+            click.echo(f"⚠️  Skipping unsafe content path: {md_file.relative_to(content_path)}")
+            continue
         content = md_file.read_text()
         frontmatter, body = parse_frontmatter_text(content)
         
@@ -724,6 +784,8 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
         failed_quality = []
         
         for md_file in sorted(md_files):
+            if not is_safe_content_slug(md_file.stem):
+                continue
             try:
                 analysis = analyzer.analyze_file(md_file)
                 all_analyses.append(analysis)
@@ -787,11 +849,12 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
         click.echo("Error: Provide a file path or use --all", err=True)
         ctx.exit(1)
     
-    file_path = Path(file_path)
-    
-    if not file_path.suffix == '.md':
-        click.echo("⚠️  File must be a markdown (.md) file", err=True)
+    content_path = Path(config['build']['content'])
+    resolved = resolve_content_arg(content_path, str(file_path))
+    if resolved is None or resolved.suffix != '.md':
+        click.echo("⚠️  File must be a markdown file under the content root", err=True)
         ctx.exit(1)
+    file_path = resolved
     
     click.echo(f"📊 Analyzing {file_path}...\n")
     
@@ -2817,11 +2880,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             body = strip_leading_markdown_h1(body)
         
         # Convert markdown to HTML
-        md = markdown.Markdown(extensions=['extra', 'meta'])
-        content_html = md.convert(body)
-        
-        # Process external links to open in new tabs
-        content_html = process_external_links(content_html)
+        content_html = convert_markdown_html(body)
         
         # Prepare context for template
         build_time = datetime.now()
@@ -2897,14 +2956,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             context['category'] = 'posts'
         
         # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
+        url = public_content_url(content_type, slug)
         
         context['canonical_url'] = f"{config['site']['url']}{url}"
         
@@ -3139,6 +3191,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             description=config['site']['description'],
             jsonld=cart_jsonld,
             site_url=config['site']['url'],
+            checkout_origins=collect_checkout_origins(products),
         )
         (cart_dir / 'index.html').write_text(cart_html)
         click.echo("🛒 Generated cart page")
@@ -3621,11 +3674,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
     frontmatter, body = parse_frontmatter_text(content)
     
     # Convert markdown to HTML
-    md = markdown.Markdown(extensions=['extra', 'meta'])
-    body_html = md.convert(body)
-    
-    # Process external links to open in new tabs
-    body_html = process_external_links(body_html)
+    body_html = convert_markdown_html(body)
     
     title = html_module.escape(str(frontmatter.get('title') or md_file.stem.replace('-', ' ').title()))
     description = html_module.escape(
@@ -4320,10 +4369,18 @@ def studio(ctx, port, host):
                     return False
                 return True
 
+            def _is_loopback_origin(self) -> bool:
+                origin = (self.headers.get('Origin') or '').strip()
+                if not origin:
+                    return True
+                parsed = urlparse(origin)
+                host = (parsed.hostname or '').lower()
+                return host in {'127.0.0.1', 'localhost', '::1'}
+
             def _auth_ok(self) -> bool:
                 token = os.environ.get('STUDIO_AUTH_TOKEN', '').strip()
                 if not token:
-                    return self._is_direct_loopback()
+                    return self._is_direct_loopback() and self._is_loopback_origin()
                 return self.headers.get('Authorization', '') == f'Bearer {token}'
 
             def _reject_unauthorized(self) -> None:
@@ -4967,27 +5024,33 @@ def serve(ctx, port, host):
                     # Parse markdown with frontmatter
                     content = md_file.read_text()
                     frontmatter, body = parse_frontmatter_text(content)
+                    if content_type in TEMPLATE_OWNS_H1:
+                        body = strip_leading_markdown_h1(body)
                     
                     # Convert markdown to HTML
-                    md_converter = markdown.Markdown(extensions=['extra', 'meta'])
-                    content_html = md_converter.convert(body)
-                    
-                    # Process external links to open in new tabs
-                    content_html = process_external_links(content_html)
+                    content_html = convert_markdown_html(body)
                     
                     # Prepare context
                     slug = md_file.stem
+                    if content_type == 'articles':
+                        content_type = 'posts'
                     if content_type == 'posts':
-                        url = f"/posts/{slug}/"
+                        url = public_content_url(content_type, slug)
                         template_name = 'post.html'
                     elif content_type == 'projects':
-                        url = f"/projects/{slug}/"
-                        template_name = 'post.html'
+                        url = public_content_url(content_type, slug)
+                        template_name = 'article.html'
+                    elif content_type == 'newsletters':
+                        url = public_content_url(content_type, slug)
+                        template_name = 'newsletter.html'
+                    elif content_type == 'people':
+                        url = public_content_url(content_type, slug)
+                        template_name = 'person.html'
                     elif content_type == 'pages':
-                        url = f"/pages/{slug}/"
+                        url = public_content_url(content_type, slug)
                         template_name = 'page.html'
                     else:
-                        url = f"/{content_type}/{slug}/"
+                        url = public_content_url(content_type, slug)
                         template_name = 'page.html'
                     
                     build_time = datetime.now()
