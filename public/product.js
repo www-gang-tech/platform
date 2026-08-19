@@ -18,7 +18,15 @@
     const productImages = document.querySelectorAll('[data-variant-image]');
     
     const variantsData = document.getElementById('variants-data');
-    const variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    let variants = [];
+    try {
+        variants = variantsData ? JSON.parse(variantsData.textContent) : [];
+    } catch (err) {
+        variants = [];
+    }
+    if (!Array.isArray(variants)) {
+        variants = [];
+    }
     
     function isInStock(variant) {
         const avail = String((variant && variant.availability) || '');
@@ -80,19 +88,17 @@
             });
         }
         
-        if (isSafeActionUrl(variant.url)) {
-            form.action = variant.url;
-            form.dataset.checkoutUrl = variant.url;
+        const checkoutHref = isSafeActionUrl(variant.url) ? variant.url : '';
+        if (checkoutHref) {
+            form.action = checkoutHref;
+            form.dataset.checkoutUrl = checkoutHref;
+        } else {
+            form.action = '#';
+            delete form.dataset.checkoutUrl;
         }
-        if (variant.id) {
-            form.dataset.variantId = String(variant.id);
-        }
-        if (variant.sku) {
-            form.dataset.sku = String(variant.sku);
-        }
-        if (variant.price !== undefined && variant.price !== null) {
-            form.dataset.price = String(variant.price);
-        }
+        form.dataset.variantId = variant.id == null ? '' : String(variant.id);
+        form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
+        form.dataset.price = (variant.price == null || variant.price === '') ? '0' : String(variant.price);
         if (variant.currency) {
             form.dataset.currency = String(variant.currency);
         }

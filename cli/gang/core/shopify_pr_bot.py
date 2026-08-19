@@ -6,10 +6,18 @@ Automatically creates PRs when Shopify products are updated
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import json
+import re
 import yaml
 import subprocess
 from datetime import datetime
 import os
+
+SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+
+
+def _is_safe_product_slug(slug: str) -> bool:
+    value = str(slug or '').strip()
+    return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
 
 
 class ShopifyPRBot:
@@ -150,20 +158,21 @@ class ShopifyPRBot:
         
         frontmatter = self.convert_to_frontmatter(product_data)
         
-        # Get slug
-        slug = frontmatter.get('slug', 'unknown')
-        
-        # Create file path
-        products_dir = self.content_path / 'products'
-        products_dir.mkdir(exist_ok=True)
-        
-        file_path = products_dir / f"{slug}.md"
-        
+        # Get slug and jail it under content/products/
+        slug = str(frontmatter.get('slug') or product_data.get('handle') or '').strip()
+        if not _is_safe_product_slug(slug):
+            raise ValueError(f'Unsafe product slug: {slug!r}')
+
+        products_dir = (self.content_path / 'products').resolve()
+        products_dir.mkdir(parents=True, exist_ok=True)
+        file_path = (products_dir / f"{slug}.md").resolve()
+        file_path.relative_to(products_dir)
+
         # Generate markdown content
         dumped = yaml.dump(frontmatter, default_flow_style=False).strip()
         body = frontmatter.get('description') or ''
         file_path.write_text(f"---\n{dumped}\n---\n{body}\n")
-        
+
         return file_path
     
     def create_pr(self, product_data: Dict[str, Any], branch_name: Optional[str] = None) -> Dict[str, Any]:
