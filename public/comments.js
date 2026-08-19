@@ -62,7 +62,14 @@
             });
             
             if (response.ok) {
-                const result = await response.json();
+                const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+                if (contentType.indexOf('json') !== -1) {
+                    try {
+                        await response.json();
+                    } catch (parseError) {
+                        // Webhook accepted the comment; body is optional.
+                    }
+                }
                 showStatus(status, '✓ Comment submitted! It will appear after approval.', 'success');
                 form.reset();
                 resetButton(button);
@@ -103,7 +110,11 @@
         const urlField = form.querySelector('input[type="url"]');
         if (urlField && urlField.value) {
             try {
-                new URL(urlField.value);
+                const parsed = new URL(urlField.value);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    urlField.focus();
+                    return false;
+                }
             } catch {
                 urlField.focus();
                 return false;

@@ -71,6 +71,8 @@ class NewsletterManager:
         import yaml
         
         slug = self._generate_slug(title)
+        if not slug or '..' in slug or '/' in slug or '\\' in slug:
+            return {'error': 'Could not generate a safe newsletter slug'}
         file_path = self.newsletters_path / f"{slug}.md"
         
         # Check if exists
@@ -119,6 +121,8 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Convert markdown to HTML
@@ -183,6 +187,8 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Update status and schedule
@@ -220,8 +226,12 @@ class NewsletterManager:
                 if content.startswith('---'):
                     parts = content.split('---', 2)
                     frontmatter = yaml.safe_load(parts[1]) or {}
+                    if not isinstance(frontmatter, dict):
+                        continue
                     
                     status = frontmatter.get('status', 'draft')
+                    if status not in newsletters:
+                        status = 'draft'
                     
                     newsletters[status].append({
                         'slug': file_path.stem,
@@ -246,6 +256,18 @@ class NewsletterManager:
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         html = md.convert(markdown_content)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            try:
+                from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+            except ImportError:
+                sanitize_markdown_html = None
+        if sanitize_markdown_html:
+            html = sanitize_content_hrefs(sanitize_markdown_html(html))
+        else:
+            html = re.sub(r'(?is)<script[^>]*>.*?</script>', '', html)
+            html = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
         
         # Wrap in email template
         email_html = f'''
@@ -394,6 +416,33 @@ class KlaviyoProvider(EmailProvider):
             if response.status_code == 201:
                 campaign = response.json()
                 campaign_id = campaign['data']['id']
+                messages = (
+                    campaign.get('data', {})
+                    .get('attributes', {})
+                    .get('campaign-messages', {})
+                    .get('data', [])
+                )
+                html_body = email_data.get('html_body') or email_data.get('html') or ''
+                text_body = email_data.get('text_body') or email_data.get('text') or ''
+                if messages and html_body:
+                    message_id = messages[0].get('id')
+                    if message_id:
+                        requests.patch(
+                            f"{self.base_url}/campaign-messages/{message_id}/",
+                            headers=headers,
+                            json={
+                                'data': {
+                                    'type': 'campaign-message',
+                                    'id': message_id,
+                                    'attributes': {
+                                        'content': {
+                                            'html': html_body,
+                                            'plain_text': text_body,
+                                        }
+                                    }
+                                }
+                            },
+                        )
                 
                 # Send campaign
                 send_response = requests.post(

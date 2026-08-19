@@ -72,7 +72,7 @@
   {# Link type - external link with commentary #}
   {% if type == 'link' and href %}
   <p class="external-link">
-    <a href="{{ href }}" rel="noopener" class="ext" itemprop="url">{{ href }}</a>
+    <a href="{{ href|safe_url }}" rel="noopener" class="ext" itemprop="url">{{ href }}</a>
   </p>
   {% endif %}
   
@@ -89,9 +89,9 @@
   {% endif %}
   
   {# Call to action #}
-  {% if cta and cta.href %}
+  {% if cta and cta.href|safe_url %}
   <p class="cta">
-    <a href="{{ cta.href }}" class="button"{% if cta.rel %} rel="{{ cta.rel }}"{% endif %}>
+    <a href="{{ cta.href|safe_url }}" class="button"{% if cta.rel %} rel="{{ cta.rel }}"{% endif %}>
       {{ cta.label or 'Learn more' }} →
     </a>
   </p>

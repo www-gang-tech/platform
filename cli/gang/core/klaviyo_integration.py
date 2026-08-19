@@ -95,8 +95,8 @@ class KlaviyoClient:
         messages = campaign['data']['attributes'].get('campaign-messages', {}).get('data', [])
         if messages:
             message_id = messages[0]['id']
-            # Update with HTML/text content
-            self._update_campaign_content(message_id, html_content, text_content)
+            # Response already includes the message id — patch it directly
+            self._update_message_content(message_id, html_content, text_content)
         
         return campaign
     
@@ -148,9 +148,37 @@ class KlaviyoClient:
         message_id = message['data']['id']
         
         # Update with HTML/text content
-        self._update_campaign_content(message_id, html_content, text_content)
+        self._update_message_content(message_id, html_content, text_content)
         
         return message
+
+    def _update_message_content(
+        self,
+        message_id: str,
+        html_content: str,
+        text_content: str
+    ):
+        """PATCH an existing campaign-message by id."""
+        import requests
+
+        payload = {
+            'data': {
+                'type': 'campaign-message',
+                'id': message_id,
+                'attributes': {
+                    'content': {
+                        'html': html_content,
+                        'plain_text': text_content
+                    }
+                }
+            }
+        }
+        response = requests.patch(
+            f'{self.base_url}/campaign-messages/{message_id}/',
+            headers=self.headers,
+            json=payload
+        )
+        response.raise_for_status()
     
     def _update_campaign_content(
         self,
