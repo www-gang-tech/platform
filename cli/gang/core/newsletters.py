@@ -71,6 +71,8 @@ class NewsletterManager:
         import yaml
         
         slug = self._generate_slug(title)
+        if not slug or '..' in slug or '/' in slug or '\\' in slug:
+            return {'error': 'Could not generate a safe newsletter slug'}
         file_path = self.newsletters_path / f"{slug}.md"
         
         # Check if exists
@@ -119,6 +121,8 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Convert markdown to HTML
@@ -183,6 +187,8 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Update status and schedule
@@ -220,6 +226,8 @@ class NewsletterManager:
                 if content.startswith('---'):
                     parts = content.split('---', 2)
                     frontmatter = yaml.safe_load(parts[1]) or {}
+                    if not isinstance(frontmatter, dict):
+                        continue
                     
                     status = frontmatter.get('status', 'draft')
                     if status not in newsletters:
@@ -248,8 +256,18 @@ class NewsletterManager:
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         html = md.convert(markdown_content)
-        html = re.sub(r'(?is)<script[^>]*>.*?</script>', '', html)
-        html = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            try:
+                from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+            except ImportError:
+                sanitize_markdown_html = None
+        if sanitize_markdown_html:
+            html = sanitize_content_hrefs(sanitize_markdown_html(html))
+        else:
+            html = re.sub(r'(?is)<script[^>]*>.*?</script>', '', html)
+            html = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
         
         # Wrap in email template
         email_html = f'''

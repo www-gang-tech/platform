@@ -8,6 +8,7 @@ Provides endpoints for in-place content editing
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pathlib import Path
+from urllib.parse import urlparse
 import subprocess
 import yaml
 import re
@@ -55,10 +56,20 @@ def _is_direct_loopback():
     return True
 
 
+def _is_loopback_origin():
+    """Reject cross-origin CSRF against tokenless loopback Studio."""
+    origin = (request.headers.get('Origin') or '').strip()
+    if not origin:
+        return True
+    parsed = urlparse(origin)
+    host = (parsed.hostname or '').lower()
+    return host in {'127.0.0.1', 'localhost', '::1'}
+
+
 def _require_auth():
     token = os.environ.get('STUDIO_AUTH_TOKEN', '').strip()
     if not token:
-        if _is_direct_loopback():
+        if _is_direct_loopback() and _is_loopback_origin():
             return None
         return jsonify({'error': 'Unauthorized'}), 401
     header = request.headers.get('Authorization', '')

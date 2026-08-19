@@ -47,6 +47,20 @@
         return /^\d+$/.test(String(value || ''));
     }
 
+    function allowedCheckoutOrigins() {
+        const meta = document.querySelector('meta[name="gang-checkout-origins"]');
+        if (!meta || !meta.content) return null;
+        const origins = meta.content.split(/\s+/).map(s => s.trim()).filter(Boolean);
+        return origins.length ? new Set(origins) : null;
+    }
+
+    function isAllowedCheckoutUrl(parsed) {
+        if (!parsed) return false;
+        const allow = allowedCheckoutOrigins();
+        if (!allow) return true;
+        return allow.has(parsed.origin);
+    }
+
     function checkoutUrlFromForm(form) {
         const fromData = form.dataset.checkoutUrl || '';
         if (isSafeHttpUrl(fromData)) {
@@ -262,10 +276,11 @@
             const source = item.checkoutUrl || '';
             if (!isSafeHttpUrl(source)) return;
             try {
-                const origin = new URL(source, window.location.origin).origin;
-                if (origin === window.location.origin) return;
-                if (origin === 'https://www.shopify.com') return;
-                origins.add(origin);
+                const parsed = new URL(source, window.location.origin);
+                if (parsed.origin === window.location.origin) return;
+                if (parsed.origin === 'https://www.shopify.com') return;
+                if (!isAllowedCheckoutUrl(parsed)) return;
+                origins.add(parsed.origin);
                 items.push(item.id + ':' + toQuantity(item.quantity));
             } catch {
                 return;
