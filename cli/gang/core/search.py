@@ -80,18 +80,10 @@ class SearchIndexer:
             tags = [str(tag) for tag in tags]
         category = file_path.parent.name
         
-        # Generate URL
+        # Generate URL — articles publish under /posts/ to match gang build
         slug = file_path.stem
-        if category == 'posts':
-            url = f"/posts/{slug}/"
-        elif category == 'projects':
-            url = f"/projects/{slug}/"
-        elif category == 'pages':
-            url = f"/pages/{slug}/"
-        elif category == 'people':
-            url = f"/people/{slug}/"
-        else:
-            url = f"/{category}/{slug}/"
+        public_category = 'posts' if category == 'articles' else category
+        url = f"/{public_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
