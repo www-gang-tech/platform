@@ -86,20 +86,21 @@ class AgentMapGenerator:
         
         for file_path in content_files:
             category = file_path.parent.name
+            public_category = 'posts' if category == 'articles' else category
             
-            if category not in by_category:
-                by_category[category] = []
+            if public_category not in by_category:
+                by_category[public_category] = []
                 types.append({
-                    'type': category,
-                    'url': f"{self.site_url}/{category}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}.json"
+                    'type': public_category,
+                    'url': f"{self.site_url}/{public_category}/",
+                    'apiEndpoint': f"{self.site_url}/api/{public_category}.json"
                 })
             
             slug = file_path.stem
-            by_category[category].append({
+            by_category[public_category].append({
                 'slug': slug,
-                'url': f"{self.site_url}/{category}/{slug}/",
-                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json"
+                'url': f"{self.site_url}/{public_category}/{slug}/",
+                'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json"
             })
         
         return {
@@ -164,14 +165,17 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
+                if not isinstance(frontmatter, dict):
+                    frontmatter = {}
                 category = file_path.parent.name
                 slug = file_path.stem
+                public_category = 'posts' if category == 'articles' else category
                 
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                    'url': f"{self.site_url}/{category}/{slug}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
-                    'category': category,
+                    'url': f"{self.site_url}/{public_category}/{slug}/",
+                    'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json",
+                    'category': public_category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),
                     'date': str(frontmatter.get('date', '')),
@@ -205,10 +209,17 @@ class ContentAPIGenerator:
             if len(parts) >= 3:
                 frontmatter = yaml.safe_load(parts[1]) or {}
                 body = parts[2]
+        if not isinstance(frontmatter, dict):
+            frontmatter = {}
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         content_html = md.convert(body)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        content_html = sanitize_content_hrefs(sanitize_markdown_html(content_html))
         
         # Also provide plain text
         import re
@@ -216,11 +227,12 @@ class ContentAPIGenerator:
         
         category = file_path.parent.name
         slug = file_path.stem
+        public_category = 'posts' if category == 'articles' else category
         
         return {
             'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-            'url': f"{self.site_url}/{category}/{slug}/",
-            'category': category,
+            'url': f"{self.site_url}/{public_category}/{slug}/",
+            'category': public_category,
             'slug': slug,
             'metadata': frontmatter,
             'content': {
