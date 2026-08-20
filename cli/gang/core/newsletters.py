@@ -159,7 +159,7 @@ class NewsletterManager:
             # Add to archive
             self.archive['newsletters'].append({
                 'slug': file_path.stem,
-                'title': frontmatter['title'],
+            'title': frontmatter.get('title', email_data['subject']),
                 'subject': email_data['subject'],
                 'sent_at': frontmatter['sent_at'],
                 'campaign_id': frontmatter['campaign_id'],
