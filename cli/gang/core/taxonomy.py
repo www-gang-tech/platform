@@ -35,12 +35,7 @@ class TaxonomyManager:
     
     def _load_taxonomy(self) -> Dict[str, Any]:
         """Load taxonomy structure from file"""
-        if self.taxonomy_file.exists():
-            with open(self.taxonomy_file) as f:
-                return yaml.safe_load(f) or {}
-        
-        # Default taxonomy structure
-        return {
+        default = {
             'categories': {
                 'Product': {
                     'description': 'Products and product-related content',
@@ -69,6 +64,12 @@ class TaxonomyManager:
                 'Design Systems'
             ]
         }
+        if self.taxonomy_file.exists():
+            with open(self.taxonomy_file) as f:
+                raw = yaml.safe_load(f)
+            if isinstance(raw, dict) and raw:
+                return raw
+        return default
     
     def save_taxonomy(self):
         """Save taxonomy to file"""

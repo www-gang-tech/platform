@@ -125,6 +125,10 @@ jobs:
               # Apply transforms
               if value and mapping.get('transform') == 'strip_html':
                   value = BeautifulSoup(str(value), 'html.parser').get_text()[:mapping.get('max_length', 1000)]
+              elif value and mapping.get('transform') == 'html_to_markdown':
+                  value = BeautifulSoup(str(value), 'html.parser').get_text()
+              elif mapping.get('transform') == 'normalize_variants':
+                  value = value if isinstance(value, list) else []
               elif value and mapping.get('transform') == 'to_schema_availability':
                   value = 'InStock' if value else 'OutOfStock'
               
@@ -133,7 +137,7 @@ jobs:
           
           # Generate front-matter file
           import re
-          handle = str(front_matter.get('handle') or product.get('handle') or '')
+          handle = str(front_matter.get('slug') or product.get('handle') or '')
           if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', handle) or '..' in handle:
               print('Invalid product handle')
               exit(1)
@@ -146,7 +150,7 @@ jobs:
               f.write('---\n')
               yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
               f.write('---\n\n')
-              f.write(front_matter.get('summary', ''))
+              f.write(str(front_matter.get('description') or front_matter.get('summary') or ''))
           
           print(f"Generated: {output_file}")
           
