@@ -91,7 +91,8 @@
                       data-product-url="/products/{{ slug }}/"
                       data-checkout-url="{{ buy_url }}"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ variant_id or sku }}">
+                      data-variant-id="{{ variant_id }}"
+                      data-in-stock="{% if 'InStock' in availability and 'OutOfStock' not in availability %}true{% else %}false{% endif %}">
                     
                     {% if colors %}
                     <div class="form-group">

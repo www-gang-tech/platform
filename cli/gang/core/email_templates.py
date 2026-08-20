@@ -357,7 +357,8 @@ class EmailOrchestrator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -414,7 +415,8 @@ class EmailOrchestrator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
