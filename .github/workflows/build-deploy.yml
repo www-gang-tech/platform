@@ -33,11 +33,14 @@ jobs:
           cd cli/gang && pip install -e . && cd ../..
       
       - name: Run AI optimization (optional)
-        if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: gang optimize
-        continue-on-error: true
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            gang optimize
+          else
+            echo "Skipping gang optimize (ANTHROPIC_API_KEY not set)"
+          fi
       
       - name: Build site
         run: gang build
