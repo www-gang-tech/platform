@@ -49,15 +49,15 @@
 
     function allowedCheckoutOrigins() {
         const meta = document.querySelector('meta[name="gang-checkout-origins"]');
-        if (!meta || !meta.content) return null;
-        const origins = meta.content.split(/\s+/).map(s => s.trim()).filter(Boolean);
-        return origins.length ? new Set(origins) : null;
+        if (!meta) return new Set();
+        const origins = String(meta.content || '').split(/\s+/).map(s => s.trim()).filter(Boolean);
+        return new Set(origins);
     }
 
     function isAllowedCheckoutUrl(parsed) {
         if (!parsed) return false;
         const allow = allowedCheckoutOrigins();
-        if (!allow) return true;
+        if (!allow.size) return false;
         return allow.has(parsed.origin);
     }
 
@@ -98,6 +98,14 @@
         e.preventDefault();
         
         const form = e.target;
+        if (form.dataset.inStock === 'false') {
+            window.alert('This item is out of stock.');
+            return;
+        }
+        if (!isNumericVariantId(form.dataset.variantId)) {
+            window.alert('Checkout is not configured for this product.');
+            return;
+        }
         const formData = new FormData(form);
         
         const checkoutUrl = checkoutUrlFromForm(form);
@@ -268,26 +276,48 @@
     function proceedToCheckout() {
         const cart = getCart();
         if (cart.length === 0) return;
+
+        const currencies = new Set(cart.map(item => item.currency || 'USD'));
+        if (currencies.size > 1) {
+            window.alert('Checkout cannot mix currencies. Remove items so the cart uses one currency.');
+            return;
+        }
         
         const origins = new Set();
         const items = [];
+        const skipped = [];
         cart.forEach(item => {
-            if (!isNumericVariantId(item.id)) return;
+            if (!isNumericVariantId(item.id)) {
+                skipped.push(item);
+                return;
+            }
             const source = item.checkoutUrl || '';
-            if (!isSafeHttpUrl(source)) return;
+            if (!isSafeHttpUrl(source)) {
+                skipped.push(item);
+                return;
+            }
             try {
                 const parsed = new URL(source, window.location.origin);
-                if (parsed.origin === window.location.origin) return;
-                if (parsed.origin === 'https://www.shopify.com') return;
-                if (!isAllowedCheckoutUrl(parsed)) return;
+                if (parsed.origin === window.location.origin) {
+                    skipped.push(item);
+                    return;
+                }
+                if (parsed.origin === 'https://www.shopify.com') {
+                    skipped.push(item);
+                    return;
+                }
+                if (!isAllowedCheckoutUrl(parsed)) {
+                    skipped.push(item);
+                    return;
+                }
                 origins.add(parsed.origin);
                 items.push(item.id + ':' + toQuantity(item.quantity));
             } catch {
-                return;
+                skipped.push(item);
             }
         });
         
-        if (origins.size !== 1 || items.length === 0) {
+        if (skipped.length || origins.size !== 1 || items.length !== cart.length) {
             window.alert('Checkout is not configured for these cart items.');
             return;
         }

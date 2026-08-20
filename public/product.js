@@ -81,6 +81,7 @@
             buyButton.style.opacity = inStock ? '1' : '0.5';
             buyButton.style.cursor = inStock ? 'pointer' : 'not-allowed';
         }
+        form.dataset.inStock = inStock ? 'true' : 'false';
         
         if (variant.image_index !== undefined && productImages.length > 0) {
             productImages.forEach(function(img, idx) {
