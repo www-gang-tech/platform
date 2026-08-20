@@ -7,7 +7,30 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import os
 import json
+import html as html_module
 from datetime import datetime
+from urllib.parse import urlparse
+
+
+def _esc(value: Any) -> str:
+    return html_module.escape(str(value or ''), quote=True)
+
+
+def _safe_http_attr(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else ''
+    url = str(value or '').strip()
+    if not url:
+        return ''
+    if url.startswith('/') and not url.startswith('//'):
+        return html_module.escape(url, quote=True)
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return ''
+    if parsed.scheme in ('http', 'https') and parsed.netloc:
+        return html_module.escape(url, quote=True)
+    return ''
 
 
 class KlaviyoClient:
@@ -95,8 +118,8 @@ class KlaviyoClient:
         messages = campaign['data']['attributes'].get('campaign-messages', {}).get('data', [])
         if messages:
             message_id = messages[0]['id']
-            # Update with HTML/text content
-            self._update_campaign_content(message_id, html_content, text_content)
+            # Response already includes the message id — patch it directly
+            self._update_message_content(message_id, html_content, text_content)
         
         return campaign
     
@@ -148,9 +171,37 @@ class KlaviyoClient:
         message_id = message['data']['id']
         
         # Update with HTML/text content
-        self._update_campaign_content(message_id, html_content, text_content)
+        self._update_message_content(message_id, html_content, text_content)
         
         return message
+
+    def _update_message_content(
+        self,
+        message_id: str,
+        html_content: str,
+        text_content: str
+    ):
+        """PATCH an existing campaign-message by id."""
+        import requests
+
+        payload = {
+            'data': {
+                'type': 'campaign-message',
+                'id': message_id,
+                'attributes': {
+                    'content': {
+                        'html': html_content,
+                        'plain_text': text_content
+                    }
+                }
+            }
+        }
+        response = requests.patch(
+            f'{self.base_url}/campaign-messages/{message_id}/',
+            headers=self.headers,
+            json=payload
+        )
+        response.raise_for_status()
     
     def _update_campaign_content(
         self,
@@ -453,13 +504,13 @@ class KlaviyoTemplateGenerator:
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                         <tr>
                             <td width="100">
-                                <img src="{item.get('image', '')}" alt="{item['name']}" 
+                                <img src="{_safe_http_attr(item.get('image', ''))}" alt="{_esc(item.get('name', ''))}" 
                                      style="width: 100px; height: 100px; object-fit: cover;">
                             </td>
                             <td style="padding-left: 15px;">
-                                <strong style="font-size: 16px;">{item['name']}</strong><br>
-                                {item.get('variant', '')}<br>
-                                <span style="color: #595959;">Qty: {item['quantity']}</span>
+                                <strong style="font-size: 16px;">{_esc(item.get('name', ''))}</strong><br>
+                                {_esc(item.get('variant', ''))}<br>
+                                <span style="color: #595959;">Qty: {_esc(item.get('quantity', ''))}</span>
                             </td>
                             <td align="right" style="font-weight: 600;">
                                 ${item_total:.2f}
@@ -626,7 +677,8 @@ class KlaviyoOrchestrator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -685,8 +737,12 @@ class KlaviyoOrchestrator:
     ) -> Dict[str, Any]:
         """Create product launch campaign"""
         
-        product_name = product.get('name', 'New Product')
-        product_url = f"{self.site_url}/products/{product.get('_meta', {}).get('slug', '')}"
+        product_name = _esc(product.get('name', 'New Product'))
+        product_url = _safe_http_attr(
+            f"{self.site_url}/products/{(product.get('_meta') or {}).get('slug', '')}"
+        )
+        product_image = _safe_http_attr(product.get('image', ''))
+        product_description = _esc(product.get('description', ''))
         
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -703,11 +759,11 @@ class KlaviyoOrchestrator:
                         <td style="padding: 40px 30px;">
                             <h1 style="margin: 0 0 20px 0; font-size: 28px;">Introducing {product_name}</h1>
                             
-                            <img src="{product.get('image', '')}" alt="{product_name}" 
+                            <img src="{product_image}" alt="{product_name}" 
                                  style="max-width: 100%; height: auto; margin: 20px 0;">
                             
                             <p style="font-size: 16px; line-height: 1.6; margin: 20px 0;">
-                                {product.get('description', '')}
+                                {product_description}
                             </p>
                             
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
