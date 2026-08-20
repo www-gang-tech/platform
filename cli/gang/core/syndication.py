@@ -64,6 +64,8 @@ class ContentSyndicator:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Check if already syndicated
@@ -318,6 +320,8 @@ class ContentSyndicator:
             return False
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return False
         body = parts[2]
         
         # Add syndication URLs
