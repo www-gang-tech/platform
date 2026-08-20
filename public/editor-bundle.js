@@ -106,6 +106,12 @@ class InPlaceEditor {
                 this.cancel();
             }
         });
+
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            document.execCommand('insertText', false, text || '');
+        });
         
         // Show floating toolbar on selection
         editor.addEventListener('mouseup', () => this.handleSelection());

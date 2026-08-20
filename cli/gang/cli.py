@@ -38,6 +38,12 @@ def is_safe_content_slug(slug: str) -> bool:
     return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
 
 
+def numeric_variant_id(value: Any) -> str:
+    """Shopify cart permalinks only accept numeric variant IDs, never SKUs."""
+    text = str(value or '').strip()
+    return text if text.isdigit() else ''
+
+
 def public_content_url(category: str, slug: str) -> str:
     """Public URL for a content file. Articles publish under /posts/."""
     if category == 'articles':
@@ -225,7 +231,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'availability': offer.get('availability', 'InStock'),
                 'url': safe_http_url(offer.get('url')),
                 'sku': offer.get('sku', ''),
-                'id': '' if variant_id in (None, '') else str(variant_id),
+                'id': numeric_variant_id(variant_id),
                 'image_index': color_to_image.get(color_part, 0) if color_part else 0,
             })
 
@@ -277,7 +283,9 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         ),
         variants_list[0] if variants_list else {},
     )
-    default_variant_id = str(matching_default.get('id') or first_offer.get('id') or '')
+    default_variant_id = numeric_variant_id(
+        matching_default.get('id') or first_offer.get('id') or ''
+    )
     title = product.get('name', '')
     raw_description = product.get('description', '')
     description = re.sub(r'<[^>]+>', '', str(raw_description or ''))
@@ -585,7 +593,11 @@ def cli(ctx):
         ctx.abort()
     
     with open(config_path) as f:
-        ctx.obj = yaml.safe_load(f)
+        raw = yaml.safe_load(f)
+    if not isinstance(raw, dict):
+        click.echo("Error: gang.config.yml must be a YAML mapping", err=True)
+        ctx.abort()
+    ctx.obj = raw
 
 @cli.command()
 @click.option('--answerability', is_flag=True, help='Generate answerability report')
@@ -813,6 +825,10 @@ def analyze(ctx, file_path, analyze_all, format, min_score):
             click.echo("📊 SUMMARY REPORT")
             click.echo("=" * 60)
             
+            if not all_analyses:
+                click.echo("No files analyzed.")
+                return
+
             total_words = sum(a['readability']['word_count'] for a in all_analyses)
             avg_grade = sum(a['readability']['grade_level'] for a in all_analyses) / len(all_analyses)
             avg_seo = sum(a['seo']['score'] for a in all_analyses) / len(all_analyses)
@@ -1485,7 +1501,7 @@ def import_content(ctx, source, title, category, compress_images, commit):
 @cli.command()
 @click.argument('old_slug')
 @click.argument('new_slug')
-@click.option('--category', type=click.Choice(['posts', 'pages', 'projects', 'people', 'newsletters', 'products']), required=True, help='Content category')
+@click.option('--category', type=click.Choice(['posts', 'articles', 'pages', 'projects', 'people', 'newsletters', 'products']), required=True, help='Content category')
 @click.option('--redirect', is_flag=True, default=True, help='Create 301 redirect (default: yes)')
 @click.option('--no-redirect', is_flag=True, help='Skip creating redirect')
 @click.pass_context
@@ -1528,8 +1544,8 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
     click.echo(f"   To:   {new_slug}")
     click.echo(f"")
     
-    old_url = f"/{category}/{old_slug}/"
-    new_url = f"/{category}/{new_slug}/"
+    old_url = public_content_url(category, old_slug)
+    new_url = public_content_url(category, new_slug)
     
     create_redirect = redirect and not no_redirect
     
@@ -2062,10 +2078,10 @@ def email_create_from_post(ctx, post_path, output, esp):
         from core.email_templates import EmailOrchestrator
     
     config = ctx.obj
-    post_file = Path(post_path)
-    
-    if not post_file.exists():
-        click.echo(f"❌ Post not found: {post_path}", err=True)
+    content_root = Path(config['build']['content'])
+    post_file = resolve_content_arg(content_root, str(post_path))
+    if post_file is None or post_file.suffix != '.md':
+        click.echo("❌ Post must be a markdown file under the content root", err=True)
         return
     
     orchestrator = EmailOrchestrator(config, esp)
@@ -2175,10 +2191,10 @@ def email_klaviyo_create(ctx, post_path, list_id, from_email, from_name, api_key
         return
     
     config = ctx.obj
-    post_file = Path(post_path)
-    
-    if not post_file.exists():
-        click.echo(f"❌ Post not found: {post_path}", err=True)
+    content_root = Path(config['build']['content'])
+    post_file = resolve_content_arg(content_root, str(post_path))
+    if post_file is None or post_file.suffix != '.md':
+        click.echo("❌ Post must be a markdown file under the content root", err=True)
         return
     
     if not list_id:
@@ -2598,14 +2614,7 @@ def generate_agentmap(ctx):
     # Get publishable content - avoid rglob recursion issue
     scheduler = ContentScheduler(content_path)
     
-    # Manually collect .md files to avoid Click recursion
-    all_md_files = []
-    for category_dir in ['posts', 'pages', 'projects']:
-        category_path = content_path / category_dir
-        if category_path.exists():
-            all_md_files.extend(list(category_path.glob('*.md')))
-    
-    schedule_result = scheduler.get_publishable_content(all_md_files)
+    schedule_result = scheduler.get_publishable_content(collect_category_markdown(content_path))
     publishable = [item['path'] for item in schedule_result['publishable']]
     
     # Get products if available
@@ -3124,12 +3133,21 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             
             # Generate PLP
             plp_template = jinja_env.get_template('products-list.html')
+            plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
             plp_html = plp_template.render(
                 products=products,
                 site_title=config['site']['title'],
                 lang=config['site'].get('language', 'en'),
                 site_url=config['site']['url'],
-                canonical_url=f"{str(config['site']['url']).rstrip('/')}/products/",
+                canonical_url=plp_canonical,
+                jsonld={
+                    '@context': 'https://schema.org',
+                    '@type': 'CollectionPage',
+                    'name': 'Products',
+                    'description': 'Product catalog',
+                    'url': plp_canonical,
+                    'numberOfItems': len(products),
+                },
                 year=datetime.now().year,
                 navigation=config.get('nav', {}).get('main', []),
                 build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -5007,6 +5025,9 @@ def serve(ctx, port, host):
                 all_pages = []
                 all_posts = []
                 all_projects = []
+                all_people = []
+                all_newsletters = []
+                products = []
                 
                 try:
                     from core.scheduler import ContentScheduler
@@ -5032,25 +5053,19 @@ def serve(ctx, port, host):
                     
                     # Prepare context
                     slug = md_file.stem
+                    source_type = content_type
                     if content_type == 'articles':
                         content_type = 'posts'
+                    url = public_content_url(content_type, slug)
                     if content_type == 'posts':
-                        url = public_content_url(content_type, slug)
                         template_name = 'post.html'
                     elif content_type == 'projects':
-                        url = public_content_url(content_type, slug)
                         template_name = 'article.html'
                     elif content_type == 'newsletters':
-                        url = public_content_url(content_type, slug)
                         template_name = 'newsletter.html'
                     elif content_type == 'people':
-                        url = public_content_url(content_type, slug)
                         template_name = 'person.html'
-                    elif content_type == 'pages':
-                        url = public_content_url(content_type, slug)
-                        template_name = 'page.html'
                     else:
-                        url = public_content_url(content_type, slug)
                         template_name = 'page.html'
                     
                     build_time = datetime.now()
@@ -5063,12 +5078,31 @@ def serve(ctx, port, host):
                     elif not isinstance(tags, list):
                         tags = []
                     tags = [str(tag) for tag in tags]
+
+                    description = (
+                        frontmatter.get('summary')
+                        or frontmatter_seo(frontmatter).get('description')
+                        or config['site']['description']
+                    )
+                    if isinstance(description, str):
+                        description = description.strip() or config['site']['description']
+                    else:
+                        description = config['site']['description']
+
+                    comments_enabled = comments_are_enabled(config) and source_type in ('posts', 'articles')
+                    page_comments = []
+                    if comments_enabled:
+                        try:
+                            from core.comments import get_comments_for_build
+                        except ImportError:
+                            from gang.core.comments import get_comments_for_build
+                        page_comments = get_comments_for_build(content_path, slug, 'post')
                     
                     context = {
                         'site_title': config['site']['title'],
                         'lang': config['site']['language'],
                         'title': frontmatter.get('title') or slug.replace('-', ' ').title(),
-                        'description': frontmatter.get('summary') or frontmatter_seo(frontmatter).get('description') or config['site']['description'],
+                        'description': description,
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
@@ -5078,13 +5112,32 @@ def serve(ctx, port, host):
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
+                        'og_type': 'article' if content_type in ('posts', 'projects') else 'website',
                         'canonical_url': f"{config['site']['url']}{url}",
-                        # In-place editor context
-                        'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
-                        'category': content_type,  # 'posts', 'pages', 'projects', etc.
+                        'page_type': content_type.rstrip('s'),
+                        'category': content_type,
                         'slug': slug,
                         'user_authenticated': user_authenticated,
+                        'comments_enabled': comments_enabled,
+                        'comments': page_comments,
+                        'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
+                        'comments_webhook_origin': comments_webhook_origin(config) if comments_enabled else '',
+                        'role': frontmatter.get('role', ''),
+                        'image': safe_http_url(frontmatter.get('image', '')),
+                        'social_links': sanitize_social_links(frontmatter.get('social_links')),
+                        'summary': frontmatter.get('summary') or '',
+                        'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
+                        'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
                     }
+                    if not context.get('jsonld'):
+                        context['jsonld'] = fallback_jsonld(
+                            content_type,
+                            context['title'],
+                            context['description'],
+                            context['canonical_url'],
+                            context.get('date'),
+                            config['site']['title'],
+                        )
                     
                     # Render HTML
                     try:
@@ -5123,6 +5176,10 @@ def serve(ctx, port, host):
                         all_posts.append(page_data)
                     elif content_type == 'projects':
                         all_projects.append(page_data)
+                    elif content_type == 'newsletters':
+                        all_newsletters.append(page_data)
+                    elif content_type == 'people':
+                        all_people.append(page_data)
                     else:
                         all_pages.append(page_data)
                 
@@ -5139,15 +5196,13 @@ def serve(ctx, port, host):
                 (dist_path / 'index.html').write_text(index_html)
                 
                 # Create list pages
-                if all_posts:
-                    posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
-                    # Inject live reload script
-                    if '</body>' in posts_html:
-                        posts_html = posts_html.replace('</body>', live_reload_script + '</body>')
-                    # Recalculate page size after injecting live reload
-                    page_size_bytes = len(posts_html.encode('utf-8'))
-                    posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-                    (dist_path / 'posts' / 'index.html').write_text(posts_html)
+                posts_html = create_list_page_simple(config, sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True), 'Posts', templates_path)
+                if '</body>' in posts_html:
+                    posts_html = posts_html.replace('</body>', live_reload_script + '</body>')
+                page_size_bytes = len(posts_html.encode('utf-8'))
+                posts_html = posts_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+                (dist_path / 'posts').mkdir(parents=True, exist_ok=True)
+                (dist_path / 'posts' / 'index.html').write_text(posts_html)
                 
                 if all_projects:
                     projects_html = create_list_page_simple(config, all_projects, 'Projects', templates_path)
@@ -5158,13 +5213,36 @@ def serve(ctx, port, host):
                     page_size_bytes = len(projects_html.encode('utf-8'))
                     projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
                     (dist_path / 'projects' / 'index.html').write_text(projects_html)
+
+                if all_people:
+                    people_html = create_list_page_simple(config, all_people, 'People', templates_path, path='/people/')
+                    if '</body>' in people_html:
+                        people_html = people_html.replace('</body>', live_reload_script + '</body>')
+                    people_html = people_html.replace('__PAGE_SIZE__', format_bytes(len(people_html.encode('utf-8'))))
+                    (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+                    (dist_path / 'people' / 'index.html').write_text(people_html)
+
+                if all_newsletters:
+                    newsletters_html = create_list_page_simple(
+                        config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path
+                    )
+                    if '</body>' in newsletters_html:
+                        newsletters_html = newsletters_html.replace('</body>', live_reload_script + '</body>')
+                    newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(len(newsletters_html.encode('utf-8'))))
+                    (dist_path / 'newsletters').mkdir(parents=True, exist_ok=True)
+                    (dist_path / 'newsletters' / 'index.html').write_text(newsletters_html)
+
+                write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
                 
                 # Generate outputs
                 all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
-                if all_posts:
-                    all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
+                all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
                 if all_projects:
                     all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+                if all_people:
+                    all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
+                if all_newsletters:
+                    all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
                 
                 generators.generate_all(dist_path, all_pages, all_posts)
                 
@@ -5173,7 +5251,7 @@ def serve(ctx, port, host):
                     from core.products import ProductAggregator
                     
                     aggregator = ProductAggregator(config)
-                    products = aggregator.get_normalized_products(status_filter='active')
+                    products = aggregator.get_normalized_products(status_filter='active') or []
                     
                     if products:
                         template_dir = Path(__file__).parent.parent.parent / 'templates'
@@ -5184,11 +5262,20 @@ def serve(ctx, port, host):
                         
                         # Generate PLP
                         plp_template = jinja_env.get_template('products-list.html')
+                        plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
                         plp_html = plp_template.render(
                             products=products,
                             site_title=config['site']['title'],
                             lang=config['site'].get('language', 'en'),
-                            canonical_url=f"{config['site']['url']}/products/",
+                            canonical_url=plp_canonical,
+                            jsonld={
+                                '@context': 'https://schema.org',
+                                '@type': 'CollectionPage',
+                                'name': 'Products',
+                                'description': 'Product catalog',
+                                'url': plp_canonical,
+                                'numberOfItems': len(products),
+                            },
                             year=datetime.now().year,
                             navigation=config.get('nav', {}).get('main', []),
                             build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -5213,45 +5300,81 @@ def serve(ctx, port, host):
                             if '</body>' in pdp_html:
                                 pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
                             (pdp_dir / 'index.html').write_text(pdp_html)
-                        
-                        # Generate cart page
-                        cart_dir = dist_path / 'cart'
-                        cart_dir.mkdir(parents=True, exist_ok=True)
-                        build_time = datetime.now()
-                        build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
-                        build_time_iso = build_time.isoformat()
-                        cart_template = jinja_env.get_template('cart.html')
-                        cart_html = cart_template.render(
-                            year=datetime.now().year,
-                            site_title=config['site']['title'],
-                            lighthouse_scores=True,
-                            build_time=build_time_formatted,
-                            build_time_iso=build_time_iso,
-                            description=config['site']['description']
-                        )
-                        if '</body>' in cart_html:
-                            cart_html = cart_html.replace('</body>', live_reload_script + '</body>')
-                        (cart_dir / 'index.html').write_text(cart_html)
-                        
-                        # Generate HTML sitemap
-                        sitemap_dir = dist_path / 'sitemap'
-                        sitemap_dir.mkdir(parents=True, exist_ok=True)
-                        sitemap_template = jinja_env.get_template('sitemap.html')
-                        sitemap_html = sitemap_template.render(
-                            site_title=config['site']['title'],
-                            site_url=config['site']['url'],
-                            pages=all_pages,
-                            posts=all_posts,
-                            projects=all_projects,
-                            products=products,
-                            year=datetime.now().year,
-                            build_time_iso=datetime.now().isoformat()
-                        )
-                        if '</body>' in sitemap_html:
-                            sitemap_html = sitemap_html.replace('</body>', live_reload_script + '</body>')
-                        (sitemap_dir / 'index.html').write_text(sitemap_html)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate product pages: {e}")
+                    products = []
+
+                try:
+                    template_dir = Path(__file__).parent.parent.parent / 'templates'
+                    jinja_env = template_environment(template_dir)
+                    build_time = datetime.now()
+                    cart_jsonld = {
+                        '@context': 'https://schema.org',
+                        '@type': 'WebPage',
+                        'name': 'Shopping Cart',
+                        'description': config['site']['description'],
+                        'url': f"{str(config['site']['url']).rstrip('/')}/cart/",
+                    }
+                    cart_dir = dist_path / 'cart'
+                    cart_dir.mkdir(parents=True, exist_ok=True)
+                    cart_template = jinja_env.get_template('cart.html')
+                    cart_html = cart_template.render(
+                        year=datetime.now().year,
+                        site_title=config['site']['title'],
+                        lighthouse_scores=True,
+                        build_time=build_time.strftime('%B %d, %Y at %I:%M %p'),
+                        build_time_iso=build_time.isoformat(),
+                        description=config['site']['description'],
+                        jsonld=cart_jsonld,
+                        site_url=config['site']['url'],
+                        checkout_origins=collect_checkout_origins(products),
+                    )
+                    if '</body>' in cart_html:
+                        cart_html = cart_html.replace('</body>', live_reload_script + '</body>')
+                    (cart_dir / 'index.html').write_text(cart_html)
+
+                    sitemap_jsonld = {
+                        '@context': 'https://schema.org',
+                        '@type': 'CollectionPage',
+                        'name': 'Sitemap',
+                        'description': 'Complete sitemap of all pages',
+                        'url': f"{str(config['site']['url']).rstrip('/')}/sitemap/",
+                    }
+                    sitemap_dir = dist_path / 'sitemap'
+                    sitemap_dir.mkdir(parents=True, exist_ok=True)
+                    sitemap_template = jinja_env.get_template('sitemap.html')
+                    sitemap_html = sitemap_template.render(
+                        site_title=config['site']['title'],
+                        site_url=config['site']['url'],
+                        pages=all_pages,
+                        posts=all_posts,
+                        projects=all_projects,
+                        products=products,
+                        people=all_people,
+                        newsletters=all_newsletters,
+                        jsonld=sitemap_jsonld,
+                        year=datetime.now().year,
+                        build_time_iso=datetime.now().isoformat()
+                    )
+                    if '</body>' in sitemap_html:
+                        sitemap_html = sitemap_html.replace('</body>', live_reload_script + '</body>')
+                    (sitemap_dir / 'index.html').write_text(sitemap_html)
+                except Exception as e:
+                    click.echo(f"⚠️  Could not generate cart/sitemap: {e}")
+
+                try:
+                    from core.search import SearchIndexer
+                    indexer = SearchIndexer(content_path, config)
+                    search_index = indexer.build_search_index(publishable_files)
+                    (dist_path / 'search-index.json').write_text(json.dumps(search_index, default=str))
+                    search_page = dist_path / 'search' / 'index.html'
+                    search_page.parent.mkdir(parents=True, exist_ok=True)
+                    search_html = indexer.generate_search_page_html(config, templates_path)
+                    if '</body>' in search_html:
+                        search_html = search_html.replace('</body>', live_reload_script + '</body>')
+                    search_page.write_text(search_html)
+                except Exception as e:
+                    click.echo(f"⚠️  Could not generate search index: {e}")
                 
                 click.echo("✅ Build complete!")
                 
