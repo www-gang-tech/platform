@@ -9,6 +9,12 @@ import re
 import os
 
 
+def _public_content_url(category: str, slug: str) -> str:
+    if category == 'articles':
+        category = 'posts'
+    return f"/{category}/{slug}/"
+
+
 class InternalLinkingSuggester:
     """Suggest contextual internal links between content"""
     
@@ -88,7 +94,7 @@ class InternalLinkingSuggester:
             if common_tags:
                 suggestions.append({
                     'target_path': other['path'],
-                    'target_url': f"/{other['category']}/{other['slug']}/",
+                    'target_url': _public_content_url(other['category'], other['slug']),
                     'target_title': other['title'],
                     'reason': f"Shares tags: {', '.join(common_tags)}",
                     'confidence': 'medium',
@@ -105,7 +111,7 @@ class InternalLinkingSuggester:
             if len(common_words) >= 2:
                 suggestions.append({
                     'target_path': other['path'],
-                    'target_url': f"/{other['category']}/{other['slug']}/",
+                    'target_url': _public_content_url(other['category'], other['slug']),
                     'target_title': other['title'],
                     'reason': f"Related keywords: {', '.join(list(common_words)[:3])}",
                     'confidence': 'low',
@@ -153,7 +159,7 @@ class InternalLinkingSuggester:
             
             # Build context about available content
             available_content = "\n".join([
-                f"- {c['title']} (/{c['category']}/{c['slug']}/): {c.get('summary', '')[:100]}"
+                f"- {c['title']} ({_public_content_url(c['category'], c['slug'])}): {c.get('summary', '')[:100]}"
                 for c in other_content[:20]  # Limit to avoid token limits
             ])
             
@@ -205,7 +211,7 @@ Return as JSON array:
                 return [
                     {
                         'target_path': None,  # Will be resolved later
-                        'target_url': f"/{s['target_category']}/{s['target_slug']}/",
+                        'target_url': _public_content_url(s.get('target_category', ''), s.get('target_slug', '')),
                         'target_title': s['target_title'],
                         'reason': s['reason'],
                         'suggestion': s.get('suggestion', ''),
