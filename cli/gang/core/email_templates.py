@@ -5,6 +5,7 @@ Converts content to email-ready HTML and plain text
 
 from pathlib import Path
 from typing import Dict, Any, Optional
+import html
 import re
 from datetime import datetime
 
@@ -37,8 +38,15 @@ class EmailTemplateGenerator:
         
         # Process content for email
         email_content = self._process_content_for_email(content_html)
+        email_content = re.sub(r'(?is)<script[^>]*>.*?</script>', '', email_content)
+        email_content = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', email_content)
+        title = html.escape(str(title or ''), quote=True)
+        preview_text = html.escape(str(preview_text or ''), quote=True)
+        site_title = html.escape(str(self.site_title or ''), quote=True)
+        site_url = self.site_url if str(self.site_url).startswith(('http://', 'https://')) else '#'
+        canonical_url = canonical_url if str(canonical_url).startswith(('http://', 'https://', '/')) else '#'
         
-        html = f"""<!DOCTYPE html>
+        rendered = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -179,7 +187,7 @@ class EmailTemplateGenerator:
                     <!-- Header -->
                     <tr>
                         <td class="email-header">
-                            <a href="{self.site_url}">{self.site_title}</a>
+                            <a href="{site_url}">{site_title}</a>
                         </td>
                     </tr>
                     
@@ -206,7 +214,7 @@ class EmailTemplateGenerator:
                     <tr>
                         <td class="email-footer">
                             <p style="margin: 0 0 10px 0;">
-                                <strong>{self.site_title}</strong>
+                                <strong>{site_title}</strong>
                             </p>
                             <p style="margin: 0 0 10px 0;">
                                 You're receiving this because you subscribed to our newsletter.
@@ -216,7 +224,7 @@ class EmailTemplateGenerator:
                                 <a href="{unsubscribe_url}">Unsubscribe</a>
                             </p>
                             <p style="margin: 15px 0 0 0; font-size: 12px; color: #999;">
-                                © {datetime.now().year} {self.site_title}. All rights reserved.
+                                © {datetime.now().year} {site_title}. All rights reserved.
                             </p>
                         </td>
                     </tr>
@@ -229,7 +237,7 @@ class EmailTemplateGenerator:
 </body>
 </html>"""
         
-        return html
+        return rendered
     
     def generate_plain_text(
         self, 
@@ -349,7 +357,8 @@ class EmailOrchestrator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -406,7 +415,8 @@ class EmailOrchestrator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -420,7 +430,12 @@ class EmailOrchestrator:
         # Get metadata
         title = frontmatter.get('title', post_path.stem.replace('-', ' ').title())
         slug = post_path.stem
-        canonical_url = f"{self.config.get('site', {}).get('url')}/posts/{slug}/"
+        category = post_path.parent.name
+        if category == 'articles':
+            category = 'posts'
+        elif category not in ('posts', 'projects', 'pages', 'people', 'newsletters'):
+            category = 'posts'
+        canonical_url = f"{str(self.config.get('site', {}).get('url') or '').rstrip('/')}/{category}/{slug}/"
         preview_text = frontmatter.get('summary', '')[:150]
         
         # Generate email templates

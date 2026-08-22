@@ -50,20 +50,40 @@ class ContentScheduler:
             
             try:
                 frontmatter = yaml.safe_load(parts[1]) or {}
-            except:
-                # Invalid YAML, include anyway
-                publishable.append({
+            except Exception:
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                })
+                continue
+
+            if not isinstance(frontmatter, dict):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
                 })
                 continue
             
-            # Get status
-            status = frontmatter.get('status', 'published')
+            # Get status (YAML `no`/`false` and list wrappers must not publish)
+            raw_status = frontmatter.get('status', 'published')
+            if isinstance(raw_status, list) and raw_status:
+                raw_status = raw_status[0]
+            if raw_status is False:
+                status = 'draft'
+            elif raw_status is True or isinstance(raw_status, (int, float)):
+                # Bool/numeric YAML must not silently publish
+                status = 'draft'
+            else:
+                status = str(raw_status or 'published').strip().lower()
             
-            # If status is draft, skip
-            if status == 'draft':
+            # Allowlist only: unknown/archived/pending/true/yes fail closed as draft
+            if status not in ('published', 'scheduled', 'live', 'public'):
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -113,11 +133,13 @@ class ContentScheduler:
                     })
             
             except (ValueError, TypeError) as e:
-                # Invalid date format, include anyway
-                publishable.append({
+                # Invalid date format — fail closed so a typo cannot publish early
+                draft.append({
                     'path': file_path,
-                    'status': status,
+                    'status': 'draft',
                     'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem),
+                    '_date_error': True,
                     'error': f'Invalid date format: {e}'
                 })
         
@@ -229,7 +251,9 @@ class ContentScheduler:
         
         try:
             frontmatter = yaml.safe_load(parts[1]) or {}
-        except:
+        except Exception:
+            return False
+        if not isinstance(frontmatter, dict):
             return False
         
         # Update frontmatter
