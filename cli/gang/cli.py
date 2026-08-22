@@ -30,12 +30,76 @@ TEMPLATE_OWNS_H1 = {
 }
 PLACEHOLDER_WEBHOOK_MARKERS = ('your-n8n.app', 'example.com', 'placeholder', 'changeme')
 SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+ALLOWED_SCHEDULE_STATUSES = ('draft', 'scheduled', 'published', 'live', 'public')
+DEFAULT_VARIANT_TITLES = {'default title', 'default', 'title'}
+SIZE_LIKE_VALUES = {
+    'xxs', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', '2xl', '3xl', '4xl',
+    'os', 'one size', 'onesize',
+}
 
 
 def is_safe_content_slug(slug: str) -> bool:
     """Reject empty, traversal, and path-like slugs before any filesystem rename."""
     value = str(slug or '').strip()
     return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
+
+
+def content_canonical_url(site_url: Any, category: str, slug: str) -> str:
+    """Absolute public URL; articles publish under /posts/."""
+    return f"{str(site_url or '').rstrip('/')}{public_content_url(category, slug)}"
+
+
+def newsletter_archive_url(post_stem: str) -> str:
+    """save_newsletter_to_content writes {stem}-newsletter.md."""
+    return f"/newsletters/{post_stem}-newsletter/"
+
+
+def is_size_like(value: str) -> bool:
+    text = str(value or '').strip()
+    if not text:
+        return False
+    if text.isdigit():
+        return True
+    return text.lower() in SIZE_LIKE_VALUES
+
+
+def variant_axes(offer: Any) -> Tuple[str, str]:
+    """Map Shopify option1/2 or 'Color / Size' titles onto color + size axes."""
+    if not isinstance(offer, dict):
+        return '', ''
+    color = str(offer.get('color') or '').strip()
+    size = str(offer.get('size') or '').strip()
+    option1 = str(offer.get('option1') or '').strip()
+    option2 = str(offer.get('option2') or '').strip()
+    name = str(offer.get('name') or offer.get('title') or '').strip()
+
+    if '/' in name:
+        parts = [part.strip() for part in name.split('/') if part.strip()]
+        if not color and parts:
+            color = parts[0]
+        if not size and len(parts) > 1:
+            size = parts[1]
+    else:
+        usable_option1 = option1 if option1.lower() not in DEFAULT_VARIANT_TITLES else ''
+        usable_name = name if name.lower() not in DEFAULT_VARIANT_TITLES else ''
+        axis = usable_option1 or usable_name
+        if option2:
+            if not color:
+                color = axis
+            if not size:
+                size = option2
+        elif axis:
+            if is_size_like(axis):
+                if not size:
+                    size = axis
+            elif not color:
+                color = axis
+
+    if color.lower() in DEFAULT_VARIANT_TITLES:
+        color = ''
+    if size.lower() in DEFAULT_VARIANT_TITLES:
+        size = ''
+    return color, size
 
 
 def numeric_variant_id(value: Any) -> str:
@@ -171,10 +235,17 @@ def safe_http_url(value: Any) -> str:
 
 
 def split_variant_name(variant_name: str) -> Tuple[str, str]:
-    if '/' in (variant_name or ''):
-        parts = variant_name.split('/')
+    """Legacy Color / Size splitter; single-axis titles become size when size-like."""
+    name = str(variant_name or '')
+    if '/' in name:
+        parts = name.split('/')
         return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else '')
-    return '', ''
+    text = name.strip()
+    if not text or text.lower() in DEFAULT_VARIANT_TITLES:
+        return '', ''
+    if is_size_like(text):
+        return '', text
+    return text, ''
 
 
 def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str) -> Dict[str, Any]:
@@ -203,7 +274,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         dict_offers = [offer for offer in offers if isinstance(offer, dict)]
 
         for offer in dict_offers:
-            color, size = split_variant_name(str(offer.get('name') or ''))
+            color, size = variant_axes(offer)
             if color and color not in colors:
                 color_order.append(color)
                 colors.add(color)
@@ -215,7 +286,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 color_to_image[color] = idx
 
         for offer in dict_offers:
-            color_part, size_part = split_variant_name(str(offer.get('name') or ''))
+            color_part, size_part = variant_axes(offer)
             variant_id = offer.get('id')
             if variant_id in (None, ''):
                 offer_url = str(offer.get('url') or '')
@@ -226,6 +297,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'name': offer.get('name', ''),
                 'color': color_part,
                 'size': size_part,
+                'option3': str(offer.get('option3') or '').strip(),
                 'price': offer.get('price', '0'),
                 'currency': offer.get('priceCurrency', 'USD'),
                 'availability': offer.get('availability', 'InStock'),
@@ -238,7 +310,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         in_stock_colors = [
             color for color in color_order
             if any(
-                offer_is_in_stock(offer) and split_variant_name(str(offer.get('name') or ''))[0] == color
+                offer_is_in_stock(offer) and variant_axes(offer)[0] == color
                 for offer in dict_offers
             )
         ]
@@ -246,7 +318,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         in_stock_sizes = [
             size for size in size_order
             if any(
-                offer_is_in_stock(offer) and split_variant_name(str(offer.get('name') or ''))[1] == size
+                offer_is_in_stock(offer) and variant_axes(offer)[1] == size
                 for offer in dict_offers
             )
         ]
@@ -273,16 +345,13 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     brand_data = product.get('brand', '')
     brand_name = brand_data.get('name', '') if hasattr(brand_data, 'get') else str(brand_data)
 
-    default_color = colors_list[0] if colors_list else ''
-    default_size = sizes_list[0] if sizes_list else ''
+    # Prefer a real in-stock variant tuple so SSR does not pair Green+S when only Green+M exists.
     matching_default = next(
-        (
-            item for item in variants_list
-            if (not default_color or item.get('color') == default_color)
-            and (not default_size or item.get('size') == default_size)
-        ),
+        (item for item in variants_list if offer_is_in_stock({'availability': item.get('availability')})),
         variants_list[0] if variants_list else {},
     )
+    default_color = matching_default.get('color') or (colors_list[0] if colors_list else '')
+    default_size = matching_default.get('size') or (sizes_list[0] if sizes_list else '')
     default_variant_id = numeric_variant_id(
         matching_default.get('id') or first_offer.get('id') or ''
     )
@@ -290,7 +359,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     raw_description = product.get('description', '')
     description = re.sub(r'<[^>]+>', '', str(raw_description or ''))
     description = html_module.unescape(description).strip()
-    buy_url = safe_http_url(first_offer.get('url'))
+    buy_url = safe_http_url(matching_default.get('url') or first_offer.get('url'))
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
@@ -338,8 +407,8 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'slug': slug,
         'product_image': images[0] if images else '',
         'product_images': images,
-        'price': first_offer.get('price', '0'),
-        'currency': first_offer.get('priceCurrency', 'USD'),
+        'price': matching_default.get('price') or first_offer.get('price', '0'),
+        'currency': matching_default.get('currency') or first_offer.get('priceCurrency', 'USD'),
         'recurring': None,
         'content': description,
         'buy_url': buy_url,
@@ -352,7 +421,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'sku': matching_default.get('sku') or product.get('sku', ''),
         'brand': brand_name,
         'category': product.get('category', ''),
-        'availability': first_offer.get('availability', 'https://schema.org/OutOfStock'),
+        'availability': matching_default.get('availability') or first_offer.get('availability', 'https://schema.org/OutOfStock'),
         'jsonld': jsonld,
         'year': datetime.now().year,
         'navigation': config.get('nav', {}).get('main', []),
@@ -666,7 +735,7 @@ def check_contracts(ctx, verbose):
     if not contracts_dir.exists():
         click.echo("❌ Contracts directory not found", err=True)
         click.echo("   Expected: ./contracts/*.yml")
-        return
+        ctx.exit(1)
     
     validator = ContractValidator(contracts_dir)
     
@@ -1794,6 +1863,11 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     if file_path is None:
         click.echo("❌ File path must stay inside the content directory")
         ctx.exit(1)
+
+    if status not in ALLOWED_SCHEDULE_STATUSES:
+        click.echo(f"❌ Invalid status: {status}")
+        click.echo(f"   Use one of: {', '.join(ALLOWED_SCHEDULE_STATUSES)}")
+        ctx.exit(1)
     
     if now:
         # Remove schedule, publish now
@@ -2124,8 +2198,17 @@ def email_send_draft(ctx, email_slug, emails_dir, api_key, from_email):
     
     import json
     
-    emails_path = Path(emails_dir)
-    meta_file = emails_path / f"{email_slug}.json"
+    if not is_safe_content_slug(email_slug):
+        click.echo("❌ Invalid email slug", err=True)
+        ctx.exit(1)
+
+    emails_path = Path(emails_dir).resolve()
+    meta_file = (emails_path / f"{email_slug}.json").resolve()
+    try:
+        meta_file.relative_to(emails_path)
+    except ValueError:
+        click.echo("❌ Invalid email slug", err=True)
+        ctx.exit(1)
     
     if not meta_file.exists():
         click.echo(f"❌ Email not found: {email_slug}", err=True)
@@ -2225,7 +2308,9 @@ def email_klaviyo_create(ctx, post_path, list_id, from_email, from_name, api_key
                 'slug': post_file.stem, 
                 'created': result['created'], 
                 'esp_provider': 'klaviyo', 
-                'canonical_url': f"{config.get('site', {}).get('url')}/posts/{post_file.stem}/"
+                'canonical_url': content_canonical_url(
+                    config.get('site', {}).get('url'), post_file.parent.name, post_file.stem
+                )
             },
             content_path
         )
@@ -2240,7 +2325,7 @@ def email_klaviyo_create(ctx, post_path, list_id, from_email, from_name, api_key
         click.echo(f"   1. Review in Klaviyo dashboard")
         click.echo(f"   2. Schedule or send immediately")
         click.echo(f"   3. Build site: gang build")
-        click.echo(f"   4. View at: /newsletters/{post_file.stem}/")
+        click.echo(f"   4. View at: {newsletter_archive_url(post_file.stem)}")
         
     except Exception as e:
         click.echo(f"❌ Failed to create campaign: {e}", err=True)
@@ -2529,7 +2614,6 @@ def sync_products(ctx, platforms):
         from core.products import ProductAggregator
     
     config = ctx.obj
-    config['demo_mode'] = True  # Use demo mode if no API keys
     
     click.echo("🛒 Syncing products...")
     aggregator = ProductAggregator(config)
@@ -2553,7 +2637,6 @@ def list_products(ctx, format):
         from core.products import ProductAggregator
     
     config = ctx.obj
-    config['demo_mode'] = True
     
     aggregator = ProductAggregator(config)
     cache = aggregator.load_cache()
@@ -2617,8 +2700,7 @@ def generate_agentmap(ctx):
     schedule_result = scheduler.get_publishable_content(collect_category_markdown(content_path))
     publishable = [item['path'] for item in schedule_result['publishable']]
     
-    # Get products if available
-    config['demo_mode'] = True
+    # Get products if available (do not force demo catalog)
     aggregator = ProductAggregator(config)
     products = aggregator.get_normalized_products()
     
@@ -3443,7 +3525,7 @@ def render_header(config: Dict, templates_path: Path = None) -> str:
         # Fallback to simple header if template fails
         return f"""<header role="banner">
     <a href="/" style="text-decoration: none; color: inherit;">
-        <strong>{config['site']['title']}</strong>
+        <strong>{html_module.escape(str(config['site']['title']))}</strong>
     </a>
     <nav role="navigation" aria-label="Main navigation">
         <a href="/">Home</a>
@@ -3834,7 +3916,7 @@ def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
         </article>
     </main>
     <footer>
-        <p>&copy; {datetime.now().year} {config['site']['title']}. Built with GANG. __PAGE_SIZE__</p>
+        <p>&copy; {datetime.now().year} {html_module.escape(str(config['site']['title']))}. Built with GANG. __PAGE_SIZE__</p>
         <p class="lighthouse-scores">
             <span class="score" title="Performance">Performance <strong>100</strong></span>
             <span class="score" title="Accessibility">Accessibility <strong>100</strong></span>
@@ -4388,12 +4470,27 @@ def studio(ctx, port, host):
                 return True
 
             def _is_loopback_origin(self) -> bool:
-                origin = (self.headers.get('Origin') or '').strip()
+                origin = (self.headers.get('Origin') or self.headers.get('Referer') or '').strip()
                 if not origin:
-                    return True
+                    # Tokenless mutating requests must send Origin/Referer from loopback Studio.
+                    return self.command in ('GET', 'HEAD', 'OPTIONS')
                 parsed = urlparse(origin)
                 host = (parsed.hostname or '').lower()
                 return host in {'127.0.0.1', 'localhost', '::1'}
+
+            def _read_json_body(self) -> Dict[str, Any]:
+                raw_length = self.headers.get('Content-Length', '0')
+                try:
+                    content_length = int(raw_length or 0)
+                except (TypeError, ValueError):
+                    content_length = 0
+                if content_length <= 0:
+                    raise ValueError('Missing request body')
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode())
+                if not isinstance(data, dict):
+                    raise ValueError('JSON object required')
+                return data
 
             def _auth_ok(self) -> bool:
                 token = os.environ.get('STUDIO_AUTH_TOKEN', '').strip()
@@ -4529,10 +4626,7 @@ def studio(ctx, port, host):
                     return
                 if self.path == '/api/validate-headings':
                     try:
-                        # Read request body
-                        content_length = int(self.headers['Content-Length'])
-                        body = self.rfile.read(content_length)
-                        data = json.loads(body.decode())
+                        data = self._read_json_body()
                         
                         content = data.get('content', '')
                         
@@ -4576,10 +4670,7 @@ def studio(ctx, port, host):
                 
                 elif self.path == '/api/rename-slug':
                     try:
-                        # Read request body
-                        content_length = int(self.headers['Content-Length'])
-                        body = self.rfile.read(content_length)
-                        data = json.loads(body.decode())
+                        data = self._read_json_body()
                         
                         old_slug = data.get('old_slug')
                         new_slug = data.get('new_slug')
@@ -4637,8 +4728,8 @@ def studio(ctx, port, host):
                         redirect_manager = None
                         prior_redirects = None
                         if create_redirect:
-                            old_url = f"/{category}/{old_slug}/"
-                            new_url = f"/{category}/{new_slug}/"
+                            old_url = public_content_url(category, old_slug)
+                            new_url = public_content_url(category, new_slug)
                             redirect_manager = RedirectManager(content_path, dist_path)
                             prior_redirects = [dict(item) for item in redirect_manager.list_all_redirects()]
                             try:
@@ -4930,13 +5021,11 @@ def serve(ctx, port, host):
         
         # Track clients for live reload
         reload_clients = []
-        rebuild_pending = False
-        last_rebuild = 0
+        rebuild_lock = threading.Lock()
+        debounce_timer = {'t': None}
         
         class ChangeHandler(FileSystemEventHandler):
             def on_any_event(self, event):
-                nonlocal rebuild_pending, last_rebuild
-                
                 if event.is_directory:
                     return
                 
@@ -4946,20 +5035,30 @@ def serve(ctx, port, host):
                 
                 if event.src_path.startswith('.') or '/.git/' in event.src_path:
                     return
-                
-                # Debounce rebuilds (wait 0.5 seconds)
-                current_time = time.time()
-                if current_time - last_rebuild < 0.5:
-                    rebuild_pending = True
-                    return
-                
-                click.echo(f"\n📝 Change detected: {Path(event.src_path).name}")
-                rebuild_site(ctx)
-                # Small delay to ensure files are fully written
-                time.sleep(0.1)
-                notify_reload()
-                last_rebuild = time.time()
-                rebuild_pending = False
+
+                src_name = Path(event.src_path).name
+
+                def fire():
+                    if not rebuild_lock.acquire(blocking=False):
+                        timer = threading.Timer(0.5, fire)
+                        timer.daemon = True
+                        debounce_timer['t'] = timer
+                        timer.start()
+                        return
+                    try:
+                        click.echo(f"\n📝 Change detected: {src_name}")
+                        rebuild_site(ctx)
+                        time.sleep(0.1)
+                        notify_reload()
+                    finally:
+                        rebuild_lock.release()
+
+                if debounce_timer['t'] is not None:
+                    debounce_timer['t'].cancel()
+                timer = threading.Timer(0.5, fire)
+                timer.daemon = True
+                debounce_timer['t'] = timer
+                timer.start()
         
         # Live reload script to inject during build
         live_reload_script = '''
@@ -5020,6 +5119,9 @@ def serve(ctx, port, host):
                 # Copy public assets
                 if public_path.exists():
                     shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+                    headers_src = public_path / '_headers'
+                    if headers_src.exists():
+                        shutil.copy2(headers_src, dist_path / '_headers')
                 
                 # Build content
                 all_pages = []
@@ -5234,17 +5336,28 @@ def serve(ctx, port, host):
 
                 write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
                 
-                # Generate outputs
+                # Generate outputs (same all_content set as gang build)
                 all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
-                all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
+                if all_posts:
+                    all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
                 if all_projects:
                     all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
                 if all_people:
                     all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
                 if all_newsletters:
                     all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
-                
-                generators.generate_all(dist_path, all_pages, all_posts)
+
+                all_content = all_pages + all_posts + all_projects + all_people + all_newsletters
+                generators.generate_all(dist_path, all_content, all_posts)
+
+                try:
+                    from core.redirects import RedirectManager
+                    redirect_manager = RedirectManager(content_path, dist_path)
+                    redirect_list = redirect_manager.list_all_redirects()
+                    if redirect_list:
+                        redirect_manager.write_redirects_file(format='cloudflare')
+                except Exception as e:
+                    click.echo(f"⚠️  Could not generate redirects: {e}")
                 
                 # Generate product pages (only active products)
                 try:
@@ -5300,6 +5413,13 @@ def serve(ctx, port, host):
                             if '</body>' in pdp_html:
                                 pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
                             (pdp_dir / 'index.html').write_text(pdp_html)
+                            all_content.append({
+                                'url': f'/products/{slug}/',
+                                'title': product.get('name', slug),
+                                'type': 'product',
+                            })
+                        all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
+                        generators.generate_all(dist_path, all_content, all_posts)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate product pages: {e}")
                     products = []
@@ -5375,6 +5495,35 @@ def serve(ctx, port, host):
                     search_page.write_text(search_html)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate search index: {e}")
+
+                try:
+                    from core.agentmap import AgentMapGenerator, ContentAPIGenerator
+                    from core.products import ProductAggregator
+
+                    publishable_paths = [
+                        Path(item) if not isinstance(item, Path) else item
+                        for item in publishable_files
+                    ]
+                    aggregator = ProductAggregator(config)
+                    agent_products = aggregator.get_normalized_products(status_filter='active')
+                    site_url = config.get('site', {}).get('url', 'https://example.com')
+                    generator = AgentMapGenerator(config, site_url)
+                    agentmap = generator.generate(publishable_paths, agent_products if agent_products else None)
+                    (dist_path / 'agentmap.json').write_text(json.dumps(agentmap, indent=2))
+
+                    api_dir = dist_path / 'api'
+                    api_dir.mkdir(parents=True, exist_ok=True)
+                    api_generator = ContentAPIGenerator(site_url)
+                    content_api = api_generator.generate_content_index(publishable_paths, content_path)
+                    (api_dir / 'content.json').write_text(json.dumps(content_api, indent=2))
+                    if agent_products:
+                        (api_dir / 'products.json').write_text(json.dumps({
+                            'products': agent_products,
+                            'count': len(agent_products),
+                            'generated': datetime.now().isoformat(),
+                        }, indent=2))
+                except Exception as e:
+                    click.echo(f"⚠️  Could not generate AgentMap: {e}")
                 
                 click.echo("✅ Build complete!")
                 

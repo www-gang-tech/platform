@@ -123,17 +123,25 @@
             sku: form.dataset.sku || ''
         };
         
-        const cart = getCart();
-        const existing = cart.find(i => i.id === item.id && i.variant === item.variant);
-        
-        if (existing) {
-            existing.quantity = toQuantity(existing.quantity) + item.quantity;
-        } else {
-            cart.push(item);
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const raw = localStorage.getItem(CART_KEY);
+            const cart = getCart();
+            const existing = cart.find(i => i.id === item.id && i.variant === item.variant);
+
+            if (existing) {
+                existing.quantity = Math.min(99, toQuantity(existing.quantity) + toQuantity(item.quantity));
+            } else {
+                cart.push(item);
+            }
+
+            if (localStorage.getItem(CART_KEY) !== raw) {
+                continue;
+            }
+            saveCart(cart);
+            window.location.href = '/cart/';
+            return;
         }
-        
-        saveCart(cart);
-        window.location.href = '/cart/';
+        window.alert('Cart was updated in another tab. Please add the item again.');
     }
     
     function updateQuantity(id, variant, quantity) {
