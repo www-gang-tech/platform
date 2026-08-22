@@ -58,9 +58,9 @@ def _is_direct_loopback():
 
 def _is_loopback_origin():
     """Reject cross-origin CSRF against tokenless loopback Studio."""
-    origin = (request.headers.get('Origin') or '').strip()
+    origin = (request.headers.get('Origin') or request.headers.get('Referer') or '').strip()
     if not origin:
-        return True
+        return request.method in ('GET', 'HEAD', 'OPTIONS')
     parsed = urlparse(origin)
     host = (parsed.hostname or '').lower()
     return host in {'127.0.0.1', 'localhost', '::1'}
