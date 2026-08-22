@@ -106,7 +106,10 @@ class ProductSchema:
                 'sku': variant.get('sku') or '',
                 'name': variant.get('title') or '',
                 'id': variant_id,
-                'inventory_quantity': inventory_qty
+                'inventory_quantity': inventory_qty,
+                'option1': variant.get('option1') or '',
+                'option2': variant.get('option2') or '',
+                'option3': variant.get('option3') or '',
             })
         
         default_offer = {
