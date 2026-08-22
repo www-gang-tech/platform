@@ -430,7 +430,12 @@ class EmailOrchestrator:
         # Get metadata
         title = frontmatter.get('title', post_path.stem.replace('-', ' ').title())
         slug = post_path.stem
-        canonical_url = f"{self.config.get('site', {}).get('url')}/posts/{slug}/"
+        category = post_path.parent.name
+        if category == 'articles':
+            category = 'posts'
+        elif category not in ('posts', 'projects', 'pages', 'people', 'newsletters'):
+            category = 'posts'
+        canonical_url = f"{str(self.config.get('site', {}).get('url') or '').rstrip('/')}/{category}/{slug}/"
         preview_text = frontmatter.get('summary', '')[:150]
         
         # Generate email templates

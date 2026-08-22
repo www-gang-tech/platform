@@ -38,7 +38,7 @@ class CommentsManager:
 
     def _comments_dir(self, page_slug: str, page_type: str) -> Path:
         slug = self._safe_slug(page_slug)
-        if page_type == "post":
+        if page_type in ("post", "article"):
             root = self.posts_comments_path
         elif page_type == "product":
             root = self.products_comments_path
