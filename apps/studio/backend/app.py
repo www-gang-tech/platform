@@ -324,12 +324,13 @@ def list_content():
                     else:
                         title = md_file.stem.replace('-', ' ').title()
                     
+                    public_type = 'posts' if content_type == 'articles' else content_type
                     content_files.append({
                         'type': content_type,
                         'slug': md_file.stem,
                         'title': title,
                         'path': content_type + "/" + md_file.stem,
-                        'url': "/" + content_type + "/" + md_file.stem + "/"
+                        'url': "/" + public_type + "/" + md_file.stem + "/"
                     })
                 except Exception as e:
                     print("Error reading " + str(md_file) + ": " + str(e))

@@ -243,3 +243,50 @@ class ContentAPIGenerator:
             'retrieved': datetime.now().isoformat()
         }
 
+    def write_content_apis(
+        self,
+        content_files: List[Path],
+        content_path: Path,
+        dest_dir: Path,
+        safe_slug=None,
+    ) -> int:
+        """Write advertised /api/{category}.json and /api/{category}/{slug}.json files."""
+        import re
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        slug_re = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+        by_category: Dict[str, List[Dict[str, Any]]] = {}
+        written = 0
+        for file_path in content_files:
+            try:
+                item = self.generate_single_content_api(file_path, content_path)
+            except Exception:
+                continue
+            category = str(item.get('category') or '')
+            slug = str(item.get('slug') or '')
+            if not category or not slug_re.match(category):
+                continue
+            if not slug_re.match(slug) or '..' in slug:
+                continue
+            if safe_slug and not safe_slug(slug):
+                continue
+            category_dir = dest_dir / category
+            category_dir.mkdir(parents=True, exist_ok=True)
+            (category_dir / f'{slug}.json').write_text(
+                json.dumps(item, indent=2, default=str)
+            )
+            by_category.setdefault(category, []).append({
+                'slug': slug,
+                'url': item.get('url'),
+                'title': item.get('title'),
+                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
+            })
+            written += 1
+        for category, items in by_category.items():
+            (dest_dir / f'{category}.json').write_text(json.dumps({
+                'category': category,
+                'count': len(items),
+                'items': items,
+            }, indent=2, default=str))
+        return written
+
