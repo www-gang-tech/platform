@@ -13,7 +13,8 @@ import re
 
 
 def _plain_text(value: Any) -> str:
-    text = re.sub(r'<[^>]+>', '', str(value or ''))
+    text = re.sub(r'<[^>]*>', '', str(value or ''))
+    text = re.sub(r'<[^>]*$', '', text)
     return html.unescape(text).strip()
 
 
