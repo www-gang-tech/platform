@@ -38,6 +38,11 @@ class EmailTemplateGenerator:
         
         # Process content for email
         email_content = self._process_content_for_email(content_html)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        email_content = sanitize_content_hrefs(sanitize_markdown_html(email_content))
         email_content = re.sub(r'(?is)<script[^>]*>.*?</script>', '', email_content)
         email_content = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', email_content)
         title = html.escape(str(title or ''), quote=True)

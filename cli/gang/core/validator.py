@@ -66,10 +66,10 @@ class ContractValidator:
         # Check no heading skips
         if 'no_heading_skips' in self.contracts.get('semantic', []):
             headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-            prev_level = 0
+            prev_level = None
             for heading in headings:
                 level = int(heading.name[1])
-                if level - prev_level > 1:
+                if prev_level is not None and level - prev_level > 1:
                     issues.append({
                         'severity': 'error',
                         'rule': 'no_heading_skips',
