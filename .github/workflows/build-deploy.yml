@@ -47,7 +47,9 @@ jobs:
       
       - name: Validate contracts
         id: validate
-        run: gang check --output validation-report.json
+        run: |
+          gang check --output validation-report.json
+          gang check-contracts
       
       - name: Upload validation report
         if: always()

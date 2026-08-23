@@ -82,8 +82,9 @@ class ContentScheduler:
             else:
                 status = str(raw_status or 'published').strip().lower()
             
-            # Allowlist only: unknown/archived/pending/true/yes fail closed as draft
-            if status not in ('published', 'scheduled', 'live', 'public'):
+            # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
+            # `sent` keeps already-emailed newsletters on the static site.
+            if status not in ('published', 'scheduled', 'live', 'public', 'sent'):
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -96,7 +97,16 @@ class ContentScheduler:
             publish_date_str = frontmatter.get('publish_date')
             
             if not publish_date_str:
-                # No publish date, publish immediately
+                # Scheduled without a date is invalid — fail closed so it cannot go live.
+                if status == 'scheduled':
+                    draft.append({
+                        'path': file_path,
+                        'status': 'draft',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem),
+                        'error': 'status=scheduled requires publish_date',
+                    })
+                    continue
                 publishable.append({
                     'path': file_path,
                     'status': status,
