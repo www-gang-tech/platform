@@ -687,6 +687,11 @@ class KlaviyoOrchestrator:
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        content_html = sanitize_content_hrefs(sanitize_markdown_html(content_html))
         
         # Get metadata
         title = frontmatter.get('title', post_path.stem.replace('-', ' ').title())
