@@ -356,9 +356,11 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         matching_default.get('id') or first_offer.get('id') or ''
     )
     title = product.get('name', '')
-    raw_description = product.get('description', '')
-    description = re.sub(r'<[^>]+>', '', str(raw_description or ''))
-    description = html_module.unescape(description).strip()
+    try:
+        from core.products import _plain_text
+    except ImportError:
+        from gang.core.products import _plain_text
+    description = _plain_text(product.get('description', ''))
     buy_url = safe_http_url(matching_default.get('url') or first_offer.get('url'))
     jsonld_offers = []
     if variants_list:
@@ -369,8 +371,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'priceCurrency': item.get('currency') or 'USD',
                 'availability': item.get('availability') or 'https://schema.org/OutOfStock',
             }
-            if item.get('url'):
-                offer['url'] = item['url']
+            offer['url'] = item.get('url') or f"{config['site']['url']}/products/{slug}/"
             if item.get('sku'):
                 offer['sku'] = item['sku']
             jsonld_offers.append(offer)
@@ -381,8 +382,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
             'priceCurrency': first_offer.get('priceCurrency') or 'USD',
             'availability': first_offer.get('availability') or 'https://schema.org/OutOfStock',
         }
-        if buy_url:
-            offer['url'] = buy_url
+        offer['url'] = buy_url or f"{config['site']['url']}/products/{slug}/"
         jsonld_offers.append(offer)
 
     jsonld = {
@@ -395,8 +395,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'sku': matching_default.get('sku') or product.get('sku', ''),
         'offers': jsonld_offers[0] if len(jsonld_offers) == 1 else jsonld_offers,
     }
-    if brand_name:
-        jsonld['brand'] = {'@type': 'Brand', 'name': brand_name}
+    jsonld['brand'] = {'@type': 'Brand', 'name': brand_name or config['site']['title']}
 
     return {
         'lang': config['site'].get('language', 'en'),
@@ -2929,6 +2928,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     all_projects = []
     all_newsletters = []
     all_people = []
+    tag_pages: List[Dict[str, str]] = []
     
     # Parse markdown files
     if profiler:
@@ -3161,7 +3161,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         (dist_path / 'people').mkdir(parents=True, exist_ok=True)
         (dist_path / 'people' / 'index.html').write_text(people_html)
     
-    write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
+    tag_pages = write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
     
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
@@ -3339,8 +3339,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_page.write_text(indexer.generate_search_page_html(config, templates_path))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
+        merge_sitemap_entries(all_content, discovery_sitemap_entries(tag_pages))
+        generators.generate_all(dist_path, all_content, all_posts)
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
+        merge_sitemap_entries(all_content, discovery_sitemap_entries(tag_pages))
+        generators.generate_all(dist_path, all_content, all_posts)
     
     # Generate AgentMap for AI agents
     try:
@@ -3371,6 +3375,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         api_dir = dist_path / 'api'
         api_dir.mkdir(parents=True, exist_ok=True)
         (api_dir / 'content.json').write_text(json.dumps(content_api, indent=2))
+        api_generator.write_content_apis(
+            publishable_paths, content_path, api_dir, safe_slug=is_safe_content_slug
+        )
         
         # Generate products API
         if products:
@@ -3732,7 +3739,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
     return html
 
 
-def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_path: Path = None) -> None:
+def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_path: Path = None) -> List[Dict[str, str]]:
     """Emit /tags/ and /tags/<tag>/ collection pages linked from content templates."""
     by_tag: Dict[str, List[Dict]] = {}
     for item in items:
@@ -3742,9 +3749,10 @@ def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_
                 continue
             by_tag.setdefault(tag_name, []).append(item)
     if not by_tag:
-        return
+        return []
     
     tags_index_items = []
+    sitemap_entries: List[Dict[str, str]] = []
     for tag_name in sorted(by_tag.keys(), key=str.lower):
         encoded = quote(tag_name, safe='')
         tag_path = f"/tags/{encoded}/"
@@ -3759,12 +3767,36 @@ def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_
             'title': tag_name,
             'summary': f"{len(by_tag[tag_name])} item(s)",
         })
+        sitemap_entries.append({'url': tag_path, 'title': f'Tag: {tag_name}', 'type': 'tag'})
     
     tags_html = create_list_page_simple(config, tags_index_items, 'Tags', templates_path, path='/tags/')
     tags_root = dist_path / 'tags'
     tags_root.mkdir(parents=True, exist_ok=True)
     (tags_root / 'index.html').write_text(tags_html)
     click.echo(f"🏷️  Generated {len(by_tag)} tag page(s)")
+    sitemap_entries.append({'url': '/tags/', 'title': 'Tags', 'type': 'list'})
+    return sitemap_entries
+
+
+def discovery_sitemap_entries(tag_pages: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
+    """Utility pages generated after the first sitemap pass."""
+    extras = [
+        {'url': '/search/', 'title': 'Search', 'type': 'utility'},
+        {'url': '/cart/', 'title': 'Cart', 'type': 'utility'},
+        {'url': '/sitemap/', 'title': 'Sitemap', 'type': 'utility'},
+    ]
+    extras.extend(tag_pages or [])
+    return extras
+
+
+def merge_sitemap_entries(all_content: List[Dict], extras: List[Dict]) -> List[Dict]:
+    seen = {item.get('url') for item in all_content}
+    for item in extras:
+        url = item.get('url')
+        if url and url not in seen:
+            all_content.append(item)
+            seen.add(url)
+    return all_content
 
 
 def process_markdown(md_file: Path, content_type: str, config: Dict) -> str:
@@ -5115,6 +5147,7 @@ def serve(ctx, port, host):
                 template_engine = TemplateEngine(templates_path)
                 generators = OutputGenerators(config)
                 optimizer = AIOptimizer(config)
+                tag_pages: List[Dict[str, str]] = []
                 
                 # Copy public assets
                 if public_path.exists():
@@ -5129,6 +5162,7 @@ def serve(ctx, port, host):
                 all_projects = []
                 all_people = []
                 all_newsletters = []
+                tag_pages = []
                 products = []
                 
                 try:
@@ -5334,7 +5368,7 @@ def serve(ctx, port, host):
                     (dist_path / 'newsletters').mkdir(parents=True, exist_ok=True)
                     (dist_path / 'newsletters' / 'index.html').write_text(newsletters_html)
 
-                write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
+                tag_pages = write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
                 
                 # Generate outputs (same all_content set as gang build)
                 all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
@@ -5496,6 +5530,9 @@ def serve(ctx, port, host):
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate search index: {e}")
 
+                merge_sitemap_entries(all_content, discovery_sitemap_entries(tag_pages))
+                generators.generate_all(dist_path, all_content, all_posts)
+
                 try:
                     from core.agentmap import AgentMapGenerator, ContentAPIGenerator
                     from core.products import ProductAggregator
@@ -5516,6 +5553,9 @@ def serve(ctx, port, host):
                     api_generator = ContentAPIGenerator(site_url)
                     content_api = api_generator.generate_content_index(publishable_paths, content_path)
                     (api_dir / 'content.json').write_text(json.dumps(content_api, indent=2))
+                    api_generator.write_content_apis(
+                        publishable_paths, content_path, api_dir, safe_slug=is_safe_content_slug
+                    )
                     if agent_products:
                         (api_dir / 'products.json').write_text(json.dumps({
                             'products': agent_products,
