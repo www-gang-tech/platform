@@ -230,11 +230,22 @@ class ContentImporter:
     def _replace_data_urls_with_markdown(self, content: str, images: List[Dict[str, Any]]) -> str:
         """Replace data URLs with markdown image references"""
         for image in images:
-            if image['type'] == 'uploaded':
-                alt = image['alt'] or 'Image'
-                markdown_img = f"![{alt}]({image['source']})"
-                # Replace the data URL with markdown
-                content = re.sub(r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', markdown_img, content, count=1)
+            if image.get('type') not in ('uploaded', 'data_url'):
+                continue
+            alt = image.get('alt') or 'Image'
+            source = image.get('source') or ''
+            if not source:
+                continue
+            markdown_img = f"![{alt}]({source})"
+            if source.startswith('data:'):
+                content = content.replace(source, markdown_img, 1)
+            else:
+                content = re.sub(
+                    r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+',
+                    markdown_img,
+                    content,
+                    count=1,
+                )
         
         return content
     
@@ -457,7 +468,7 @@ class SlugChecker:
         duplicates = {}
         
         # Scan all content types
-        for content_type in ['posts', 'pages', 'projects', 'newsletters', 'people']:
+        for content_type in ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue

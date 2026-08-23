@@ -44,7 +44,7 @@ class InPlaceEditor {
         overlay.innerHTML = `
             <div class="editor-container">
                 <div class="editor-header">
-                    <h2>Edit: ${this.getPageTitle()}</h2>
+                    <h2></h2>
                     <div class="editor-header-actions">
                         <button class="editor-actions-btn" id="actions-toggle">
                             <i class="fa-solid fa-bars"></i> Actions
@@ -67,6 +67,11 @@ class InPlaceEditor {
                 </div>
             </div>
         `;
+        
+        const titleEl = overlay.querySelector('h2');
+        if (titleEl) {
+            titleEl.textContent = 'Edit: ' + this.getPageTitle();
+        }
         
         // Create editor content area
         const container = overlay.querySelector('.editor-container');
@@ -100,6 +105,12 @@ class InPlaceEditor {
             if (e.key === 'Escape') {
                 this.cancel();
             }
+        });
+
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            document.execCommand('insertText', false, text || '');
         });
         
         // Show floating toolbar on selection
@@ -212,7 +223,7 @@ class InPlaceEditor {
             document.execCommand('formatBlock', false, '<code>');
         } else if (cmd === 'link') {
             const url = prompt('Enter URL:');
-            if (url) {
+            if (url && this.isSafeHref(url)) {
                 document.execCommand('createLink', false, url);
             }
         }
@@ -220,23 +231,72 @@ class InPlaceEditor {
         this.hideFloatingToolbar();
     }
 
+    escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    isSafeHref(value) {
+        if (!value || typeof value !== 'string') return false;
+        const trimmed = value.trim();
+        if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/')) {
+            return true;
+        }
+        try {
+            const url = new URL(trimmed, window.location.origin);
+            return url.protocol === 'https:' || url.protocol === 'http:';
+        } catch (err) {
+            return false;
+        }
+    }
+
     // Markdown to HTML converter
     markdownToHtml(markdown) {
-        return markdown
+        const self = this;
+        const text = this.escapeHtml(markdown);
+        return text
             .replace(/^### (.+)$/gm, '<h3>$1</h3>')
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
             .replace(/^# (.+)$/gm, '<h1>$1</h1>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+            .replace(/\[(.+?)\]\((.+?)\)/g, function(_, label, href) {
+                const rawHref = String(href).replace(/&amp;/g, '&');
+                const url = self.isSafeHref(rawHref) ? rawHref : '#';
+                return '<a href="' + self.escapeHtml(url) + '">' + label + '</a>';
+            })
             .replace(/`(.+?)`/g, '<code>$1</code>')
-            .split('\n\n').map(p => `<p>${p}</p>`).join('');
+            .split('\n\n').map(function(p) { return '<p>' + p + '</p>'; }).join('');
     }
 
     // HTML to Markdown converter
     htmlToMarkdown(html) {
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
+        const parsed = new DOMParser().parseFromString(
+            '<div id="gang-md-root">' + (html || '') + '</div>',
+            'text/html'
+        );
+        const temp = parsed.getElementById('gang-md-root') || parsed.body;
+        temp.querySelectorAll('script, style, iframe, object, embed, form').forEach(function(node) {
+            node.remove();
+        });
+        temp.querySelectorAll('*').forEach(function(node) {
+            Array.from(node.attributes).forEach(function(attr) {
+                const name = attr.name.toLowerCase();
+                if (name.indexOf('on') === 0) {
+                    node.removeAttribute(attr.name);
+                    return;
+                }
+                if (['href', 'src', 'action', 'formaction'].indexOf(name) !== -1) {
+                    const val = String(attr.value || '').trim().toLowerCase();
+                    if (val.indexOf('javascript:') === 0 || val.indexOf('data:') === 0 || val.indexOf('vbscript:') === 0 || val.indexOf('//') === 0) {
+                        node.setAttribute(attr.name, '#');
+                    }
+                }
+            });
+        });
         
         return temp.innerHTML
             .replace(/<h1>(.+?)<\/h1>/g, '# $1\n\n')
@@ -299,7 +359,10 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const details = (result.errors && result.errors.length)
+                    ? result.errors.join(', ')
+                    : (result.message || 'heading issues');
+                this.showNotification('Validation failed: ' + details, 'error');
             }
             
         } catch (error) {
@@ -354,7 +417,7 @@ class InPlaceEditor {
         const category = document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
         }
         

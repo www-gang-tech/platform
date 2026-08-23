@@ -48,7 +48,7 @@ class AgentMapGenerator:
             'endpoints': {
                 'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
-                'search': f"{self.site_url}/api/search.json",
+                'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
             },
             
@@ -60,7 +60,7 @@ class AgentMapGenerator:
             },
             
             'search': {
-                'endpoint': f"{self.site_url}/api/search.json",
+                'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
                 'parameters': ['q', 'category', 'limit'],
                 'description': 'Full-text search across all content'
@@ -86,20 +86,21 @@ class AgentMapGenerator:
         
         for file_path in content_files:
             category = file_path.parent.name
+            public_category = 'posts' if category == 'articles' else category
             
-            if category not in by_category:
-                by_category[category] = []
+            if public_category not in by_category:
+                by_category[public_category] = []
                 types.append({
-                    'type': category,
-                    'url': f"{self.site_url}/{category}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}.json"
+                    'type': public_category,
+                    'url': f"{self.site_url}/{public_category}/",
+                    'apiEndpoint': f"{self.site_url}/api/{public_category}.json"
                 })
             
             slug = file_path.stem
-            by_category[category].append({
+            by_category[public_category].append({
                 'slug': slug,
-                'url': f"{self.site_url}/{category}/{slug}/",
-                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json"
+                'url': f"{self.site_url}/{public_category}/{slug}/",
+                'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json"
             })
         
         return {
@@ -164,14 +165,17 @@ class ContentAPIGenerator:
                     if len(parts) >= 3:
                         frontmatter = yaml.safe_load(parts[1]) or {}
                 
+                if not isinstance(frontmatter, dict):
+                    frontmatter = {}
                 category = file_path.parent.name
                 slug = file_path.stem
+                public_category = 'posts' if category == 'articles' else category
                 
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-                    'url': f"{self.site_url}/{category}/{slug}/",
-                    'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
-                    'category': category,
+                    'url': f"{self.site_url}/{public_category}/{slug}/",
+                    'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json",
+                    'category': public_category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),
                     'date': str(frontmatter.get('date', '')),
@@ -205,10 +209,17 @@ class ContentAPIGenerator:
             if len(parts) >= 3:
                 frontmatter = yaml.safe_load(parts[1]) or {}
                 body = parts[2]
+        if not isinstance(frontmatter, dict):
+            frontmatter = {}
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         content_html = md.convert(body)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        content_html = sanitize_content_hrefs(sanitize_markdown_html(content_html))
         
         # Also provide plain text
         import re
@@ -216,11 +227,12 @@ class ContentAPIGenerator:
         
         category = file_path.parent.name
         slug = file_path.stem
+        public_category = 'posts' if category == 'articles' else category
         
         return {
             'title': frontmatter.get('title', slug.replace('-', ' ').title()),
-            'url': f"{self.site_url}/{category}/{slug}/",
-            'category': category,
+            'url': f"{self.site_url}/{public_category}/{slug}/",
+            'category': public_category,
             'slug': slug,
             'metadata': frontmatter,
             'content': {
@@ -230,4 +242,51 @@ class ContentAPIGenerator:
             },
             'retrieved': datetime.now().isoformat()
         }
+
+    def write_content_apis(
+        self,
+        content_files: List[Path],
+        content_path: Path,
+        dest_dir: Path,
+        safe_slug=None,
+    ) -> int:
+        """Write advertised /api/{category}.json and /api/{category}/{slug}.json files."""
+        import re
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        slug_re = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+        by_category: Dict[str, List[Dict[str, Any]]] = {}
+        written = 0
+        for file_path in content_files:
+            try:
+                item = self.generate_single_content_api(file_path, content_path)
+            except Exception:
+                continue
+            category = str(item.get('category') or '')
+            slug = str(item.get('slug') or '')
+            if not category or not slug_re.match(category):
+                continue
+            if not slug_re.match(slug) or '..' in slug:
+                continue
+            if safe_slug and not safe_slug(slug):
+                continue
+            category_dir = dest_dir / category
+            category_dir.mkdir(parents=True, exist_ok=True)
+            (category_dir / f'{slug}.json').write_text(
+                json.dumps(item, indent=2, default=str)
+            )
+            by_category.setdefault(category, []).append({
+                'slug': slug,
+                'url': item.get('url'),
+                'title': item.get('title'),
+                'apiEndpoint': f"{self.site_url}/api/{category}/{slug}.json",
+            })
+            written += 1
+        for category, items in by_category.items():
+            (dest_dir / f'{category}.json').write_text(json.dumps({
+                'category': category,
+                'count': len(items),
+                'items': items,
+            }, indent=2, default=str))
+        return written
 
