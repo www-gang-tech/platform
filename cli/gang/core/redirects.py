@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 _SAFE_REDIRECT_PATH = re.compile(r'^/[A-Za-z0-9._~/-]*$')
-_UNSAFE_REDIRECT_CHARS = set(';{}"\'\\\n\r\t ')
+_UNSAFE_REDIRECT_CHARS = set(';{}"\'\\\n\r\t $')
 
 
 class RedirectManager:
