@@ -15,6 +15,7 @@ from typing import List, Dict, Optional, Any
 import click
 
 _SAFE_SLUG = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+_SAFE_COMMENT_ID = re.compile(r'^comment-[0-9]{8,20}$')
 
 
 class CommentsManager:
@@ -35,6 +36,18 @@ class CommentsManager:
         if not _SAFE_SLUG.match(slug) or '..' in slug:
             raise ValueError(f"Invalid page slug: {page_slug!r}")
         return slug
+
+    def _safe_comment_id(self, comment_id: str) -> str:
+        value = str(comment_id or '').strip()
+        if not _SAFE_COMMENT_ID.match(value) or '..' in value:
+            raise ValueError(f"Invalid comment id: {comment_id!r}")
+        return value
+
+    def _comment_file(self, page_dir: Path, comment_id: str) -> Path:
+        safe_id = self._safe_comment_id(comment_id)
+        target = (page_dir / f"{safe_id}.yml").resolve()
+        target.relative_to(page_dir.resolve())
+        return target
 
     def _comments_dir(self, page_slug: str, page_type: str) -> Path:
         slug = self._safe_slug(page_slug)
@@ -115,7 +128,7 @@ class CommentsManager:
         target_dir.mkdir(parents=True, exist_ok=True)
         
         # Write comment file
-        comment_file = target_dir / f"{comment_id}.yml"
+        comment_file = self._comment_file(target_dir, comment_id)
         with open(comment_file, 'w', encoding='utf-8') as f:
             yaml.dump(comment, f, default_flow_style=False, allow_unicode=True)
         
@@ -127,7 +140,10 @@ class CommentsManager:
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
-                    comment_file = page_dir / f"{comment_id}.yml"
+                    try:
+                        comment_file = self._comment_file(page_dir, comment_id)
+                    except ValueError:
+                        return False
                     if comment_file.exists():
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
@@ -154,7 +170,10 @@ class CommentsManager:
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
-                    comment_file = page_dir / f"{comment_id}.yml"
+                    try:
+                        comment_file = self._comment_file(page_dir, comment_id)
+                    except ValueError:
+                        return False
                     if comment_file.exists():
                         try:
                             comment_file.unlink()
