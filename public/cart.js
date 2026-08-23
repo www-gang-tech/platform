@@ -299,7 +299,7 @@
                 skipped.push(item);
                 return;
             }
-            const source = item.checkoutUrl || '';
+            const source = item.checkoutUrl || item.url || '';
             if (!isSafeHttpUrl(source)) {
                 skipped.push(item);
                 return;
