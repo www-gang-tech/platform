@@ -381,7 +381,7 @@ class KlaviyoProvider(EmailProvider):
                         'send_strategy': {
                             'method': 'immediate'
                         },
-                        'campaign_messages': {
+                        'campaign-messages': {
                             'data': [{
                                 'type': 'campaign-message',
                                 'attributes': {

@@ -317,9 +317,14 @@ __JSONLD__
                         score += 10;
                     }
                     
-                    // Exact match in content
-                    const regex = new RegExp(term, 'gi');
-                    const matches = (searchable.match(regex) || []).length;
+                    // Literal match in content (user input is not a regex)
+                    const hay = String(searchable || '').toLowerCase();
+                    let from = 0;
+                    let matches = 0;
+                    while (term && (from = hay.indexOf(term, from)) !== -1) {
+                        matches++;
+                        from += term.length;
+                    }
                     score += matches;
                 }
                 
