@@ -28,6 +28,30 @@ PUBLISHABLE_CATEGORIES = {
     'posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products'
 }
 SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+MAX_CONTENT_BYTES = 2 * 1024 * 1024
+
+
+def _parse_frontmatter(text: str):
+    if not text.startswith('---'):
+        return {}, text
+    parts = text.split('---', 2)
+    if len(parts) < 3:
+        return {}, text
+    try:
+        raw = yaml.safe_load(parts[1])
+    except Exception:
+        raw = None
+    return (raw if isinstance(raw, dict) else {}), parts[2]
+
+
+def _merge_editor_frontmatter(original: str, incoming: str) -> str:
+    orig_fm, _ = _parse_frontmatter(original)
+    in_fm, in_body = _parse_frontmatter(incoming)
+    if orig_fm and not in_fm:
+        dumped = yaml.dump(orig_fm, default_flow_style=False, allow_unicode=True).strip()
+        body = in_body if incoming.lstrip().startswith('---') else incoming
+        return f"---\n{dumped}\n---\n{body}"
+    return incoming
 
 
 def _safe_content_file(file_path: str) -> Path:
@@ -127,11 +151,18 @@ def save_content(file_path):
     except ValueError:
         return jsonify({'error': 'Invalid file path'}), 400
     
+    if request.content_length and request.content_length > MAX_CONTENT_BYTES:
+        return jsonify({'error': 'Request body too large'}), 413
+
     # Get content from request body
     content = request.get_data(as_text=True)
     
     if not content:
         return jsonify({'error': 'No content provided'}), 400
+    if len(content.encode('utf-8')) > MAX_CONTENT_BYTES:
+        return jsonify({'error': 'Request body too large'}), 413
+    if full_path.exists():
+        content = _merge_editor_frontmatter(full_path.read_text(encoding='utf-8'), content)
     
     # Ensure parent directory exists (still inside content root)
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -246,6 +277,7 @@ def trigger_build():
             commit_message = json_data.get('message', 'Content update via in-place editor') if json_data else 'Content update via in-place editor'
             if not isinstance(commit_message, str):
                 commit_message = str(commit_message)
+            commit_message = ' '.join(commit_message.split())[:200] or 'Content update via in-place editor'
         except Exception:
             commit_message = 'Content update via in-place editor'
         subprocess.run(
@@ -253,10 +285,10 @@ def trigger_build():
             check=True
         )
         
-        # Rebuild the site
+        # Rebuild the site (never bake the in-place editor into published HTML)
         print("🔄 Rebuilding site...")
         env = os.environ.copy()
-        env['EDITOR_MODE'] = 'true'
+        env.pop('EDITOR_MODE', None)
         build_result = subprocess.run(
             ['gang', 'build'],
             capture_output=True,
