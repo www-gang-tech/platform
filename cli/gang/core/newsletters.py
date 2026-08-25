@@ -230,6 +230,11 @@ class NewsletterManager:
                         continue
                     
                     status = frontmatter.get('status', 'draft')
+                    if isinstance(status, list) and status:
+                        status = status[0]
+                    status = str(status or 'draft').strip().lower()
+                    if status in ('published', 'live', 'public'):
+                        status = 'sent'
                     if status not in newsletters:
                         status = 'draft'
                     
