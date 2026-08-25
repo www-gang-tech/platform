@@ -112,7 +112,7 @@
         const item = {
             id: form.dataset.variantId || '',
             name: form.dataset.productName || 'Product',
-            variant: [formData.get('color'), formData.get('size')].filter(Boolean).join(' / '),
+            variant: [formData.get('color'), formData.get('size'), formData.get('option3')].filter(Boolean).join(' / '),
             price: toPrice(form.dataset.price || '0'),
             currency: form.dataset.currency || 'USD',
             quantity: toQuantity(formData.get('quantity') || '1'),
