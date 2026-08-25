@@ -29,22 +29,27 @@ class ContentScheduler:
         for file_path in content_files:
             content = file_path.read_text()
             
-            # Parse frontmatter
+            # Parse frontmatter. Missing or truncated YAML must not go live.
             if not content.startswith('---'):
-                # No frontmatter, include by default
-                publishable.append({
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'missing frontmatter',
                 })
                 continue
             
             parts = content.split('---', 2)
             if len(parts) < 3:
-                publishable.append({
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'malformed frontmatter delimiters',
                 })
                 continue
             

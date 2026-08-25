@@ -101,6 +101,12 @@ jobs:
               body: body,
               labels: ['security', 'dependencies']
             });
+
+      - name: Fail on vulnerabilities
+        if: env.VULNERABILITIES_FOUND == 'true'
+        run: |
+          echo "pip-audit reported vulnerabilities"
+          exit 1
       
       - name: Upload audit report
         if: always()
