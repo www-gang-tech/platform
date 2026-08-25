@@ -139,17 +139,40 @@ class ShopifyPRBot:
         elif transform == 'normalize_variants':
             # Normalize variant structure
             if isinstance(value, list):
-                return [
-                    {
+                normalized = []
+                for v in value:
+                    if not isinstance(v, dict):
+                        continue
+                    qty = v.get('inventory_quantity')
+                    try:
+                        qty_num = int(qty) if qty is not None and qty != '' else 0
+                    except (TypeError, ValueError):
+                        qty_num = 0
+                    policy = str(v.get('inventory_policy') or '')
+                    available = v.get('available')
+                    if available is None:
+                        available = qty_num > 0 or policy == 'continue'
+                    normalized.append({
                         'id': v.get('id'),
                         'title': v.get('title'),
                         'price': v.get('price'),
                         'sku': v.get('sku'),
-                        'inventory': v.get('inventory_quantity', 0),
+                        'inventory': qty_num,
+                        'inventory_quantity': qty_num,
+                        'inventory_policy': v.get('inventory_policy'),
+                        'inventory_management': v.get('inventory_management'),
+                        'option1': v.get('option1'),
+                        'option2': v.get('option2'),
+                        'option3': v.get('option3'),
+                        'available': bool(available),
+                        'availability': (
+                            'https://schema.org/InStock'
+                            if available
+                            else 'https://schema.org/OutOfStock'
+                        ),
                         'url': v.get('url') or v.get('buy_url'),
-                    }
-                    for v in value if isinstance(v, dict)
-                ]
+                    })
+                return normalized
         
         return value
     

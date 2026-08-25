@@ -478,6 +478,27 @@
         let currentFile = null;
         let editor = null;
         let validationPassed = false;
+        let preservedFrontmatter = null;
+
+        function splitFrontmatter(markdown) {
+            const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+            if (!match) {
+                return { frontmatter: null, body: markdown || '' };
+            }
+            return { frontmatter: match[1], body: match[2] };
+        }
+
+        function joinFrontmatter(frontmatter, body) {
+            if (frontmatter == null) {
+                return body;
+            }
+            return `---\n${frontmatter}\n---\n${body || ''}`;
+        }
+
+        function publicContentUrl(category, slug) {
+            const publicCategory = category === 'articles' ? 'posts' : category;
+            return `/${publicCategory}/${slug}/`;
+        }
 
         function escapeHtml(value) {
             return String(value == null ? '' : value)
@@ -565,7 +586,9 @@
                 const content = await response.text();
                 
                 currentFile = path;
-                editor.setMarkdown(content);
+                const split = splitFrontmatter(content);
+                preservedFrontmatter = split.frontmatter;
+                editor.setMarkdown(split.body);
                 
                 // Update active state
                 document.querySelectorAll('.content-item').forEach(item => {
@@ -734,7 +757,7 @@
             }
             
             try {
-                const markdown = editor.getMarkdown();
+                const markdown = joinFrontmatter(preservedFrontmatter, editor.getMarkdown());
                 
                 const response = await fetch(`/api/content/${currentFile}`, {
                     method: 'PUT',
@@ -885,8 +908,8 @@
                 const redirectPreview = document.getElementById('redirectPreview');
                 
                 if (newSlug && createRedirect) {
-                    const oldUrl = `/${category}/${slug}/`;
-                    const newUrl = `/${category}/${newSlug}/`;
+                    const oldUrl = publicContentUrl(category, slug);
+                    const newUrl = publicContentUrl(category, newSlug);
                     redirectPreview.textContent = `${oldUrl} → ${newUrl}`;
                     redirectInfo.style.display = 'block';
                 } else {
