@@ -6,6 +6,7 @@ Fetch products from multiple platforms and normalize to Schema.org
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from urllib.parse import urlparse
 import html
 import json
 import os
@@ -227,26 +228,41 @@ class ShopifyClient:
         
         try:
             import requests
-            
-            url = f"https://{self.store_url}/admin/api/{self.api_version}/products.json"
+
+            store_host = self.store_url.split('/')[0].split('?')[0]
             headers = {
                 'X-Shopify-Access-Token': self.access_token,
                 'Content-Type': 'application/json'
             }
-            
-            params = {'limit': limit}
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            products = data.get('products') or []
-            store_host = self.store_url.split('/')[0]
-            for product in products:
-                if not isinstance(product, dict):
-                    continue
-                handle = product.get('handle')
-                if handle and not product.get('url'):
-                    product['url'] = f"https://{store_host}/products/{handle}"
+            page_limit = min(max(int(limit or 100), 1), 250)
+            url = f"https://{store_host}/admin/api/{self.api_version}/products.json"
+            params = {'limit': page_limit}
+            products: List[Dict[str, Any]] = []
+            seen_ids = set()
+            for _ in range(20):
+                response = requests.get(url, headers=headers, params=params, timeout=30)
+                response.raise_for_status()
+                page = (response.json() or {}).get('products') or []
+                for product in page:
+                    if not isinstance(product, dict):
+                        continue
+                    product_id = product.get('id')
+                    if product_id is not None:
+                        if product_id in seen_ids:
+                            continue
+                        seen_ids.add(product_id)
+                    handle = product.get('handle')
+                    if handle and not product.get('url'):
+                        product['url'] = f"https://{store_host}/products/{handle}"
+                    products.append(product)
+                next_link = ((response.links or {}).get('next') or {}).get('url')
+                if not next_link:
+                    break
+                parsed = urlparse(next_link)
+                if parsed.scheme != 'https' or parsed.hostname != store_host:
+                    break
+                url = next_link
+                params = None
             return products
         
         except Exception as e:

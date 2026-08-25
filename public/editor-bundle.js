@@ -6,6 +6,7 @@ class InPlaceEditor {
         this.overlay = null;
         this.editorElement = null;
         this.originalContent = '';
+        this.preservedFrontmatter = null;
         this.currentFile = '';
         this.floatingToolbar = null;
         this.isActive = false;
@@ -25,6 +26,9 @@ class InPlaceEditor {
             }
             
             this.originalContent = await response.text();
+            const split = this.splitFrontmatter(this.originalContent);
+            this.preservedFrontmatter = split.frontmatter;
+            this.bodyContent = split.body;
             
             // Create and show editor overlay
             this.createOverlay();
@@ -94,7 +98,7 @@ class InPlaceEditor {
         editor.className = 'editor-content';
         editor.contentEditable = 'true';
         editor.setAttribute('data-placeholder', 'Start writing...');
-        editor.innerHTML = this.markdownToHtml(this.originalContent);
+        editor.innerHTML = this.markdownToHtml(this.bodyContent || this.originalContent);
         
         // Keyboard shortcuts
         editor.addEventListener('keydown', (e) => {
@@ -239,6 +243,21 @@ class InPlaceEditor {
             .replace(/"/g, '&quot;');
     }
 
+    splitFrontmatter(markdown) {
+        const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+        if (!match) {
+            return { frontmatter: null, body: markdown || '' };
+        }
+        return { frontmatter: match[1], body: match[2] };
+    }
+
+    joinFrontmatter(body) {
+        if (this.preservedFrontmatter == null) {
+            return body;
+        }
+        return '---\n' + this.preservedFrontmatter + '\n---\n' + (body || '');
+    }
+
     isSafeHref(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
@@ -316,7 +335,7 @@ class InPlaceEditor {
 
     async saveContent() {
         try {
-            const content = this.getContent();
+            const content = this.joinFrontmatter(this.getContent());
             
             const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`, {
                 method: 'PUT',
