@@ -11,6 +11,7 @@
     
     const colorSelect = form.querySelector('[name="color"]');
     const sizeSelect = form.querySelector('[name="size"]');
+    const option3Select = form.querySelector('[name="option3"]');
     const quantityInput = form.querySelector('[name="quantity"]');
     const priceDisplay = document.querySelector('[data-price]');
     const stockMessage = document.querySelector('[data-stock-message]');
@@ -44,21 +45,42 @@
         }
     }
     
-    function findVariant(selectedColor, selectedSize) {
+    function findVariant(selectedColor, selectedSize, selectedOption3) {
         const matches = variants.filter(function(variant) {
             const colorMatch = !selectedColor || variant.color === selectedColor;
             const sizeMatch = !selectedSize || variant.size === selectedSize;
-            return colorMatch && sizeMatch;
+            const extraMatch = !selectedOption3 || variant.option3 === selectedOption3;
+            return colorMatch && sizeMatch && extraMatch;
         });
         return matches.find(isInStock) || matches[0];
+    }
+
+    function markUnavailable(message) {
+        if (stockMessage) {
+            stockMessage.textContent = message || 'Combination unavailable';
+            stockMessage.style.color = '#dc3545';
+        }
+        if (buyButton) {
+            buyButton.disabled = true;
+            buyButton.style.opacity = '0.5';
+            buyButton.style.cursor = 'not-allowed';
+        }
+        form.dataset.inStock = 'false';
+        form.dataset.variantId = '';
+        form.action = '#';
+        delete form.dataset.checkoutUrl;
     }
     
     function updateProduct() {
         const selectedColor = colorSelect ? colorSelect.value : undefined;
         const selectedSize = sizeSelect ? sizeSelect.value : undefined;
-        const variant = findVariant(selectedColor, selectedSize);
+        const selectedOption3 = option3Select ? option3Select.value : undefined;
+        const variant = findVariant(selectedColor, selectedSize, selectedOption3);
         
-        if (!variant) return;
+        if (!variant) {
+            markUnavailable('Combination unavailable');
+            return;
+        }
         
         if (priceDisplay) {
             priceDisplay.textContent = `${variant.currency} ${variant.price}`;
@@ -108,7 +130,8 @@
     function applyInStockDefaults() {
         const current = findVariant(
             colorSelect ? colorSelect.value : undefined,
-            sizeSelect ? sizeSelect.value : undefined
+            sizeSelect ? sizeSelect.value : undefined,
+            option3Select ? option3Select.value : undefined
         );
         if (current && isInStock(current)) {
             return;
@@ -123,6 +146,9 @@
         if (sizeSelect && inStock.size) {
             sizeSelect.value = inStock.size;
         }
+        if (option3Select && inStock.option3) {
+            option3Select.value = inStock.option3;
+        }
     }
     
     if (colorSelect) {
@@ -131,6 +157,10 @@
     
     if (sizeSelect) {
         sizeSelect.addEventListener('change', updateProduct);
+    }
+
+    if (option3Select) {
+        option3Select.addEventListener('change', updateProduct);
     }
     
     applyInStockDefaults();
