@@ -32,6 +32,7 @@ PLACEHOLDER_WEBHOOK_MARKERS = ('your-n8n.app', 'example.com', 'placeholder', 'ch
 SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 ALLOWED_SCHEDULE_STATUSES = ('draft', 'scheduled', 'published', 'live', 'public')
 DEFAULT_VARIANT_TITLES = {'default title', 'default', 'title'}
+MAX_CONTENT_BYTES = 2 * 1024 * 1024
 SIZE_LIKE_VALUES = {
     'xxs', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', '2xl', '3xl', '4xl',
     'os', 'one size', 'onesize',
@@ -100,6 +101,47 @@ def variant_axes(offer: Any) -> Tuple[str, str]:
     if size.lower() in DEFAULT_VARIANT_TITLES:
         size = ''
     return color, size
+
+
+def variant_option3(offer: Any) -> str:
+    """Third Shopify axis (option3 or a third slash-separated title part)."""
+    if not isinstance(offer, dict):
+        return ''
+    option3 = str(offer.get('option3') or '').strip()
+    if option3.lower() in DEFAULT_VARIANT_TITLES:
+        option3 = ''
+    if option3:
+        return option3
+    name = str(offer.get('name') or offer.get('title') or '').strip()
+    if '/' in name:
+        parts = [part.strip() for part in name.split('/') if part.strip()]
+        if len(parts) > 2 and parts[2].lower() not in DEFAULT_VARIANT_TITLES:
+            return parts[2]
+    return ''
+
+
+def renderable_markdown(files: List[Path]) -> List[Path]:
+    """HTML-renderable publishable files: safe slugs; aggregator owns product PDPs."""
+    rendered: List[Path] = []
+    for path in files:
+        category = path.parent.name
+        if category not in PUBLISHABLE_CATEGORIES or category == 'products':
+            continue
+        if not is_safe_content_slug(path.stem):
+            continue
+        rendered.append(path)
+    return rendered
+
+
+def merge_editor_frontmatter(original: str, incoming: str) -> str:
+    """Restore YAML frontmatter when an editor save dropped the --- block."""
+    orig_fm, _ = parse_frontmatter_text(original)
+    in_fm, in_body = parse_frontmatter_text(incoming)
+    if orig_fm and not in_fm:
+        dumped = yaml.dump(orig_fm, default_flow_style=False, allow_unicode=True).strip()
+        body = in_body if incoming.lstrip().startswith('---') else incoming
+        return f"---\n{dumped}\n---\n{body}"
+    return incoming
 
 
 def numeric_variant_id(value: Any) -> str:
@@ -264,22 +306,27 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     variants_list: List[Dict[str, Any]] = []
     colors_list: List[str] = []
     sizes_list: List[str] = []
+    option3s_list: List[str] = []
     first_offer: Dict[str, Any] = {}
 
     if type(offers).__name__ == 'list':
         color_order: List[str] = []
         size_order: List[str] = []
+        option3_order: List[str] = []
         colors = set()
         color_to_image: Dict[str, int] = {}
         dict_offers = [offer for offer in offers if isinstance(offer, dict)]
 
         for offer in dict_offers:
             color, size = variant_axes(offer)
+            extra = variant_option3(offer)
             if color and color not in colors:
                 color_order.append(color)
                 colors.add(color)
             if size and size not in size_order:
                 size_order.append(size)
+            if extra and extra not in option3_order:
+                option3_order.append(extra)
 
         for idx, color in enumerate(color_order):
             if idx < len(images):
@@ -287,6 +334,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
 
         for offer in dict_offers:
             color_part, size_part = variant_axes(offer)
+            extra_part = variant_option3(offer)
             variant_id = offer.get('id')
             if variant_id in (None, ''):
                 offer_url = str(offer.get('url') or '')
@@ -297,7 +345,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'name': offer.get('name', ''),
                 'color': color_part,
                 'size': size_part,
-                'option3': str(offer.get('option3') or '').strip(),
+                'option3': extra_part,
                 'price': offer.get('price', '0'),
                 'currency': offer.get('priceCurrency', 'USD'),
                 'availability': offer.get('availability', 'InStock'),
@@ -323,6 +371,16 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
             )
         ]
         sizes_list = in_stock_sizes + [size for size in size_order if size not in in_stock_sizes]
+        in_stock_option3s = [
+            extra for extra in option3_order
+            if any(
+                offer_is_in_stock(offer) and variant_option3(offer) == extra
+                for offer in dict_offers
+            )
+        ]
+        option3s_list = in_stock_option3s + [
+            extra for extra in option3_order if extra not in in_stock_option3s
+        ]
         in_stock_offers = [offer for offer in dict_offers if offer_is_in_stock(offer)]
         first_offer = (in_stock_offers or dict_offers or [{}])[0]
         default_variant = next((item for item in variants_list if offer_is_in_stock({
@@ -335,6 +393,10 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         if default_variant.get('size') and default_variant['size'] in sizes_list:
             sizes_list = [default_variant['size']] + [
                 size for size in sizes_list if size != default_variant['size']
+            ]
+        if default_variant.get('option3') and default_variant['option3'] in option3s_list:
+            option3s_list = [default_variant['option3']] + [
+                extra for extra in option3s_list if extra != default_variant['option3']
             ]
     elif isinstance(offers, dict):
         first_offer = offers
@@ -352,6 +414,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     )
     default_color = matching_default.get('color') or (colors_list[0] if colors_list else '')
     default_size = matching_default.get('size') or (sizes_list[0] if sizes_list else '')
+    default_option3 = matching_default.get('option3') or (option3s_list[0] if option3s_list else '')
     default_variant_id = numeric_variant_id(
         matching_default.get('id') or first_offer.get('id') or ''
     )
@@ -414,8 +477,10 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'variants': variants_list,
         'colors': colors_list,
         'sizes': sizes_list,
+        'option3s': option3s_list,
         'default_color': default_color,
         'default_size': default_size,
+        'default_option3': default_option3,
         'variant_id': default_variant_id,
         'sku': matching_default.get('sku') or product.get('sku', ''),
         'brand': brand_name,
@@ -2949,7 +3014,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     schedule_result = scheduler.get_publishable_content(all_md_files)
     
-    publishable_files = [item['path'] for item in schedule_result['publishable']]
+    publishable_files = renderable_markdown(
+        [item['path'] for item in schedule_result['publishable']]
+    )
     
     # Show scheduling info if there are scheduled items
     if schedule_result['scheduled']:
@@ -3122,7 +3189,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         'posts': sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5],
     }
     
-    index_html = create_index_simple(config, all_posts[:5], templates_path)
+    index_html = create_index_simple(
+        config,
+        sorted(all_posts, key=lambda x: x.get('date', ''), reverse=True)[:5],
+        templates_path,
+    )
     page_size_bytes = len(index_html.encode('utf-8'))
     index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'index.html').write_text(index_html)
@@ -4518,6 +4589,8 @@ def studio(ctx, port, host):
                     content_length = 0
                 if content_length <= 0:
                     raise ValueError('Missing request body')
+                if content_length > MAX_CONTENT_BYTES:
+                    raise ValueError('Request body too large')
                 body = self.rfile.read(content_length)
                 data = json.loads(body.decode())
                 if not isinstance(data, dict):
@@ -4890,7 +4963,24 @@ def studio(ctx, port, host):
                             self.wfile.write(json.dumps({'error': 'Invalid file path'}).encode())
                             return
                         
-                        content_length = int(self.headers.get('Content-Length', 0) or 0)
+                        try:
+                            content_length = int(self.headers.get('Content-Length', 0) or 0)
+                        except (TypeError, ValueError):
+                            content_length = 0
+                        if content_length <= 0:
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'No content provided'}).encode())
+                            return
+                        if content_length > MAX_CONTENT_BYTES:
+                            self.send_response(413)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({'error': 'Request body too large'}).encode())
+                            return
                         body = self.rfile.read(content_length)
                         content = body.decode()
                         if not content.strip():
@@ -4900,6 +4990,8 @@ def studio(ctx, port, host):
                             self.end_headers()
                             self.wfile.write(json.dumps({'error': 'No content provided'}).encode())
                             return
+                        if content_path.exists():
+                            content = merge_editor_frontmatter(content_path.read_text(), content)
                         
                         content_path.parent.mkdir(parents=True, exist_ok=True)
                         content_path.write_text(content)
@@ -5171,7 +5263,9 @@ def serve(ctx, port, host):
                     from gang.core.scheduler import ContentScheduler
                 scheduler = ContentScheduler(content_path)
                 schedule_result = scheduler.get_publishable_content(collect_category_markdown(content_path))
-                publishable_files = [item['path'] for item in schedule_result['publishable']]
+                publishable_files = renderable_markdown(
+                    [item['path'] for item in schedule_result['publishable']]
+                )
 
                 for md_file in publishable_files:
                     content_type = md_file.parent.name
