@@ -115,6 +115,17 @@
                         </select>
                     </div>
                     {% endif %}
+
+                    {% if option3s %}
+                    <div class="form-group">
+                        <label for="option3">Option:</label>
+                        <select name="option3" id="option3" required>
+                            {% for extra in option3s %}
+                            <option value="{{ extra }}"{% if extra == default_option3 %} selected{% endif %}>{{ extra }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     
                     <div class="form-group">
                         <label for="quantity">Quantity:</label>
