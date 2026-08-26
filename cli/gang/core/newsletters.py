@@ -680,9 +680,9 @@ class PostmarkProvider(EmailProvider):
         # You'd send individual emails or use their Broadcasts API
         
         return {
-            'success': True,
+            'success': False,
             'provider': 'postmark',
-            'message': 'Postmark integration pending - use Broadcasts API'
+            'error': 'Postmark broadcasts are not implemented; refusing to mark as sent',
         }
     
     def send_test(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
