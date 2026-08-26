@@ -75,8 +75,12 @@ class ContentScheduler:
                 })
                 continue
             
-            # Get status (YAML `no`/`false` and list wrappers must not publish)
-            raw_status = frontmatter.get('status', 'published')
+            # Get status (YAML `no`/`false` and list wrappers must not publish).
+            # Missing key defaults to published; explicit null/empty fails closed.
+            if 'status' not in frontmatter:
+                raw_status = 'published'
+            else:
+                raw_status = frontmatter.get('status')
             if isinstance(raw_status, list) and raw_status:
                 raw_status = raw_status[0]
             if raw_status is False:
@@ -84,8 +88,10 @@ class ContentScheduler:
             elif raw_status is True or isinstance(raw_status, (int, float)):
                 # Bool/numeric YAML must not silently publish
                 status = 'draft'
+            elif raw_status is None or (isinstance(raw_status, str) and not raw_status.strip()):
+                status = 'draft'
             else:
-                status = str(raw_status or 'published').strip().lower()
+                status = str(raw_status).strip().lower()
             
             # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
             # `sent` keeps already-emailed newsletters on the static site.
@@ -167,7 +173,13 @@ class ContentScheduler:
     
     def get_scheduled_summary(self) -> Dict[str, Any]:
         """Get summary of all scheduled content"""
-        all_files = list(self.content_path.rglob('*.md'))
+        # Match the build collector: top-level category dirs, not products/*.md
+        category_dirs = ('posts', 'articles', 'pages', 'projects', 'newsletters', 'people')
+        all_files = []
+        for category in category_dirs:
+            directory = self.content_path / category
+            if directory.is_dir():
+                all_files.extend(sorted(directory.glob('*.md')))
         result = self.get_publishable_content(all_files)
         
         return {
