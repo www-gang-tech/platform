@@ -8,6 +8,11 @@
     <title>Sitemap - {{ site_title }}</title>
     <meta name="description" content="Complete sitemap of all pages, posts, projects, and products">
     <link rel="canonical" href="{{ site_url }}/sitemap/">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson_script }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -67,6 +72,28 @@
             <ul class="unstyled">
                 {% for product in products %}
                 <li><a href="/products/{{ product._meta.slug or product._meta.handle }}/">{{ product.name }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+        
+        {% if newsletters %}
+        <section style="margin-top: 2rem;">
+            <h2>Newsletters</h2>
+            <ul class="unstyled">
+                {% for issue in newsletters %}
+                <li><a href="{{ issue.url }}">{{ issue.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+        
+        {% if people %}
+        <section style="margin-top: 2rem;">
+            <h2>People</h2>
+            <ul class="unstyled">
+                {% for person in people %}
+                <li><a href="{{ person.url }}">{{ person.title }}</a></li>
                 {% endfor %}
             </ul>
         </section>

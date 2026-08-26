@@ -29,41 +29,73 @@ class ContentScheduler:
         for file_path in content_files:
             content = file_path.read_text()
             
-            # Parse frontmatter
+            # Parse frontmatter. Missing or truncated YAML must not go live.
             if not content.startswith('---'):
-                # No frontmatter, include by default
-                publishable.append({
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'missing frontmatter',
                 })
                 continue
             
             parts = content.split('---', 2)
             if len(parts) < 3:
-                publishable.append({
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'malformed frontmatter delimiters',
                 })
                 continue
             
             try:
                 frontmatter = yaml.safe_load(parts[1]) or {}
-            except:
-                # Invalid YAML, include anyway
-                publishable.append({
+            except Exception:
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                })
+                continue
+
+            if not isinstance(frontmatter, dict):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
                 })
                 continue
             
-            # Get status
-            status = frontmatter.get('status', 'published')
+            # Get status (YAML `no`/`false` and list wrappers must not publish).
+            # Missing key defaults to published; explicit null/empty fails closed.
+            if 'status' not in frontmatter:
+                raw_status = 'published'
+            else:
+                raw_status = frontmatter.get('status')
+            if isinstance(raw_status, list) and raw_status:
+                raw_status = raw_status[0]
+            if raw_status is False:
+                status = 'draft'
+            elif raw_status is True or isinstance(raw_status, (int, float)):
+                # Bool/numeric YAML must not silently publish
+                status = 'draft'
+            elif raw_status is None or (isinstance(raw_status, str) and not raw_status.strip()):
+                status = 'draft'
+            else:
+                status = str(raw_status).strip().lower()
             
-            # If status is draft, skip
-            if status == 'draft':
+            # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
+            # `sent` keeps already-emailed newsletters on the static site.
+            if status not in ('published', 'scheduled', 'live', 'public', 'sent'):
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -76,7 +108,16 @@ class ContentScheduler:
             publish_date_str = frontmatter.get('publish_date')
             
             if not publish_date_str:
-                # No publish date, publish immediately
+                # Scheduled without a date is invalid — fail closed so it cannot go live.
+                if status == 'scheduled':
+                    draft.append({
+                        'path': file_path,
+                        'status': 'draft',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem),
+                        'error': 'status=scheduled requires publish_date',
+                    })
+                    continue
                 publishable.append({
                     'path': file_path,
                     'status': status,
@@ -113,11 +154,13 @@ class ContentScheduler:
                     })
             
             except (ValueError, TypeError) as e:
-                # Invalid date format, include anyway
-                publishable.append({
+                # Invalid date format — fail closed so a typo cannot publish early
+                draft.append({
                     'path': file_path,
-                    'status': status,
+                    'status': 'draft',
                     'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem),
+                    '_date_error': True,
                     'error': f'Invalid date format: {e}'
                 })
         
@@ -130,7 +173,13 @@ class ContentScheduler:
     
     def get_scheduled_summary(self) -> Dict[str, Any]:
         """Get summary of all scheduled content"""
-        all_files = list(self.content_path.rglob('*.md'))
+        # Match the build collector: top-level category dirs, not products/*.md
+        category_dirs = ('posts', 'articles', 'pages', 'projects', 'newsletters', 'people')
+        all_files = []
+        for category in category_dirs:
+            directory = self.content_path / category
+            if directory.is_dir():
+                all_files.extend(sorted(directory.glob('*.md')))
         result = self.get_publishable_content(all_files)
         
         return {
@@ -229,7 +278,9 @@ class ContentScheduler:
         
         try:
             frontmatter = yaml.safe_load(parts[1]) or {}
-        except:
+        except Exception:
+            return False
+        if not isinstance(frontmatter, dict):
             return False
         
         # Update frontmatter

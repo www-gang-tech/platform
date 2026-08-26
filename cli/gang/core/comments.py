@@ -6,12 +6,16 @@ Integrates with the build system to include approved comments in templates.
 """
 
 import os
+import re
 import yaml
 import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import click
+
+_SAFE_SLUG = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+_SAFE_COMMENT_ID = re.compile(r'^comment-[0-9]{8,20}$')
 
 
 class CommentsManager:
@@ -26,16 +30,44 @@ class CommentsManager:
         # Ensure directories exist
         self.posts_comments_path.mkdir(parents=True, exist_ok=True)
         self.products_comments_path.mkdir(parents=True, exist_ok=True)
+
+    def _safe_slug(self, page_slug: str) -> str:
+        slug = str(page_slug or '').strip()
+        if not _SAFE_SLUG.match(slug) or '..' in slug:
+            raise ValueError(f"Invalid page slug: {page_slug!r}")
+        return slug
+
+    def _safe_comment_id(self, comment_id: str) -> str:
+        value = str(comment_id or '').strip()
+        if not _SAFE_COMMENT_ID.match(value) or '..' in value:
+            raise ValueError(f"Invalid comment id: {comment_id!r}")
+        return value
+
+    def _comment_file(self, page_dir: Path, comment_id: str) -> Path:
+        safe_id = self._safe_comment_id(comment_id)
+        target = (page_dir / f"{safe_id}.yml").resolve()
+        target.relative_to(page_dir.resolve())
+        return target
+
+    def _comments_dir(self, page_slug: str, page_type: str) -> Path:
+        slug = self._safe_slug(page_slug)
+        if page_type in ("post", "article"):
+            root = self.posts_comments_path
+        elif page_type == "product":
+            root = self.products_comments_path
+        else:
+            raise ValueError(f"Unsupported page type: {page_type}")
+        target = (root / slug).resolve()
+        target.relative_to(root.resolve())
+        return target
     
     def get_comments_for_page(self, page_slug: str, page_type: str) -> List[Dict[str, Any]]:
         """Get all approved comments for a specific page."""
         comments = []
         
-        if page_type == "post":
-            comments_dir = self.posts_comments_path / page_slug
-        elif page_type == "product":
-            comments_dir = self.products_comments_path / page_slug
-        else:
+        try:
+            comments_dir = self._comments_dir(page_slug, page_type)
+        except ValueError:
             return comments
         
         if not comments_dir.exists():
@@ -46,6 +78,8 @@ class CommentsManager:
             try:
                 with open(comment_file, 'r', encoding='utf-8') as f:
                     comment_data = yaml.safe_load(f)
+                if not isinstance(comment_data, dict):
+                    continue
                 
                 # Only include approved comments
                 if comment_data.get('status') == 'approved':
@@ -88,19 +122,13 @@ class CommentsManager:
             'parent_id': None
         }
         
-        # Determine target directory
-        if page_type == "post":
-            target_dir = self.posts_comments_path / page_slug
-        elif page_type == "product":
-            target_dir = self.products_comments_path / page_slug
-        else:
-            raise ValueError(f"Unsupported page type: {page_type}")
+        target_dir = self._comments_dir(page_slug, page_type)
         
         # Create directory if it doesn't exist
         target_dir.mkdir(parents=True, exist_ok=True)
         
         # Write comment file
-        comment_file = target_dir / f"{comment_id}.yml"
+        comment_file = self._comment_file(target_dir, comment_id)
         with open(comment_file, 'w', encoding='utf-8') as f:
             yaml.dump(comment, f, default_flow_style=False, allow_unicode=True)
         
@@ -112,11 +140,17 @@ class CommentsManager:
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
-                    comment_file = page_dir / f"{comment_id}.yml"
+                    try:
+                        comment_file = self._comment_file(page_dir, comment_id)
+                    except ValueError:
+                        return False
                     if comment_file.exists():
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
                                 comment_data = yaml.safe_load(f)
+                            if not isinstance(comment_data, dict):
+                                click.echo(f"Error updating comment {comment_id}: invalid YAML", err=True)
+                                return False
                             
                             comment_data['status'] = status
                             
@@ -136,7 +170,10 @@ class CommentsManager:
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
             for page_dir in comments_dir.iterdir():
                 if page_dir.is_dir():
-                    comment_file = page_dir / f"{comment_id}.yml"
+                    try:
+                        comment_file = self._comment_file(page_dir, comment_id)
+                    except ValueError:
+                        return False
                     if comment_file.exists():
                         try:
                             comment_file.unlink()
@@ -158,6 +195,8 @@ class CommentsManager:
                         try:
                             with open(comment_file, 'r', encoding='utf-8') as f:
                                 comment_data = yaml.safe_load(f)
+                            if not isinstance(comment_data, dict):
+                                continue
                             
                             # Apply status filter
                             if status_filter and comment_data.get('status') != status_filter:
@@ -247,8 +286,8 @@ class CommentsManager:
         try:
             from urllib.parse import urlparse
             result = urlparse(url)
-            return all([result.scheme, result.netloc])
-        except:
+            return result.scheme in ('http', 'https') and bool(result.netloc)
+        except Exception:
             return False
 
 
