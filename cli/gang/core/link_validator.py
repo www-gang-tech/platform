@@ -210,12 +210,18 @@ class LinkValidator:
             return f'/pages/{slug}/'
         
         return None
+
+    def _normalize_internal_url(self, url: str) -> str:
+        url = url.split('#')[0]
+        url = url.split('?')[0]
+        if url.startswith('/articles/'):
+            url = '/posts/' + url[len('/articles/'):]
+        return url
     
     def _check_internal_link(self, url: str) -> bool:
         """Check if an internal link is valid"""
         # Clean up the URL
-        url = url.split('#')[0]  # Remove anchor
-        url = url.split('?')[0]  # Remove query string
+        url = self._normalize_internal_url(url)
         
         # Check if it's in our list of valid pages
         if url in self.internal_pages:
@@ -223,7 +229,12 @@ class LinkValidator:
         
         # Check if it's a static file
         if not url.startswith('/'):
-            return True  # Relative links are assumed valid
+            lowered = url.strip().lower()
+            if lowered.startswith(('javascript:', 'data:', 'vbscript:')):
+                return False
+            if '..' in url.split('/'):
+                return False
+            return True  # same-directory relatives are assumed valid
         
         # Check if file exists in dist (for assets)
         if self.dist_path.exists():
