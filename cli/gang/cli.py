@@ -171,40 +171,33 @@ def convert_markdown_html(body: str) -> str:
 
 
 def collect_checkout_origins(products: Optional[List[Any]] = None) -> List[str]:
-    """Merchant origins allowed for cart checkout redirects."""
+    """Configured merchant origins only — catalog URLs must not widen the allowlist."""
     origins = set()
-    store_url = (
-        os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
-    ).strip()
-    if store_url and not store_url.startswith('http'):
-        store_url = f'https://{store_url}'
-    parsed = urlparse(store_url)
-    if parsed.scheme in ('http', 'https') and parsed.netloc:
-        if parsed.netloc.lower() not in ('www.shopify.com', 'shopify.com'):
-            origins.add(f"{parsed.scheme}://{parsed.netloc}")
-    for product in products or []:
-        if not isinstance(product, dict):
+    candidates = [
+        os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or '',
+    ]
+    extra = os.environ.get('CHECKOUT_ORIGINS') or ''
+    candidates.extend(re.split(r'[\s,]+', extra))
+    del products  # product JSON is untrusted for origin expansion
+    for store_url in candidates:
+        store_url = (store_url or '').strip()
+        if not store_url:
             continue
-        meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
-        candidates = [meta.get('url'), product.get('url')]
-        offers = product.get('offers')
-        if isinstance(offers, dict):
-            candidates.append(offers.get('url'))
-        elif isinstance(offers, list):
-            for offer in offers:
-                if isinstance(offer, dict):
-                    candidates.append(offer.get('url'))
-        for candidate in candidates:
-            safe = safe_http_url(candidate)
-            if not safe or safe.startswith('/'):
-                continue
-            try:
-                parsed = urlparse(safe)
-                if parsed.scheme in ('http', 'https') and parsed.netloc:
-                    origins.add(f"{parsed.scheme}://{parsed.netloc}")
-            except Exception:
-                continue
+        if not store_url.startswith('http'):
+            store_url = f'https://{store_url}'
+        parsed = urlparse(store_url)
+        if parsed.scheme in ('http', 'https') and parsed.netloc:
+            if parsed.netloc.lower() not in ('www.shopify.com', 'shopify.com'):
+                origins.add(f"{parsed.scheme}://{parsed.netloc}")
     return sorted(origins)
+
+
+def catalog_product_slug(product: Any) -> str:
+    """Public PDP slug from normalized product metadata."""
+    if not isinstance(product, dict):
+        return ''
+    meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
+    return str(meta.get('slug') or meta.get('handle') or '').strip()
 
 
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
@@ -225,7 +218,8 @@ def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
 
 def json_for_script(data: Any) -> str:
     """Serialize JSON for embedding in <script> without </script> breakout."""
-    return (
+    from markupsafe import Markup
+    return Markup(
         json.dumps(data, indent=2, default=str)
         .replace('<', '\\u003c')
         .replace('>', '\\u003e')
@@ -1593,6 +1587,13 @@ def import_content(ctx, source, title, category, compress_images, commit):
     
     # Create markdown file
     final_category = category or result.get('suggested_category', {}).get('category', 'pages')
+    if (
+        final_category not in PUBLISHABLE_CATEGORIES
+        or final_category == 'products'
+        or not is_safe_content_slug(str(result.get('suggested_slug') or ''))
+    ):
+        click.echo("❌ Invalid import category or slug", err=True)
+        ctx.exit(1)
     file_path, markdown_content = importer.create_markdown_file(
         result['title'],
         result['content'],
@@ -2286,9 +2287,23 @@ def email_send_draft(ctx, email_slug, emails_dir, api_key, from_email):
     # Load metadata
     metadata = json.loads(meta_file.read_text())
     
-    # Load email content
-    html_content = Path(metadata['html_path']).read_text()
-    text_content = Path(metadata['text_path']).read_text()
+    # Load email content — metadata paths must stay inside emails_dir
+    def _email_asset(raw: Any) -> Path:
+        if not raw:
+            raise ValueError('missing email asset path')
+        candidate = Path(str(raw))
+        resolved = candidate.resolve() if candidate.is_absolute() else (emails_path / candidate).resolve()
+        resolved.relative_to(emails_path)
+        if not resolved.is_file():
+            raise ValueError(f'missing email asset: {resolved.name}')
+        return resolved
+
+    try:
+        html_content = _email_asset(metadata.get('html_path')).read_text()
+        text_content = _email_asset(metadata.get('text_path')).read_text()
+    except (ValueError, OSError) as exc:
+        click.echo(f"❌ Invalid email asset path: {exc}", err=True)
+        ctx.exit(1)
     
     # Send to ESP
     esp = ESPIntegration(metadata['esp_provider'], api_key)
@@ -2762,11 +2777,11 @@ def generate_agentmap(ctx):
     scheduler = ContentScheduler(content_path)
     
     schedule_result = scheduler.get_publishable_content(collect_category_markdown(content_path))
-    publishable = [item['path'] for item in schedule_result['publishable']]
+    publishable = renderable_markdown([item['path'] for item in schedule_result['publishable']])
     
     # Get products if available (do not force demo catalog)
     aggregator = ProductAggregator(config)
-    products = aggregator.get_normalized_products()
+    products = aggregator.get_normalized_products(status_filter='active')
     
     # Generate AgentMap
     generator = AgentMapGenerator(config, site_url)
@@ -2784,6 +2799,9 @@ def generate_agentmap(ctx):
     content_index = api_generator.generate_content_index(publishable, content_path)
     
     (api_dir / 'content.json').write_text(json.dumps(content_index, indent=2))
+    api_generator.write_content_apis(
+        publishable, content_path, api_dir, safe_slug=is_safe_content_slug
+    )
     
     if products:
         (api_dir / 'products.json').write_text(json.dumps(products, indent=2))
@@ -3044,8 +3062,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         build_time = datetime.now()
         slug = md_file.stem
         
-        # Check if editor mode is enabled (for in-place editing)
-        user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+        # Never bake in-place editor chrome into published HTML.
+        user_authenticated = False
         
         description = (
             frontmatter.get('summary')
@@ -3285,6 +3303,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             products_path.mkdir(parents=True, exist_ok=True)
             
             # Generate PLP
+            products = [
+                product for product in products
+                if is_safe_content_slug(catalog_product_slug(product))
+            ]
             plp_template = jinja_env.get_template('products-list.html')
             plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
             plp_html = plp_template.render(
@@ -5300,8 +5322,8 @@ def serve(ctx, port, host):
                     
                     build_time = datetime.now()
                     
-                    # Check if editor mode is enabled (for in-place editing)
-                    user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
+                    # Never bake in-place editor chrome into published HTML.
+                    user_authenticated = False
                     tags = frontmatter.get('tags') or []
                     if isinstance(tags, str):
                         tags = [tags]
@@ -5495,6 +5517,10 @@ def serve(ctx, port, host):
                     products = aggregator.get_normalized_products(status_filter='active') or []
                     
                     if products:
+                        products = [
+                            product for product in products
+                            if is_safe_content_slug(catalog_product_slug(product))
+                        ]
                         template_dir = Path(__file__).parent.parent.parent / 'templates'
                         jinja_env = template_environment(template_dir)
                         
