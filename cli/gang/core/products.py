@@ -34,6 +34,18 @@ def shopify_storefront_url(product: Dict[str, Any]) -> str:
     return f"https://{host}/products/{handle}"
 
 
+def commerce_slug(*candidates: Any) -> str:
+    """Safe public slug from platform id/name/handle."""
+    for raw in candidates:
+        text = str(raw or '').strip()
+        if not text:
+            continue
+        slug = re.sub(r'[^A-Za-z0-9._-]+', '-', text).strip('-_.')[:128]
+        if slug and re.match(r'^[A-Za-z0-9]', slug):
+            return slug
+    return ''
+
+
 class ProductSchema:
     """Normalize product data to Schema.org Product schema"""
     
@@ -176,6 +188,8 @@ class ProductSchema:
             '_meta': {
                 'source': 'stripe',
                 'id': product.get('id'),
+                'handle': commerce_slug(product.get('metadata', {}).get('handle') if isinstance(product.get('metadata'), dict) else '', product.get('id'), product.get('name')),
+                'slug': commerce_slug(product.get('metadata', {}).get('handle') if isinstance(product.get('metadata'), dict) else '', product.get('id'), product.get('name')),
                 'url': product.get('url'),
                 'prices': prices,
                 'created': product.get('created'),
@@ -201,11 +215,17 @@ class ProductSchema:
                 '@type': 'Offer',
                 'price': gumroad_price,
                 'priceCurrency': product.get('currency') or 'USD',
-                'availability': 'https://schema.org/InStock'
+                'availability': (
+                    'https://schema.org/InStock'
+                    if product.get('published', True)
+                    else 'https://schema.org/OutOfStock'
+                )
             },
             '_meta': {
                 'source': 'gumroad',
                 'id': product.get('id'),
+                'handle': commerce_slug(product.get('custom_permalink'), product.get('id'), product.get('name')),
+                'slug': commerce_slug(product.get('custom_permalink'), product.get('id'), product.get('name')),
                 'url': product.get('short_url'),
                 'created_at': product.get('created_at')
             }
@@ -403,7 +423,7 @@ class GumroadClient:
             url = 'https://api.gumroad.com/v2/products'
             headers = {'Authorization': f'Bearer {self.access_token}'}
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             
             data = response.json()
@@ -486,7 +506,9 @@ class ProductAggregator:
             if not live_configured:
                 return cached['products']
             for source, items in cached['products'].items():
-                if not products.get(source):
+                # Restore only sources that were not fetched (failed/skipped).
+                # A successful empty list must not resurrect stale catalog rows.
+                if source not in products:
                     products[source] = items
         
         has_products = any(products.get(source) for source in products)
