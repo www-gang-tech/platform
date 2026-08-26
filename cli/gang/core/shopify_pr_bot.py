@@ -150,8 +150,14 @@ class ShopifyPRBot:
                         qty_num = 0
                     policy = str(v.get('inventory_policy') or '')
                     available = v.get('available')
+                    inventory_management = v.get('inventory_management')
                     if available is None:
-                        available = qty_num > 0 or policy == 'continue'
+                        if inventory_management is None or inventory_management == '':
+                            available = True
+                        elif policy == 'continue':
+                            available = True
+                        else:
+                            available = qty_num > 0
                     normalized.append({
                         'id': v.get('id'),
                         'title': v.get('title'),

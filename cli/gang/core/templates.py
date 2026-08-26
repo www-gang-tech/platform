@@ -42,7 +42,8 @@ class TemplateEngine:
     @staticmethod
     def _tojson_script(data):
         import json
-        return (
+        from markupsafe import Markup
+        return Markup(
             json.dumps(data, indent=2, default=str)
             .replace('<', '\\u003c')
             .replace('>', '\\u003e')
