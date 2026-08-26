@@ -8,6 +8,21 @@ from typing import Dict, Any, Optional
 import html
 import re
 from datetime import datetime
+from urllib.parse import urlparse
+
+
+def _safe_email_href(url: Any) -> str:
+    """Allow only http(s) or root-relative hrefs; always quote-escape."""
+    raw = str(url or '').strip()
+    if raw.startswith('/') and not raw.startswith('//'):
+        return html.escape(raw, quote=True)
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return '#'
+    if parsed.scheme in ('http', 'https') and parsed.netloc:
+        return html.escape(raw, quote=True)
+    return '#'
 
 
 class EmailTemplateGenerator:
@@ -48,8 +63,12 @@ class EmailTemplateGenerator:
         title = html.escape(str(title or ''), quote=True)
         preview_text = html.escape(str(preview_text or ''), quote=True)
         site_title = html.escape(str(self.site_title or ''), quote=True)
-        site_url = self.site_url if str(self.site_url).startswith(('http://', 'https://')) else '#'
-        canonical_url = canonical_url if str(canonical_url).startswith(('http://', 'https://', '/')) else '#'
+        site_url = _safe_email_href(self.site_url)
+        canonical_url = _safe_email_href(canonical_url)
+        if str(unsubscribe_url or '').strip() in ('{{unsubscribe_url}}', '{{{unsubscribe_url}}}'):
+            pass
+        else:
+            unsubscribe_url = _safe_email_href(unsubscribe_url)
         
         rendered = f"""<!DOCTYPE html>
 <html lang="en">
@@ -378,7 +397,9 @@ class EmailOrchestrator:
             'sent_date': metadata.get('created'),
             'esp_provider': metadata.get('esp_provider'),
             'canonical_url': metadata.get('canonical_url'),
-            'tags': frontmatter.get('tags', [])
+            'tags': frontmatter.get('tags', []),
+            # Archives stay draft until the ESP send marks them sent.
+            'status': 'draft',
         }
         
         # Create newsletter content

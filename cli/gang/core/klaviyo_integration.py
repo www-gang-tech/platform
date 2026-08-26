@@ -562,7 +562,7 @@ class KlaviyoTemplateGenerator:
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{cart_url}" 
+                                        <a href="{_safe_http_attr(cart_url) or '#'}" 
                                            style="display: inline-block; padding: 16px 32px; background-color: #0052a3; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px;">
                                             Complete Your Purchase
                                         </a>
