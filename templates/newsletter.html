@@ -10,7 +10,7 @@
     <link rel="canonical" href="{{ canonical_url }}">
     {% if jsonld %}
     <script type="application/ld+json">
-    {{ jsonld | tojson }}
+    {{ jsonld | tojson_script }}
     </script>
     {% endif %}
     
