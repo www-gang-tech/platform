@@ -10,7 +10,7 @@
     <link rel="canonical" href="{{ site_url }}/sitemap/">
     {% if jsonld %}
     <script type="application/ld+json">
-    {{ jsonld | tojson }}
+    {{ jsonld | tojson_script }}
     </script>
     {% endif %}
     
