@@ -82,12 +82,28 @@ def _is_direct_loopback():
 
 def _is_loopback_origin():
     """Reject cross-origin CSRF against tokenless loopback Studio."""
-    origin = (request.headers.get('Origin') or request.headers.get('Referer') or '').strip()
+    origin_header = (request.headers.get('Origin') or '').strip()
+    referer = (request.headers.get('Referer') or '').strip()
+    # Mutating requests must send Origin so a form on another loopback port
+    # cannot commit/push with a missing Origin + spoofed Referer.
+    if request.method not in ('GET', 'HEAD', 'OPTIONS') and not origin_header:
+        return False
+    origin = origin_header or referer
     if not origin:
         return request.method in ('GET', 'HEAD', 'OPTIONS')
     parsed = urlparse(origin)
     host = (parsed.hostname or '').lower()
-    return host in {'127.0.0.1', 'localhost', '::1'}
+    if host not in {'127.0.0.1', 'localhost', '::1'}:
+        return False
+    if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        origin_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        try:
+            req_port = int(request.environ.get('SERVER_PORT') or 0)
+        except (TypeError, ValueError):
+            req_port = 0
+        if req_port and origin_port != req_port:
+            return False
+    return True
 
 
 def _require_auth():
