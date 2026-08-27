@@ -6,7 +6,7 @@ Supports: Klaviyo, Mailchimp, Postmark, Cloudflare Email Workers.
 
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -87,7 +87,7 @@ class NewsletterManager:
             'from_email': from_email,
             'preview_text': preview_text or subject,
             'status': 'draft',
-            'created': datetime.now().isoformat(),
+            'created': datetime.now(timezone.utc).isoformat(),
             'type': 'newsletter'
         }
         
@@ -101,6 +101,17 @@ class NewsletterManager:
             'slug': slug
         }
     
+    def _resolve_newsletter_file(self, file_path: Path) -> Optional[Path]:
+        """Keep newsletter reads/writes inside the newsletters directory."""
+        try:
+            resolved = Path(file_path).resolve()
+            resolved.relative_to(self.newsletters_path.resolve())
+        except (OSError, ValueError):
+            return None
+        if resolved.suffix != '.md':
+            return None
+        return resolved
+
     def send_newsletter(
         self,
         file_path: Path,
@@ -110,6 +121,10 @@ class NewsletterManager:
         
         import yaml
         
+        file_path = self._resolve_newsletter_file(file_path)
+        if file_path is None or not file_path.is_file():
+            return {'error': 'Newsletter path must stay inside the newsletters directory'}
+
         content = file_path.read_text()
         
         # Parse frontmatter
@@ -120,7 +135,10 @@ class NewsletterManager:
         if len(parts) < 3:
             return {'error': 'Invalid frontmatter'}
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
+        try:
+            frontmatter = yaml.safe_load(parts[1]) or {}
+        except Exception:
+            return {'error': 'Invalid frontmatter'}
         if not isinstance(frontmatter, dict):
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
@@ -144,22 +162,22 @@ class NewsletterManager:
         else:
             result = self.provider.send_campaign(email_data)
         
-        # Update frontmatter if sent
-        if result.get('success'):
+        # Test sends must not flip archive status or rewrite the source file.
+        if result.get('success') and not test_mode:
             frontmatter['status'] = 'sent'
-            frontmatter['sent_at'] = datetime.now().isoformat()
+            frontmatter['sent_at'] = datetime.now(timezone.utc).isoformat()
             frontmatter['provider'] = self.provider.name
             frontmatter['campaign_id'] = result.get('campaign_id')
             frontmatter['recipients'] = result.get('recipients', 0)
             
             # Update file
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{body}"
             file_path.write_text(new_content)
             
             # Add to archive
             self.archive['newsletters'].append({
                 'slug': file_path.stem,
-            'title': frontmatter.get('title', email_data['subject']),
+                'title': frontmatter.get('title', email_data['subject']),
                 'subject': email_data['subject'],
                 'sent_at': frontmatter['sent_at'],
                 'campaign_id': frontmatter['campaign_id'],
@@ -180,20 +198,30 @@ class NewsletterManager:
         
         import yaml
         
+        file_path = self._resolve_newsletter_file(file_path)
+        if file_path is None or not file_path.is_file():
+            return {'error': 'Newsletter path must stay inside the newsletters directory'}
+
         content = file_path.read_text()
+        if not content.startswith('---'):
+            return {'error': 'Invalid frontmatter'}
         parts = content.split('---', 2)
         
         if len(parts) < 3:
             return {'error': 'Invalid frontmatter'}
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
+        try:
+            frontmatter = yaml.safe_load(parts[1]) or {}
+        except Exception:
+            return {'error': 'Invalid frontmatter'}
         if not isinstance(frontmatter, dict):
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
-        # Update status and schedule
+        # Site scheduler reads publish_date; keep scheduled_for for ESP tooling.
         frontmatter['status'] = 'scheduled'
         frontmatter['scheduled_for'] = send_date.isoformat()
+        frontmatter['publish_date'] = send_date.isoformat()
         
         # Write back
         new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
@@ -225,7 +253,12 @@ class NewsletterManager:
                 
                 if content.startswith('---'):
                     parts = content.split('---', 2)
-                    frontmatter = yaml.safe_load(parts[1]) or {}
+                    if len(parts) < 3:
+                        continue
+                    try:
+                        frontmatter = yaml.safe_load(parts[1]) or {}
+                    except Exception:
+                        continue
                     if not isinstance(frontmatter, dict):
                         continue
                     

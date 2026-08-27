@@ -264,8 +264,15 @@ class InPlaceEditor {
         if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/')) {
             return true;
         }
+        if (/^mailto:/i.test(trimmed)) {
+            const addr = trimmed.slice(7).split('?')[0];
+            return Boolean(addr) && addr.split('@')[0].indexOf(':') === -1;
+        }
+        if (!/^https?:\/\//i.test(trimmed)) {
+            return false;
+        }
         try {
-            const url = new URL(trimmed, window.location.origin);
+            const url = new URL(trimmed);
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch (err) {
             return false;
