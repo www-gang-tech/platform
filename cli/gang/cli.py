@@ -204,15 +204,15 @@ def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
     """Parse YAML frontmatter, always returning a dict even for empty/invalid YAML."""
     if content.startswith('---'):
         parts = content.split('---', 2)
-        raw = None
-        if len(parts) > 1:
-            try:
-                raw = yaml.safe_load(parts[1])
-            except yaml.YAMLError:
-                raw = None
-        body = parts[2] if len(parts) > 2 else ''
+        # Truncated delimiters: keep the original text so writers cannot wipe the body.
+        if len(parts) < 3:
+            return {}, content
+        try:
+            raw = yaml.safe_load(parts[1])
+        except yaml.YAMLError:
+            raw = None
         frontmatter = raw if isinstance(raw, dict) else {}
-        return frontmatter, body
+        return frontmatter, parts[2]
     return {}, content
 
 
@@ -591,9 +591,13 @@ def sanitize_social_links(raw: Any) -> List[Dict[str, str]]:
     return links
 
 
-def collect_category_markdown(content_path: Path) -> List[Path]:
+def collect_category_markdown(content_path: Path, include_products: bool = False) -> List[Path]:
+    """Collect top-level category markdown. Product PDPs belong to the aggregator."""
     files = []
-    for category_dir in PUBLISHABLE_CATEGORIES:
+    categories = PUBLISHABLE_CATEGORIES if include_products else [
+        category for category in PUBLISHABLE_CATEGORIES if category != 'products'
+    ]
+    for category_dir in categories:
         category_path = content_path / category_dir
         if category_path.exists():
             files.extend(sorted(category_path.glob('*.md')))
@@ -875,6 +879,9 @@ def optimize(ctx, force):
             continue
         content = md_file.read_text()
         frontmatter, body = parse_frontmatter_text(content)
+        if content.startswith('---') and not frontmatter and body == content:
+            click.echo(f"⚠️  Skipping malformed frontmatter: {md_file.relative_to(content_path)}")
+            continue
         
         content_type = md_file.parent.name
         
@@ -1899,9 +1906,9 @@ def schedule(ctx):
     
     click.echo(report)
     
-    # Exit with code 1 if there are items to publish (for CI/CD triggers)
+    # Non-zero when future-dated content exists so CI can schedule a follow-up publish.
     if summary['scheduled'] > 0:
-        ctx.exit(0)
+        ctx.exit(1)
 
 @cli.command()
 @click.argument('file_path', type=click.STRING)
@@ -3715,7 +3722,7 @@ def create_index_simple(config: Dict, recent_posts: List, templates_path: Path =
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:;">
     <title>{html_module.escape(config['site']['title'])}</title>
     <meta name="description" content="{html_module.escape(config['site']['description'])}">
     <link rel="canonical" href="{html_module.escape(site_url + '/', quote=True)}">
@@ -3799,7 +3806,7 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:;">
     <title>{html_module.escape(title)} - {html_module.escape(config['site']['title'])}</title>
     <meta name="description" content="{html_module.escape(config['site']['description'])}">
     <link rel="canonical" href="{html_module.escape(canonical, quote=True)}">

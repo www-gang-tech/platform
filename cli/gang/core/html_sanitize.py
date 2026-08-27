@@ -24,7 +24,16 @@ def is_safe_href(value: Optional[str]) -> bool:
         return False
     scheme_host = normalized.split('?', 1)[0].split('#', 1)[0]
     if ':' in scheme_host:
-        return scheme_host.lower().startswith(('http:', 'https:', 'mailto:'))
+        lower = scheme_host.lower()
+        if lower.startswith('mailto:'):
+            addr = lower[7:]
+            local = addr.split('@', 1)[0]
+            # Reject mailto:javascript:… and other nested schemes.
+            return bool(addr) and ':' not in local
+        if lower.startswith(('http://', 'https://')):
+            host = lower.split('://', 1)[1]
+            return bool(host) and host not in ('.', '..')
+        return False
     return True
 
 

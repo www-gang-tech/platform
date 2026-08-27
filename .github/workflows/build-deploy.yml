@@ -48,6 +48,7 @@ jobs:
       - name: Validate contracts
         id: validate
         run: |
+          set -euo pipefail
           gang check --output validation-report.json
           gang check-contracts
       
