@@ -30,16 +30,31 @@ class OutputGenerators:
             if page.get('date'):
                 lastmod = SubElement(url, 'lastmod')
                 date_val = page['date']
-                if not isinstance(date_val, str):
+                if hasattr(date_val, 'date') and callable(getattr(date_val, 'date', None)):
+                    try:
+                        date_val = date_val.date().isoformat()
+                    except Exception:
+                        date_val = str(date_val)
+                elif hasattr(date_val, 'isoformat'):
+                    try:
+                        date_val = date_val.isoformat()
+                    except Exception:
+                        date_val = str(date_val)
+                else:
                     date_val = str(date_val)
+                date_val = date_val.strip()
+                if len(date_val) >= 10 and date_val[4] == '-':
+                    date_val = date_val[:10]
                 lastmod.text = date_val
             
             # Priority based on page type
             priority = SubElement(url, 'priority')
             if page['url'] == '/':
                 priority.text = '1.0'
-            elif page.get('type') == 'post':
+            elif page.get('type') in ('post', 'posts', 'article', 'articles'):
                 priority.text = '0.8'
+            elif page.get('type') == 'product':
+                priority.text = '0.7'
             else:
                 priority.text = '0.6'
             
