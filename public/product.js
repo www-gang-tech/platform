@@ -111,7 +111,9 @@
             });
         }
         
-        const checkoutHref = isSafeActionUrl(variant.url) ? variant.url : '';
+        // Keep a live merchant action only for in-stock variants so form.submit()
+        // cannot bypass the out-of-stock guard.
+        const checkoutHref = inStock && isSafeActionUrl(variant.url) ? variant.url : '';
         if (checkoutHref) {
             form.action = checkoutHref;
             form.dataset.checkoutUrl = checkoutHref;

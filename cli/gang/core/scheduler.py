@@ -104,8 +104,12 @@ class ContentScheduler:
                 })
                 continue
             
-            # Check publish_date
+            # Check publish_date (scheduled_for is the newsletter alias)
             publish_date_str = frontmatter.get('publish_date')
+            if publish_date_str in (None, ''):
+                publish_date_str = frontmatter.get('scheduled_for')
+            if isinstance(publish_date_str, str):
+                publish_date_str = publish_date_str.strip() or None
             
             if not publish_date_str:
                 # Scheduled without a date is invalid — fail closed so it cannot go live.
@@ -121,7 +125,8 @@ class ContentScheduler:
                 publishable.append({
                     'path': file_path,
                     'status': status,
-                    'publish_date': None
+                    'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem)
                 })
                 continue
             
@@ -137,11 +142,11 @@ class ContentScheduler:
                 if publish_date.tzinfo is None:
                     publish_date = publish_date.replace(tzinfo=timezone.utc)
                 
-                # Check if publish date has passed
-                if publish_date <= now:
+                # Already-sent newsletters stay live even if publish_date is still future.
+                if status == 'sent' or publish_date <= now:
                     publishable.append({
                         'path': file_path,
-                        'status': 'published',
+                        'status': 'sent' if status == 'sent' else 'published',
                         'publish_date': publish_date,
                         'title': frontmatter.get('title', file_path.stem)
                     })
@@ -288,10 +293,10 @@ class ContentScheduler:
             frontmatter['publish_date'] = publish_date.isoformat()
             frontmatter['status'] = status
         else:
-            # Remove publish_date if exists
+            # Remove publish_date if exists and honor the caller status (e.g. --now).
             frontmatter.pop('publish_date', None)
-            if frontmatter.get('status') == 'scheduled':
-                frontmatter['status'] = 'published'
+            allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
+            frontmatter['status'] = status if status in allowed else 'published'
         
         # Write back
         body = parts[2]

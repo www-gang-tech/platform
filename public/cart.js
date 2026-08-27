@@ -120,7 +120,8 @@
             url: checkoutUrl || form.dataset.productUrl || '',
             checkoutUrl: checkoutUrl,
             productUrl: form.dataset.productUrl || '',
-            sku: form.dataset.sku || ''
+            sku: form.dataset.sku || '',
+            inStock: form.dataset.inStock !== 'false'
         };
         
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -295,6 +296,10 @@
         const items = [];
         const skipped = [];
         cart.forEach(item => {
+            if (item.inStock === false) {
+                skipped.push(item);
+                return;
+            }
             if (!isNumericVariantId(item.id)) {
                 skipped.push(item);
                 return;
