@@ -108,16 +108,19 @@ class CommentsManager:
         email = comment_data.get('author_email', '')
         email_hash = hashlib.md5(email.lower().encode()).hexdigest()
         
-        # Prepare comment data
+        def _plain(value: Any) -> str:
+            return re.sub(r'<[^>]*>', '', str(value or '')).strip()
+
+        # Store text only so a later markdown/|safe render cannot XSS.
         comment = {
             'id': comment_id,
             'author': {
-                'name': comment_data.get('author_name', ''),
+                'name': _plain(comment_data.get('author_name', '')),
                 'email_hash': email_hash,
-                'website': comment_data.get('author_website', '')
+                'website': _plain(comment_data.get('author_website', ''))
             },
             'date': datetime.now().isoformat() + 'Z',
-            'content': comment_data.get('comment_content', ''),
+            'content': _plain(comment_data.get('comment_content', '')),
             'status': 'pending',
             'parent_id': None
         }
