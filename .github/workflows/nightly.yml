@@ -22,6 +22,7 @@ jobs:
       - run: pip install -e ./cli/gang
       - name: Build & audit
         run: |
+          set -euo pipefail
           if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
             ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" gang optimize
           else

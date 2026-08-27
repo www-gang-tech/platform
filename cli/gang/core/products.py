@@ -6,7 +6,7 @@ Fetch products from multiple platforms and normalize to Schema.org
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import html
 import json
 import os
@@ -32,6 +32,16 @@ def shopify_storefront_url(product: Dict[str, Any]) -> str:
     if not host or host.lower() in ('www.shopify.com', 'shopify.com'):
         return ''
     return f"https://{host}/products/{handle}"
+
+
+def append_variant_query(product_url: str, variant_id: Any) -> str:
+    """Append ?variant= without breaking an existing query string."""
+    if not product_url or variant_id in (None, ''):
+        return product_url
+    parsed = urlparse(product_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query['variant'] = str(variant_id)
+    return urlunparse(parsed._replace(query=urlencode(query)))
 
 
 def commerce_slug(*candidates: Any) -> str:
@@ -107,9 +117,7 @@ class ProductSchema:
                 price = '0'
             
             variant_id = variant.get('id', '')
-            offer_url = product_url
-            if offer_url and variant_id not in (None, ''):
-                offer_url = f"{offer_url}?variant={variant_id}"
+            offer_url = append_variant_query(product_url, variant_id)
             
             offers.append({
                 '@type': 'Offer',
@@ -464,7 +472,7 @@ class ProductAggregator:
             'gumroad': []
         }
         live_configured = False
-        fetch_failed = False
+        fetched_ok = set()
         
         shopify_url = os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE')
         shopify_token = os.environ.get('SHOPIFY_ACCESS_TOKEN')
@@ -472,47 +480,46 @@ class ProductAggregator:
             live_configured = True
             client = ShopifyClient(shopify_url, shopify_token)
             fetched = client.fetch_products()
-            if fetched is None:
-                fetch_failed = True
-            else:
+            if fetched is not None:
                 products['shopify'] = fetched
+                fetched_ok.add('shopify')
         elif self.config.get('demo_mode', False):
             client = ShopifyClient('demo.myshopify.com', 'demo')
             products['shopify'] = client.fetch_products() or []
+            fetched_ok.add('shopify')
         
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
             live_configured = True
             client = StripeClient(stripe_key)
             fetched = client.fetch_products()
-            if fetched is None:
-                fetch_failed = True
-            else:
+            if fetched is not None:
                 products['stripe'] = fetched
+                fetched_ok.add('stripe')
         
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
             live_configured = True
             client = GumroadClient(gumroad_token)
             fetched = client.fetch_products()
-            if fetched is None:
-                fetch_failed = True
-            else:
+            if fetched is not None:
                 products['gumroad'] = fetched
+                fetched_ok.add('gumroad')
         
-        # Restore cache when nothing is configured, or when a live fetch failed
+        # Restore cache when nothing is configured, or when a live fetch failed/skipped.
+        # products is pre-keyed, so "source not in products" never restores.
         cached = self.load_cache()
-        if (not live_configured or fetch_failed) and cached and cached.get('products'):
+        if cached and cached.get('products'):
             if not live_configured:
                 return cached['products']
             for source, items in cached['products'].items():
                 # Restore only sources that were not fetched (failed/skipped).
                 # A successful empty list must not resurrect stale catalog rows.
-                if source not in products:
-                    products[source] = items
+                if source not in fetched_ok:
+                    products[source] = items if isinstance(items, list) else []
         
         has_products = any(products.get(source) for source in products)
-        if has_products or (live_configured and not fetch_failed):
+        if has_products or fetched_ok:
             self._save_cache(products)
         
         return products
