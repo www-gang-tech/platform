@@ -114,7 +114,7 @@
             name: form.dataset.productName || 'Product',
             variant: [formData.get('color'), formData.get('size'), formData.get('option3')].filter(Boolean).join(' / '),
             price: toPrice(form.dataset.price || '0'),
-            currency: form.dataset.currency || 'USD',
+            currency: String(form.dataset.currency || 'USD').toUpperCase(),
             quantity: toQuantity(formData.get('quantity') || '1'),
             image: form.dataset.image || '',
             url: checkoutUrl || form.dataset.productUrl || '',
@@ -193,7 +193,7 @@
             const price = toPrice(item.price);
             const itemTotal = price * quantity;
             subtotal += itemTotal;
-            currencies.add(item.currency || 'USD');
+            currencies.add(String(item.currency || 'USD').toUpperCase());
             
             const row = document.createElement('div');
             row.className = 'cart-item';
@@ -250,10 +250,10 @@
             const priceWrap = document.createElement('div');
             priceWrap.className = 'cart-item-price';
             const unit = document.createElement('p');
-            unit.textContent = (item.currency || 'USD') + ' ' + price.toFixed(2);
+            unit.textContent = String(item.currency || 'USD').toUpperCase() + ' ' + price.toFixed(2);
             const total = document.createElement('p');
             total.className = 'cart-item-total';
-            total.textContent = (item.currency || 'USD') + ' ' + itemTotal.toFixed(2);
+            total.textContent = String(item.currency || 'USD').toUpperCase() + ' ' + itemTotal.toFixed(2);
             priceWrap.appendChild(unit);
             priceWrap.appendChild(total);
             row.appendChild(priceWrap);
@@ -286,12 +286,13 @@
         const cart = getCart();
         if (cart.length === 0) return;
 
-        const currencies = new Set(cart.map(item => item.currency || 'USD'));
+        const currencies = new Set(cart.map(item => String(item.currency || 'USD').toUpperCase()));
         if (currencies.size > 1) {
             window.alert('Checkout cannot mix currencies. Remove items so the cart uses one currency.');
             return;
         }
         
+        const allow = allowedCheckoutOrigins();
         const origins = new Set();
         const items = [];
         const skipped = [];
@@ -305,29 +306,31 @@
                 return;
             }
             const source = item.checkoutUrl || item.url || '';
-            if (!isSafeHttpUrl(source)) {
+            let parsed = null;
+            if (isSafeHttpUrl(source)) {
+                try {
+                    parsed = new URL(source, window.location.origin);
+                } catch {
+                    parsed = null;
+                }
+            }
+            if (!parsed || parsed.origin === window.location.origin) {
+                if (allow.size !== 1) {
+                    skipped.push(item);
+                    return;
+                }
+                parsed = new URL(Array.from(allow)[0]);
+            }
+            if (parsed.origin === 'https://www.shopify.com') {
                 skipped.push(item);
                 return;
             }
-            try {
-                const parsed = new URL(source, window.location.origin);
-                if (parsed.origin === window.location.origin) {
-                    skipped.push(item);
-                    return;
-                }
-                if (parsed.origin === 'https://www.shopify.com') {
-                    skipped.push(item);
-                    return;
-                }
-                if (!isAllowedCheckoutUrl(parsed)) {
-                    skipped.push(item);
-                    return;
-                }
-                origins.add(parsed.origin);
-                items.push(item.id + ':' + toQuantity(item.quantity));
-            } catch {
+            if (!isAllowedCheckoutUrl(parsed)) {
                 skipped.push(item);
+                return;
             }
+            origins.add(parsed.origin);
+            items.push(item.id + ':' + toQuantity(item.quantity));
         });
         
         if (skipped.length || origins.size !== 1 || items.length !== cart.length) {
