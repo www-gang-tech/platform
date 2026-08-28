@@ -261,6 +261,9 @@ class InPlaceEditor {
     isSafeHref(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+            return false;
+        }
         if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/')) {
             return true;
         }
