@@ -19,7 +19,7 @@ import uuid
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote, urlparse
 
 PUBLISHABLE_CATEGORIES = [
@@ -146,7 +146,13 @@ def merge_editor_frontmatter(original: str, incoming: str) -> str:
 
 def numeric_variant_id(value: Any) -> str:
     """Shopify cart permalinks only accept numeric variant IDs, never SKUs."""
+    if isinstance(value, bool):
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     text = str(value or '').strip()
+    if text.endswith('.0') and text[:-2].isdigit():
+        text = text[:-2]
     return text if text.isdigit() else ''
 
 
@@ -198,6 +204,38 @@ def catalog_product_slug(product: Any) -> str:
         return ''
     meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
     return str(meta.get('slug') or meta.get('handle') or '').strip()
+
+
+def assign_unique_catalog_slugs(products: List[Any]) -> List[Any]:
+    """Keep the first safe slug; suffix later collisions so PDPs are not overwritten."""
+    seen: set = set()
+    unique: List[Any] = []
+    for product in products or []:
+        if not isinstance(product, dict):
+            continue
+        slug = catalog_product_slug(product)
+        if not is_safe_content_slug(slug):
+            continue
+        candidate = slug
+        n = 2
+        while candidate in seen:
+            suffix = f'-{n}'
+            trimmed = slug[: max(1, 128 - len(suffix))]
+            candidate = f'{trimmed}{suffix}'
+            n += 1
+            if n > 99 or not is_safe_content_slug(candidate):
+                candidate = ''
+                break
+        if not candidate:
+            continue
+        seen.add(candidate)
+        meta = product.get('_meta')
+        if not isinstance(meta, dict):
+            meta = {}
+            product['_meta'] = meta
+        meta['slug'] = candidate
+        unique.append(product)
+    return unique
 
 
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
@@ -615,6 +653,10 @@ def fallback_jsonld(
     date_str = ''
     if date_val is not None:
         date_str = date_val.isoformat() if hasattr(date_val, 'isoformat') else str(date_val)
+        if isinstance(date_str, str):
+            date_str = date_str.strip()
+    if not date_str:
+        date_str = datetime.now(timezone.utc).date().isoformat()
     if content_type in ('posts', 'articles'):
         return {
             '@context': 'https://schema.org',
@@ -2811,7 +2853,11 @@ def generate_agentmap(ctx):
     )
     
     if products:
-        (api_dir / 'products.json').write_text(json.dumps(products, indent=2))
+        (api_dir / 'products.json').write_text(json.dumps({
+            'products': products,
+            'count': len(products),
+            'generated': datetime.now().isoformat(),
+        }, indent=2))
     
     click.echo(f"✅ Generated AgentMap with {len(publishable)} content items")
     if products:
@@ -3310,10 +3356,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             products_path.mkdir(parents=True, exist_ok=True)
             
             # Generate PLP
-            products = [
-                product for product in products
-                if is_safe_content_slug(catalog_product_slug(product))
-            ]
+            products = assign_unique_catalog_slugs(products)
             plp_template = jinja_env.get_template('products-list.html')
             plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
             plp_html = plp_template.render(
@@ -3430,6 +3473,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         indexer = SearchIndexer(content_path, config)
         search_index = indexer.build_search_index(publishable_files)
+        indexer.add_product_documents(search_index, products)
         
         search_index_file = dist_path / 'search-index.json'
         search_index_file.write_text(json.dumps(search_index, default=str))
@@ -4602,13 +4646,24 @@ def studio(ctx, port, host):
                 return True
 
             def _is_loopback_origin(self) -> bool:
-                origin = (self.headers.get('Origin') or self.headers.get('Referer') or '').strip()
+                origin_header = (self.headers.get('Origin') or '').strip()
+                referer = (self.headers.get('Referer') or '').strip()
+                # Mutating requests must send Origin so a form on another loopback
+                # port cannot CSRF with a missing Origin + spoofed Referer.
+                if self.command not in ('GET', 'HEAD', 'OPTIONS') and not origin_header:
+                    return False
+                origin = origin_header or referer
                 if not origin:
-                    # Tokenless mutating requests must send Origin/Referer from loopback Studio.
                     return self.command in ('GET', 'HEAD', 'OPTIONS')
                 parsed = urlparse(origin)
                 host = (parsed.hostname or '').lower()
-                return host in {'127.0.0.1', 'localhost', '::1'}
+                if host not in {'127.0.0.1', 'localhost', '::1'}:
+                    return False
+                if self.command not in ('GET', 'HEAD', 'OPTIONS'):
+                    origin_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+                    if origin_port != port:
+                        return False
+                return True
 
             def _read_json_body(self) -> Dict[str, Any]:
                 raw_length = self.headers.get('Content-Length', '0')
@@ -4644,8 +4699,6 @@ def studio(ctx, port, host):
                 allowed = {
                     f'http://127.0.0.1:{port}',
                     f'http://localhost:{port}',
-                    'http://127.0.0.1:5001',
-                    'http://localhost:5001',
                 }
                 if origin in allowed:
                     self.send_header('Access-Control-Allow-Origin', origin)
@@ -5524,10 +5577,7 @@ def serve(ctx, port, host):
                     products = aggregator.get_normalized_products(status_filter='active') or []
                     
                     if products:
-                        products = [
-                            product for product in products
-                            if is_safe_content_slug(catalog_product_slug(product))
-                        ]
+                        products = assign_unique_catalog_slugs(products)
                         template_dir = Path(__file__).parent.parent.parent / 'templates'
                         jinja_env = template_environment(template_dir)
                         
@@ -5647,6 +5697,7 @@ def serve(ctx, port, host):
                     from core.search import SearchIndexer
                     indexer = SearchIndexer(content_path, config)
                     search_index = indexer.build_search_index(publishable_files)
+                    indexer.add_product_documents(search_index, products)
                     (dist_path / 'search-index.json').write_text(json.dumps(search_index, default=str))
                     search_page = dist_path / 'search' / 'index.html'
                     search_page.parent.mkdir(parents=True, exist_ok=True)

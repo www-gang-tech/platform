@@ -142,6 +142,19 @@ class NewsletterManager:
         if not isinstance(frontmatter, dict):
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
+
+        raw_status = frontmatter.get('status')
+        if raw_status is None:
+            status = 'draft'
+        else:
+            status = str(raw_status).strip().lower()
+        if not test_mode:
+            if status == 'sent':
+                return {'error': 'Newsletter already sent', 'success': False}
+            if status == 'scheduled':
+                return {'error': 'Scheduled newsletters must be sent after their date or unscheduled first', 'success': False}
+            if status not in ('draft', 'published', 'live', 'public', ''):
+                return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         
         # Convert markdown to HTML
         html_body = self._markdown_to_email_html(body)
@@ -217,6 +230,13 @@ class NewsletterManager:
         if not isinstance(frontmatter, dict):
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
+
+        existing_status = str(frontmatter.get('status') or '').strip().lower()
+        if existing_status == 'sent':
+            return {'error': 'Cannot reschedule a sent newsletter', 'success': False}
+
+        if send_date.tzinfo is None:
+            send_date = send_date.replace(tzinfo=timezone.utc)
         
         # Site scheduler reads publish_date; keep scheduled_for for ESP tooling.
         frontmatter['status'] = 'scheduled'

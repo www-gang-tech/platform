@@ -40,6 +40,32 @@ class SearchIndexer:
                 continue
         
         return index
+
+    def add_product_documents(self, index: Dict[str, Any], products: List[Any]) -> None:
+        """Index catalog PDPs so /search/ can find products, not only markdown."""
+        if not isinstance(index, dict):
+            return
+        docs = index.setdefault('documents', [])
+        for product in products or []:
+            if not isinstance(product, dict):
+                continue
+            meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
+            slug = str(meta.get('slug') or meta.get('handle') or '').strip()
+            if not slug:
+                continue
+            title = str(product.get('name') or slug)
+            description = str(product.get('description') or '')[:200]
+            docs.append({
+                'id': f'products/{slug}',
+                'title': title,
+                'description': description,
+                'url': f'/products/{slug}/',
+                'category': 'products',
+                'tags': [],
+                'content': description,
+                'searchable': f'{title} {title} {description}'.lower(),
+                'date': '',
+            })
     
     def _index_file(self, file_path: Path) -> Dict[str, Any]:
         """Index a single markdown file"""
