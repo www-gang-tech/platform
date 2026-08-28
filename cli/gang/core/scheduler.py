@@ -5,8 +5,19 @@ Handle scheduled publishing of content based on publish_date.
 
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 import yaml
+
+
+def _absent_schedule_date(value: Any) -> bool:
+    """True when publish_date/scheduled_for should be treated as missing."""
+    if value is None or value is False:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    if isinstance(value, (list, tuple, dict, set)) and not value:
+        return True
+    return False
 
 
 class ContentScheduler:
@@ -104,12 +115,15 @@ class ContentScheduler:
                 })
                 continue
             
-            # Check publish_date (scheduled_for is the newsletter alias)
+            # Check publish_date (scheduled_for is the newsletter alias).
+            # Whitespace, false, and empty collections must not block the alias.
             publish_date_str = frontmatter.get('publish_date')
-            if publish_date_str in (None, ''):
+            if _absent_schedule_date(publish_date_str):
                 publish_date_str = frontmatter.get('scheduled_for')
             if isinstance(publish_date_str, str):
                 publish_date_str = publish_date_str.strip() or None
+            if _absent_schedule_date(publish_date_str):
+                publish_date_str = None
             
             if not publish_date_str:
                 # Scheduled without a date is invalid — fail closed so it cannot go live.
@@ -293,8 +307,9 @@ class ContentScheduler:
             frontmatter['publish_date'] = publish_date.isoformat()
             frontmatter['status'] = status
         else:
-            # Remove publish_date if exists and honor the caller status (e.g. --now).
+            # Remove both date keys so --now cannot leave a future scheduled_for.
             frontmatter.pop('publish_date', None)
+            frontmatter.pop('scheduled_for', None)
             allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
             frontmatter['status'] = status if status in allowed else 'published'
         
