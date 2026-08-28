@@ -15,6 +15,9 @@ on:
 jobs:
   sync-product:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     
     steps:
       - name: Checkout code
@@ -34,19 +37,40 @@ jobs:
       - name: Extract product data
         id: extract
         run: |
-          # Parse webhook payload or fetch from Shopify API
-          PRODUCT_HANDLE="${{ github.event.client_payload.product.handle || github.event.inputs.product_handle }}"
-          echo "handle=$PRODUCT_HANDLE" >> $GITHUB_OUTPUT
-          
-          # Save product JSON (from webhook or API)
-          mkdir -p .shopify-sync
-          echo '${{ toJSON(github.event.client_payload.product) }}' > .shopify-sync/product.json
+          python3 << 'EOF'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          event_path = os.environ.get('GITHUB_EVENT_PATH')
+          event = json.loads(Path(event_path).read_text()) if event_path and Path(event_path).exists() else {}
+          product = (event.get('client_payload') or {}).get('product') or {}
+          if not isinstance(product, dict):
+              product = {}
+
+          handle = str(product.get('handle') or '').strip()
+          if not handle:
+              inputs = event.get('inputs') or {}
+              handle = str(inputs.get('product_handle') or '').strip()
+
+          safe = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+          if handle and (not safe.match(handle) or '..' in handle or '/' in handle):
+              raise SystemExit('Invalid product handle')
+
+          Path('.shopify-sync').mkdir(parents=True, exist_ok=True)
+          Path('.shopify-sync/product.json').write_text(json.dumps(product))
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'handle={handle}\n')
+          EOF
       
       - name: Convert to front-matter
         id: convert
         run: |
           python3 << 'EOF'
           import json
+          import os
           import yaml
           from pathlib import Path
           from bs4 import BeautifulSoup
@@ -67,31 +91,103 @@ jobs:
           # Apply mappings
           front_matter = {}
           for key, mapping in schema['mappings'].items():
-              source = mapping['source']
-              # Simple JSONPath evaluation (production would use jsonpath_ng)
+              source = mapping.get('shopify_field') or mapping.get('source') or mapping.get('frontmatter_field')
+              if not source:
+                  continue
               value = product
+              # Support images[*].src and variants[0].price
               for part in source.replace('[', '.').replace(']', '').split('.'):
-                  if part.startswith('*'):
+                  if not part:
                       continue
+                  if part == '*':
+                      if isinstance(value, list):
+                          # Keep list; next part extracts a field from each item
+                          continue
+                      value = None
+                      break
                   if part.isdigit():
-                      value = value[int(part)] if isinstance(value, list) else value
+                      idx = int(part)
+                      if isinstance(value, list) and 0 <= idx < len(value):
+                          value = value[idx]
+                      else:
+                          value = None
+                          break
+                  elif isinstance(value, list):
+                      value = [item.get(part) if isinstance(item, dict) else None for item in value]
+                      value = [item for item in value if item is not None]
+                  elif isinstance(value, dict):
+                      value = value.get(part)
                   else:
-                      value = value.get(part) if isinstance(value, dict) else None
+                      value = None
+                      break
                   if value is None:
                       break
               
-              # Apply transforms
-              if value and mapping.get('transform') == 'strip_html':
+              # Apply transforms (0 / [] / "" are valid mapped values)
+              if value is not None and mapping.get('transform') == 'strip_html':
                   value = BeautifulSoup(str(value), 'html.parser').get_text()[:mapping.get('max_length', 1000)]
-              elif value and mapping.get('transform') == 'to_schema_availability':
+              elif value is not None and mapping.get('transform') == 'html_to_markdown':
+                  value = BeautifulSoup(str(value), 'html.parser').get_text()
+              elif mapping.get('transform') == 'normalize_variants':
+                  raw_variants = value if isinstance(value, list) else []
+                  value = []
+                  for v in raw_variants:
+                      if not isinstance(v, dict):
+                          continue
+                      qty = v.get('inventory_quantity')
+                      try:
+                          qty_num = int(qty) if qty is not None and qty != '' else 0
+                      except (TypeError, ValueError):
+                          qty_num = 0
+                      policy = str(v.get('inventory_policy') or '')
+                      available = v.get('available')
+                      inventory_management = v.get('inventory_management')
+                      if available is None:
+                          if inventory_management is None or inventory_management == '':
+                              available = True
+                          elif policy == 'continue':
+                              available = True
+                          else:
+                              available = qty_num > 0
+                      value.append({
+                          'id': v.get('id'),
+                          'title': v.get('title'),
+                          'price': v.get('price'),
+                          'sku': v.get('sku'),
+                          'inventory': qty_num,
+                          'inventory_quantity': qty_num,
+                          'inventory_policy': v.get('inventory_policy'),
+                          'inventory_management': v.get('inventory_management'),
+                          'option1': v.get('option1'),
+                          'option2': v.get('option2'),
+                          'option3': v.get('option3'),
+                          'available': bool(available),
+                          'availability': (
+                              'https://schema.org/InStock'
+                              if available
+                              else 'https://schema.org/OutOfStock'
+                          ),
+                          'url': v.get('url') or v.get('buy_url'),
+                      })
+              elif value is not None and mapping.get('transform') == 'to_schema_availability':
                   value = 'InStock' if value else 'OutOfStock'
+
+              if value is None and 'default' in mapping:
+                  value = mapping['default']
               
               if value is not None:
                   front_matter[key] = value
+
+          if not front_matter.get('currency'):
+              front_matter['currency'] = os.environ.get('SHOPIFY_CURRENCY') or 'USD'
           
           # Generate front-matter file
-          handle = front_matter.get('handle', 'unknown')
-          content_dir = Path('content/shop')
+          import re
+          handle = str(front_matter.get('slug') or product.get('handle') or '')
+          if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', handle) or '..' in handle:
+              print('Invalid product handle')
+              exit(1)
+          content_dir = Path('content/products')
           content_dir.mkdir(parents=True, exist_ok=True)
           
           output_file = content_dir / f"{handle}.md"
@@ -100,7 +196,7 @@ jobs:
               f.write('---\n')
               yaml.dump(front_matter, f, default_flow_style=False, allow_unicode=True)
               f.write('---\n\n')
-              f.write(front_matter.get('summary', ''))
+              f.write(str(front_matter.get('description') or front_matter.get('summary') or ''))
           
           print(f"Generated: {output_file}")
           
@@ -115,8 +211,8 @@ jobs:
         id: pr_branch
         run: |
           HANDLE="${{ steps.extract.outputs.handle }}"
-          BRANCH="shop/update-${HANDLE}"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BRANCH="shop/update-${HANDLE}-$(date -u +"%Y%m%d-%H%M%S")"
           
           git config user.name "shopify-sync-bot"
           git config user.email "bot@gang.tech"
@@ -125,7 +221,7 @@ jobs:
           git checkout -b "$BRANCH"
           
           # Stage changes
-          git add content/shop/
+          git add content/products/
           
           # Check if there are changes
           if git diff --staged --quiet; then
@@ -145,7 +241,7 @@ jobs:
           Auto-generated by Shopify sync workflow"
           
           # Push
-          git push origin "$BRANCH" --force
+          git push origin "$BRANCH"
           
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
