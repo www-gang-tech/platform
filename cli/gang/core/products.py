@@ -19,19 +19,59 @@ def _plain_text(value: Any) -> str:
     return html.unescape(text).strip()
 
 
+def _checkout_origin_host() -> str:
+    """First configured merchant host from SHOPIFY_STORE* or CHECKOUT_ORIGINS."""
+    candidates = [
+        os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or '',
+    ]
+    extra = os.environ.get('CHECKOUT_ORIGINS') or ''
+    candidates.extend(re.split(r'[\s,]+', extra))
+    for store in candidates:
+        store = (store or '').strip()
+        if not store:
+            continue
+        if not store.startswith('http'):
+            store = f'https://{store}'
+        parsed = urlparse(store)
+        host = (parsed.netloc or '').split('@')[-1]
+        if parsed.scheme in ('http', 'https') and host and host.lower() not in (
+            'www.shopify.com', 'shopify.com'
+        ):
+            return host
+    return ''
+
+
 def shopify_storefront_url(product: Dict[str, Any]) -> str:
     """Build a merchant product URL from handle + store host when Admin API omits it."""
     existing = product.get('url') or ''
     if isinstance(existing, str) and existing.startswith(('http://', 'https://')):
         return existing
     handle = product.get('handle') or ''
-    store = os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or ''
-    if not handle or not store:
+    host = _checkout_origin_host()
+    if not handle or not host:
         return existing if isinstance(existing, str) else ''
-    host = store.replace('https://', '').replace('http://', '').split('/')[0]
-    if not host or host.lower() in ('www.shopify.com', 'shopify.com'):
-        return ''
     return f"https://{host}/products/{handle}"
+
+
+def variant_in_stock(variant: Dict[str, Any]) -> bool:
+    """Prefer Shopify's explicit `available` flag over stale inventory counts."""
+    if not isinstance(variant, dict):
+        return False
+    available = variant.get('available')
+    if available is not None:
+        return bool(available)
+    inventory_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
+    try:
+        inventory_qty = int(inventory_qty or 0)
+    except (TypeError, ValueError):
+        inventory_qty = 0
+    inventory_management = variant.get('inventory_management')
+    inventory_policy = variant.get('inventory_policy', 'deny')
+    if inventory_management is None or inventory_management == '':
+        return True
+    if inventory_policy == 'continue':
+        return True
+    return inventory_qty > 0
 
 
 def append_variant_query(product_url: str, variant_id: Any) -> str:
@@ -85,8 +125,10 @@ class ProductSchema:
         raw_images = product.get('images') or []
         if isinstance(raw_images, list):
             for img in raw_images:
-                if isinstance(img, dict) and img.get('src'):
-                    images.append(img.get('src'))
+                if isinstance(img, dict):
+                    src = img.get('src') or img.get('url')
+                    if src:
+                        images.append(src)
                 elif isinstance(img, str) and img:
                     images.append(img)
         
@@ -102,15 +144,7 @@ class ProductSchema:
                 inventory_qty = int(inventory_qty or 0)
             except (TypeError, ValueError):
                 inventory_qty = 0
-            inventory_management = variant.get('inventory_management')
-            inventory_policy = variant.get('inventory_policy', 'deny')
-            
-            if inventory_management is None or inventory_management == '':
-                in_stock = True
-            elif inventory_policy == 'continue':
-                in_stock = True
-            else:
-                in_stock = inventory_qty > 0
+            in_stock = variant_in_stock(variant)
             
             price = variant.get('price')
             if price is None or price == '':
@@ -222,7 +256,7 @@ class ProductSchema:
             'offers': {
                 '@type': 'Offer',
                 'price': gumroad_price,
-                'priceCurrency': product.get('currency') or 'USD',
+                'priceCurrency': str(product.get('currency') or 'USD').upper(),
                 'availability': (
                     'https://schema.org/InStock'
                     if product.get('published', True)
