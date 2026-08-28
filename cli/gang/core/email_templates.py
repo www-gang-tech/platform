@@ -421,6 +421,19 @@ class EmailOrchestrator:
         # Create unique slug by appending -newsletter to avoid conflicts with posts
         slug = f"{post_path.stem}-newsletter"
         newsletter_file = newsletters_dir / f"{slug}.md"
+        if newsletter_file.exists():
+            existing = newsletter_file.read_text()
+            if existing.startswith('---'):
+                existing_parts = existing.split('---', 2)
+                if len(existing_parts) >= 3:
+                    try:
+                        existing_fm = yaml.safe_load(existing_parts[1]) or {}
+                    except Exception:
+                        existing_fm = {}
+                    if isinstance(existing_fm, dict):
+                        existing_status = str(existing_fm.get('status') or '').strip().lower()
+                        if existing_status in ('sent', 'scheduled'):
+                            return newsletter_file
         newsletter_file.write_text(newsletter_content)
         
         return newsletter_file

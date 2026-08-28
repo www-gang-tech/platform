@@ -186,7 +186,7 @@ class ContractValidator:
                     continue
                 matched = True
                 for prop in required_props:
-                    if prop not in node:
+                    if prop not in node or node.get(prop) in (None, '', [], {}):
                         errors.append(f"Missing required JSON-LD property: {prop}")
                 if required_in_offers:
                     offers = node.get('offers')

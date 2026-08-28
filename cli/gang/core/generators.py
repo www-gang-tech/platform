@@ -98,8 +98,9 @@ Sitemap: {self.site_url}/sitemap.xml
                 "title": post.get('title', ''),
                 "content_html": post.get('content_html', ''),
                 "summary": post.get('summary', ''),
-                "date_published": date_val,
             }
+            if date_val not in (None, ''):
+                item['date_published'] = date_val
             
             if post.get('tags'):
                 item['tags'] = post['tags']
