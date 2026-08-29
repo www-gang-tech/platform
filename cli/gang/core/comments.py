@@ -100,6 +100,10 @@ class CommentsManager:
     
     def create_comment(self, page_slug: str, page_type: str, comment_data: Dict[str, Any]) -> str:
         """Create a new comment file."""
+        errors = self.validate_comment_data(comment_data)
+        if errors:
+            raise ValueError('; '.join(errors))
+
         # Generate comment ID
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         comment_id = f"comment-{timestamp}"
@@ -139,6 +143,9 @@ class CommentsManager:
     
     def update_comment_status(self, comment_id: str, status: str) -> bool:
         """Update the status of a comment."""
+        allowed = frozenset({'pending', 'approved', 'rejected', 'spam'})
+        if status not in allowed:
+            return False
         # Find the comment file
         for comments_dir in [self.posts_comments_path, self.products_comments_path]:
             for page_dir in comments_dir.iterdir():
@@ -275,6 +282,13 @@ class CommentsManager:
         website = comment_data.get('author_website')
         if website and not self._is_valid_url(website):
             errors.append("Invalid website URL")
+        elif website:
+            try:
+                from .html_sanitize import is_safe_href
+            except ImportError:
+                from gang.core.html_sanitize import is_safe_href
+            if not is_safe_href(website):
+                errors.append("Invalid website URL")
         
         return errors
     

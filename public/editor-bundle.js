@@ -261,10 +261,11 @@ class InPlaceEditor {
     isSafeHref(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
-        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+        const normalized = trimmed.replace(/\\/g, '/');
+        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\') || normalized.startsWith('//')) {
             return false;
         }
-        if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/')) {
+        if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/' && trimmed.charAt(1) !== '\\')) {
             return true;
         }
         if (/^mailto:/i.test(trimmed)) {
@@ -318,9 +319,8 @@ class InPlaceEditor {
                     node.removeAttribute(attr.name);
                     return;
                 }
-                if (['href', 'src', 'action', 'formaction'].indexOf(name) !== -1) {
-                    const val = String(attr.value || '').trim().toLowerCase();
-                    if (val.indexOf('javascript:') === 0 || val.indexOf('data:') === 0 || val.indexOf('vbscript:') === 0 || val.indexOf('//') === 0) {
+                if (['href', 'src', 'srcset', 'action', 'formaction', 'poster', 'xlink:href'].indexOf(name) !== -1) {
+                    if (!this.isSafeHref(attr.value)) {
                         node.setAttribute(attr.name, '#');
                     }
                 }
