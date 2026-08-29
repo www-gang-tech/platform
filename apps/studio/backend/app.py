@@ -15,11 +15,10 @@ import re
 import os
 
 app = Flask(__name__)
+_STUDIO_PORT = int(os.environ.get('PORT', 5001))
 CORS(app, origins=[
-    'http://127.0.0.1:3000',
-    'http://localhost:3000',
-    'http://127.0.0.1:5001',
-    'http://localhost:5001',
+    f'http://127.0.0.1:{_STUDIO_PORT}',
+    f'http://localhost:{_STUDIO_PORT}',
 ])
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
