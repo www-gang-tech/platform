@@ -13,11 +13,29 @@ def _absent_schedule_date(value: Any) -> bool:
     """True when publish_date/scheduled_for should be treated as missing."""
     if value is None or value is False:
         return True
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)) and value == 0:
+        return True
     if isinstance(value, str) and not value.strip():
         return True
     if isinstance(value, (list, tuple, dict, set)) and not value:
         return True
     return False
+
+
+def parse_schedule_datetime(value: Any) -> datetime:
+    """Parse ISO/YAML dates; accept Z/z UTC suffixes and naive values as UTC."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if text.endswith(('Z', 'z')):
+            text = text[:-1] + '+00:00'
+        parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 class ContentScheduler:
@@ -125,7 +143,7 @@ class ContentScheduler:
             if _absent_schedule_date(publish_date_str):
                 publish_date_str = None
             
-            if not publish_date_str:
+            if _absent_schedule_date(publish_date_str):
                 # Scheduled without a date is invalid — fail closed so it cannot go live.
                 if status == 'scheduled':
                     draft.append({
@@ -146,15 +164,7 @@ class ContentScheduler:
             
             # Parse publish date
             try:
-                if isinstance(publish_date_str, datetime):
-                    publish_date = publish_date_str
-                else:
-                    # Try to parse ISO format
-                    publish_date = datetime.fromisoformat(str(publish_date_str).replace('Z', '+00:00'))
-                
-                # Ensure timezone aware
-                if publish_date.tzinfo is None:
-                    publish_date = publish_date.replace(tzinfo=timezone.utc)
+                publish_date = parse_schedule_datetime(publish_date_str)
                 
                 # Already-sent newsletters stay live even if publish_date is still future.
                 if status == 'sent' or publish_date <= now:
@@ -304,7 +314,10 @@ class ContentScheduler:
         
         # Update frontmatter
         if publish_date:
-            frontmatter['publish_date'] = publish_date.isoformat()
+            iso = publish_date.isoformat()
+            frontmatter['publish_date'] = iso
+            if 'scheduled_for' in frontmatter:
+                frontmatter['scheduled_for'] = iso
             frontmatter['status'] = status
         else:
             # Remove both date keys so --now cannot leave a future scheduled_for.

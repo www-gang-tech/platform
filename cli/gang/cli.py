@@ -352,13 +352,19 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         for offer in dict_offers:
             color, size = variant_axes(offer)
             extra = variant_option3(offer)
-            if color and color not in colors:
+            if color not in colors:
                 color_order.append(color)
                 colors.add(color)
-            if size and size not in size_order:
+            if size not in size_order:
                 size_order.append(size)
-            if extra and extra not in option3_order:
+            if extra not in option3_order:
                 option3_order.append(extra)
+        if not any(color_order):
+            color_order = []
+        if not any(size_order):
+            size_order = []
+        if not any(option3_order):
+            option3_order = []
 
         for idx, color in enumerate(color_order):
             if idx < len(images):
@@ -380,7 +386,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'option3': extra_part,
                 'price': offer.get('price', '0'),
                 'currency': offer.get('priceCurrency', 'USD'),
-                'availability': offer.get('availability', 'InStock'),
+                'availability': offer.get('availability') or 'https://schema.org/OutOfStock',
                 'url': safe_http_url(offer.get('url')),
                 'sku': offer.get('sku', ''),
                 'id': numeric_variant_id(variant_id),
@@ -418,15 +424,15 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         default_variant = next((item for item in variants_list if offer_is_in_stock({
             'availability': item.get('availability')
         })), variants_list[0] if variants_list else {})
-        if default_variant.get('color') and default_variant['color'] in colors_list:
+        if default_variant.get('color') is not None and default_variant['color'] in colors_list:
             colors_list = [default_variant['color']] + [
                 color for color in colors_list if color != default_variant['color']
             ]
-        if default_variant.get('size') and default_variant['size'] in sizes_list:
+        if default_variant.get('size') is not None and default_variant['size'] in sizes_list:
             sizes_list = [default_variant['size']] + [
                 size for size in sizes_list if size != default_variant['size']
             ]
-        if default_variant.get('option3') and default_variant['option3'] in option3s_list:
+        if default_variant.get('option3') is not None and default_variant['option3'] in option3s_list:
             option3s_list = [default_variant['option3']] + [
                 extra for extra in option3s_list if extra != default_variant['option3']
             ]
@@ -444,9 +450,15 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         (item for item in variants_list if offer_is_in_stock({'availability': item.get('availability')})),
         variants_list[0] if variants_list else {},
     )
-    default_color = matching_default.get('color') or (colors_list[0] if colors_list else '')
-    default_size = matching_default.get('size') or (sizes_list[0] if sizes_list else '')
-    default_option3 = matching_default.get('option3') or (option3s_list[0] if option3s_list else '')
+    default_color = matching_default.get('color')
+    if default_color is None:
+        default_color = colors_list[0] if colors_list else ''
+    default_size = matching_default.get('size')
+    if default_size is None:
+        default_size = sizes_list[0] if sizes_list else ''
+    default_option3 = matching_default.get('option3')
+    if default_option3 is None:
+        default_option3 = option3s_list[0] if option3s_list else ''
     default_variant_id = numeric_variant_id(
         matching_default.get('id') or first_offer.get('id') or ''
     )
@@ -1996,7 +2008,11 @@ def set_schedule(ctx, file_path, publish_date, now, status):
         # Parse and set publish date
         try:
             # Try ISO format first
-            pub_date = datetime.fromisoformat(publish_date.replace('Z', '+00:00'))
+            try:
+                from core.scheduler import parse_schedule_datetime
+            except ImportError:
+                from gang.core.scheduler import parse_schedule_datetime
+            pub_date = parse_schedule_datetime(publish_date)
         except:
             # Try common formats
             for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
@@ -3154,8 +3170,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
-            'date': frontmatter.get('date'),
-            'date_formatted': str(frontmatter.get('date', '')),
+            'date': frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date'),
+            'date_formatted': str(frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date') or ''),
             'tags': tags,
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
@@ -3458,6 +3474,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             products=products,
             people=all_people,
             newsletters=all_newsletters,
+            tags=tag_pages,
+            utilities=[
+                {'url': '/search/', 'title': 'Search'},
+                {'url': '/cart/', 'title': 'Cart'},
+            ],
             jsonld=sitemap_jsonld,
             year=datetime.now().year,
             build_time_iso=datetime.now().isoformat()
@@ -5418,8 +5439,8 @@ def serve(ctx, port, host):
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
-                        'date': frontmatter.get('date'),
-                        'date_formatted': str(frontmatter.get('date', '')),
+                        'date': frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date'),
+                        'date_formatted': str(frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date') or ''),
                         'tags': tags,
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
@@ -5683,6 +5704,11 @@ def serve(ctx, port, host):
                         products=products,
                         people=all_people,
                         newsletters=all_newsletters,
+                        tags=tag_pages,
+                        utilities=[
+                            {'url': '/search/', 'title': 'Search'},
+                            {'url': '/cart/', 'title': 'Cart'},
+                        ],
                         jsonld=sitemap_jsonld,
                         year=datetime.now().year,
                         build_time_iso=datetime.now().isoformat()

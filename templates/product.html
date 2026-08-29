@@ -99,7 +99,7 @@
                         <label for="color">Color:</label>
                         <select name="color" id="color" required>
                             {% for color in colors %}
-                            <option value="{{ color }}"{% if color == default_color %} selected{% endif %}>{{ color }}</option>
+                            <option value="{{ color }}"{% if color == default_color %} selected{% endif %}>{% if color %}{{ color }}{% else %}—{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -110,7 +110,7 @@
                         <label for="size">Size:</label>
                         <select name="size" id="size" required>
                             {% for size in sizes %}
-                            <option value="{{ size }}"{% if size == default_size %} selected{% endif %}>{{ size }}</option>
+                            <option value="{{ size }}"{% if size == default_size %} selected{% endif %}>{% if size %}{{ size }}{% else %}—{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -121,7 +121,7 @@
                         <label for="option3">Option:</label>
                         <select name="option3" id="option3" required>
                             {% for extra in option3s %}
-                            <option value="{{ extra }}"{% if extra == default_option3 %} selected{% endif %}>{{ extra }}</option>
+                            <option value="{{ extra }}"{% if extra == default_option3 %} selected{% endif %}>{% if extra %}{{ extra }}{% else %}—{% endif %}</option>
                             {% endfor %}
                         </select>
                     </div>

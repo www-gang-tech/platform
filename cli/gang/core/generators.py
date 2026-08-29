@@ -87,10 +87,18 @@ Sitemap: {self.site_url}/sitemap.xml
         }
         
         for post in posts:
-            # Convert date to string if needed
+            # Convert date to RFC 3339 / ISO 8601 (JSON Feed 1.1)
             date_val = post.get('date', '')
-            if date_val and not isinstance(date_val, str):
+            if date_val and hasattr(date_val, 'isoformat'):
+                date_val = date_val.isoformat()
+            elif date_val and not isinstance(date_val, str):
                 date_val = str(date_val)
+            if isinstance(date_val, str):
+                date_val = date_val.strip()
+                if len(date_val) >= 19 and date_val[10] == ' ':
+                    date_val = date_val[:10] + 'T' + date_val[11:]
+                if date_val.endswith(('Z', 'z')):
+                    date_val = date_val[:-1] + '+00:00'
             
             item = {
                 "id": f"{self.site_url}{post['url']}",
