@@ -44,7 +44,17 @@
     }
     
     function isNumericVariantId(value) {
-        return /^\d+$/.test(String(value || ''));
+        let text = String(value == null ? '' : value).trim();
+        if (/^\d+\.0$/.test(text)) {
+            text = text.slice(0, -2);
+        }
+        return /^\d+$/.test(text);
+    }
+
+    function isSafeCartImage(value) {
+        if (!value || typeof value !== 'string') return false;
+        if (value.startsWith('/') && !value.startsWith('//')) return true;
+        return isSafeHttpUrl(value);
     }
 
     function allowedCheckoutOrigins() {
@@ -198,7 +208,7 @@
             const row = document.createElement('div');
             row.className = 'cart-item';
             
-            if (isSafeHttpUrl(item.image) || (typeof item.image === 'string' && item.image.startsWith('/'))) {
+            if (isSafeCartImage(item.image)) {
                 const img = document.createElement('img');
                 img.src = item.image;
                 img.alt = String(item.name || 'Product');
@@ -297,7 +307,7 @@
         const items = [];
         const skipped = [];
         cart.forEach(item => {
-            if (item.inStock === false) {
+            if (item.inStock === false || item.inStock === 'false') {
                 skipped.push(item);
                 return;
             }

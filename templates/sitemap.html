@@ -98,6 +98,28 @@
             </ul>
         </section>
         {% endif %}
+
+        {% if tags %}
+        <section style="margin-top: 2rem;">
+            <h2>Tags</h2>
+            <ul class="unstyled">
+                {% for tag in tags %}
+                <li><a href="{{ tag.url }}">{{ tag.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
+        {% if utilities %}
+        <section style="margin-top: 2rem;">
+            <h2>Utilities</h2>
+            <ul class="unstyled">
+                {% for page in utilities %}
+                <li><a href="{{ page.url }}">{{ page.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
     </main>
     
     {% include "partials/footer.html" %}
