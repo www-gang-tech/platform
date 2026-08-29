@@ -30,16 +30,31 @@ class OutputGenerators:
             if page.get('date'):
                 lastmod = SubElement(url, 'lastmod')
                 date_val = page['date']
-                if not isinstance(date_val, str):
+                if hasattr(date_val, 'date') and callable(getattr(date_val, 'date', None)):
+                    try:
+                        date_val = date_val.date().isoformat()
+                    except Exception:
+                        date_val = str(date_val)
+                elif hasattr(date_val, 'isoformat'):
+                    try:
+                        date_val = date_val.isoformat()
+                    except Exception:
+                        date_val = str(date_val)
+                else:
                     date_val = str(date_val)
+                date_val = date_val.strip()
+                if len(date_val) >= 10 and date_val[4] == '-':
+                    date_val = date_val[:10]
                 lastmod.text = date_val
             
             # Priority based on page type
             priority = SubElement(url, 'priority')
             if page['url'] == '/':
                 priority.text = '1.0'
-            elif page.get('type') == 'post':
+            elif page.get('type') in ('post', 'posts', 'article', 'articles'):
                 priority.text = '0.8'
+            elif page.get('type') == 'product':
+                priority.text = '0.7'
             else:
                 priority.text = '0.6'
             
@@ -72,10 +87,18 @@ Sitemap: {self.site_url}/sitemap.xml
         }
         
         for post in posts:
-            # Convert date to string if needed
+            # Convert date to RFC 3339 / ISO 8601 (JSON Feed 1.1)
             date_val = post.get('date', '')
-            if date_val and not isinstance(date_val, str):
+            if date_val and hasattr(date_val, 'isoformat'):
+                date_val = date_val.isoformat()
+            elif date_val and not isinstance(date_val, str):
                 date_val = str(date_val)
+            if isinstance(date_val, str):
+                date_val = date_val.strip()
+                if len(date_val) >= 19 and date_val[10] == ' ':
+                    date_val = date_val[:10] + 'T' + date_val[11:]
+                if date_val.endswith(('Z', 'z')):
+                    date_val = date_val[:-1] + '+00:00'
             
             item = {
                 "id": f"{self.site_url}{post['url']}",
@@ -83,8 +106,9 @@ Sitemap: {self.site_url}/sitemap.xml
                 "title": post.get('title', ''),
                 "content_html": post.get('content_html', ''),
                 "summary": post.get('summary', ''),
-                "date_published": date_val,
             }
+            if date_val not in (None, ''):
+                item['date_published'] = date_val
             
             if post.get('tags'):
                 item['tags'] = post['tags']
