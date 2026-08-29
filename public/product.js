@@ -142,14 +142,14 @@
         if (!inStock) {
             return;
         }
-        if (colorSelect && inStock.color) {
-            colorSelect.value = inStock.color;
+        if (colorSelect) {
+            colorSelect.value = inStock.color || '';
         }
-        if (sizeSelect && inStock.size) {
-            sizeSelect.value = inStock.size;
+        if (sizeSelect) {
+            sizeSelect.value = inStock.size || '';
         }
-        if (option3Select && inStock.option3) {
-            option3Select.value = inStock.option3;
+        if (option3Select) {
+            option3Select.value = inStock.option3 || '';
         }
     }
     
