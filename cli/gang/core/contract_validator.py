@@ -182,7 +182,8 @@ class ContractValidator:
             matched = False
             for node in nodes:
                 node_type = node.get('@type')
-                if required_type and node_type != required_type:
+                node_types = node_type if isinstance(node_type, list) else [node_type]
+                if required_type and required_type not in node_types:
                     continue
                 matched = True
                 for prop in required_props:
