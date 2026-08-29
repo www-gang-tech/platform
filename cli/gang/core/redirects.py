@@ -43,11 +43,13 @@ class RedirectManager:
             return False
         if any(ch in value for ch in _UNSAFE_REDIRECT_CHARS):
             return False
+        if value.startswith('//') or value.startswith('/\\') or '\\' in value:
+            return False
         if value.startswith('http://') or value.startswith('https://'):
             from urllib.parse import urlparse
             parsed = urlparse(value)
             return parsed.scheme in ('http', 'https') and bool(parsed.netloc) and '\n' not in value
-        return bool(_SAFE_REDIRECT_PATH.match(value)) and '//' not in value[1:]
+        return bool(_SAFE_REDIRECT_PATH.match(value)) and '//' not in value
 
     def add_redirect(
         self, 
@@ -148,7 +150,8 @@ class RedirectManager:
                 continue
             status = 'permanent' if redirect.get('status', 301) == 301 else 'redirect'
             dest = redirect['to'].replace("'", "\\'")
-            lines.append(f"rewrite ^{redirect['from']}$ '{dest}' {status};")
+            from_path = re.escape(redirect['from'])
+            lines.append(f"rewrite ^{from_path}$ '{dest}' {status};")
         
         return '\n'.join(lines)
     
