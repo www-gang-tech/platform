@@ -38,6 +38,18 @@ def parse_schedule_datetime(value: Any) -> datetime:
     return parsed
 
 
+def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
+    """Parse the first present, well-formed schedule date (publish_date, then alias)."""
+    for value in values:
+        if _absent_schedule_date(value):
+            continue
+        try:
+            return parse_schedule_datetime(value)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
 class ContentScheduler:
     """Manage scheduled content publishing"""
     
@@ -105,9 +117,10 @@ class ContentScheduler:
                 continue
             
             # Get status (YAML `no`/`false` and list wrappers must not publish).
-            # Missing key defaults to published; explicit null/empty fails closed.
+            # Missing key defaults to published, except newsletters (draft until sent).
+            # Explicit null/empty fails closed.
             if 'status' not in frontmatter:
-                raw_status = 'published'
+                raw_status = 'draft' if file_path.parent.name == 'newsletters' else 'published'
             else:
                 raw_status = frontmatter.get('status')
             if isinstance(raw_status, list) and raw_status:
@@ -134,24 +147,38 @@ class ContentScheduler:
                 continue
             
             # Check publish_date (scheduled_for is the newsletter alias).
-            # Whitespace, false, and empty collections must not block the alias.
-            publish_date_str = frontmatter.get('publish_date')
-            if _absent_schedule_date(publish_date_str):
-                publish_date_str = frontmatter.get('scheduled_for')
-            if isinstance(publish_date_str, str):
-                publish_date_str = publish_date_str.strip() or None
-            if _absent_schedule_date(publish_date_str):
-                publish_date_str = None
-            
-            if _absent_schedule_date(publish_date_str):
-                # Scheduled without a date is invalid — fail closed so it cannot go live.
-                if status == 'scheduled':
+            # Unparseable publish_date must not hide a valid scheduled_for.
+            raw_publish = frontmatter.get('publish_date')
+            raw_alias = frontmatter.get('scheduled_for')
+            publish_date = _parse_first_schedule_date(raw_publish, raw_alias)
+            date_present = (
+                not _absent_schedule_date(raw_publish)
+                or not _absent_schedule_date(raw_alias)
+            )
+
+            if publish_date is None:
+                # Already-sent newsletters stay live even when the date is garbage.
+                if status == 'sent':
+                    publishable.append({
+                        'path': file_path,
+                        'status': 'sent',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem)
+                    })
+                    continue
+                # Scheduled without a date, or a present-but-unparseable date, fail closed.
+                if status == 'scheduled' or date_present:
                     draft.append({
                         'path': file_path,
                         'status': 'draft',
                         'publish_date': None,
                         'title': frontmatter.get('title', file_path.stem),
-                        'error': 'status=scheduled requires publish_date',
+                        '_date_error': bool(date_present),
+                        'error': (
+                            'invalid publish_date'
+                            if date_present
+                            else 'status=scheduled requires publish_date'
+                        ),
                     })
                     continue
                 publishable.append({
@@ -161,36 +188,21 @@ class ContentScheduler:
                     'title': frontmatter.get('title', file_path.stem)
                 })
                 continue
-            
-            # Parse publish date
-            try:
-                publish_date = parse_schedule_datetime(publish_date_str)
-                
-                # Already-sent newsletters stay live even if publish_date is still future.
-                if status == 'sent' or publish_date <= now:
-                    publishable.append({
-                        'path': file_path,
-                        'status': 'sent' if status == 'sent' else 'published',
-                        'publish_date': publish_date,
-                        'title': frontmatter.get('title', file_path.stem)
-                    })
-                else:
-                    scheduled_future.append({
-                        'path': file_path,
-                        'status': 'scheduled',
-                        'publish_date': publish_date,
-                        'title': frontmatter.get('title', file_path.stem)
-                    })
-            
-            except (ValueError, TypeError) as e:
-                # Invalid date format — fail closed so a typo cannot publish early
-                draft.append({
+
+            # Already-sent newsletters stay live even if publish_date is still future.
+            if status == 'sent' or publish_date <= now:
+                publishable.append({
                     'path': file_path,
-                    'status': 'draft',
-                    'publish_date': None,
-                    'title': frontmatter.get('title', file_path.stem),
-                    '_date_error': True,
-                    'error': f'Invalid date format: {e}'
+                    'status': 'sent' if status == 'sent' else 'published',
+                    'publish_date': publish_date,
+                    'title': frontmatter.get('title', file_path.stem)
+                })
+            else:
+                scheduled_future.append({
+                    'path': file_path,
+                    'status': 'scheduled',
+                    'publish_date': publish_date,
+                    'title': frontmatter.get('title', file_path.stem)
                 })
         
         return {
@@ -285,6 +297,10 @@ class ContentScheduler:
         """
         if not file_path.exists():
             return False
+
+        allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
+        if status not in allowed:
+            return False
         
         content = file_path.read_text()
         
@@ -323,8 +339,7 @@ class ContentScheduler:
             # Remove both date keys so --now cannot leave a future scheduled_for.
             frontmatter.pop('publish_date', None)
             frontmatter.pop('scheduled_for', None)
-            allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
-            frontmatter['status'] = status if status in allowed else 'published'
+            frontmatter['status'] = status
         
         # Write back
         body = parts[2]

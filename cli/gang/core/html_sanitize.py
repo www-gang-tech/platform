@@ -5,13 +5,15 @@ Shared HTML / URL sanitizers for Markdown fragments and template hrefs.
 from __future__ import annotations
 
 from typing import Optional
+from urllib.parse import unquote
 
 
-def is_safe_href(value: Optional[str]) -> bool:
-    """Allow relative paths, anchors, http(s), and mailto; reject javascript: etc."""
-    if not value:
-        return False
-    value = str(value).strip()
+def _href_has_dotdot(path: str) -> bool:
+    return any(segment == '..' for segment in path.split('/'))
+
+
+def _is_safe_href_candidate(value: str) -> bool:
+    """Single-pass href policy on an already-normalized candidate."""
     if not value:
         return False
     # Browsers normalize backslash "protocol-relative" forms (/\evil, \\evil)
@@ -34,6 +36,28 @@ def is_safe_href(value: Optional[str]) -> bool:
             host = lower.split('://', 1)[1]
             return bool(host) and host not in ('.', '..')
         return False
+    # Relative / root-relative / fragment: reject path traversal.
+    return not _href_has_dotdot(scheme_host)
+
+
+def is_safe_href(value: Optional[str]) -> bool:
+    """Allow relative paths, anchors, http(s), and mailto; reject javascript: etc."""
+    if not value:
+        return False
+    value = str(value).strip()
+    if not value:
+        return False
+    if not _is_safe_href_candidate(value):
+        return False
+    # Percent-decode so /%2f/evil.com and /%2e%2e/admin cannot bypass prefix checks.
+    decoded = value
+    for _ in range(3):
+        nxt = unquote(decoded)
+        if nxt == decoded:
+            break
+        decoded = nxt
+        if not _is_safe_href_candidate(decoded):
+            return False
     return True
 
 

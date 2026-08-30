@@ -260,27 +260,44 @@ class InPlaceEditor {
 
     isSafeHref(value) {
         if (!value || typeof value !== 'string') return false;
-        const trimmed = value.trim();
-        const normalized = trimmed.replace(/\\/g, '/');
-        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\') || normalized.startsWith('//')) {
-            return false;
+        function check(candidate) {
+            const trimmed = String(candidate).trim();
+            if (!trimmed) return false;
+            const normalized = trimmed.replace(/\\/g, '/');
+            if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\') || normalized.startsWith('//')) {
+                return false;
+            }
+            const pathPart = normalized.split('?')[0].split('#')[0];
+            if (pathPart.indexOf(':') === -1) {
+                return pathPart.split('/').indexOf('..') === -1;
+            }
+            if (/^mailto:/i.test(trimmed)) {
+                const addr = trimmed.slice(7).split('?')[0];
+                return Boolean(addr) && addr.split('@')[0].indexOf(':') === -1;
+            }
+            if (!/^https?:\/\//i.test(trimmed)) {
+                return false;
+            }
+            try {
+                const url = new URL(trimmed);
+                return url.protocol === 'https:' || url.protocol === 'http:';
+            } catch (err) {
+                return false;
+            }
         }
-        if (trimmed.charAt(0) === '#' || (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/' && trimmed.charAt(1) !== '\\')) {
-            return true;
+        if (!check(value)) return false;
+        let decoded = value;
+        for (let i = 0; i < 3; i++) {
+            try {
+                const next = decodeURIComponent(decoded);
+                if (next === decoded) break;
+                decoded = next;
+                if (!check(decoded)) return false;
+            } catch (err) {
+                break;
+            }
         }
-        if (/^mailto:/i.test(trimmed)) {
-            const addr = trimmed.slice(7).split('?')[0];
-            return Boolean(addr) && addr.split('@')[0].indexOf(':') === -1;
-        }
-        if (!/^https?:\/\//i.test(trimmed)) {
-            return false;
-        }
-        try {
-            const url = new URL(trimmed);
-            return url.protocol === 'https:' || url.protocol === 'http:';
-        } catch (err) {
-            return false;
-        }
+        return true;
     }
 
     // Markdown to HTML converter
@@ -309,6 +326,7 @@ class InPlaceEditor {
             'text/html'
         );
         const temp = parsed.getElementById('gang-md-root') || parsed.body;
+        const self = this;
         temp.querySelectorAll('script, style, iframe, object, embed, form').forEach(function(node) {
             node.remove();
         });
@@ -320,7 +338,7 @@ class InPlaceEditor {
                     return;
                 }
                 if (['href', 'src', 'srcset', 'action', 'formaction', 'poster', 'xlink:href'].indexOf(name) !== -1) {
-                    if (!this.isSafeHref(attr.value)) {
+                    if (!self.isSafeHref(attr.value)) {
                         node.setAttribute(attr.name, '#');
                     }
                 }

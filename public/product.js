@@ -36,6 +36,7 @@
     
     function isSafeActionUrl(value) {
         if (!value || typeof value !== 'string') return false;
+        if (value.charAt(0) === '/' && value.charAt(1) === '/') return false;
         if (value.charAt(0) === '/' && value.charAt(1) !== '/') return true;
         try {
             const url = new URL(value, window.location.origin);
@@ -47,9 +48,9 @@
     
     function findVariant(selectedColor, selectedSize, selectedOption3) {
         const matches = variants.filter(function(variant) {
-            const colorMatch = !selectedColor || variant.color === selectedColor;
-            const sizeMatch = !selectedSize || variant.size === selectedSize;
-            const extraMatch = !selectedOption3 || variant.option3 === selectedOption3;
+            const colorMatch = colorSelect ? variant.color === (selectedColor ?? '') : true;
+            const sizeMatch = sizeSelect ? variant.size === (selectedSize ?? '') : true;
+            const extraMatch = option3Select ? variant.option3 === (selectedOption3 ?? '') : true;
             return colorMatch && sizeMatch && extraMatch;
         });
         return matches.find(isInStock) || matches[0];
@@ -121,7 +122,7 @@
             form.action = '#';
             delete form.dataset.checkoutUrl;
         }
-        form.dataset.variantId = variant.id == null ? '' : String(variant.id);
+        form.dataset.variantId = (inStock && variant.id != null) ? String(variant.id) : '';
         form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
         form.dataset.price = (variant.price == null || variant.price === '') ? '0' : String(variant.price);
         if (variant.currency) {
@@ -143,13 +144,13 @@
             return;
         }
         if (colorSelect) {
-            colorSelect.value = inStock.color || '';
+            colorSelect.value = inStock.color != null ? inStock.color : '';
         }
         if (sizeSelect) {
-            sizeSelect.value = inStock.size || '';
+            sizeSelect.value = inStock.size != null ? inStock.size : '';
         }
         if (option3Select) {
-            option3Select.value = inStock.option3 || '';
+            option3Select.value = inStock.option3 != null ? inStock.option3 : '';
         }
     }
     
