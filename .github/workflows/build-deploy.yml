@@ -33,11 +33,14 @@ jobs:
           cd cli/gang && pip install -e . && cd ../..
       
       - name: Run AI optimization (optional)
-        if: env.ANTHROPIC_API_KEY != ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: gang optimize
-        continue-on-error: true
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            gang optimize
+          else
+            echo "Skipping gang optimize (ANTHROPIC_API_KEY not set)"
+          fi
       
       - name: Build site
         run: gang build
@@ -45,7 +48,9 @@ jobs:
       - name: Validate contracts
         id: validate
         run: |
-          gang check --output validation-report.json || echo "VALIDATION_FAILED=true" >> $GITHUB_ENV
+          set -euo pipefail
+          gang check --output validation-report.json
+          gang check-contracts
       
       - name: Upload validation report
         if: always()
@@ -84,8 +89,7 @@ jobs:
         run: npm install -g @lhci/cli@0.13.x
       
       - name: Run Lighthouse CI
-        run: |
-          lhci autorun --config=lighthouserc.json || echo "LIGHTHOUSE_FAILED=true" >> $GITHUB_ENV
+        run: lhci autorun --config=lighthouserc.json
       
       - name: Upload Lighthouse reports
         if: always()
@@ -142,16 +146,13 @@ jobs:
       
       - name: Run axe accessibility tests
         run: |
-          # Start simple HTTP server in background
-          npx http-server dist -p 8080 &
+          npx --yes http-server dist -p 8080 >/tmp/http-server.log 2>&1 &
           SERVER_PID=$!
           sleep 3
-          
-          # Run axe on all HTML files
-          axe http://localhost:8080 --exit || echo "AXE_ISSUES_FOUND=true" >> $GITHUB_ENV
-          
-          # Cleanup
-          kill $SERVER_PID
+          axe http://localhost:8080 --exit
+          AXE_STATUS=$?
+          kill $SERVER_PID || true
+          exit $AXE_STATUS
 
   deploy:
     name: Deploy to Cloudflare Pages
