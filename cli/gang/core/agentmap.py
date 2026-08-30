@@ -171,6 +171,14 @@ class ContentAPIGenerator:
                 slug = file_path.stem
                 public_category = 'posts' if category == 'articles' else category
                 
+                date_val = (
+                    frontmatter.get('date')
+                    or frontmatter.get('publish_date')
+                    or frontmatter.get('sent_date')
+                    or ''
+                )
+                if hasattr(date_val, 'isoformat'):
+                    date_val = date_val.isoformat()
                 item = {
                     'title': frontmatter.get('title', slug.replace('-', ' ').title()),
                     'url': f"{self.site_url}/{public_category}/{slug}/",
@@ -178,7 +186,7 @@ class ContentAPIGenerator:
                     'category': public_category,
                     'slug': slug,
                     'summary': frontmatter.get('summary', frontmatter.get('description', '')),
-                    'date': str(frontmatter.get('date', '')),
+                    'date': str(date_val or ''),
                     'tags': frontmatter.get('tags', [])
                 }
                 

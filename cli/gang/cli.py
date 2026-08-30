@@ -151,8 +151,8 @@ def numeric_variant_id(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     text = str(value or '').strip()
-    if text.endswith('.0') and text[:-2].isdigit():
-        text = text[:-2]
+    if re.fullmatch(r'\d+\.0+', text):
+        text = text.split('.', 1)[0]
     return text if text.isdigit() else ''
 
 
@@ -192,9 +192,10 @@ def collect_checkout_origins(products: Optional[List[Any]] = None) -> List[str]:
         if not store_url.startswith('http'):
             store_url = f'https://{store_url}'
         parsed = urlparse(store_url)
-        if parsed.scheme in ('http', 'https') and parsed.netloc:
-            if parsed.netloc.lower() not in ('www.shopify.com', 'shopify.com'):
-                origins.add(f"{parsed.scheme}://{parsed.netloc}")
+        host = (parsed.netloc or '').split('@')[-1]
+        if parsed.scheme in ('http', 'https') and host:
+            if host.lower() not in ('www.shopify.com', 'shopify.com'):
+                origins.add(f"{parsed.scheme}://{host}")
     return sorted(origins)
 
 
@@ -469,6 +470,12 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         from gang.core.products import _plain_text
     description = _plain_text(product.get('description', ''))
     buy_url = safe_http_url(matching_default.get('url') or first_offer.get('url'))
+    default_in_stock = offer_is_in_stock({
+        'availability': matching_default.get('availability') or first_offer.get('availability')
+    })
+    if not default_in_stock:
+        buy_url = ''
+        default_variant_id = ''
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
@@ -624,6 +631,26 @@ def frontmatter_seo(frontmatter: Any) -> Dict[str, Any]:
         return {}
     seo = frontmatter.get('seo')
     return seo if isinstance(seo, dict) else {}
+
+
+def list_item_summary(frontmatter: Any, site_description: str, content_html: str = '') -> str:
+    """Card/list excerpt: authored text or HTML excerpt, never the site tagline."""
+    seo = frontmatter_seo(frontmatter)
+    candidates = []
+    if isinstance(frontmatter, dict):
+        candidates.append(frontmatter.get('summary'))
+    candidates.append(seo.get('description'))
+    for raw in candidates:
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text and text != site_description:
+                return text
+    if content_html:
+        text = re.sub(r'<[^>]+>', ' ', str(content_html))
+        text = re.sub(r'\s+', ' ', text).strip()
+        if text:
+            return text[:200]
+    return ''
 
 
 def sanitize_social_links(raw: Any) -> List[Dict[str, str]]:
@@ -1996,11 +2023,13 @@ def set_schedule(ctx, file_path, publish_date, now, status):
         ctx.exit(1)
     
     if now:
-        # Remove schedule, publish now
-        success = scheduler.set_publish_date(file_path, None, 'published')
+        # --now with the default `--status scheduled` means publish immediately.
+        # An explicit draft/sent/live status is preserved after clearing dates.
+        clear_status = 'published' if status == 'scheduled' else status
+        success = scheduler.set_publish_date(file_path, None, clear_status)
         if success:
             click.echo(f"✅ Removed schedule from {file_path.name}")
-            click.echo(f"   Status: published (will appear in next build)")
+            click.echo(f"   Status: {clear_status}")
         else:
             click.echo(f"❌ Failed to update {file_path.name}")
             ctx.exit(1)
@@ -3191,6 +3220,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'summary': frontmatter.get('summary') or '',
             'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
             'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
+            'status': frontmatter.get('status') or '',
         }
         
         # Treat articles as posts
@@ -3245,7 +3275,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         page_data = {
             'url': url,
             'title': context['title'],
-            'summary': context['description'],
+            'summary': list_item_summary(
+                frontmatter, config['site']['description'], content_html
+            ),
             'date': context['date'],
             'type': content_type,
             'content_html': content_html,
@@ -5461,6 +5493,7 @@ def serve(ctx, port, host):
                         'summary': frontmatter.get('summary') or '',
                         'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
                         'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
+                        'status': frontmatter.get('status') or '',
                     }
                     if not context.get('jsonld'):
                         context['jsonld'] = fallback_jsonld(
@@ -5498,7 +5531,9 @@ def serve(ctx, port, host):
                     page_data = {
                         'url': url,
                         'title': context['title'],
-                        'summary': context['description'],
+                        'summary': list_item_summary(
+                            frontmatter, config['site']['description'], content_html
+                        ),
                         'date': context['date'],
                         'type': content_type,
                         'content_html': content_html,

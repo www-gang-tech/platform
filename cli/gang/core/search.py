@@ -131,7 +131,12 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': _json_safe(frontmatter.get('date') or frontmatter.get('publish_date') or ''),
+            'date': _json_safe(
+                frontmatter.get('date')
+                or frontmatter.get('publish_date')
+                or frontmatter.get('sent_date')
+                or ''
+            ),
         }
     
     def _clean_markdown(self, text: str) -> str:
