@@ -261,7 +261,8 @@ class NewsletterManager:
         newsletters = {
             'draft': [],
             'scheduled': [],
-            'sent': []
+            'sent': [],
+            'published': [],
         }
         
         if not self.newsletters_path.exists():
@@ -286,8 +287,9 @@ class NewsletterManager:
                     if isinstance(status, list) and status:
                         status = status[0]
                     status = str(status or 'draft').strip().lower()
+                    # Web-publish statuses are not email-send receipts.
                     if status in ('published', 'live', 'public'):
-                        status = 'sent'
+                        status = 'published'
                     if status not in newsletters:
                         status = 'draft'
                     
