@@ -73,6 +73,17 @@ class ShopifyPRBot:
         # Add metadata
         frontmatter['shopify_updated_at'] = datetime.utcnow().isoformat()
         frontmatter['source'] = 'shopify'
+
+        variants = frontmatter.get('variants')
+        if isinstance(variants, list):
+            try:
+                from core.products import append_variant_query, shopify_storefront_url
+            except ImportError:
+                from gang.core.products import append_variant_query, shopify_storefront_url
+            base = shopify_storefront_url(product_data)
+            for variant in variants:
+                if isinstance(variant, dict) and not variant.get('url'):
+                    variant['url'] = append_variant_query(base, variant.get('id'))
         
         return frontmatter
     

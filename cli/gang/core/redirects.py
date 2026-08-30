@@ -49,7 +49,10 @@ class RedirectManager:
             from urllib.parse import urlparse
             parsed = urlparse(value)
             return parsed.scheme in ('http', 'https') and bool(parsed.netloc) and '\n' not in value
-        return bool(_SAFE_REDIRECT_PATH.match(value)) and '//' not in value
+        if not _SAFE_REDIRECT_PATH.match(value) or '//' in value:
+            return False
+        # `/posts/../admin` and `/../etc` must not become Location targets.
+        return '..' not in value.split('/')
 
     def add_redirect(
         self, 

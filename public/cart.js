@@ -45,14 +45,15 @@
     
     function isNumericVariantId(value) {
         let text = String(value == null ? '' : value).trim();
-        if (/^\d+\.0$/.test(text)) {
-            text = text.slice(0, -2);
+        if (/^\d+\.0+$/.test(text)) {
+            text = text.split('.')[0];
         }
         return /^\d+$/.test(text);
     }
 
     function isSafeCartImage(value) {
         if (!value || typeof value !== 'string') return false;
+        if (value.startsWith('//') || value.startsWith('/\\') || value.startsWith('\\')) return false;
         if (value.startsWith('/') && !value.startsWith('//')) return true;
         return isSafeHttpUrl(value);
     }
@@ -61,7 +62,13 @@
         const meta = document.querySelector('meta[name="gang-checkout-origins"]');
         if (!meta) return new Set();
         const origins = String(meta.content || '').split(/\s+/).map(s => s.trim()).filter(Boolean);
-        return new Set(origins);
+        return new Set(origins.map(function(s) {
+            try {
+                return new URL(s).origin;
+            } catch (err) {
+                return s;
+            }
+        }));
     }
 
     function isAllowedCheckoutUrl(parsed) {
@@ -119,14 +126,19 @@
         const formData = new FormData(form);
         
         const checkoutUrl = checkoutUrlFromForm(form);
+        const variantParts = [];
+        if (form.querySelector('[name="color"]')) variantParts.push(String(formData.get('color') ?? ''));
+        if (form.querySelector('[name="size"]')) variantParts.push(String(formData.get('size') ?? ''));
+        if (form.querySelector('[name="option3"]')) variantParts.push(String(formData.get('option3') ?? ''));
+        const rawImage = form.dataset.image || '';
         const item = {
             id: form.dataset.variantId || '',
             name: form.dataset.productName || 'Product',
-            variant: [formData.get('color'), formData.get('size'), formData.get('option3')].filter(Boolean).join(' / '),
+            variant: variantParts.join(' / '),
             price: toPrice(form.dataset.price || '0'),
             currency: String(form.dataset.currency || 'USD').toUpperCase(),
             quantity: toQuantity(formData.get('quantity') || '1'),
-            image: form.dataset.image || '',
+            image: isSafeCartImage(rawImage) ? rawImage : '',
             url: checkoutUrl || form.dataset.productUrl || '',
             checkoutUrl: checkoutUrl,
             productUrl: form.dataset.productUrl || '',
