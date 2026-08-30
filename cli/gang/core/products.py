@@ -510,14 +510,17 @@ class ProductAggregator:
         
         shopify_url = os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE')
         shopify_token = os.environ.get('SHOPIFY_ACCESS_TOKEN')
+        configured = set()
         if shopify_url and shopify_token:
             live_configured = True
+            configured.add('shopify')
             client = ShopifyClient(shopify_url, shopify_token)
             fetched = client.fetch_products()
             if fetched is not None:
                 products['shopify'] = fetched
                 fetched_ok.add('shopify')
         elif self.config.get('demo_mode', False):
+            configured.add('shopify')
             client = ShopifyClient('demo.myshopify.com', 'demo')
             products['shopify'] = client.fetch_products() or []
             fetched_ok.add('shopify')
@@ -525,6 +528,7 @@ class ProductAggregator:
         stripe_key = os.environ.get('STRIPE_SECRET_KEY')
         if stripe_key and stripe_key != 'demo':
             live_configured = True
+            configured.add('stripe')
             client = StripeClient(stripe_key)
             fetched = client.fetch_products()
             if fetched is not None:
@@ -534,22 +538,24 @@ class ProductAggregator:
         gumroad_token = os.environ.get('GUMROAD_ACCESS_TOKEN')
         if gumroad_token and gumroad_token != 'demo':
             live_configured = True
+            configured.add('gumroad')
             client = GumroadClient(gumroad_token)
             fetched = client.fetch_products()
             if fetched is not None:
                 products['gumroad'] = fetched
                 fetched_ok.add('gumroad')
         
-        # Restore cache when nothing is configured, or when a live fetch failed/skipped.
+        # Restore cache when nothing is configured, or when a live fetch failed.
         # products is pre-keyed, so "source not in products" never restores.
         cached = self.load_cache()
         if cached and cached.get('products'):
             if not live_configured:
                 return cached['products']
             for source, items in cached['products'].items():
-                # Restore only sources that were not fetched (failed/skipped).
-                # A successful empty list must not resurrect stale catalog rows.
-                if source not in fetched_ok:
+                # Restore only configured sources that failed. A deconfigured
+                # platform must not resurrect stale catalog rows, and a
+                # successful empty list must not either.
+                if source in configured and source not in fetched_ok:
                     products[source] = items if isinstance(items, list) else []
         
         has_products = any(products.get(source) for source in products)
