@@ -25,19 +25,12 @@ class TemplateEngine:
 
     @staticmethod
     def _safe_url(value):
-        """Allow only relative site paths or http(s) URLs."""
-        if not isinstance(value, str):
-            return ''
-        value = value.strip()
-        if not value or value == '#':
-            return ''
-        if value.startswith('/') and not value.startswith('//'):
-            return value
-        from urllib.parse import urlparse
-        parsed = urlparse(value)
-        if parsed.scheme in ('http', 'https') and parsed.netloc:
-            return value
-        return ''
+        """Allow only relative site paths or http(s) URLs (shared href policy)."""
+        try:
+            from core.html_sanitize import safe_http_url
+        except ImportError:
+            from gang.core.html_sanitize import safe_http_url
+        return safe_http_url(value)
 
     @staticmethod
     def _tojson_script(data):
