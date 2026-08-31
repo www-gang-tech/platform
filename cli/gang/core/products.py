@@ -53,13 +53,31 @@ def shopify_storefront_url(product: Dict[str, Any]) -> str:
     return f"https://{host}/products/{handle}"
 
 
+def coerce_available_flag(value: Any) -> Optional[bool]:
+    """Parse Shopify/YAML availability; string 'false' must not become True."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ('true', '1', 'yes', 'on'):
+            return True
+        if text in ('false', '0', 'no', 'off', ''):
+            return False
+        return None
+    return None
+
+
 def variant_in_stock(variant: Dict[str, Any]) -> bool:
     """Prefer Shopify's explicit `available` flag over stale inventory counts."""
     if not isinstance(variant, dict):
         return False
-    available = variant.get('available')
+    available = coerce_available_flag(variant.get('available'))
     if available is not None:
-        return bool(available)
+        return available
     inventory_qty = variant.get('inventory_quantity', variant.get('inventoryQuantity', 0))
     try:
         inventory_qty = int(inventory_qty or 0)

@@ -35,12 +35,20 @@
     
     function isSafeHttpUrl(value) {
         if (!value || typeof value !== 'string') return false;
+        const trimmed = value.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+            return false;
+        }
         try {
-            const url = new URL(value, window.location.origin);
+            const url = new URL(trimmed, window.location.origin);
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch {
             return false;
         }
+    }
+
+    function isExplicitlyInStock(value) {
+        return value === true || value === 'true';
     }
     
     function isNumericVariantId(value) {
@@ -143,7 +151,7 @@
             checkoutUrl: checkoutUrl,
             productUrl: form.dataset.productUrl || '',
             sku: form.dataset.sku || '',
-            inStock: form.dataset.inStock !== 'false'
+            inStock: form.dataset.inStock === 'true'
         };
         
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -319,7 +327,7 @@
         const items = [];
         const skipped = [];
         cart.forEach(item => {
-            if (item.inStock === false || item.inStock === 'false') {
+            if (!isExplicitlyInStock(item.inStock)) {
                 skipped.push(item);
                 return;
             }

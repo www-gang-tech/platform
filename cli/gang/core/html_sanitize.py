@@ -4,8 +4,8 @@ Shared HTML / URL sanitizers for Markdown fragments and template hrefs.
 
 from __future__ import annotations
 
-from typing import Optional
-from urllib.parse import unquote
+from typing import Any, Optional
+from urllib.parse import unquote, urlparse, urlunparse
 
 
 def _href_has_dotdot(path: str) -> bool:
@@ -64,6 +64,32 @@ def is_safe_href(value: Optional[str]) -> bool:
 def safe_href(value: Optional[str], fallback: str = '#') -> str:
     """Return value when safe, otherwise fallback."""
     return value if is_safe_href(value) else fallback
+
+
+def safe_http_url(value: Any) -> str:
+    """Allow only relative site paths or http(s) URLs.
+
+    Applies the shared href policy (encoded slashes, ``..``, backslash gadgets),
+    strips userinfo, and rejects ``shopify.com`` checkout hosts.
+    """
+    if not isinstance(value, str):
+        return ''
+    value = value.strip()
+    if not value or value == '#':
+        return ''
+    if not is_safe_href(value):
+        return ''
+    if value.startswith('/') and not value.startswith('//'):
+        return value
+    parsed = urlparse(value)
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        return ''
+    host = (parsed.netloc or '').split('@')[-1]
+    if not host or host.lower() in ('www.shopify.com', 'shopify.com'):
+        return ''
+    if '@' in parsed.netloc:
+        return urlunparse(parsed._replace(netloc=host))
+    return value
 
 
 def sanitize_markdown_html(html: str) -> str:
