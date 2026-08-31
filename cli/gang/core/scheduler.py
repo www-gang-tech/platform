@@ -5,8 +5,64 @@ Handle scheduled publishing of content based on publish_date.
 
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 import yaml
+
+
+def _absent_schedule_date(value: Any) -> bool:
+    """True when publish_date/scheduled_for should be treated as missing."""
+    if value is None or value is False:
+        return True
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)) and value == 0:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    if isinstance(value, (list, tuple, dict, set)) and not value:
+        return True
+    return False
+
+
+def parse_schedule_datetime(value: Any) -> datetime:
+    """Parse ISO/YAML dates; accept Z/z UTC suffixes and naive values as UTC."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if text.endswith(('Z', 'z')):
+            text = text[:-1] + '+00:00'
+        parsed = datetime.fromisoformat(text)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
+    """Parse the first present, well-formed schedule date (publish_date, then alias)."""
+    for value in values:
+        if _absent_schedule_date(value):
+            continue
+        try:
+            return parse_schedule_datetime(value)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _normalize_schedule_status(raw_status: Any, *, newsletter: bool, missing: bool) -> str:
+    """Normalize YAML status; unknown/empty/bool values fail closed as draft."""
+    if missing:
+        return 'draft' if newsletter else 'published'
+    if isinstance(raw_status, list) and raw_status:
+        raw_status = raw_status[0]
+    if raw_status is False:
+        return 'draft'
+    if raw_status is True or isinstance(raw_status, (int, float)):
+        return 'draft'
+    if raw_status is None or (isinstance(raw_status, str) and not raw_status.strip()):
+        return 'draft'
+    return str(raw_status).strip().lower()
 
 
 class ContentScheduler:
@@ -27,43 +83,78 @@ class ContentScheduler:
         draft = []
         
         for file_path in content_files:
-            content = file_path.read_text()
-            
-            # Parse frontmatter
-            if not content.startswith('---'):
-                # No frontmatter, include by default
-                publishable.append({
+            try:
+                content = file_path.read_text()
+            except (OSError, UnicodeDecodeError):
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'unreadable file',
+                })
+                continue
+            
+            # Parse frontmatter. Missing or truncated YAML must not go live.
+            if not content.startswith('---'):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'missing frontmatter',
                 })
                 continue
             
             parts = content.split('---', 2)
             if len(parts) < 3:
-                publishable.append({
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'malformed frontmatter delimiters',
                 })
                 continue
             
             try:
                 frontmatter = yaml.safe_load(parts[1]) or {}
-            except:
-                # Invalid YAML, include anyway
-                publishable.append({
+            except Exception:
+                draft.append({
                     'path': file_path,
-                    'status': 'published',
-                    'publish_date': None
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                })
+                continue
+
+            if not isinstance(frontmatter, dict):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
                 })
                 continue
             
-            # Get status
-            status = frontmatter.get('status', 'published')
+            # Get status (YAML `no`/`false` and list wrappers must not publish).
+            # Missing key defaults to published, except newsletters (draft until sent).
+            # Explicit null/empty fails closed.
+            is_newsletter = file_path.parent.name == 'newsletters'
+            status = _normalize_schedule_status(
+                frontmatter.get('status'),
+                newsletter=is_newsletter,
+                missing='status' not in frontmatter,
+            )
             
-            # If status is draft, skip
-            if status == 'draft':
+            # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
+            # `sent` keeps already-emailed newsletters on the static site.
+            if status not in ('published', 'scheduled', 'live', 'public', 'sent'):
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -72,53 +163,68 @@ class ContentScheduler:
                 })
                 continue
             
-            # Check publish_date
-            publish_date_str = frontmatter.get('publish_date')
-            
-            if not publish_date_str:
-                # No publish date, publish immediately
-                publishable.append({
-                    'path': file_path,
-                    'status': status,
-                    'publish_date': None
-                })
-                continue
-            
-            # Parse publish date
-            try:
-                if isinstance(publish_date_str, datetime):
-                    publish_date = publish_date_str
-                else:
-                    # Try to parse ISO format
-                    publish_date = datetime.fromisoformat(str(publish_date_str).replace('Z', '+00:00'))
-                
-                # Ensure timezone aware
-                if publish_date.tzinfo is None:
-                    publish_date = publish_date.replace(tzinfo=timezone.utc)
-                
-                # Check if publish date has passed
-                if publish_date <= now:
+            # Check publish_date. scheduled_for is a newsletter/ESP alias only.
+            # Authored `date` is the common static-site fallback used by templates.
+            # Unparseable publish_date must not hide a later valid field.
+            raw_publish = frontmatter.get('publish_date')
+            raw_alias = frontmatter.get('scheduled_for') if is_newsletter else None
+            raw_date = frontmatter.get('date')
+            publish_date = _parse_first_schedule_date(raw_publish, raw_alias, raw_date)
+            date_present = (
+                not _absent_schedule_date(raw_publish)
+                or not _absent_schedule_date(raw_alias)
+                or not _absent_schedule_date(raw_date)
+            )
+
+            if publish_date is None:
+                # Already-sent newsletters stay live even when the date is garbage.
+                if status == 'sent':
                     publishable.append({
                         'path': file_path,
-                        'status': 'published',
-                        'publish_date': publish_date,
+                        'status': 'sent',
+                        'publish_date': None,
                         'title': frontmatter.get('title', file_path.stem)
                     })
-                else:
-                    scheduled_future.append({
+                    continue
+                # Scheduled without a usable date fails closed. Garbage dates on
+                # already-published content are ignored so leftover ESP metadata
+                # cannot hide a live page.
+                if status == 'scheduled':
+                    draft.append({
                         'path': file_path,
-                        'status': 'scheduled',
-                        'publish_date': publish_date,
-                        'title': frontmatter.get('title', file_path.stem)
+                        'status': 'draft',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem),
+                        '_date_error': bool(date_present),
+                        'error': (
+                            'invalid publish_date'
+                            if date_present
+                            else 'status=scheduled requires publish_date'
+                        ),
                     })
-            
-            except (ValueError, TypeError) as e:
-                # Invalid date format, include anyway
+                    continue
                 publishable.append({
                     'path': file_path,
                     'status': status,
                     'publish_date': None,
-                    'error': f'Invalid date format: {e}'
+                    'title': frontmatter.get('title', file_path.stem)
+                })
+                continue
+
+            # Already-sent newsletters stay live even if publish_date is still future.
+            if status == 'sent' or publish_date <= now:
+                publishable.append({
+                    'path': file_path,
+                    'status': 'sent' if status == 'sent' else 'published',
+                    'publish_date': publish_date,
+                    'title': frontmatter.get('title', file_path.stem)
+                })
+            else:
+                scheduled_future.append({
+                    'path': file_path,
+                    'status': 'scheduled',
+                    'publish_date': publish_date,
+                    'title': frontmatter.get('title', file_path.stem)
                 })
         
         return {
@@ -130,7 +236,13 @@ class ContentScheduler:
     
     def get_scheduled_summary(self) -> Dict[str, Any]:
         """Get summary of all scheduled content"""
-        all_files = list(self.content_path.rglob('*.md'))
+        # Match the build collector: top-level category dirs, not products/*.md
+        category_dirs = ('posts', 'articles', 'pages', 'projects', 'newsletters', 'people')
+        all_files = []
+        for category in category_dirs:
+            directory = self.content_path / category
+            if directory.is_dir():
+                all_files.extend(sorted(directory.glob('*.md')))
         result = self.get_publishable_content(all_files)
         
         return {
@@ -207,9 +319,18 @@ class ContentScheduler:
         """
         if not file_path.exists():
             return False
+
+        allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
+        if status not in allowed:
+            return False
         
-        content = file_path.read_text()
+        try:
+            content = file_path.read_text()
+        except (OSError, UnicodeDecodeError):
+            return False
         
+        is_newsletter = file_path.parent.name == 'newsletters'
+
         # Parse frontmatter
         if not content.startswith('---'):
             # No frontmatter, create one
@@ -217,7 +338,10 @@ class ContentScheduler:
                 'status': status
             }
             if publish_date:
-                frontmatter['publish_date'] = publish_date.isoformat()
+                iso = publish_date.isoformat()
+                frontmatter['publish_date'] = iso
+                if is_newsletter:
+                    frontmatter['scheduled_for'] = iso
             
             new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
             file_path.write_text(new_content)
@@ -229,18 +353,32 @@ class ContentScheduler:
         
         try:
             frontmatter = yaml.safe_load(parts[1]) or {}
-        except:
+        except Exception:
+            return False
+        if not isinstance(frontmatter, dict):
+            return False
+
+        existing = _normalize_schedule_status(
+            frontmatter.get('status'),
+            newsletter=is_newsletter,
+            missing='status' not in frontmatter,
+        )
+        # Sent newsletters are archive records; do not reschedule them to draft/live.
+        if existing == 'sent' and status != 'sent':
             return False
         
         # Update frontmatter
         if publish_date:
-            frontmatter['publish_date'] = publish_date.isoformat()
+            iso = publish_date.isoformat()
+            frontmatter['publish_date'] = iso
+            if is_newsletter or 'scheduled_for' in frontmatter:
+                frontmatter['scheduled_for'] = iso
             frontmatter['status'] = status
         else:
-            # Remove publish_date if exists
+            # Remove both date keys so --now cannot leave a future scheduled_for.
             frontmatter.pop('publish_date', None)
-            if frontmatter.get('status') == 'scheduled':
-                frontmatter['status'] = 'published'
+            frontmatter.pop('scheduled_for', None)
+            frontmatter['status'] = status
         
         # Write back
         body = parts[2]

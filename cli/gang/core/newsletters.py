@@ -6,7 +6,7 @@ Supports: Klaviyo, Mailchimp, Postmark, Cloudflare Email Workers.
 
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -71,6 +71,8 @@ class NewsletterManager:
         import yaml
         
         slug = self._generate_slug(title)
+        if not slug or '..' in slug or '/' in slug or '\\' in slug:
+            return {'error': 'Could not generate a safe newsletter slug'}
         file_path = self.newsletters_path / f"{slug}.md"
         
         # Check if exists
@@ -85,7 +87,7 @@ class NewsletterManager:
             'from_email': from_email,
             'preview_text': preview_text or subject,
             'status': 'draft',
-            'created': datetime.now().isoformat(),
+            'created': datetime.now(timezone.utc).isoformat(),
             'type': 'newsletter'
         }
         
@@ -99,6 +101,17 @@ class NewsletterManager:
             'slug': slug
         }
     
+    def _resolve_newsletter_file(self, file_path: Path) -> Optional[Path]:
+        """Keep newsletter reads/writes inside the newsletters directory."""
+        try:
+            resolved = Path(file_path).resolve()
+            resolved.relative_to(self.newsletters_path.resolve())
+        except (OSError, ValueError):
+            return None
+        if resolved.suffix != '.md':
+            return None
+        return resolved
+
     def send_newsletter(
         self,
         file_path: Path,
@@ -108,6 +121,10 @@ class NewsletterManager:
         
         import yaml
         
+        file_path = self._resolve_newsletter_file(file_path)
+        if file_path is None or not file_path.is_file():
+            return {'error': 'Newsletter path must stay inside the newsletters directory'}
+
         content = file_path.read_text()
         
         # Parse frontmatter
@@ -118,8 +135,26 @@ class NewsletterManager:
         if len(parts) < 3:
             return {'error': 'Invalid frontmatter'}
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
+        try:
+            frontmatter = yaml.safe_load(parts[1]) or {}
+        except Exception:
+            return {'error': 'Invalid frontmatter'}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
+
+        raw_status = frontmatter.get('status')
+        if raw_status is None:
+            status = 'draft'
+        else:
+            status = str(raw_status).strip().lower()
+        if not test_mode:
+            if status == 'sent':
+                return {'error': 'Newsletter already sent', 'success': False}
+            if status == 'scheduled':
+                return {'error': 'Scheduled newsletters must be sent after their date or unscheduled first', 'success': False}
+            if status not in ('draft', 'published', 'live', 'public', ''):
+                return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         
         # Convert markdown to HTML
         html_body = self._markdown_to_email_html(body)
@@ -140,22 +175,22 @@ class NewsletterManager:
         else:
             result = self.provider.send_campaign(email_data)
         
-        # Update frontmatter if sent
-        if result.get('success'):
+        # Test sends must not flip archive status or rewrite the source file.
+        if result.get('success') and not test_mode:
             frontmatter['status'] = 'sent'
-            frontmatter['sent_at'] = datetime.now().isoformat()
+            frontmatter['sent_at'] = datetime.now(timezone.utc).isoformat()
             frontmatter['provider'] = self.provider.name
             frontmatter['campaign_id'] = result.get('campaign_id')
             frontmatter['recipients'] = result.get('recipients', 0)
             
             # Update file
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{body}"
             file_path.write_text(new_content)
             
             # Add to archive
             self.archive['newsletters'].append({
                 'slug': file_path.stem,
-                'title': frontmatter['title'],
+                'title': frontmatter.get('title', email_data['subject']),
                 'subject': email_data['subject'],
                 'sent_at': frontmatter['sent_at'],
                 'campaign_id': frontmatter['campaign_id'],
@@ -176,18 +211,37 @@ class NewsletterManager:
         
         import yaml
         
+        file_path = self._resolve_newsletter_file(file_path)
+        if file_path is None or not file_path.is_file():
+            return {'error': 'Newsletter path must stay inside the newsletters directory'}
+
         content = file_path.read_text()
+        if not content.startswith('---'):
+            return {'error': 'Invalid frontmatter'}
         parts = content.split('---', 2)
         
         if len(parts) < 3:
             return {'error': 'Invalid frontmatter'}
         
-        frontmatter = yaml.safe_load(parts[1]) or {}
+        try:
+            frontmatter = yaml.safe_load(parts[1]) or {}
+        except Exception:
+            return {'error': 'Invalid frontmatter'}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
+
+        existing_status = str(frontmatter.get('status') or '').strip().lower()
+        if existing_status == 'sent':
+            return {'error': 'Cannot reschedule a sent newsletter', 'success': False}
+
+        if send_date.tzinfo is None:
+            send_date = send_date.replace(tzinfo=timezone.utc)
         
-        # Update status and schedule
+        # Site scheduler reads publish_date; keep scheduled_for for ESP tooling.
         frontmatter['status'] = 'scheduled'
         frontmatter['scheduled_for'] = send_date.isoformat()
+        frontmatter['publish_date'] = send_date.isoformat()
         
         # Write back
         new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
@@ -207,7 +261,8 @@ class NewsletterManager:
         newsletters = {
             'draft': [],
             'scheduled': [],
-            'sent': []
+            'sent': [],
+            'published': [],
         }
         
         if not self.newsletters_path.exists():
@@ -219,9 +274,24 @@ class NewsletterManager:
                 
                 if content.startswith('---'):
                     parts = content.split('---', 2)
-                    frontmatter = yaml.safe_load(parts[1]) or {}
+                    if len(parts) < 3:
+                        continue
+                    try:
+                        frontmatter = yaml.safe_load(parts[1]) or {}
+                    except Exception:
+                        continue
+                    if not isinstance(frontmatter, dict):
+                        continue
                     
                     status = frontmatter.get('status', 'draft')
+                    if isinstance(status, list) and status:
+                        status = status[0]
+                    status = str(status or 'draft').strip().lower()
+                    # Web-publish statuses are not email-send receipts.
+                    if status in ('published', 'live', 'public'):
+                        status = 'published'
+                    if status not in newsletters:
+                        status = 'draft'
                     
                     newsletters[status].append({
                         'slug': file_path.stem,
@@ -246,6 +316,18 @@ class NewsletterManager:
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
         html = md.convert(markdown_content)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            try:
+                from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+            except ImportError:
+                sanitize_markdown_html = None
+        if sanitize_markdown_html:
+            html = sanitize_content_hrefs(sanitize_markdown_html(html))
+        else:
+            html = re.sub(r'(?is)<script[^>]*>.*?</script>', '', html)
+            html = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
         
         # Wrap in email template
         email_html = f'''
@@ -359,7 +441,7 @@ class KlaviyoProvider(EmailProvider):
                         'send_strategy': {
                             'method': 'immediate'
                         },
-                        'campaign_messages': {
+                        'campaign-messages': {
                             'data': [{
                                 'type': 'campaign-message',
                                 'attributes': {
@@ -394,6 +476,33 @@ class KlaviyoProvider(EmailProvider):
             if response.status_code == 201:
                 campaign = response.json()
                 campaign_id = campaign['data']['id']
+                messages = (
+                    campaign.get('data', {})
+                    .get('attributes', {})
+                    .get('campaign-messages', {})
+                    .get('data', [])
+                )
+                html_body = email_data.get('html_body') or email_data.get('html') or ''
+                text_body = email_data.get('text_body') or email_data.get('text') or ''
+                if messages and html_body:
+                    message_id = messages[0].get('id')
+                    if message_id:
+                        requests.patch(
+                            f"{self.base_url}/campaign-messages/{message_id}/",
+                            headers=headers,
+                            json={
+                                'data': {
+                                    'type': 'campaign-message',
+                                    'id': message_id,
+                                    'attributes': {
+                                        'content': {
+                                            'html': html_body,
+                                            'plain_text': text_body,
+                                        }
+                                    }
+                                }
+                            },
+                        )
                 
                 # Send campaign
                 send_response = requests.post(
@@ -626,9 +735,9 @@ class PostmarkProvider(EmailProvider):
         # You'd send individual emails or use their Broadcasts API
         
         return {
-            'success': True,
+            'success': False,
             'provider': 'postmark',
-            'message': 'Postmark integration pending - use Broadcasts API'
+            'error': 'Postmark broadcasts are not implemented; refusing to mark as sent',
         }
     
     def send_test(self, email_data: Dict[str, Any]) -> Dict[str, Any]:

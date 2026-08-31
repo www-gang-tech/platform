@@ -19,6 +19,29 @@ class TemplateEngine:
         
         # Add custom filters
         self.env.filters['formatdate'] = self._format_date
+        self.env.filters['date'] = self._format_date
+        self.env.filters['tojson_script'] = self._tojson_script
+        self.env.filters['safe_url'] = self._safe_url
+
+    @staticmethod
+    def _safe_url(value):
+        """Allow only relative site paths or http(s) URLs (shared href policy)."""
+        try:
+            from core.html_sanitize import safe_http_url
+        except ImportError:
+            from gang.core.html_sanitize import safe_http_url
+        return safe_http_url(value)
+
+    @staticmethod
+    def _tojson_script(data):
+        import json
+        from markupsafe import Markup
+        return Markup(
+            json.dumps(data, indent=2, default=str)
+            .replace('<', '\\u003c')
+            .replace('>', '\\u003e')
+            .replace('&', '\\u0026')
+        )
     
     def _format_date(self, date_str: str, format: str = '%B %d, %Y') -> str:
         """Format date string"""
@@ -26,9 +49,9 @@ class TemplateEngine:
             try:
                 date_obj = datetime.fromisoformat(str(date_str))
                 return date_obj.strftime(format)
-            except:
+            except Exception:
                 return date_str
-        elif isinstance(date_str, datetime):
+        elif hasattr(date_str, 'strftime'):
             return date_str.strftime(format)
         return str(date_str)
     
