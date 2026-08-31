@@ -36,10 +36,13 @@
     
     function isSafeActionUrl(value) {
         if (!value || typeof value !== 'string') return false;
-        if (value.charAt(0) === '/' && value.charAt(1) === '/') return false;
-        if (value.charAt(0) === '/' && value.charAt(1) !== '/') return true;
+        const trimmed = value.trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+            return false;
+        }
+        if (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/') return true;
         try {
-            const url = new URL(value, window.location.origin);
+            const url = new URL(trimmed, window.location.origin);
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch (err) {
             return false;
@@ -127,6 +130,9 @@
         form.dataset.price = (variant.price == null || variant.price === '') ? '0' : String(variant.price);
         if (variant.currency) {
             form.dataset.currency = String(variant.currency);
+        }
+        if (variant.image && isSafeActionUrl(variant.image)) {
+            form.dataset.image = variant.image;
         }
     }
 
