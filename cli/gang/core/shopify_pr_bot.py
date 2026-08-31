@@ -80,10 +80,17 @@ class ShopifyPRBot:
                 from core.products import append_variant_query, shopify_storefront_url
             except ImportError:
                 from gang.core.products import append_variant_query, shopify_storefront_url
+            try:
+                from core.html_sanitize import safe_http_url
+            except ImportError:
+                from gang.core.html_sanitize import safe_http_url
             base = shopify_storefront_url(product_data)
             for variant in variants:
-                if isinstance(variant, dict) and not variant.get('url'):
+                if not isinstance(variant, dict):
+                    continue
+                if not variant.get('url'):
                     variant['url'] = append_variant_query(base, variant.get('id'))
+                variant['url'] = safe_http_url(variant.get('url'))
         
         return frontmatter
     
@@ -150,6 +157,14 @@ class ShopifyPRBot:
         elif transform == 'normalize_variants':
             # Normalize variant structure
             if isinstance(value, list):
+                try:
+                    from core.products import coerce_available_flag
+                except ImportError:
+                    from gang.core.products import coerce_available_flag
+                try:
+                    from core.html_sanitize import safe_http_url
+                except ImportError:
+                    from gang.core.html_sanitize import safe_http_url
                 normalized = []
                 for v in value:
                     if not isinstance(v, dict):
@@ -160,7 +175,7 @@ class ShopifyPRBot:
                     except (TypeError, ValueError):
                         qty_num = 0
                     policy = str(v.get('inventory_policy') or '')
-                    available = v.get('available')
+                    available = coerce_available_flag(v.get('available'))
                     inventory_management = v.get('inventory_management')
                     if available is None:
                         if inventory_management is None or inventory_management == '':
@@ -187,7 +202,7 @@ class ShopifyPRBot:
                             if available
                             else 'https://schema.org/OutOfStock'
                         ),
-                        'url': v.get('url') or v.get('buy_url'),
+                        'url': safe_http_url(v.get('url') or v.get('buy_url')),
                     })
                 return normalized
         

@@ -157,8 +157,7 @@ Sitemap: {self.site_url}/sitemap.xml
         # JSON Feed
         feed_json = self.generate_feed_json(posts)
         (dist_path / 'feed.json').write_text(feed_json)
-        
-        # Agentmap
-        agentmap_json = self.generate_agentmap()
-        (dist_path / 'agentmap.json').write_text(agentmap_json)
+
+        # Do not write a stub agentmap.json here. Build/serve emit the
+        # AgentMapGenerator document afterwards; a stub would win if that step fails.
 
