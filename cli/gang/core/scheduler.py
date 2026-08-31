@@ -50,6 +50,21 @@ def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
     return None
 
 
+def _normalize_schedule_status(raw_status: Any, *, newsletter: bool, missing: bool) -> str:
+    """Normalize YAML status; unknown/empty/bool values fail closed as draft."""
+    if missing:
+        return 'draft' if newsletter else 'published'
+    if isinstance(raw_status, list) and raw_status:
+        raw_status = raw_status[0]
+    if raw_status is False:
+        return 'draft'
+    if raw_status is True or isinstance(raw_status, (int, float)):
+        return 'draft'
+    if raw_status is None or (isinstance(raw_status, str) and not raw_status.strip()):
+        return 'draft'
+    return str(raw_status).strip().lower()
+
+
 class ContentScheduler:
     """Manage scheduled content publishing"""
     
@@ -68,7 +83,18 @@ class ContentScheduler:
         draft = []
         
         for file_path in content_files:
-            content = file_path.read_text()
+            try:
+                content = file_path.read_text()
+            except (OSError, UnicodeDecodeError):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': file_path.stem,
+                    '_yaml_error': True,
+                    'error': 'unreadable file',
+                })
+                continue
             
             # Parse frontmatter. Missing or truncated YAML must not go live.
             if not content.startswith('---'):
@@ -119,21 +145,12 @@ class ContentScheduler:
             # Get status (YAML `no`/`false` and list wrappers must not publish).
             # Missing key defaults to published, except newsletters (draft until sent).
             # Explicit null/empty fails closed.
-            if 'status' not in frontmatter:
-                raw_status = 'draft' if file_path.parent.name == 'newsletters' else 'published'
-            else:
-                raw_status = frontmatter.get('status')
-            if isinstance(raw_status, list) and raw_status:
-                raw_status = raw_status[0]
-            if raw_status is False:
-                status = 'draft'
-            elif raw_status is True or isinstance(raw_status, (int, float)):
-                # Bool/numeric YAML must not silently publish
-                status = 'draft'
-            elif raw_status is None or (isinstance(raw_status, str) and not raw_status.strip()):
-                status = 'draft'
-            else:
-                status = str(raw_status).strip().lower()
+            is_newsletter = file_path.parent.name == 'newsletters'
+            status = _normalize_schedule_status(
+                frontmatter.get('status'),
+                newsletter=is_newsletter,
+                missing='status' not in frontmatter,
+            )
             
             # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
             # `sent` keeps already-emailed newsletters on the static site.
@@ -146,14 +163,17 @@ class ContentScheduler:
                 })
                 continue
             
-            # Check publish_date (scheduled_for is the newsletter alias).
-            # Unparseable publish_date must not hide a valid scheduled_for.
+            # Check publish_date. scheduled_for is a newsletter/ESP alias only.
+            # Authored `date` is the common static-site fallback used by templates.
+            # Unparseable publish_date must not hide a later valid field.
             raw_publish = frontmatter.get('publish_date')
-            raw_alias = frontmatter.get('scheduled_for')
-            publish_date = _parse_first_schedule_date(raw_publish, raw_alias)
+            raw_alias = frontmatter.get('scheduled_for') if is_newsletter else None
+            raw_date = frontmatter.get('date')
+            publish_date = _parse_first_schedule_date(raw_publish, raw_alias, raw_date)
             date_present = (
                 not _absent_schedule_date(raw_publish)
                 or not _absent_schedule_date(raw_alias)
+                or not _absent_schedule_date(raw_date)
             )
 
             if publish_date is None:
@@ -166,8 +186,10 @@ class ContentScheduler:
                         'title': frontmatter.get('title', file_path.stem)
                     })
                     continue
-                # Scheduled without a date, or a present-but-unparseable date, fail closed.
-                if status == 'scheduled' or date_present:
+                # Scheduled without a usable date fails closed. Garbage dates on
+                # already-published content are ignored so leftover ESP metadata
+                # cannot hide a live page.
+                if status == 'scheduled':
                     draft.append({
                         'path': file_path,
                         'status': 'draft',
@@ -302,8 +324,13 @@ class ContentScheduler:
         if status not in allowed:
             return False
         
-        content = file_path.read_text()
+        try:
+            content = file_path.read_text()
+        except (OSError, UnicodeDecodeError):
+            return False
         
+        is_newsletter = file_path.parent.name == 'newsletters'
+
         # Parse frontmatter
         if not content.startswith('---'):
             # No frontmatter, create one
@@ -311,7 +338,10 @@ class ContentScheduler:
                 'status': status
             }
             if publish_date:
-                frontmatter['publish_date'] = publish_date.isoformat()
+                iso = publish_date.isoformat()
+                frontmatter['publish_date'] = iso
+                if is_newsletter:
+                    frontmatter['scheduled_for'] = iso
             
             new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
             file_path.write_text(new_content)
@@ -327,12 +357,21 @@ class ContentScheduler:
             return False
         if not isinstance(frontmatter, dict):
             return False
+
+        existing = _normalize_schedule_status(
+            frontmatter.get('status'),
+            newsletter=is_newsletter,
+            missing='status' not in frontmatter,
+        )
+        # Sent newsletters are archive records; do not reschedule them to draft/live.
+        if existing == 'sent' and status != 'sent':
+            return False
         
         # Update frontmatter
         if publish_date:
             iso = publish_date.isoformat()
             frontmatter['publish_date'] = iso
-            if 'scheduled_for' in frontmatter:
+            if is_newsletter or 'scheduled_for' in frontmatter:
                 frontmatter['scheduled_for'] = iso
             frontmatter['status'] = status
         else:

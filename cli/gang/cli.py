@@ -30,7 +30,7 @@ TEMPLATE_OWNS_H1 = {
 }
 PLACEHOLDER_WEBHOOK_MARKERS = ('your-n8n.app', 'example.com', 'placeholder', 'changeme')
 SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
-ALLOWED_SCHEDULE_STATUSES = ('draft', 'scheduled', 'published', 'live', 'public')
+ALLOWED_SCHEDULE_STATUSES = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
 DEFAULT_VARIANT_TITLES = {'default title', 'default', 'title'}
 MAX_CONTENT_BYTES = 2 * 1024 * 1024
 SIZE_LIKE_VALUES = {
@@ -292,21 +292,12 @@ def offer_is_in_stock(offer: Any) -> bool:
 
 
 def safe_http_url(value: Any) -> str:
-    """Allow only relative or http(s) merchant URLs, never www.shopify.com."""
-    if not isinstance(value, str):
-        return ''
-    value = value.strip()
-    if not value or value == '#':
-        return ''
-    if value.startswith('/') and not value.startswith('//'):
-        return value
-    from urllib.parse import urlparse
-    parsed = urlparse(value)
-    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
-        return ''
-    if parsed.netloc.lower() in ('www.shopify.com', 'shopify.com'):
-        return ''
-    return value
+    """Allow only relative or http(s) merchant URLs (shared href policy)."""
+    try:
+        from core.html_sanitize import safe_http_url as _safe
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url as _safe
+    return _safe(value)
 
 
 def split_variant_name(variant_name: str) -> Tuple[str, str]:
@@ -380,6 +371,10 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 marker = 'variant='
                 if marker in offer_url:
                     variant_id = offer_url.split(marker, 1)[1].split('&', 1)[0]
+            image_index = color_to_image.get(color_part, 0) if color_part else 0
+            image_url = images[image_index] if 0 <= image_index < len(images) else (
+                images[0] if images else ''
+            )
             variants_list.append({
                 'name': offer.get('name', ''),
                 'color': color_part,
@@ -391,7 +386,8 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'url': safe_http_url(offer.get('url')),
                 'sku': offer.get('sku', ''),
                 'id': numeric_variant_id(variant_id),
-                'image_index': color_to_image.get(color_part, 0) if color_part else 0,
+                'image_index': image_index,
+                'image': image_url,
             })
 
         in_stock_colors = [
@@ -2042,13 +2038,13 @@ def set_schedule(ctx, file_path, publish_date, now, status):
             except ImportError:
                 from gang.core.scheduler import parse_schedule_datetime
             pub_date = parse_schedule_datetime(publish_date)
-        except:
+        except Exception:
             # Try common formats
             for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
                 try:
                     pub_date = datetime.strptime(publish_date, fmt)
                     break
-                except:
+                except ValueError:
                     continue
             else:
                 click.echo(f"❌ Invalid date format: {publish_date}")
