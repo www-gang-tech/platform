@@ -22,6 +22,7 @@ class TemplateEngine:
         self.env.filters['date'] = self._format_date
         self.env.filters['tojson_script'] = self._tojson_script
         self.env.filters['safe_url'] = self._safe_url
+        self.env.filters['tag_href'] = self._tag_href
 
     @staticmethod
     def _safe_url(value):
@@ -31,6 +32,15 @@ class TemplateEngine:
         except ImportError:
             from gang.core.html_sanitize import safe_http_url
         return safe_http_url(value)
+
+    @staticmethod
+    def _tag_href(value):
+        """Encode a tag for /tags/<tag>/ so slashes match write_tag_pages."""
+        from urllib.parse import quote
+        name = str(value or '').strip()
+        if not name or name in ('.', '..'):
+            return ''
+        return f"/tags/{quote(name, safe='')}/"
 
     @staticmethod
     def _tojson_script(data):

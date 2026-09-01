@@ -461,7 +461,7 @@ class InPlaceEditor {
 
     getCurrentFilePath() {
         const pageType = document.body.dataset.pageType || 'page';
-        const category = document.body.dataset.category || '';
+        const category = document.body.dataset.sourceCategory || document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
         if (category && slug) {
