@@ -241,6 +241,11 @@ def assign_unique_catalog_slugs(products: List[Any]) -> List[Any]:
 
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
     """Parse YAML frontmatter, always returning a dict even for empty/invalid YAML."""
+    try:
+        from core.scheduler import strip_frontmatter_prefix
+    except ImportError:
+        from gang.core.scheduler import strip_frontmatter_prefix
+    content = strip_frontmatter_prefix(content)
     if content.startswith('---'):
         parts = content.split('---', 2)
         # Truncated delimiters: keep the original text so writers cannot wipe the body.
@@ -277,11 +282,20 @@ def template_environment(templates_path: Path):
     )
     env.filters['tojson_script'] = json_for_script
     env.filters['safe_url'] = _jinja_safe_url
+    env.filters['tag_href'] = tag_href
     return env
 
 
 def _jinja_safe_url(value: Any) -> str:
     return safe_http_url(value)
+
+
+def tag_href(tag: Any) -> str:
+    """Encode a tag for /tags/<tag>/ so slashes match write_tag_pages."""
+    name = str(tag or '').strip()
+    if not name or name in ('.', '..'):
+        return ''
+    return f"/tags/{quote(name, safe='')}/"
 
 
 def offer_is_in_stock(offer: Any) -> bool:
@@ -619,6 +633,24 @@ def is_publishable_relpath(relative: str) -> bool:
     if category not in PUBLISHABLE_CATEGORIES or not filename.endswith('.md'):
         return False
     return is_safe_content_slug(filename[:-3])
+
+
+def resolve_studio_content_path(content_root: Path, relative: str) -> Optional[Path]:
+    """Resolve Studio editor paths; articles publish as posts but live on disk under articles/."""
+    rel = str(relative or '').replace('\\', '/').lstrip('/')
+    if not rel.endswith('.md'):
+        rel = f'{rel}.md'
+    if not is_publishable_relpath(rel):
+        return None
+    candidate = resolve_under_root(content_root, rel)
+    if candidate is not None and candidate.exists():
+        return candidate
+    parts = rel.split('/')
+    if len(parts) == 2 and parts[0] == 'posts':
+        alt = resolve_under_root(content_root, f'articles/{parts[1]}')
+        if alt is not None and alt.exists():
+            return alt
+    return candidate
 
 
 def frontmatter_seo(frontmatter: Any) -> Dict[str, Any]:
@@ -3219,7 +3251,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'status': frontmatter.get('status') or '',
         }
         
-        # Treat articles as posts
+        # Treat articles as posts on the public URL, but keep the disk category
+        # so the in-place editor can PUT the original articles/{slug}.md file.
+        context['source_category'] = content_type
         if content_type == 'articles':
             content_type = 'posts'
             # Update context to reflect the change
@@ -3232,7 +3266,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         context['canonical_url'] = f"{config['site']['url']}{url}"
         
         jsonld = context.get('jsonld')
-        if not jsonld:
+        if not isinstance(jsonld, dict) or not jsonld:
             context['jsonld'] = fallback_jsonld(
                 content_type,
                 context['title'],
@@ -4807,7 +4841,7 @@ def studio(ctx, port, host):
                         if not is_publishable_relpath(file_path):
                             self.send_error(403)
                             return
-                        content_path = resolve_under_root(content_base, file_path if file_path.endswith('.md') else f'{file_path}.md')
+                        content_path = resolve_studio_content_path(content_base, file_path)
                         
                         if content_path is None:
                             self.send_error(403)
@@ -5084,7 +5118,7 @@ def studio(ctx, port, host):
                             self.end_headers()
                             self.wfile.write(json.dumps({'error': 'Invalid file path'}).encode())
                             return
-                        content_path = resolve_under_root(content_base, file_path if file_path.endswith('.md') else f'{file_path}.md')
+                        content_path = resolve_studio_content_path(content_base, file_path)
                         
                         if content_path is None:
                             self.send_response(403)
@@ -5477,6 +5511,7 @@ def serve(ctx, port, host):
                         'canonical_url': f"{config['site']['url']}{url}",
                         'page_type': content_type.rstrip('s'),
                         'category': content_type,
+                        'source_category': source_type,
                         'slug': slug,
                         'user_authenticated': user_authenticated,
                         'comments_enabled': comments_enabled,
@@ -5491,7 +5526,7 @@ def serve(ctx, port, host):
                         'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
                         'status': frontmatter.get('status') or '',
                     }
-                    if not context.get('jsonld'):
+                    if not isinstance(context.get('jsonld'), dict) or not context.get('jsonld'):
                         context['jsonld'] = fallback_jsonld(
                             content_type,
                             context['title'],

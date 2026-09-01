@@ -103,7 +103,8 @@
     <p class="tags">
       Tags:
       {% for tag in tags %}
-        <a href="/tags/{{ tag|urlencode }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
+        {% set href = tag|tag_href %}
+        {% if href %}<a href="{{ href }}" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}{% endif %}
       {% endfor %}
     </p>
   </footer>
