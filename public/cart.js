@@ -33,10 +33,31 @@
         return Number.isFinite(price) ? price : 0;
     }
     
+    function decodeHref(value) {
+        let decoded = value;
+        for (let i = 0; i < 3; i++) {
+            try {
+                const next = decodeURIComponent(decoded);
+                if (next === decoded) break;
+                decoded = next;
+            } catch (err) {
+                break;
+            }
+        }
+        return decoded;
+    }
+
     function isSafeHttpUrl(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
         if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+            return false;
+        }
+        const decoded = decodeHref(trimmed);
+        if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) {
+            return false;
+        }
+        if (decoded.split('/').some(function(seg) { return seg === '..'; })) {
             return false;
         }
         try {
@@ -62,6 +83,9 @@
     function isSafeCartImage(value) {
         if (!value || typeof value !== 'string') return false;
         if (value.startsWith('//') || value.startsWith('/\\') || value.startsWith('\\')) return false;
+        const decoded = decodeHref(value);
+        if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) return false;
+        if (decoded.split('/').some(function(seg) { return seg === '..'; })) return false;
         if (value.startsWith('/') && !value.startsWith('//')) return true;
         return isSafeHttpUrl(value);
     }

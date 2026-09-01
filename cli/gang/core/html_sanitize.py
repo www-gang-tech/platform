@@ -107,6 +107,7 @@ def sanitize_markdown_html(html: str) -> str:
     forbidden_tags = {
         'script', 'style', 'iframe', 'object', 'embed', 'link', 'meta',
         'base', 'form', 'input', 'button', 'textarea', 'select',
+        'svg', 'math', 'handler', 'set', 'animate', 'foreignobject',
     }
     # Snapshot tags first: decomposing a parent invalidates children still in
     # the list (BeautifulSoup sets attrs=None), which used to TypeError.
@@ -161,7 +162,7 @@ def sanitize_content_hrefs(html: str) -> str:
 
     url_attrs = (
         r'href|src|action|formaction|data|poster|srcset|ping|background|cite|'
-        r'dynsrc|lowsrc'
+        r'dynsrc|lowsrc|xlink:href'
     )
     html = re.sub(
         rf'\b({url_attrs})\s*=\s*(["\'])(.*?)\2',

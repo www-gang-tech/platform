@@ -31,6 +31,9 @@ MAX_CONTENT_BYTES = 2 * 1024 * 1024
 
 
 def _parse_frontmatter(text: str):
+    if text.startswith('\ufeff'):
+        text = text[1:]
+    text = text.lstrip('\ufeff \t\r\n')
     if not text.startswith('---'):
         return {}, text
     parts = text.split('---', 2)
@@ -66,6 +69,11 @@ def _safe_content_file(file_path: str) -> Path:
     base = CONTENT_DIR.resolve()
     candidate = (base / relative).resolve()
     candidate.relative_to(base)
+    if not candidate.exists() and parts[0] == 'posts':
+        alt = (base / 'articles' / filename).resolve()
+        alt.relative_to(base)
+        if alt.exists():
+            return alt
     return candidate
 
 
@@ -100,7 +108,9 @@ def _is_loopback_origin():
             req_port = int(request.environ.get('SERVER_PORT') or 0)
         except (TypeError, ValueError):
             req_port = 0
-        if req_port and origin_port != req_port:
+        if not req_port:
+            req_port = _STUDIO_PORT
+        if origin_port != req_port:
             return False
     return True
 

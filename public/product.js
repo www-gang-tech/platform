@@ -128,12 +128,8 @@
         form.dataset.variantId = (inStock && variant.id != null) ? String(variant.id) : '';
         form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
         form.dataset.price = (variant.price == null || variant.price === '') ? '0' : String(variant.price);
-        if (variant.currency) {
-            form.dataset.currency = String(variant.currency);
-        }
-        if (variant.image && isSafeActionUrl(variant.image)) {
-            form.dataset.image = variant.image;
-        }
+        form.dataset.currency = variant.currency ? String(variant.currency) : (form.dataset.currency || 'USD');
+        form.dataset.image = (variant.image && isSafeActionUrl(variant.image)) ? variant.image : '';
     }
 
     function applyInStockDefaults() {
