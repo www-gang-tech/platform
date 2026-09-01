@@ -41,11 +41,29 @@ def _checkout_origin_host() -> str:
     return ''
 
 
+def numeric_variant_id(value: Any) -> str:
+    """Shopify cart permalinks only accept numeric variant IDs, never SKUs."""
+    if isinstance(value, bool):
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value or '').strip()
+    if re.fullmatch(r'\d+\.0+', text):
+        text = text.split('.', 1)[0]
+    return text if text.isdigit() else ''
+
+
 def shopify_storefront_url(product: Dict[str, Any]) -> str:
     """Build a merchant product URL from handle + store host when Admin API omits it."""
+    try:
+        from core.html_sanitize import safe_http_url
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url
     existing = product.get('url') or ''
-    if isinstance(existing, str) and existing.startswith(('http://', 'https://')):
-        return existing
+    if isinstance(existing, str):
+        existing = safe_http_url(existing)
+        if existing.startswith(('http://', 'https://')):
+            return existing
     handle = product.get('handle') or ''
     host = _checkout_origin_host()
     if not handle or not host:
@@ -94,11 +112,12 @@ def variant_in_stock(variant: Dict[str, Any]) -> bool:
 
 def append_variant_query(product_url: str, variant_id: Any) -> str:
     """Append ?variant= without breaking an existing query string."""
-    if not product_url or variant_id in (None, ''):
+    vid = numeric_variant_id(variant_id)
+    if not product_url or not vid:
         return product_url
     parsed = urlparse(product_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query['variant'] = str(variant_id)
+    query['variant'] = vid
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
@@ -238,7 +257,7 @@ class ProductSchema:
             '@type': 'Product',
             'name': product.get('name', ''),
             'description': product.get('description', ''),
-            'image': product.get('images', []),
+            'image': product.get('images') or [],
             'offers': {
                 '@type': 'Offer',
                 'price': price,
@@ -262,7 +281,12 @@ class ProductSchema:
         """Convert Gumroad product to Schema.org"""
         raw_price = product.get('price') or 0
         try:
-            gumroad_price = str(int(raw_price) / 100)
+            if isinstance(raw_price, str) and '.' in raw_price.strip():
+                gumroad_price = str(float(raw_price))
+            elif isinstance(raw_price, float) and not raw_price.is_integer():
+                gumroad_price = str(raw_price)
+            else:
+                gumroad_price = str(int(raw_price) / 100)
         except (TypeError, ValueError):
             gumroad_price = '0'
         return {
@@ -296,7 +320,10 @@ class ShopifyClient:
     """Shopify Storefront API client"""
     
     def __init__(self, store_url: str, access_token: str):
-        self.store_url = store_url.replace('https://', '').replace('http://', '')
+        cleaned = (store_url or '').replace('https://', '').replace('http://', '')
+        host_part, sep, rest = cleaned.partition('/')
+        host_part = host_part.split('@')[-1]
+        self.store_url = f"{host_part}{sep}{rest}" if sep else host_part
         self.access_token = access_token
         self.api_version = '2024-01'
     
@@ -309,7 +336,7 @@ class ShopifyClient:
         try:
             import requests
 
-            store_host = self.store_url.split('/')[0].split('?')[0]
+            store_host = self.store_url.split('/')[0].split('?')[0].split('@')[-1].lower()
             headers = {
                 'X-Shopify-Access-Token': self.access_token,
                 'Content-Type': 'application/json'
@@ -339,7 +366,7 @@ class ShopifyClient:
                 if not next_link:
                     break
                 parsed = urlparse(next_link)
-                if parsed.scheme != 'https' or parsed.hostname != store_host:
+                if parsed.scheme != 'https' or (parsed.hostname or '').lower() != store_host:
                     break
                 url = next_link
                 params = None

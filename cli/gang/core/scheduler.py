@@ -9,8 +9,25 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 
+def strip_frontmatter_prefix(content: str) -> str:
+    """Drop UTF-8 BOM and leading whitespace so ``---`` frontmatter is still found."""
+    if not content:
+        return content
+    if content.startswith('\ufeff'):
+        content = content[1:]
+    return content.lstrip('\ufeff \t\r\n')
+
+
+def _unwrap_schedule_value(value: Any) -> Any:
+    """CMS/ESP exports sometimes wrap a single date or status in a list."""
+    if isinstance(value, (list, tuple)) and len(value) == 1:
+        return value[0]
+    return value
+
+
 def _absent_schedule_date(value: Any) -> bool:
     """True when publish_date/scheduled_for should be treated as missing."""
+    value = _unwrap_schedule_value(value)
     if value is None or value is False:
         return True
     if isinstance(value, bool):
@@ -41,6 +58,7 @@ def parse_schedule_datetime(value: Any) -> datetime:
 def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
     """Parse the first present, well-formed schedule date (publish_date, then alias)."""
     for value in values:
+        value = _unwrap_schedule_value(value)
         if _absent_schedule_date(value):
             continue
         try:
@@ -97,6 +115,7 @@ class ContentScheduler:
                 continue
             
             # Parse frontmatter. Missing or truncated YAML must not go live.
+            content = strip_frontmatter_prefix(content)
             if not content.startswith('---'):
                 draft.append({
                     'path': file_path,
@@ -211,8 +230,8 @@ class ContentScheduler:
                 })
                 continue
 
-            # Already-sent newsletters stay live even if publish_date is still future.
-            if status == 'sent' or publish_date <= now:
+            # Already-live pages stay live even if leftover ESP dates are still future.
+            if status in ('sent', 'published', 'live', 'public') or publish_date <= now:
                 publishable.append({
                     'path': file_path,
                     'status': 'sent' if status == 'sent' else 'published',
@@ -330,6 +349,7 @@ class ContentScheduler:
             return False
         
         is_newsletter = file_path.parent.name == 'newsletters'
+        content = strip_frontmatter_prefix(content)
 
         # Parse frontmatter
         if not content.startswith('---'):
@@ -343,7 +363,9 @@ class ContentScheduler:
                 if is_newsletter:
                     frontmatter['scheduled_for'] = iso
             
-            new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+            new_content = (
+                f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{content}"
+            )
             file_path.write_text(new_content)
             return True
         
@@ -382,7 +404,9 @@ class ContentScheduler:
         
         # Write back
         body = parts[2]
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = (
+            f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{body}"
+        )
         file_path.write_text(new_content)
         
         return True

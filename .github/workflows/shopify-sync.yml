@@ -75,6 +75,7 @@ jobs:
           from pathlib import Path
           from bs4 import BeautifulSoup
           from datetime import datetime
+          from urllib.parse import urlparse, urlunparse
           
           # Load mapping schema
           with open('schemas/product.map.json') as f:
@@ -140,7 +141,21 @@ jobs:
                       except (TypeError, ValueError):
                           qty_num = 0
                       policy = str(v.get('inventory_policy') or '')
-                      available = v.get('available')
+                      raw_available = v.get('available')
+                      if isinstance(raw_available, bool):
+                          available = raw_available
+                      elif isinstance(raw_available, (int, float)) and not isinstance(raw_available, bool):
+                          available = raw_available != 0
+                      elif isinstance(raw_available, str):
+                          flag = raw_available.strip().lower()
+                          if flag in ('true', '1', 'yes', 'on'):
+                              available = True
+                          elif flag in ('false', '0', 'no', 'off', ''):
+                              available = False
+                          else:
+                              available = None
+                      else:
+                          available = None
                       inventory_management = v.get('inventory_management')
                       if available is None:
                           if inventory_management is None or inventory_management == '':
@@ -149,6 +164,20 @@ jobs:
                               available = True
                           else:
                               available = qty_num > 0
+                      raw_url = v.get('url') or v.get('buy_url') or ''
+                      if not isinstance(raw_url, str):
+                          raw_url = ''
+                      raw_url = raw_url.strip()
+                      parsed_url = urlparse(raw_url) if raw_url else None
+                      if (
+                          not parsed_url
+                          or parsed_url.scheme not in ('http', 'https')
+                          or not parsed_url.netloc
+                          or parsed_url.netloc.lower() in ('www.shopify.com', 'shopify.com')
+                      ):
+                          raw_url = ''
+                      elif '@' in parsed_url.netloc:
+                          raw_url = urlunparse(parsed_url._replace(netloc=parsed_url.netloc.split('@')[-1]))
                       value.append({
                           'id': v.get('id'),
                           'title': v.get('title'),
@@ -161,13 +190,13 @@ jobs:
                           'option1': v.get('option1'),
                           'option2': v.get('option2'),
                           'option3': v.get('option3'),
-                          'available': bool(available),
+                          'available': available is True,
                           'availability': (
                               'https://schema.org/InStock'
-                              if available
+                              if available is True
                               else 'https://schema.org/OutOfStock'
                           ),
-                          'url': v.get('url') or v.get('buy_url'),
+                          'url': raw_url,
                       })
               elif value is not None and mapping.get('transform') == 'to_schema_availability':
                   value = 'InStock' if value else 'OutOfStock'
