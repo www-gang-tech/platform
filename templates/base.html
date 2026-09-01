@@ -31,7 +31,7 @@
     <link rel="stylesheet" href="/assets/editor.css">
     {% endif %}
 </head>
-<body data-page-type="{{ page_type|default('page') }}" data-category="{{ category|default('') }}" data-slug="{{ slug|default('') }}">
+<body data-page-type="{{ page_type|default('page') }}" data-category="{{ category|default('') }}" data-source-category="{{ source_category|default(category)|default('') }}" data-slug="{{ slug|default('') }}">
     {% include "partials/header.html" %}
     
     <main role="main" id="content">
