@@ -5,19 +5,14 @@
       "numberOfRuns": 3,
       "maxAutodiscoverUrls": 10,
       "settings": {
-        "preset": "desktop",
-        "throttling": {
-          "rttMs": 40,
-          "throughputKbps": 10240,
-          "cpuSlowdownMultiplier": 1
-        },
+        "preset": "mobile",
+        "formFactor": "mobile",
         "screenEmulation": {
-          "mobile": false,
-          "width": 1350,
-          "height": 940,
-          "deviceScaleFactor": 1
+          "mobile": true,
+          "width": 412,
+          "height": 823,
+          "deviceScaleFactor": 1.75
         },
-        "formFactor": "desktop",
         "onlyCategories": [
           "performance",
           "accessibility",
@@ -39,8 +34,8 @@
         "total-blocking-time": ["warn", {"maxNumericValue": 200}],
         "speed-index": ["warn", {"maxNumericValue": 3400}],
         
-        "errors-in-console": "off",
-        "csp-xss": "off",
+        "errors-in-console": "warn",
+        "csp-xss": "warn",
         "robots-txt": "off",
         "lcp-lazy-loaded": "off",
         "non-composited-animations": "off",

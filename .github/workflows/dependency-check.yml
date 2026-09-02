@@ -30,7 +30,15 @@ jobs:
       - name: Check for security vulnerabilities
         id: audit
         run: |
-          pip-audit -r requirements.txt --format=json > audit-report.json || echo "VULNERABILITIES_FOUND=true" >> $GITHUB_ENV
+          set +e
+          pip-audit -r requirements.txt --format=json > audit-report.json
+          AUDIT_STATUS=$?
+          pip-audit -r apps/studio/backend/requirements.txt --format=json > studio-audit-report.json
+          STUDIO_STATUS=$?
+          set -e
+          if [ "$AUDIT_STATUS" -ne 0 ] || [ "$STUDIO_STATUS" -ne 0 ]; then
+            echo "VULNERABILITIES_FOUND=true" >> "$GITHUB_ENV"
+          fi
       
       - name: Create issue if vulnerabilities found
         if: env.VULNERABILITIES_FOUND == 'true'
@@ -38,20 +46,53 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('audit-report.json', 'utf8'));
-            const vulnerabilities = report.dependencies;
-            
+            const reports = [];
+            for (const file of ['audit-report.json', 'studio-audit-report.json']) {
+              if (!fs.existsSync(file)) continue;
+              try {
+                reports.push(JSON.parse(fs.readFileSync(file, 'utf8')));
+              } catch (err) {
+                core.warning(`Could not parse ${file}: ${err.message}`);
+              }
+            }
+
+            const findings = [];
+            for (const report of reports) {
+              const deps = report.dependencies || [];
+              for (const dep of deps) {
+                const vulns = dep.vulns || dep.vulnerabilities || [];
+                if (!vulns.length) continue;
+                findings.push({
+                  name: dep.name || dep.package || 'unknown',
+                  version: dep.version || '',
+                  vulns
+                });
+              }
+            }
+
+            if (!findings.length) {
+              core.info('pip-audit reported a non-zero exit but no parseable vulnerabilities.');
+              return;
+            }
+
             let body = '## 🚨 Security Vulnerabilities Detected\n\n';
             body += 'The weekly security scan found vulnerabilities in dependencies:\n\n';
-            
-            for (const vuln of vulnerabilities) {
-              body += `### ${vuln.name} ${vuln.version}\n`;
-              body += `- **Severity**: ${vuln.severity}\n`;
-              body += `- **Fix**: Upgrade to ${vuln.fix_versions.join(', ')}\n`;
-              body += `- **Details**: ${vuln.description}\n\n`;
+
+            for (const finding of findings) {
+              body += `### ${finding.name} ${finding.version}\n`;
+              for (const vuln of finding.vulns) {
+                const aliases = (vuln.aliases || []).join(', ');
+                const fixes = (vuln.fix_versions || []).join(', ') || 'none listed';
+                body += `- **ID**: ${vuln.id || 'unknown'}${aliases ? ` (${aliases})` : ''}\n`;
+                body += `- **Fix**: Upgrade to ${fixes}\n`;
+                if (vuln.description) {
+                  body += `- **Details**: ${vuln.description}\n`;
+                }
+                body += '\n';
+              }
             }
-            
-            body += '**Action Required**: Run `gang update-deps --security-only` to fix these issues.\n';
+
+            body += '**Action Required**: Review and upgrade the affected packages.\n';
             
             github.rest.issues.create({
               owner: context.repo.owner,
@@ -60,11 +101,19 @@ jobs:
               body: body,
               labels: ['security', 'dependencies']
             });
+
+      - name: Fail on vulnerabilities
+        if: env.VULNERABILITIES_FOUND == 'true'
+        run: |
+          echo "pip-audit reported vulnerabilities"
+          exit 1
       
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-audit-report
-          path: audit-report.json
+          path: |
+            audit-report.json
+            studio-audit-report.json
 

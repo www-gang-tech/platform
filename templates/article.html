@@ -10,7 +10,8 @@
             {% if tags %}
             <span aria-label="Tags">
                 {% for tag in tags %}
-                <a href="/tags/{{ tag }}/" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}
+                {% set href = tag|tag_href %}
+                {% if href %}<a href="{{ href }}" rel="tag">#{{ tag }}</a>{% if not loop.last %}, {% endif %}{% endif %}
                 {% endfor %}
             </span>
             {% endif %}
@@ -34,6 +35,7 @@
     {% endif %}
 </article>
 
+{% if comments_enabled %}
 <section id="comments" aria-label="Comments">
     <h2>Comments ({{ comments|length }})</h2>
     
@@ -46,7 +48,7 @@
                 <time datetime="{{ comment.date }}">{{ comment.date_formatted }}</time>
             </div>
             <div class="comment-content markdown-body">
-                {{ comment.content | safe }}
+                {{ comment.content }}
             </div>
         </li>
         {% endfor %}
@@ -103,7 +105,7 @@
             maxlength="2000"
             aria-describedby="comment-help"
         ></textarea>
-        <small id="comment-help">Markdown supported. Max 2000 characters.</small>
+        <small id="comment-help">Plain text only. Max 2000 characters.</small>
         
         <!-- Honeypot for spam prevention -->
         <input type="text" name="website" style="display:none" tabindex="-1" autocomplete="off">
@@ -112,5 +114,6 @@
         <p class="form-status" aria-live="polite"></p>
     </form>
 </section>
+{% endif %}
 {% endblock %}
 
