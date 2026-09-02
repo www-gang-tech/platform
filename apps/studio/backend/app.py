@@ -98,12 +98,18 @@ def _is_loopback_origin():
     origin = origin_header or referer
     if not origin:
         return request.method in ('GET', 'HEAD', 'OPTIONS')
-    parsed = urlparse(origin)
-    host = (parsed.hostname or '').lower()
+    try:
+        parsed = urlparse(origin)
+        host = (parsed.hostname or '').lower()
+    except ValueError:
+        return False
     if host not in {'127.0.0.1', 'localhost', '::1'}:
         return False
     if request.method not in ('GET', 'HEAD', 'OPTIONS'):
-        origin_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        try:
+            origin_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        except ValueError:
+            return False
         try:
             req_port = int(request.environ.get('SERVER_PORT') or 0)
         except (TypeError, ValueError):
@@ -355,6 +361,7 @@ def trigger_build():
         }), 500
 
 
+@app.route('/api/content')
 @app.route('/api/content/list')
 def list_content():
     """List all editable content files"""
@@ -372,14 +379,8 @@ def list_content():
                 # Parse frontmatter to get title
                 try:
                     content = md_file.read_text(encoding='utf-8')
-                    if content.startswith('---'):
-                        parts = content.split('---', 2)
-                        frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-                        if not isinstance(frontmatter, dict):
-                            frontmatter = {}
-                        title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-                    else:
-                        title = md_file.stem.replace('-', ' ').title()
+                    frontmatter, _body = _parse_frontmatter(content)
+                    title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
                     
                     public_type = 'posts' if content_type == 'articles' else content_type
                     content_files.append({
@@ -406,6 +407,7 @@ if __name__ == '__main__':
     print("Available endpoints:")
     print("  GET  http://" + host + ":" + str(port) + "/api/health")
     print("  GET  http://" + host + ":" + str(port) + "/api/auth/status")
+    print("  GET  http://" + host + ":" + str(port) + "/api/content")
     print("  GET  http://" + host + ":" + str(port) + "/api/content/<path>")
     print("  PUT  http://" + host + ":" + str(port) + "/api/content/<path>")
     print("  POST http://" + host + ":" + str(port) + "/api/validate-headings")

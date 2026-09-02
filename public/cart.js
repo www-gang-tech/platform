@@ -110,6 +110,40 @@
         return allow.has(parsed.origin);
     }
 
+    function parseVariantsData() {
+        const el = document.getElementById('variants-data');
+        if (!el) return [];
+        try {
+            const parsed = JSON.parse(el.textContent);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function isVariantInStock(variant) {
+        const avail = String((variant && variant.availability) || '');
+        return avail.indexOf('InStock') !== -1 && avail.indexOf('OutOfStock') === -1;
+    }
+
+    function resolveSelectedVariant(form, formData) {
+        const variants = parseVariantsData();
+        if (!variants.length) return null;
+        const colorSelect = form.querySelector('[name="color"]');
+        const sizeSelect = form.querySelector('[name="size"]');
+        const option3Select = form.querySelector('[name="option3"]');
+        const selectedColor = colorSelect ? String(formData.get('color') ?? '') : null;
+        const selectedSize = sizeSelect ? String(formData.get('size') ?? '') : null;
+        const selectedOption3 = option3Select ? String(formData.get('option3') ?? '') : null;
+        const matches = variants.filter(function(variant) {
+            const colorMatch = colorSelect ? String(variant.color ?? '') === selectedColor : true;
+            const sizeMatch = sizeSelect ? String(variant.size ?? '') === selectedSize : true;
+            const extraMatch = option3Select ? String(variant.option3 ?? '') === selectedOption3 : true;
+            return colorMatch && sizeMatch && extraMatch;
+        });
+        return matches.find(isVariantInStock) || matches[0] || null;
+    }
+
     function checkoutUrlFromForm(form) {
         const fromData = form.dataset.checkoutUrl || '';
         if (isSafeHttpUrl(fromData)) {
@@ -147,35 +181,45 @@
         e.preventDefault();
         
         const form = e.target;
-        if (form.dataset.inStock === 'false') {
+        const formData = new FormData(form);
+        const selected = resolveSelectedVariant(form, formData);
+        const variantId = selected && selected.id != null ? String(selected.id) : (form.dataset.variantId || '');
+        const selectedInStock = selected
+            ? isVariantInStock(selected)
+            : form.dataset.inStock === 'true';
+        if (!selectedInStock) {
             window.alert('This item is out of stock.');
             return;
         }
-        if (!isNumericVariantId(form.dataset.variantId)) {
+        if (!isNumericVariantId(variantId)) {
             window.alert('Checkout is not configured for this product.');
             return;
         }
-        const formData = new FormData(form);
         
-        const checkoutUrl = checkoutUrlFromForm(form);
+        let checkoutUrl = '';
+        if (selected && selected.url && isSafeHttpUrl(String(selected.url))) {
+            checkoutUrl = String(selected.url);
+        } else {
+            checkoutUrl = checkoutUrlFromForm(form);
+        }
         const variantParts = [];
         if (form.querySelector('[name="color"]')) variantParts.push(String(formData.get('color') ?? ''));
         if (form.querySelector('[name="size"]')) variantParts.push(String(formData.get('size') ?? ''));
         if (form.querySelector('[name="option3"]')) variantParts.push(String(formData.get('option3') ?? ''));
-        const rawImage = form.dataset.image || '';
+        const rawImage = (selected && selected.image) || form.dataset.image || '';
         const item = {
-            id: form.dataset.variantId || '',
+            id: variantId,
             name: form.dataset.productName || 'Product',
             variant: variantParts.join(' / '),
-            price: toPrice(form.dataset.price || '0'),
-            currency: String(form.dataset.currency || 'USD').toUpperCase(),
+            price: toPrice((selected && selected.price != null ? selected.price : form.dataset.price) || '0'),
+            currency: String((selected && selected.currency) || form.dataset.currency || 'USD').toUpperCase(),
             quantity: toQuantity(formData.get('quantity') || '1'),
             image: isSafeCartImage(rawImage) ? rawImage : '',
             url: checkoutUrl || form.dataset.productUrl || '',
             checkoutUrl: checkoutUrl,
             productUrl: form.dataset.productUrl || '',
-            sku: form.dataset.sku || '',
-            inStock: form.dataset.inStock === 'true'
+            sku: (selected && selected.sku != null ? String(selected.sku) : form.dataset.sku) || '',
+            inStock: selectedInStock
         };
         
         for (let attempt = 0; attempt < 3; attempt++) {
