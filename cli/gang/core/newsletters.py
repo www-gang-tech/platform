@@ -92,7 +92,7 @@ class NewsletterManager:
         }
         
         # Write file
-        newsletter_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{content}"
+        newsletter_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{content}"
         file_path.write_text(newsletter_content)
         
         return {
@@ -127,9 +127,17 @@ class NewsletterManager:
 
         content = file_path.read_text()
         try:
-            from core.scheduler import _parse_first_schedule_date, strip_frontmatter_prefix
+            from core.scheduler import (
+                _normalize_schedule_status,
+                _parse_first_schedule_date,
+                strip_frontmatter_prefix,
+            )
         except ImportError:
-            from gang.core.scheduler import _parse_first_schedule_date, strip_frontmatter_prefix
+            from gang.core.scheduler import (
+                _normalize_schedule_status,
+                _parse_first_schedule_date,
+                strip_frontmatter_prefix,
+            )
         content = strip_frontmatter_prefix(content)
         
         # Parse frontmatter
@@ -148,11 +156,11 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
 
-        raw_status = frontmatter.get('status')
-        if raw_status is None:
-            status = 'draft'
-        else:
-            status = str(raw_status).strip().lower()
+        status = _normalize_schedule_status(
+            frontmatter.get('status'),
+            newsletter=True,
+            missing='status' not in frontmatter,
+        )
         if not test_mode:
             if status == 'sent':
                 return {'error': 'Newsletter already sent', 'success': False}
@@ -168,7 +176,7 @@ class NewsletterManager:
                         'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
                         'success': False,
                     }
-            if status not in ('draft', 'published', 'live', 'public', ''):
+            elif status not in ('draft', 'published', 'live', 'public'):
                 return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         
         # Convert markdown to HTML
@@ -230,7 +238,11 @@ class NewsletterManager:
         if file_path is None or not file_path.is_file():
             return {'error': 'Newsletter path must stay inside the newsletters directory'}
 
-        content = file_path.read_text()
+        try:
+            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        content = strip_frontmatter_prefix(file_path.read_text())
         if not content.startswith('---'):
             return {'error': 'Invalid frontmatter'}
         parts = content.split('---', 2)
@@ -246,7 +258,11 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
 
-        existing_status = str(frontmatter.get('status') or '').strip().lower()
+        existing_status = _normalize_schedule_status(
+            frontmatter.get('status'),
+            newsletter=True,
+            missing='status' not in frontmatter,
+        )
         if existing_status == 'sent':
             return {'error': 'Cannot reschedule a sent newsletter', 'success': False}
 
@@ -259,7 +275,7 @@ class NewsletterManager:
         frontmatter['publish_date'] = send_date.isoformat()
         
         # Write back
-        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False)}---\n{body}"
+        new_content = f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{body}"
         file_path.write_text(new_content)
         
         return {
@@ -283,9 +299,14 @@ class NewsletterManager:
         if not self.newsletters_path.exists():
             return newsletters
         
+        try:
+            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+
         for file_path in self.newsletters_path.glob('*.md'):
             try:
-                content = file_path.read_text()
+                content = strip_frontmatter_prefix(file_path.read_text())
                 
                 if content.startswith('---'):
                     parts = content.split('---', 2)
@@ -298,10 +319,11 @@ class NewsletterManager:
                     if not isinstance(frontmatter, dict):
                         continue
                     
-                    status = frontmatter.get('status', 'draft')
-                    if isinstance(status, list) and status:
-                        status = status[0]
-                    status = str(status or 'draft').strip().lower()
+                    status = _normalize_schedule_status(
+                        frontmatter.get('status'),
+                        newsletter=True,
+                        missing='status' not in frontmatter,
+                    )
                     # Web-publish statuses are not email-send receipts.
                     if status in ('published', 'live', 'public'):
                         status = 'published'

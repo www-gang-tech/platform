@@ -389,12 +389,13 @@ class InPlaceEditor {
         try {
             const content = this.getContent();
             
+            const category = document.body.dataset.sourceCategory || document.body.dataset.category || '';
             const response = await fetch('http://localhost:5001/api/validate-headings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ content })
+                body: JSON.stringify({ content, category })
             });
             
             if (!response.ok) {
