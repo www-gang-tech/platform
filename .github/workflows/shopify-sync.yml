@@ -216,6 +216,24 @@ jobs:
           if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', handle) or '..' in handle:
               print('Invalid product handle')
               exit(1)
+          store = (os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or '').strip()
+          if store and not store.startswith('http'):
+              store = f'https://{store}'
+          parsed_store = urlparse(store) if store else None
+          store_host = ''
+          if parsed_store and parsed_store.scheme in ('http', 'https'):
+              store_host = (parsed_store.netloc or '').split('@')[-1]
+          variants = front_matter.get('variants')
+          if isinstance(variants, list) and store_host and handle:
+              base = f'https://{store_host}/products/{handle}'
+              for variant in variants:
+                  if not isinstance(variant, dict) or variant.get('url'):
+                      continue
+                  text = str(variant.get('id') or '').strip()
+                  if re.fullmatch(r'\d+\.0+', text):
+                      text = text.split('.', 1)[0]
+                  if text.isdigit():
+                      variant['url'] = f'{base}?variant={text}'
           content_dir = Path('content/products')
           content_dir.mkdir(parents=True, exist_ok=True)
           
