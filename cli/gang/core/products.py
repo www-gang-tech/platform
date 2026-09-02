@@ -54,21 +54,46 @@ def numeric_variant_id(value: Any) -> str:
 
 
 def shopify_storefront_url(product: Dict[str, Any]) -> str:
-    """Build a merchant product URL from handle + store host when Admin API omits it."""
+    """Build a merchant product URL from handle + store host when Admin API omits it.
+
+    Prefer the configured checkout host so custom-domain Admin URLs still match
+    the deny-by-default allowlist (catalog JSON must not choose the origin).
+    """
     try:
         from core.html_sanitize import safe_http_url
     except ImportError:
         from gang.core.html_sanitize import safe_http_url
+    handle = product.get('handle') or ''
+    host = _checkout_origin_host()
+    if handle and host:
+        return f"https://{host}/products/{handle}"
     existing = product.get('url') or ''
     if isinstance(existing, str):
         existing = safe_http_url(existing)
         if existing.startswith(('http://', 'https://')):
             return existing
-    handle = product.get('handle') or ''
-    host = _checkout_origin_host()
-    if not handle or not host:
-        return existing if isinstance(existing, str) else ''
-    return f"https://{host}/products/{handle}"
+    return existing if isinstance(existing, str) else ''
+
+
+def commerce_cache_key() -> Dict[str, str]:
+    """Fingerprint configured stores so cache restore cannot mix catalogs."""
+    stripe = os.environ.get('STRIPE_SECRET_KEY') or ''
+    gumroad = os.environ.get('GUMROAD_ACCESS_TOKEN') or ''
+    return {
+        'shopify_host': (_checkout_origin_host() or '').lower(),
+        'stripe': '1' if stripe and stripe != 'demo' else '',
+        'gumroad': '1' if gumroad and gumroad != 'demo' else '',
+    }
+
+
+def cache_source_allowed(cached: Optional[Dict[str, Any]], source: str) -> bool:
+    """Reject restore when a recorded Shopify host no longer matches."""
+    if not cached:
+        return False
+    recorded = (cached.get('cache_key') or {}).get('shopify_host')
+    if source == 'shopify' and recorded:
+        return recorded == (_checkout_origin_host() or '').lower()
+    return True
 
 
 def coerce_available_flag(value: Any) -> Optional[bool]:
@@ -592,15 +617,20 @@ class ProductAggregator:
         
         # Restore cache when nothing is configured, or when a live fetch failed.
         # products is pre-keyed, so "source not in products" never restores.
+        # Demo mode must keep the demo catalog even when a stale live cache exists.
         cached = self.load_cache()
+        if self.config.get('demo_mode', False) and not live_configured:
+            return products
         if cached and cached.get('products'):
             if not live_configured:
-                return cached['products']
+                if cache_source_allowed(cached, 'shopify'):
+                    return cached['products']
+                return products
             for source, items in cached['products'].items():
                 # Restore only configured sources that failed. A deconfigured
                 # platform must not resurrect stale catalog rows, and a
                 # successful empty list must not either.
-                if source in configured and source not in fetched_ok:
+                if source in configured and source not in fetched_ok and cache_source_allowed(cached, source):
                     products[source] = items if isinstance(items, list) else []
         
         has_products = any(products.get(source) for source in products)
@@ -641,6 +671,7 @@ class ProductAggregator:
         """Save products to cache file"""
         cache_data = {
             'cached_at': datetime.now().isoformat(),
+            'cache_key': commerce_cache_key(),
             'products': products
         }
         self.products_cache_file.write_text(json.dumps(cache_data, indent=2))

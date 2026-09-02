@@ -2045,6 +2045,7 @@ def set_schedule(ctx, file_path, publish_date, now, status):
         click.echo("❌ File path must stay inside the content directory")
         ctx.exit(1)
 
+    status = (status or '').strip().lower()
     if status not in ALLOWED_SCHEDULE_STATUSES:
         click.echo(f"❌ Invalid status: {status}")
         click.echo(f"   Use one of: {', '.join(ALLOWED_SCHEDULE_STATUSES)}")
@@ -3381,7 +3382,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         (dist_path / 'people').mkdir(parents=True, exist_ok=True)
         (dist_path / 'people' / 'index.html').write_text(people_html)
     
-    tag_pages = write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
+    tag_pages = write_tag_pages(
+        config,
+        dist_path,
+        tagged_build_items(all_pages, all_posts, all_projects, all_people, all_newsletters),
+        templates_path,
+    )
     
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
@@ -3964,6 +3970,20 @@ def create_list_page_simple(config: Dict, items: List, title: str, templates_pat
 </html>"""
     
     return html
+
+
+def tagged_build_items(
+    all_pages: Optional[List[Dict]] = None,
+    all_posts: Optional[List[Dict]] = None,
+    all_projects: Optional[List[Dict]] = None,
+    all_people: Optional[List[Dict]] = None,
+    all_newsletters: Optional[List[Dict]] = None,
+) -> List[Dict]:
+    """Every rendered collection that can carry tags (not just posts/projects)."""
+    items: List[Dict] = []
+    for group in (all_posts, all_projects, all_pages, all_newsletters, all_people):
+        items.extend(group or [])
+    return items
 
 
 def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_path: Path = None) -> List[Dict[str, str]]:
@@ -4738,12 +4758,18 @@ def studio(ctx, port, host):
                 origin = origin_header or referer
                 if not origin:
                     return self.command in ('GET', 'HEAD', 'OPTIONS')
-                parsed = urlparse(origin)
-                host = (parsed.hostname or '').lower()
+                try:
+                    parsed = urlparse(origin)
+                    host = (parsed.hostname or '').lower()
+                except ValueError:
+                    return False
                 if host not in {'127.0.0.1', 'localhost', '::1'}:
                     return False
                 if self.command not in ('GET', 'HEAD', 'OPTIONS'):
-                    origin_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+                    try:
+                        origin_port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+                    except ValueError:
+                        return False
                     if origin_port != port:
                         return False
                 return True
@@ -5631,7 +5657,12 @@ def serve(ctx, port, host):
                     (dist_path / 'newsletters').mkdir(parents=True, exist_ok=True)
                     (dist_path / 'newsletters' / 'index.html').write_text(newsletters_html)
 
-                tag_pages = write_tag_pages(config, dist_path, all_posts + all_projects, templates_path)
+                tag_pages = write_tag_pages(
+                    config,
+                    dist_path,
+                    tagged_build_items(all_pages, all_posts, all_projects, all_people, all_newsletters),
+                    templates_path,
+                )
                 
                 # Generate outputs (same all_content set as gang build)
                 all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
