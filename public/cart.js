@@ -62,6 +62,7 @@
         }
         try {
             const url = new URL(trimmed, window.location.origin);
+            if (url.username) return false;
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch {
             return false;
@@ -141,7 +142,11 @@
             const extraMatch = option3Select ? String(variant.option3 ?? '') === selectedOption3 : true;
             return colorMatch && sizeMatch && extraMatch;
         });
-        return matches.find(isVariantInStock) || matches[0] || null;
+        if (!matches.length) return null;
+        const inStockMatches = matches.filter(isVariantInStock);
+        if (inStockMatches.length === 1) return inStockMatches[0];
+        if (inStockMatches.length > 1 || matches.length > 1) return null;
+        return matches[0];
     }
 
     function checkoutUrlFromForm(form) {
@@ -182,7 +187,12 @@
         
         const form = e.target;
         const formData = new FormData(form);
+        const variants = parseVariantsData();
         const selected = resolveSelectedVariant(form, formData);
+        if (variants.length && !selected) {
+            window.alert('This combination is unavailable.');
+            return;
+        }
         const variantId = selected && selected.id != null ? String(selected.id) : (form.dataset.variantId || '');
         const selectedInStock = selected
             ? isVariantInStock(selected)
