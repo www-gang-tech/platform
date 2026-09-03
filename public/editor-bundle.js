@@ -6,6 +6,7 @@ class InPlaceEditor {
         this.overlay = null;
         this.editorElement = null;
         this.originalContent = '';
+        this.preservedFrontmatter = null;
         this.currentFile = '';
         this.floatingToolbar = null;
         this.isActive = false;
@@ -25,6 +26,9 @@ class InPlaceEditor {
             }
             
             this.originalContent = await response.text();
+            const split = this.splitFrontmatter(this.originalContent);
+            this.preservedFrontmatter = split.frontmatter;
+            this.bodyContent = split.body;
             
             // Create and show editor overlay
             this.createOverlay();
@@ -44,7 +48,7 @@ class InPlaceEditor {
         overlay.innerHTML = `
             <div class="editor-container">
                 <div class="editor-header">
-                    <h2>Edit: ${this.getPageTitle()}</h2>
+                    <h2></h2>
                     <div class="editor-header-actions">
                         <button class="editor-actions-btn" id="actions-toggle">
                             <i class="fa-solid fa-bars"></i> Actions
@@ -68,6 +72,11 @@ class InPlaceEditor {
             </div>
         `;
         
+        const titleEl = overlay.querySelector('h2');
+        if (titleEl) {
+            titleEl.textContent = 'Edit: ' + this.getPageTitle();
+        }
+        
         // Create editor content area
         const container = overlay.querySelector('.editor-container');
         this.editorElement = this.initEditor();
@@ -89,7 +98,7 @@ class InPlaceEditor {
         editor.className = 'editor-content';
         editor.contentEditable = 'true';
         editor.setAttribute('data-placeholder', 'Start writing...');
-        editor.innerHTML = this.markdownToHtml(this.originalContent);
+        editor.innerHTML = this.markdownToHtml(this.bodyContent || this.originalContent);
         
         // Keyboard shortcuts
         editor.addEventListener('keydown', (e) => {
@@ -100,6 +109,12 @@ class InPlaceEditor {
             if (e.key === 'Escape') {
                 this.cancel();
             }
+        });
+
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            document.execCommand('insertText', false, text || '');
         });
         
         // Show floating toolbar on selection
@@ -212,7 +227,7 @@ class InPlaceEditor {
             document.execCommand('formatBlock', false, '<code>');
         } else if (cmd === 'link') {
             const url = prompt('Enter URL:');
-            if (url) {
+            if (url && this.isSafeHref(url)) {
                 document.execCommand('createLink', false, url);
             }
         }
@@ -220,23 +235,116 @@ class InPlaceEditor {
         this.hideFloatingToolbar();
     }
 
+    escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    splitFrontmatter(markdown) {
+        const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+        if (!match) {
+            return { frontmatter: null, body: markdown || '' };
+        }
+        return { frontmatter: match[1], body: match[2] };
+    }
+
+    joinFrontmatter(body) {
+        if (this.preservedFrontmatter == null) {
+            return body;
+        }
+        return '---\n' + this.preservedFrontmatter + '\n---\n' + (body || '');
+    }
+
+    isSafeHref(value) {
+        if (!value || typeof value !== 'string') return false;
+        function check(candidate) {
+            const trimmed = String(candidate).trim();
+            if (!trimmed) return false;
+            const normalized = trimmed.replace(/\\/g, '/');
+            if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\') || normalized.startsWith('//')) {
+                return false;
+            }
+            const pathPart = normalized.split('?')[0].split('#')[0];
+            if (pathPart.indexOf(':') === -1) {
+                return pathPart.split('/').indexOf('..') === -1;
+            }
+            if (/^mailto:/i.test(trimmed)) {
+                const addr = trimmed.slice(7).split('?')[0];
+                return Boolean(addr) && addr.split('@')[0].indexOf(':') === -1;
+            }
+            if (!/^https?:\/\//i.test(trimmed)) {
+                return false;
+            }
+            try {
+                const url = new URL(trimmed);
+                if (url.username) return false;
+                return url.protocol === 'https:' || url.protocol === 'http:';
+            } catch (err) {
+                return false;
+            }
+        }
+        if (!check(value)) return false;
+        let decoded = value;
+        for (let i = 0; i < 3; i++) {
+            try {
+                const next = decodeURIComponent(decoded);
+                if (next === decoded) break;
+                decoded = next;
+                if (!check(decoded)) return false;
+            } catch (err) {
+                break;
+            }
+        }
+        return true;
+    }
+
     // Markdown to HTML converter
     markdownToHtml(markdown) {
-        return markdown
+        const self = this;
+        const text = this.escapeHtml(markdown);
+        return text
             .replace(/^### (.+)$/gm, '<h3>$1</h3>')
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
             .replace(/^# (.+)$/gm, '<h1>$1</h1>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+            .replace(/\[(.+?)\]\((.+?)\)/g, function(_, label, href) {
+                const rawHref = String(href).replace(/&amp;/g, '&');
+                const url = self.isSafeHref(rawHref) ? rawHref : '#';
+                return '<a href="' + self.escapeHtml(url) + '">' + label + '</a>';
+            })
             .replace(/`(.+?)`/g, '<code>$1</code>')
-            .split('\n\n').map(p => `<p>${p}</p>`).join('');
+            .split('\n\n').map(function(p) { return '<p>' + p + '</p>'; }).join('');
     }
 
     // HTML to Markdown converter
     htmlToMarkdown(html) {
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
+        const parsed = new DOMParser().parseFromString(
+            '<div id="gang-md-root">' + (html || '') + '</div>',
+            'text/html'
+        );
+        const temp = parsed.getElementById('gang-md-root') || parsed.body;
+        const self = this;
+        temp.querySelectorAll('script, style, iframe, object, embed, form').forEach(function(node) {
+            node.remove();
+        });
+        temp.querySelectorAll('*').forEach(function(node) {
+            Array.from(node.attributes).forEach(function(attr) {
+                const name = attr.name.toLowerCase();
+                if (name.indexOf('on') === 0) {
+                    node.removeAttribute(attr.name);
+                    return;
+                }
+                if (['href', 'src', 'srcset', 'action', 'formaction', 'poster', 'xlink:href'].indexOf(name) !== -1) {
+                    if (!self.isSafeHref(attr.value)) {
+                        node.setAttribute(attr.name, '#');
+                    }
+                }
+            });
+        });
         
         return temp.innerHTML
             .replace(/<h1>(.+?)<\/h1>/g, '# $1\n\n')
@@ -256,7 +364,7 @@ class InPlaceEditor {
 
     async saveContent() {
         try {
-            const content = this.getContent();
+            const content = this.joinFrontmatter(this.getContent());
             
             const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`, {
                 method: 'PUT',
@@ -282,12 +390,13 @@ class InPlaceEditor {
         try {
             const content = this.getContent();
             
+            const category = document.body.dataset.sourceCategory || document.body.dataset.category || '';
             const response = await fetch('http://localhost:5001/api/validate-headings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ content })
+                body: JSON.stringify({ content, category })
             });
             
             if (!response.ok) {
@@ -299,7 +408,10 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const details = (result.errors && result.errors.length)
+                    ? result.errors.join(', ')
+                    : (result.message || 'heading issues');
+                this.showNotification('Validation failed: ' + details, 'error');
             }
             
         } catch (error) {
@@ -351,10 +463,10 @@ class InPlaceEditor {
 
     getCurrentFilePath() {
         const pageType = document.body.dataset.pageType || 'page';
-        const category = document.body.dataset.category || '';
+        const category = document.body.dataset.sourceCategory || document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
         }
         
