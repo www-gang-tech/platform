@@ -196,10 +196,10 @@ class ShopifyPRBot:
                         'option1': v.get('option1'),
                         'option2': v.get('option2'),
                         'option3': v.get('option3'),
-                        'available': bool(available),
+                        'available': available is True,
                         'availability': (
                             'https://schema.org/InStock'
-                            if available
+                            if available is True
                             else 'https://schema.org/OutOfStock'
                         ),
                         'url': safe_http_url(v.get('url') or v.get('buy_url')),

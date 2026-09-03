@@ -33,7 +33,11 @@ def _is_safe_href_candidate(value: str) -> bool:
             # Reject mailto:javascript:… and other nested schemes.
             return bool(addr) and ':' not in local
         if lower.startswith(('http://', 'https://')):
-            host = lower.split('://', 1)[1]
+            parsed = urlparse(value)
+            # Userinfo (`https://trusted@evil.com`) is a phishing gadget.
+            if '@' in (parsed.netloc or '') or parsed.username:
+                return False
+            host = (parsed.netloc or '').split('@')[-1]
             return bool(host) and host not in ('.', '..')
         return False
     # Relative / root-relative / fragment: reject path traversal.
@@ -152,6 +156,8 @@ def sanitize_content_hrefs(html: str) -> str:
     def rewrite(attr: str, quote: str, value: str) -> str:
         if attr.lower() == 'srcset':
             safe_value = sanitize_srcset(value)
+        elif value.lower().startswith(('http://', 'https://')):
+            safe_value = safe_http_url(value) or '#'
         elif is_safe_href(value):
             safe_value = value
         else:

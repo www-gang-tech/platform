@@ -280,6 +280,7 @@ class InPlaceEditor {
             }
             try {
                 const url = new URL(trimmed);
+                if (url.username) return false;
                 return url.protocol === 'https:' || url.protocol === 'http:';
             } catch (err) {
                 return false;
