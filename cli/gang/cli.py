@@ -30,7 +30,7 @@ TEMPLATE_OWNS_H1 = {
 }
 PLACEHOLDER_WEBHOOK_MARKERS = ('your-n8n.app', 'example.com', 'placeholder', 'changeme')
 SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
-ALLOWED_SCHEDULE_STATUSES = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
+ALLOWED_SCHEDULE_STATUSES = ('draft', 'scheduled', 'published', 'live', 'public')
 DEFAULT_VARIANT_TITLES = {'default title', 'default', 'title'}
 MAX_CONTENT_BYTES = 2 * 1024 * 1024
 SIZE_LIKE_VALUES = {
@@ -555,26 +555,34 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     }
 
 
-def comments_are_enabled(config: Dict[str, Any]) -> bool:
+def comments_webhook_url(config: Dict[str, Any]) -> str:
+    """Return a sanitized https webhook URL, or empty when comments are off/unsafe."""
     comments = config.get('comments') or {}
     if not comments.get('enabled'):
-        return False
-    url = str(comments.get('webhook_url') or '').strip()
+        return ''
+    url = safe_http_url(str(comments.get('webhook_url') or ''))
     if not url.lower().startswith('https://'):
-        return False
+        return ''
     lowered = url.lower()
-    return not any(marker in lowered for marker in PLACEHOLDER_WEBHOOK_MARKERS)
+    if any(marker in lowered for marker in PLACEHOLDER_WEBHOOK_MARKERS):
+        return ''
+    return url
+
+
+def comments_are_enabled(config: Dict[str, Any]) -> bool:
+    return bool(comments_webhook_url(config))
 
 
 def comments_webhook_origin(config: Dict[str, Any]) -> str:
     """Origin of the comments webhook for CSP connect-src, or empty."""
-    if not comments_are_enabled(config):
+    url = comments_webhook_url(config)
+    if not url:
         return ''
-    url = str((config.get('comments') or {}).get('webhook_url') or '').strip()
     from urllib.parse import urlparse
     parsed = urlparse(url)
-    if parsed.scheme == 'https' and parsed.netloc:
-        return f"{parsed.scheme}://{parsed.netloc}"
+    host = (parsed.netloc or '').split('@')[-1]
+    if parsed.scheme == 'https' and host:
+        return f"{parsed.scheme}://{host}"
     return ''
 
 
@@ -772,9 +780,51 @@ def fallback_jsonld(
 
 
 def minify_js_source(js_content: str) -> str:
-    """Strip full-line comments only so URL literals such as https:// stay intact."""
-    js_content = re.sub(r'(?m)^[ \t]*//[^\n]*\n?', '', js_content)
-    js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
+    """Strip comments outside string/template literals so URL and regex-like text stay intact."""
+    out = []
+    i = 0
+    n = len(js_content)
+    while i < n:
+        ch = js_content[i]
+        nxt = js_content[i + 1] if i + 1 < n else ''
+        if ch in ('"', "'", '`'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                cur = js_content[i]
+                out.append(cur)
+                if cur == '\\' and i + 1 < n:
+                    out.append(js_content[i + 1])
+                    i += 2
+                    continue
+                if cur == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == '/' and nxt == '*':
+            i += 2
+            while i + 1 < n and not (js_content[i] == '*' and js_content[i + 1] == '/'):
+                i += 1
+            i = i + 2 if i + 1 < n else n
+            continue
+        if ch == '/' and nxt == '/':
+            line_start = not out or out[-1] == '\n'
+            if not line_start:
+                prefix = []
+                j = len(out) - 1
+                while j >= 0 and out[j] != '\n':
+                    prefix.append(out[j])
+                    j -= 1
+                line_start = ''.join(reversed(prefix)).strip() == ''
+            if line_start:
+                while i < n and js_content[i] != '\n':
+                    i += 1
+                continue
+        out.append(ch)
+        i += 1
+    js_content = ''.join(out)
     js_content = re.sub(r'\n[ \t]+', '\n', js_content)
     js_content = re.sub(r'[ \t]{2,}', ' ', js_content)
     js_content = '\n'.join(line for line in js_content.split('\n') if line.strip())
@@ -2044,6 +2094,14 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     if file_path is None:
         click.echo("❌ File path must stay inside the content directory")
         ctx.exit(1)
+    try:
+        relative = str(file_path.relative_to(content_path.resolve()))
+    except ValueError:
+        click.echo("❌ File path must stay inside the content directory")
+        ctx.exit(1)
+    if file_path.suffix != '.md' or not is_publishable_relpath(relative):
+        click.echo("❌ File must be a publishable markdown file under a content category")
+        ctx.exit(1)
 
     status = (status or '').strip().lower()
     if status not in ALLOWED_SCHEDULE_STATUSES:
@@ -3241,7 +3299,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'user_authenticated': user_authenticated,
             'comments_enabled': comments_enabled,
             'comments': page_comments,
-            'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
+            'comments_webhook_url': comments_webhook_url(config) if comments_enabled else '',
             'comments_webhook_origin': comments_webhook_origin(config) if comments_enabled else '',
             'role': frontmatter.get('role', ''),
             'image': safe_http_url(frontmatter.get('image', '')),
@@ -4994,9 +5052,9 @@ def studio(ctx, port, host):
                             }).encode())
                             return
                         
-                        # Check old file exists
-                        old_file = content_path / category / f"{old_slug}.md"
-                        if not old_file.exists():
+                        # Check old file exists (articles listed as posts live on disk under articles/)
+                        old_file = resolve_studio_content_path(content_path, f"{category}/{old_slug}")
+                        if old_file is None or not old_file.exists():
                             self.send_response(404)
                             self.send_header('Content-type', 'application/json')
                             self._send_cors()
@@ -5007,8 +5065,20 @@ def studio(ctx, port, host):
                             }).encode())
                             return
                         
-                        # Check new slug is unique
-                        new_file = content_path / category / f"{new_slug}.md"
+                        # Keep the renamed file in the same on-disk category as the source.
+                        new_file = old_file.with_name(f"{new_slug}.md")
+                        try:
+                            new_file.resolve().relative_to(content_path.resolve())
+                        except ValueError:
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({
+                                'error': 'Invalid slug or category',
+                                'message': 'Rename must stay inside the content directory'
+                            }).encode())
+                            return
                         if new_file.exists():
                             self.send_response(400)
                             self.send_header('Content-type', 'application/json')
@@ -5542,7 +5612,7 @@ def serve(ctx, port, host):
                         'user_authenticated': user_authenticated,
                         'comments_enabled': comments_enabled,
                         'comments': page_comments,
-                        'comments_webhook_url': (config.get('comments') or {}).get('webhook_url', '') if comments_enabled else '',
+                        'comments_webhook_url': comments_webhook_url(config) if comments_enabled else '',
                         'comments_webhook_origin': comments_webhook_origin(config) if comments_enabled else '',
                         'role': frontmatter.get('role', ''),
                         'image': safe_http_url(frontmatter.get('image', '')),

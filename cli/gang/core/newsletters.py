@@ -125,7 +125,10 @@ class NewsletterManager:
         if file_path is None or not file_path.is_file():
             return {'error': 'Newsletter path must stay inside the newsletters directory'}
 
-        content = file_path.read_text()
+        try:
+            content = file_path.read_text()
+        except (OSError, UnicodeDecodeError):
+            return {'error': 'Newsletter file is unreadable'}
         try:
             from core.scheduler import (
                 _normalize_schedule_status,
@@ -168,7 +171,6 @@ class NewsletterManager:
                 when = _parse_first_schedule_date(
                     frontmatter.get('publish_date'),
                     frontmatter.get('scheduled_for'),
-                    frontmatter.get('date'),
                 )
                 now = datetime.now(timezone.utc)
                 if when is None or when > now:
@@ -242,7 +244,10 @@ class NewsletterManager:
             from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
         except ImportError:
             from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
-        content = strip_frontmatter_prefix(file_path.read_text())
+        try:
+            content = strip_frontmatter_prefix(file_path.read_text())
+        except (OSError, UnicodeDecodeError):
+            return {'error': 'Newsletter file is unreadable'}
         if not content.startswith('---'):
             return {'error': 'Invalid frontmatter'}
         parts = content.split('---', 2)
@@ -884,11 +889,19 @@ class CloudflareEmailProvider(EmailProvider):
                 }
             )
             
-            return {
-                'success': True,
-                'test_email': test_email,
-                'provider': 'cloudflare'
-            }
+            if response.status_code == 200:
+                return {
+                    'success': True,
+                    'test_email': test_email,
+                    'provider': 'cloudflare'
+                }
+
+            error_body: Any
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+            return {'success': False, 'error': error_body}
         
         except Exception as e:
             return {'success': False, 'error': str(e)}
