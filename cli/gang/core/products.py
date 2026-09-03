@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+import hashlib
 import html
 import json
 import os
@@ -75,24 +76,44 @@ def shopify_storefront_url(product: Dict[str, Any]) -> str:
     return existing if isinstance(existing, str) else ''
 
 
+def _secret_fingerprint(value: str) -> str:
+    """Short hash of a live credential so cache restore can detect rotation."""
+    if not value or value == 'demo':
+        return ''
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]
+
+
 def commerce_cache_key() -> Dict[str, str]:
     """Fingerprint configured stores so cache restore cannot mix catalogs."""
     stripe = os.environ.get('STRIPE_SECRET_KEY') or ''
     gumroad = os.environ.get('GUMROAD_ACCESS_TOKEN') or ''
     return {
         'shopify_host': (_checkout_origin_host() or '').lower(),
-        'stripe': '1' if stripe and stripe != 'demo' else '',
-        'gumroad': '1' if gumroad and gumroad != 'demo' else '',
+        'stripe': _secret_fingerprint(stripe),
+        'gumroad': _secret_fingerprint(gumroad),
     }
 
 
 def cache_source_allowed(cached: Optional[Dict[str, Any]], source: str) -> bool:
-    """Reject restore when a recorded Shopify host no longer matches."""
+    """Reject restore when a recorded host or credential fingerprint no longer matches."""
     if not cached:
         return False
-    recorded = (cached.get('cache_key') or {}).get('shopify_host')
-    if source == 'shopify' and recorded:
-        return recorded == (_checkout_origin_host() or '').lower()
+    recorded_keys = cached.get('cache_key') or {}
+    current = commerce_cache_key()
+    if source == 'shopify':
+        recorded = (recorded_keys.get('shopify_host') or '').lower()
+        current_host = current.get('shopify_host') or ''
+        if recorded and current_host and recorded != current_host:
+            return False
+        return True
+    if source in ('stripe', 'gumroad'):
+        recorded = recorded_keys.get(source) or ''
+        current_fp = current.get(source) or ''
+        if recorded and current_fp and recorded != '1' and recorded != current_fp:
+            return False
+        if recorded and recorded != '1' and not current_fp:
+            return False
+        return True
     return True
 
 
@@ -623,9 +644,11 @@ class ProductAggregator:
             return products
         if cached and cached.get('products'):
             if not live_configured:
-                if cache_source_allowed(cached, 'shopify'):
-                    return cached['products']
-                return products
+                restored: Dict[str, Any] = {}
+                for source, items in cached['products'].items():
+                    if cache_source_allowed(cached, source):
+                        restored[source] = items if isinstance(items, list) else []
+                return restored or products
             for source, items in cached['products'].items():
                 # Restore only configured sources that failed. A deconfigured
                 # platform must not resurrect stale catalog rows, and a

@@ -377,8 +377,15 @@ class EmailOrchestrator:
         import yaml
         
         # Read original post
-        content = post_path.read_text()
-        
+        try:
+            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        try:
+            content = strip_frontmatter_prefix(post_path.read_text())
+        except (OSError, UnicodeDecodeError):
+            content = ''
+
         if content.startswith('---'):
             parts = content.split('---', 2)
             raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
@@ -404,7 +411,7 @@ class EmailOrchestrator:
         
         # Create newsletter content
         newsletter_content = f"""---
-{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False)}---
+{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False, allow_unicode=True)}---
 {body}
 
 ---
@@ -422,7 +429,10 @@ class EmailOrchestrator:
         slug = f"{post_path.stem}-newsletter"
         newsletter_file = newsletters_dir / f"{slug}.md"
         if newsletter_file.exists():
-            existing = newsletter_file.read_text()
+            try:
+                existing = strip_frontmatter_prefix(newsletter_file.read_text())
+            except (OSError, UnicodeDecodeError):
+                existing = ''
             if existing.startswith('---'):
                 existing_parts = existing.split('---', 2)
                 if len(existing_parts) >= 3:
@@ -431,7 +441,11 @@ class EmailOrchestrator:
                     except Exception:
                         existing_fm = {}
                     if isinstance(existing_fm, dict):
-                        existing_status = str(existing_fm.get('status') or '').strip().lower()
+                        existing_status = _normalize_schedule_status(
+                            existing_fm.get('status'),
+                            newsletter=True,
+                            missing='status' not in existing_fm,
+                        )
                         if existing_status in ('sent', 'scheduled'):
                             return newsletter_file
         newsletter_file.write_text(newsletter_content)

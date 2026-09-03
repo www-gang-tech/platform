@@ -43,6 +43,7 @@
         if (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/') return true;
         try {
             const url = new URL(trimmed, window.location.origin);
+            if (url.username) return false;
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch (err) {
             return false;
@@ -56,7 +57,11 @@
             const extraMatch = option3Select ? variant.option3 === (selectedOption3 ?? '') : true;
             return colorMatch && sizeMatch && extraMatch;
         });
-        return matches.find(isInStock) || matches[0];
+        if (!matches.length) return undefined;
+        const inStockMatches = matches.filter(isInStock);
+        if (inStockMatches.length === 1) return inStockMatches[0];
+        if (inStockMatches.length > 1 || matches.length > 1) return undefined;
+        return matches[0];
     }
 
     function markUnavailable(message) {

@@ -188,11 +188,16 @@ class ContentScheduler:
             raw_publish = frontmatter.get('publish_date')
             raw_alias = frontmatter.get('scheduled_for') if is_newsletter else None
             raw_date = frontmatter.get('date')
-            publish_date = _parse_first_schedule_date(raw_publish, raw_alias, raw_date)
+            # Scheduled items must not fall through to authored `date` when
+            # publish_date is present but unparseable (typo would go live).
+            if status == 'scheduled':
+                publish_date = _parse_first_schedule_date(raw_publish, raw_alias)
+            else:
+                publish_date = _parse_first_schedule_date(raw_publish, raw_alias, raw_date)
             date_present = (
                 not _absent_schedule_date(raw_publish)
                 or not _absent_schedule_date(raw_alias)
-                or not _absent_schedule_date(raw_date)
+                or (status != 'scheduled' and not _absent_schedule_date(raw_date))
             )
 
             if publish_date is None:
@@ -342,7 +347,7 @@ class ContentScheduler:
         allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
         if status not in allowed:
             return False
-        
+
         try:
             content = file_path.read_text()
         except (OSError, UnicodeDecodeError):
@@ -353,6 +358,8 @@ class ContentScheduler:
 
         # Parse frontmatter
         if not content.startswith('---'):
+            if status == 'sent':
+                return False
             # No frontmatter, create one
             frontmatter = {
                 'status': status
@@ -387,6 +394,9 @@ class ContentScheduler:
         )
         # Sent newsletters are archive records; do not reschedule them to draft/live.
         if existing == 'sent' and status != 'sent':
+            return False
+        # Do not mark content sent without going through the send provider.
+        if status == 'sent' and existing != 'sent':
             return False
         
         # Update frontmatter
