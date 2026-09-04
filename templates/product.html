@@ -89,9 +89,9 @@
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
                       data-product-url="/products/{{ slug }}/"
-                      data-checkout-url="{{ buy_url }}"
+                      data-checkout-url="{% if 'InStock' in availability and 'OutOfStock' not in availability %}{{ buy_url }}{% endif %}"
                       data-sku="{{ sku }}"
-                      data-variant-id="{{ variant_id }}"
+                      data-variant-id="{% if 'InStock' in availability and 'OutOfStock' not in availability %}{{ variant_id }}{% endif %}"
                       data-in-stock="{% if 'InStock' in availability and 'OutOfStock' not in availability %}true{% else %}false{% endif %}">
                     
                     {% if colors %}
