@@ -6,10 +6,18 @@ Automatically creates PRs when Shopify products are updated
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import json
+import re
 import yaml
 import subprocess
 from datetime import datetime
 import os
+
+SAFE_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+
+
+def _is_safe_product_slug(slug: str) -> bool:
+    value = str(slug or '').strip()
+    return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
 
 
 class ShopifyPRBot:
@@ -42,15 +50,17 @@ class ShopifyPRBot:
         mappings = self.field_mapping.get('mappings', {})
         
         for key, mapping in mappings.items():
-            shopify_field = mapping['shopify_field']
-            frontmatter_field = mapping['frontmatter_field']
+            shopify_field = mapping.get('shopify_field') or mapping.get('source')
+            frontmatter_field = mapping.get('frontmatter_field') or mapping.get('target') or key
+            if not shopify_field:
+                continue
             
             # Extract value from Shopify data
             value = self._extract_field(product_data, shopify_field)
             
-            # Apply transformation if specified
+            # Apply transformation if specified (including 0 / empty-string values)
             transform = mapping.get('transform')
-            if transform and value:
+            if transform is not None and value is not None:
                 value = self._apply_transform(value, transform)
             
             # Use default if value is None and default is specified
@@ -63,39 +73,71 @@ class ShopifyPRBot:
         # Add metadata
         frontmatter['shopify_updated_at'] = datetime.utcnow().isoformat()
         frontmatter['source'] = 'shopify'
+
+        variants = frontmatter.get('variants')
+        if isinstance(variants, list):
+            try:
+                from core.products import append_variant_query, shopify_storefront_url
+            except ImportError:
+                from gang.core.products import append_variant_query, shopify_storefront_url
+            try:
+                from core.html_sanitize import safe_http_url
+            except ImportError:
+                from gang.core.html_sanitize import safe_http_url
+            base = shopify_storefront_url(product_data)
+            for variant in variants:
+                if not isinstance(variant, dict):
+                    continue
+                if not variant.get('url'):
+                    variant['url'] = append_variant_query(base, variant.get('id'))
+                variant['url'] = safe_http_url(variant.get('url'))
         
         return frontmatter
     
     def _extract_field(self, data: Dict, field_path: str) -> Any:
-        """Extract nested field using dot notation"""
+        """Extract nested field using dot notation, including images[*].src."""
         
         parts = field_path.split('.')
         value = data
         
-        for part in parts:
+        for i, part in enumerate(parts):
+            if not isinstance(value, dict):
+                return None
             if '[' in part:
-                # Array access: variants[0] or images[*]
                 key = part.split('[')[0]
                 index = part.split('[')[1].rstrip(']')
-                
-                if key in value:
-                    if index == '*':
-                        # Get all items
-                        return value[key]
-                    elif index.isdigit():
-                        # Get specific index
-                        idx = int(index)
-                        if idx < len(value[key]):
-                            value = value[key][idx]
-                        else:
-                            return None
+                items = value.get(key)
+                if not isinstance(items, list):
+                    return None
+                if index == '*':
+                    rest = parts[i + 1:]
+                    if not rest:
+                        return items
+                    extracted = []
+                    for item in items:
+                        sub = item
+                        ok = True
+                        for rest_part in rest:
+                            if isinstance(sub, dict) and rest_part in sub:
+                                sub = sub[rest_part]
+                            else:
+                                ok = False
+                                break
+                        if ok and sub is not None:
+                            extracted.append(sub)
+                    return extracted
+                if index.isdigit():
+                    idx = int(index)
+                    if 0 <= idx < len(items):
+                        value = items[idx]
+                    else:
+                        return None
                 else:
                     return None
+            elif part in value:
+                value = value[part]
             else:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    return None
+                return None
         
         return value
     
@@ -115,16 +157,54 @@ class ShopifyPRBot:
         elif transform == 'normalize_variants':
             # Normalize variant structure
             if isinstance(value, list):
-                return [
-                    {
+                try:
+                    from core.products import coerce_available_flag
+                except ImportError:
+                    from gang.core.products import coerce_available_flag
+                try:
+                    from core.html_sanitize import safe_http_url
+                except ImportError:
+                    from gang.core.html_sanitize import safe_http_url
+                normalized = []
+                for v in value:
+                    if not isinstance(v, dict):
+                        continue
+                    qty = v.get('inventory_quantity')
+                    try:
+                        qty_num = int(qty) if qty is not None and qty != '' else 0
+                    except (TypeError, ValueError):
+                        qty_num = 0
+                    policy = str(v.get('inventory_policy') or '')
+                    available = coerce_available_flag(v.get('available'))
+                    inventory_management = v.get('inventory_management')
+                    if available is None:
+                        if inventory_management is None or inventory_management == '':
+                            available = True
+                        elif policy == 'continue':
+                            available = True
+                        else:
+                            available = qty_num > 0
+                    normalized.append({
                         'id': v.get('id'),
                         'title': v.get('title'),
                         'price': v.get('price'),
                         'sku': v.get('sku'),
-                        'inventory': v.get('inventory_quantity', 0)
-                    }
-                    for v in value
-                ]
+                        'inventory': qty_num,
+                        'inventory_quantity': qty_num,
+                        'inventory_policy': v.get('inventory_policy'),
+                        'inventory_management': v.get('inventory_management'),
+                        'option1': v.get('option1'),
+                        'option2': v.get('option2'),
+                        'option3': v.get('option3'),
+                        'available': available is True,
+                        'availability': (
+                            'https://schema.org/InStock'
+                            if available is True
+                            else 'https://schema.org/OutOfStock'
+                        ),
+                        'url': safe_http_url(v.get('url') or v.get('buy_url')),
+                    })
+                return normalized
         
         return value
     
@@ -133,26 +213,21 @@ class ShopifyPRBot:
         
         frontmatter = self.convert_to_frontmatter(product_data)
         
-        # Get slug
-        slug = frontmatter.get('slug', 'unknown')
-        
-        # Create file path
-        products_dir = self.content_path / 'products'
-        products_dir.mkdir(exist_ok=True)
-        
-        file_path = products_dir / f"{slug}.md"
-        
+        # Get slug and jail it under content/products/
+        slug = str(frontmatter.get('slug') or product_data.get('handle') or '').strip()
+        if not _is_safe_product_slug(slug):
+            raise ValueError(f'Unsafe product slug: {slug!r}')
+
+        products_dir = (self.content_path / 'products').resolve()
+        products_dir.mkdir(parents=True, exist_ok=True)
+        file_path = (products_dir / f"{slug}.md").resolve()
+        file_path.relative_to(products_dir)
+
         # Generate markdown content
-        content_lines = ['---']
-        content_lines.append(yaml.dump(frontmatter, default_flow_style=False))
-        content_lines.append('---')
-        content_lines.append('')
-        content_lines.append(frontmatter.get('description', ''))
-        
-        content = '\n'.join(content_lines)
-        
-        file_path.write_text(content)
-        
+        dumped = yaml.dump(frontmatter, default_flow_style=False).strip()
+        body = frontmatter.get('description') or ''
+        file_path.write_text(f"---\n{dumped}\n---\n{body}\n")
+
         return file_path
     
     def create_pr(self, product_data: Dict[str, Any], branch_name: Optional[str] = None) -> Dict[str, Any]:
