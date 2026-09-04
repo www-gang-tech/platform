@@ -103,18 +103,14 @@ def cache_source_allowed(cached: Optional[Dict[str, Any]], source: str) -> bool:
     if source == 'shopify':
         recorded = (recorded_keys.get('shopify_host') or '').lower()
         current_host = current.get('shopify_host') or ''
-        if recorded and current_host and recorded != current_host:
-            return False
-        return True
+        return bool(recorded) and recorded == current_host
     if source in ('stripe', 'gumroad'):
         recorded = recorded_keys.get(source) or ''
         current_fp = current.get(source) or ''
-        if recorded and current_fp and recorded != '1' and recorded != current_fp:
+        if recorded == '1':
             return False
-        if recorded and recorded != '1' and not current_fp:
-            return False
-        return True
-    return True
+        return bool(recorded) and recorded == current_fp
+    return False
 
 
 def coerce_available_flag(value: Any) -> Optional[bool]:
@@ -167,6 +163,33 @@ def append_variant_query(product_url: str, variant_id: Any) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def _safe_http_url(value: Any) -> str:
+    try:
+        from core.html_sanitize import safe_http_url
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url
+    return safe_http_url(value)
+
+
+def _safe_image_urls(raw_images: Any) -> List[str]:
+    """Keep only http(s) or root-relative image URLs from platform payloads."""
+    if isinstance(raw_images, str):
+        raw_images = [raw_images]
+    if not isinstance(raw_images, list):
+        return []
+    images = []
+    for img in raw_images:
+        src = ''
+        if isinstance(img, dict):
+            src = img.get('src') or img.get('url') or ''
+        elif isinstance(img, str):
+            src = img
+        url = _safe_http_url(src)
+        if url:
+            images.append(url)
+    return images
+
+
 def commerce_slug(*candidates: Any) -> str:
     """Safe public slug from platform id/name/handle."""
     for raw in candidates:
@@ -204,16 +227,7 @@ class ProductSchema:
             variants = []
         first_variant = variants[0] if variants and isinstance(variants[0], dict) else {}
         
-        images = []
-        raw_images = product.get('images') or []
-        if isinstance(raw_images, list):
-            for img in raw_images:
-                if isinstance(img, dict):
-                    src = img.get('src') or img.get('url')
-                    if src:
-                        images.append(src)
-                elif isinstance(img, str) and img:
-                    images.append(img)
+        images = _safe_image_urls(product.get('images') or [])
         
         currency = os.environ.get('SHOPIFY_CURRENCY') or 'USD'
         product_url = shopify_storefront_url(product)
@@ -303,7 +317,7 @@ class ProductSchema:
             '@type': 'Product',
             'name': product.get('name', ''),
             'description': product.get('description', ''),
-            'image': product.get('images') or [],
+            'image': _safe_image_urls(product.get('images') or []),
             'offers': {
                 '@type': 'Offer',
                 'price': price,
@@ -315,7 +329,7 @@ class ProductSchema:
                 'id': product.get('id'),
                 'handle': commerce_slug(product.get('metadata', {}).get('handle') if isinstance(product.get('metadata'), dict) else '', product.get('id'), product.get('name')),
                 'slug': commerce_slug(product.get('metadata', {}).get('handle') if isinstance(product.get('metadata'), dict) else '', product.get('id'), product.get('name')),
-                'url': product.get('url'),
+                'url': _safe_http_url(product.get('url')),
                 'prices': prices,
                 'created': product.get('created'),
                 'updated': product.get('updated')
@@ -340,7 +354,7 @@ class ProductSchema:
             '@type': 'Product',
             'name': product.get('name', ''),
             'description': product.get('description', ''),
-            'image': [product.get('thumbnail_url')] if product.get('thumbnail_url') else [],
+            'image': _safe_image_urls(product.get('thumbnail_url')),
             'offers': {
                 '@type': 'Offer',
                 'price': gumroad_price,
@@ -356,7 +370,7 @@ class ProductSchema:
                 'id': product.get('id'),
                 'handle': commerce_slug(product.get('custom_permalink'), product.get('id'), product.get('name')),
                 'slug': commerce_slug(product.get('custom_permalink'), product.get('id'), product.get('name')),
-                'url': product.get('short_url'),
+                'url': _safe_http_url(product.get('short_url')),
                 'created_at': product.get('created_at')
             }
         }

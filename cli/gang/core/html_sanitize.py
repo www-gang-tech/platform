@@ -4,6 +4,7 @@ Shared HTML / URL sanitizers for Markdown fragments and template hrefs.
 
 from __future__ import annotations
 
+import html
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse, urlunparse
 
@@ -48,7 +49,7 @@ def is_safe_href(value: Optional[str]) -> bool:
     """Allow relative paths, anchors, http(s), and mailto; reject javascript: etc."""
     if not value:
         return False
-    value = str(value).strip()
+    value = html.unescape(str(value).strip())
     if not value:
         return False
     if not _is_safe_href_candidate(value):

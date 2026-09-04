@@ -46,9 +46,17 @@ class RedirectManager:
         if value.startswith('//') or value.startswith('/\\') or '\\' in value:
             return False
         if value.startswith('http://') or value.startswith('https://'):
-            from urllib.parse import urlparse
-            parsed = urlparse(value)
-            return parsed.scheme in ('http', 'https') and bool(parsed.netloc) and '\n' not in value
+            try:
+                from core.html_sanitize import safe_http_url
+            except ImportError:
+                from gang.core.html_sanitize import safe_http_url
+            return bool(safe_http_url(value))
+        try:
+            from core.html_sanitize import is_safe_href
+        except ImportError:
+            from gang.core.html_sanitize import is_safe_href
+        if not is_safe_href(value):
+            return False
         if not _SAFE_REDIRECT_PATH.match(value) or '//' in value:
             return False
         # `/posts/../admin` and `/../etc` must not become Location targets.

@@ -586,6 +586,23 @@ def comments_webhook_origin(config: Dict[str, Any]) -> str:
     return ''
 
 
+def write_dist_headers(public_path: Path, dist_path: Path, config: Dict[str, Any]) -> None:
+    """Copy _headers and merge the comments webhook origin into connect-src."""
+    headers_src = public_path / '_headers'
+    if not headers_src.exists():
+        return
+    text = headers_src.read_text()
+    origin = comments_webhook_origin(config)
+    if origin:
+        def inject(match) -> str:
+            line = match.group(0)
+            if origin in line:
+                return line
+            return line.replace("connect-src 'self'", f"connect-src 'self' {origin}", 1)
+        text = re.sub(r'Content-Security-Policy:[^\n]+', inject, text, count=1)
+    (dist_path / '_headers').write_text(text)
+
+
 def strip_leading_markdown_h1(body: str) -> str:
     stripped = body.lstrip('\n')
     if stripped.startswith('# '):
@@ -2066,7 +2083,12 @@ def schedule(ctx):
     click.echo(report)
     
     # Non-zero when future-dated content exists so CI can schedule a follow-up publish.
-    if summary['scheduled'] > 0:
+    # Also fail when scheduled items were fail-closed to draft (broken dates/YAML).
+    broken_drafts = any(
+        item.get('_date_error') or item.get('_yaml_error')
+        for item in summary.get('draft_items', [])
+    )
+    if summary['scheduled'] > 0 or broken_drafts:
         ctx.exit(1)
 
 @cli.command()
@@ -2130,14 +2152,20 @@ def set_schedule(ctx, file_path, publish_date, now, status):
                 from gang.core.scheduler import parse_schedule_datetime
             pub_date = parse_schedule_datetime(publish_date)
         except Exception:
-            # Try common formats
-            for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
-                try:
-                    pub_date = datetime.strptime(publish_date, fmt)
+            # Try common formats, including single-digit hours ("2025-12-25 9:00").
+            pub_date = None
+            text = str(publish_date).strip()
+            padded = re.sub(r'(?<=\s)(\d):', r'0\1:', text, count=1)
+            for candidate in (text, padded):
+                for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
+                    try:
+                        pub_date = datetime.strptime(candidate, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if pub_date is not None:
                     break
-                except ValueError:
-                    continue
-            else:
+            if pub_date is None:
                 click.echo(f"❌ Invalid date format: {publish_date}")
                 click.echo("   Use: YYYY-MM-DD or YYYY-MM-DD HH:MM or ISO format")
                 ctx.exit(1)
@@ -3185,9 +3213,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
-        headers_src = public_path / '_headers'
-        if headers_src.exists():
-            shutil.copy2(headers_src, dist_path / '_headers')
+        write_dist_headers(public_path, dist_path, config)
     
     # Build content
     content_path = Path(config['build']['content'])
@@ -5505,9 +5531,7 @@ def serve(ctx, port, host):
                 # Copy public assets
                 if public_path.exists():
                     shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
-                    headers_src = public_path / '_headers'
-                    if headers_src.exists():
-                        shutil.copy2(headers_src, dist_path / '_headers')
+                    write_dist_headers(public_path, dist_path, config)
                 
                 # Build content
                 all_pages = []

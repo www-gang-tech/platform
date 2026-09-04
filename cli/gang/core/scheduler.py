@@ -20,8 +20,10 @@ def strip_frontmatter_prefix(content: str) -> str:
 
 def _unwrap_schedule_value(value: Any) -> Any:
     """CMS/ESP exports sometimes wrap a single date or status in a list."""
-    if isinstance(value, (list, tuple)) and len(value) == 1:
-        return value[0]
+    seen = 0
+    while isinstance(value, (list, tuple)) and len(value) == 1 and seen < 8:
+        value = value[0]
+        seen += 1
     return value
 
 
@@ -61,6 +63,9 @@ def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
         value = _unwrap_schedule_value(value)
         if _absent_schedule_date(value):
             continue
+        # Multi-value leftovers are present-but-unparseable, not a date.
+        if isinstance(value, (list, tuple, dict, set)):
+            continue
         try:
             return parse_schedule_datetime(value)
         except (ValueError, TypeError):
@@ -72,8 +77,24 @@ def _normalize_schedule_status(raw_status: Any, *, newsletter: bool, missing: bo
     """Normalize YAML status; unknown/empty/bool values fail closed as draft."""
     if missing:
         return 'draft' if newsletter else 'published'
-    if isinstance(raw_status, list) and raw_status:
-        raw_status = raw_status[0]
+    raw_status = _unwrap_schedule_value(raw_status)
+    if isinstance(raw_status, (list, tuple)):
+        if not raw_status:
+            return 'draft'
+        norms = []
+        for item in raw_status:
+            item = _unwrap_schedule_value(item)
+            if isinstance(item, (list, tuple, dict, set)):
+                return 'draft'
+            norms.append(_normalize_schedule_status(item, newsletter=newsletter, missing=False))
+        # Keep sent-archive semantics if any entry is sent; otherwise require
+        # a single consistent status so [published, scheduled] cannot go live.
+        if 'sent' in norms:
+            return 'sent'
+        unique = set(norms)
+        if len(unique) != 1:
+            return 'draft'
+        return norms[0]
     if raw_status is False:
         return 'draft'
     if raw_status is True or isinstance(raw_status, (int, float)):
@@ -328,6 +349,9 @@ class ContentScheduler:
             for item in summary['draft_items']:
                 lines.append(f"  • {item['title']}")
                 lines.append(f"    {item['path'].relative_to(self.content_path)}")
+                error = item.get('error')
+                if error:
+                    lines.append(f"    error: {error}")
         
         return '\n'.join(lines)
     

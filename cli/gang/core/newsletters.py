@@ -167,18 +167,24 @@ class NewsletterManager:
         if not test_mode:
             if status == 'sent':
                 return {'error': 'Newsletter already sent', 'success': False}
-            if status == 'scheduled':
-                when = _parse_first_schedule_date(
-                    frontmatter.get('publish_date'),
-                    frontmatter.get('scheduled_for'),
-                )
-                now = datetime.now(timezone.utc)
-                if when is None or when > now:
-                    return {
-                        'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
-                        'success': False,
-                    }
-            elif status not in ('draft', 'published', 'live', 'public'):
+            when = _parse_first_schedule_date(
+                frontmatter.get('publish_date'),
+                frontmatter.get('scheduled_for'),
+            )
+            now = datetime.now(timezone.utc)
+            # Future dates must not send (and then flip to `sent` / go live)
+            # even when status is still draft/published.
+            if when is not None and when > now:
+                return {
+                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                    'success': False,
+                }
+            if status == 'scheduled' and when is None:
+                return {
+                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                    'success': False,
+                }
+            if status not in ('draft', 'published', 'live', 'public', 'scheduled'):
                 return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         
         # Convert markdown to HTML
@@ -305,9 +311,17 @@ class NewsletterManager:
             return newsletters
         
         try:
-            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+            from core.scheduler import (
+                _normalize_schedule_status,
+                _unwrap_schedule_value,
+                strip_frontmatter_prefix,
+            )
         except ImportError:
-            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+            from gang.core.scheduler import (
+                _normalize_schedule_status,
+                _unwrap_schedule_value,
+                strip_frontmatter_prefix,
+            )
 
         for file_path in self.newsletters_path.glob('*.md'):
             try:
@@ -342,7 +356,7 @@ class NewsletterManager:
                         'status': status,
                         'created': frontmatter.get('created', ''),
                         'sent_at': frontmatter.get('sent_at'),
-                        'scheduled_for': frontmatter.get('scheduled_for'),
+                        'scheduled_for': _unwrap_schedule_value(frontmatter.get('scheduled_for')),
                         'recipients': frontmatter.get('recipients', 0)
                     })
             except:
