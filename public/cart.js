@@ -212,6 +212,21 @@
         } else {
             checkoutUrl = checkoutUrlFromForm(form);
         }
+        if (checkoutUrl) {
+            try {
+                const parsed = new URL(checkoutUrl, window.location.origin);
+                if (parsed.origin === window.location.origin) {
+                    checkoutUrl = '';
+                } else if (!isAllowedCheckoutUrl(parsed)) {
+                    window.alert('Checkout is not configured for this product.');
+                    return;
+                } else {
+                    checkoutUrl = parsed.href;
+                }
+            } catch (err) {
+                checkoutUrl = '';
+            }
+        }
         const variantParts = [];
         if (form.querySelector('[name="color"]')) variantParts.push(String(formData.get('color') ?? ''));
         if (form.querySelector('[name="size"]')) variantParts.push(String(formData.get('size') ?? ''));

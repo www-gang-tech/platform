@@ -34,10 +34,31 @@
         return avail.indexOf('InStock') !== -1 && avail.indexOf('OutOfStock') === -1;
     }
     
+    function decodeHref(value) {
+        let decoded = value;
+        for (let i = 0; i < 3; i++) {
+            try {
+                const next = decodeURIComponent(decoded);
+                if (next === decoded) break;
+                decoded = next;
+            } catch (err) {
+                break;
+            }
+        }
+        return decoded;
+    }
+
     function isSafeActionUrl(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
         if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
+            return false;
+        }
+        const decoded = decodeHref(trimmed);
+        if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) {
+            return false;
+        }
+        if (decoded.split('/').some(function(seg) { return seg === '..'; })) {
             return false;
         }
         if (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/') return true;
@@ -52,9 +73,9 @@
     
     function findVariant(selectedColor, selectedSize, selectedOption3) {
         const matches = variants.filter(function(variant) {
-            const colorMatch = colorSelect ? variant.color === (selectedColor ?? '') : true;
-            const sizeMatch = sizeSelect ? variant.size === (selectedSize ?? '') : true;
-            const extraMatch = option3Select ? variant.option3 === (selectedOption3 ?? '') : true;
+            const colorMatch = colorSelect ? String(variant.color ?? '') === String(selectedColor ?? '') : true;
+            const sizeMatch = sizeSelect ? String(variant.size ?? '') === String(selectedSize ?? '') : true;
+            const extraMatch = option3Select ? String(variant.option3 ?? '') === String(selectedOption3 ?? '') : true;
             return colorMatch && sizeMatch && extraMatch;
         });
         if (!matches.length) return undefined;
