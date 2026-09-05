@@ -9,6 +9,12 @@ import re
 import os
 
 
+def _public_content_url(category: str, slug: str) -> str:
+    if category == 'articles':
+        category = 'posts'
+    return f"/{category}/{slug}/"
+
+
 class InternalLinkingSuggester:
     """Suggest contextual internal links between content"""
     
@@ -34,14 +40,19 @@ class InternalLinkingSuggester:
         # Parse frontmatter
         if source_content.startswith('---'):
             parts = source_content.split('---', 2)
-            source_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            source_fm = raw_fm if isinstance(raw_fm, dict) else {}
             source_body = parts[2] if len(parts) > 2 else source_content
         else:
             source_fm = {}
             source_body = source_content
         
         source_title = source_fm.get('title', file_path.stem)
-        source_tags = source_fm.get('tags', [])
+        source_tags = source_fm.get('tags') or []
+        if isinstance(source_tags, str):
+            source_tags = [source_tags]
+        elif not isinstance(source_tags, list):
+            source_tags = []
         
         # Build context about other content
         other_content = []
@@ -53,17 +64,23 @@ class InternalLinkingSuggester:
                 other_text = other_file.read_text()
                 if other_text.startswith('---'):
                     parts = other_text.split('---', 2)
-                    other_fm = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                    raw_other = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+                    other_fm = raw_other if isinstance(raw_other, dict) else {}
                 else:
                     other_fm = {}
                 
+                other_tags = other_fm.get('tags') or []
+                if isinstance(other_tags, str):
+                    other_tags = [other_tags]
+                elif not isinstance(other_tags, list):
+                    other_tags = []
                 other_content.append({
                     'path': other_file,
                     'slug': other_file.stem,
                     'category': other_file.parent.name,
                     'title': other_fm.get('title', other_file.stem),
                     'summary': other_fm.get('summary', ''),
-                    'tags': other_fm.get('tags', [])
+                    'tags': other_tags
                 })
             except:
                 continue
@@ -77,7 +94,7 @@ class InternalLinkingSuggester:
             if common_tags:
                 suggestions.append({
                     'target_path': other['path'],
-                    'target_url': f"/{other['category']}/{other['slug']}/",
+                    'target_url': _public_content_url(other['category'], other['slug']),
                     'target_title': other['title'],
                     'reason': f"Shares tags: {', '.join(common_tags)}",
                     'confidence': 'medium',
@@ -94,7 +111,7 @@ class InternalLinkingSuggester:
             if len(common_words) >= 2:
                 suggestions.append({
                     'target_path': other['path'],
-                    'target_url': f"/{other['category']}/{other['slug']}/",
+                    'target_url': _public_content_url(other['category'], other['slug']),
                     'target_title': other['title'],
                     'reason': f"Related keywords: {', '.join(list(common_words)[:3])}",
                     'confidence': 'low',
@@ -142,7 +159,7 @@ class InternalLinkingSuggester:
             
             # Build context about available content
             available_content = "\n".join([
-                f"- {c['title']} (/{c['category']}/{c['slug']}/): {c.get('summary', '')[:100]}"
+                f"- {c['title']} ({_public_content_url(c['category'], c['slug'])}): {c.get('summary', '')[:100]}"
                 for c in other_content[:20]  # Limit to avoid token limits
             ])
             
@@ -194,7 +211,7 @@ Return as JSON array:
                 return [
                     {
                         'target_path': None,  # Will be resolved later
-                        'target_url': f"/{s['target_category']}/{s['target_slug']}/",
+                        'target_url': _public_content_url(s.get('target_category', ''), s.get('target_slug', '')),
                         'target_title': s['target_title'],
                         'reason': s['reason'],
                         'suggestion': s.get('suggestion', ''),

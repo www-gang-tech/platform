@@ -6,7 +6,7 @@
   # CSP: Restrict resource loading to same origin only
   # Note: 'unsafe-inline' for script-src is development-only, remove for production
   # TODO: Add SRI hashes via build process for CSS/JS integrity checking
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://*.n8n.app https://*.n8n.io; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; object-src 'none'
   
   # Referrer Policy: Only send origin on cross-origin requests over HTTPS
   Referrer-Policy: strict-origin-when-cross-origin
