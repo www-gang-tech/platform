@@ -361,7 +361,7 @@ class ProductSchema:
                 'priceCurrency': str(product.get('currency') or 'USD').upper(),
                 'availability': (
                     'https://schema.org/InStock'
-                    if product.get('published', True)
+                    if coerce_available_flag(product.get('published')) is True
                     else 'https://schema.org/OutOfStock'
                 )
             },
@@ -616,7 +616,7 @@ class ProductAggregator:
         shopify_url = os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE')
         shopify_token = os.environ.get('SHOPIFY_ACCESS_TOKEN')
         configured = set()
-        if shopify_url and shopify_token:
+        if shopify_url and shopify_token and shopify_token != 'demo':
             live_configured = True
             configured.add('shopify')
             client = ShopifyClient(shopify_url, shopify_token)

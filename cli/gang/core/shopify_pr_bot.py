@@ -88,9 +88,8 @@ class ShopifyPRBot:
             for variant in variants:
                 if not isinstance(variant, dict):
                     continue
-                if not variant.get('url'):
-                    variant['url'] = append_variant_query(base, variant.get('id'))
-                variant['url'] = safe_http_url(variant.get('url'))
+                url = variant.get('url') or base
+                variant['url'] = safe_http_url(append_variant_query(url, variant.get('id')))
         
         return frontmatter
     

@@ -5,8 +5,26 @@ Shared HTML / URL sanitizers for Markdown fragments and template hrefs.
 from __future__ import annotations
 
 import html
+import re
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse, urlunparse
+
+# Browsers decode named/numeric colon entities in hrefs; html.unescape does not.
+_COLON_ENTITY_RE = re.compile(r'(?i)&colon;|&#0*58;|&#x0*3a;')
+_HTML_COMMENT_RE = re.compile(r'<!--[\s\S]*?-->')
+_LEFTOVER_SCRIPT_RE = re.compile(r'(?is)<script\b[^>]*>.*?</script>|<script\b[^>]*>')
+
+
+def _normalize_href_entities(value: str) -> str:
+    """Unescape HTML entities, including ``&colon;``, before scheme checks."""
+    current = str(value)
+    for _ in range(3):
+        nxt = html.unescape(current)
+        nxt = _COLON_ENTITY_RE.sub(':', nxt)
+        if nxt == current:
+            break
+        current = nxt
+    return current
 
 
 def _href_has_dotdot(path: str) -> bool:
@@ -49,7 +67,7 @@ def is_safe_href(value: Optional[str]) -> bool:
     """Allow relative paths, anchors, http(s), and mailto; reject javascript: etc."""
     if not value:
         return False
-    value = html.unescape(str(value).strip())
+    value = _normalize_href_entities(str(value).strip())
     if not value:
         return False
     if not _is_safe_href_candidate(value):
@@ -57,7 +75,7 @@ def is_safe_href(value: Optional[str]) -> bool:
     # Percent-decode so /%2f/evil.com and /%2e%2e/admin cannot bypass prefix checks.
     decoded = value
     for _ in range(3):
-        nxt = unquote(decoded)
+        nxt = _normalize_href_entities(unquote(decoded))
         if nxt == decoded:
             break
         decoded = nxt
@@ -104,6 +122,9 @@ def sanitize_markdown_html(html: str) -> str:
     if not html:
         return ''
 
+    # Comments are not elements; leftover ``<!--><script>`` text still executes.
+    html = _HTML_COMMENT_RE.sub('', html)
+
     soup = BeautifulSoup(f'<div id="gang-md-root">{html}</div>', 'html.parser')
     root = soup.find(id='gang-md-root')
     if root is None:
@@ -133,7 +154,9 @@ def sanitize_markdown_html(html: str) -> str:
             }:
                 del tag.attrs[attr]
 
-    return ''.join(str(child) for child in root.contents)
+    result = ''.join(str(child) for child in root.contents)
+    # Parser quirks can leave ``<script>`` in text nodes or nested fragments.
+    return _LEFTOVER_SCRIPT_RE.sub('', result)
 
 
 def sanitize_content_hrefs(html: str) -> str:

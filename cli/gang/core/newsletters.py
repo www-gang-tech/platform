@@ -164,28 +164,27 @@ class NewsletterManager:
             newsletter=True,
             missing='status' not in frontmatter,
         )
-        if not test_mode:
-            if status == 'sent':
-                return {'error': 'Newsletter already sent', 'success': False}
-            when = _parse_first_schedule_date(
-                frontmatter.get('publish_date'),
-                frontmatter.get('scheduled_for'),
-            )
-            now = datetime.now(timezone.utc)
-            # Future dates must not send (and then flip to `sent` / go live)
-            # even when status is still draft/published.
-            if when is not None and when > now:
-                return {
-                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
-                    'success': False,
-                }
-            if status == 'scheduled' and when is None:
-                return {
-                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
-                    'success': False,
-                }
-            if status not in ('draft', 'published', 'live', 'public', 'scheduled'):
-                return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
+        when = _parse_first_schedule_date(
+            frontmatter.get('publish_date'),
+            frontmatter.get('scheduled_for'),
+        )
+        now = datetime.now(timezone.utc)
+        # Future dates must not send (or even test-send) before the latest
+        # publish_date / scheduled_for, including draft/published status.
+        if when is not None and when > now:
+            return {
+                'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                'success': False,
+            }
+        if status == 'scheduled' and when is None:
+            return {
+                'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                'success': False,
+            }
+        if status not in ('draft', 'published', 'live', 'public', 'scheduled', 'sent'):
+            return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
+        if status == 'sent' and not test_mode:
+            return {'error': 'Newsletter already sent', 'success': False}
         
         # Convert markdown to HTML
         html_body = self._markdown_to_email_html(body)
