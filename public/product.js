@@ -70,6 +70,32 @@
             return false;
         }
     }
+
+    function allowedCheckoutOrigins() {
+        const meta = document.querySelector('meta[name="gang-checkout-origins"]');
+        if (!meta) return new Set();
+        const origins = String(meta.content || '').split(/\s+/).map(s => s.trim()).filter(Boolean);
+        return new Set(origins.map(function(s) {
+            try {
+                return new URL(s).origin;
+            } catch (err) {
+                return s;
+            }
+        }));
+    }
+
+    function isAllowedCheckoutUrl(value) {
+        if (!isSafeActionUrl(value)) return false;
+        try {
+            const parsed = new URL(value, window.location.origin);
+            if (parsed.origin === window.location.origin) return false;
+            const allow = allowedCheckoutOrigins();
+            if (!allow.size) return false;
+            return allow.has(parsed.origin);
+        } catch (err) {
+            return false;
+        }
+    }
     
     function findVariant(selectedColor, selectedSize, selectedOption3) {
         const matches = variants.filter(function(variant) {
@@ -141,9 +167,9 @@
             });
         }
         
-        // Keep a live merchant action only for in-stock variants so form.submit()
-        // cannot bypass the out-of-stock guard.
-        const checkoutHref = inStock && isSafeActionUrl(variant.url) ? variant.url : '';
+        // Keep a live merchant action only for in-stock, allowlisted variants so
+        // form.submit() cannot bypass the out-of-stock or origin guards.
+        const checkoutHref = inStock && isAllowedCheckoutUrl(variant.url) ? variant.url : '';
         if (checkoutHref) {
             form.action = checkoutHref;
             form.dataset.checkoutUrl = checkoutHref;

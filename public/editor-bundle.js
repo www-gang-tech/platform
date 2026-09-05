@@ -258,8 +258,23 @@ class InPlaceEditor {
         return '---\n' + this.preservedFrontmatter + '\n---\n' + (body || '');
     }
 
+    decodeHrefEntities(value) {
+        let current = String(value);
+        for (let i = 0; i < 3; i++) {
+            const next = current
+                .replace(/&amp;/gi, '&')
+                .replace(/&colon;/gi, ':')
+                .replace(/&#0*58;/gi, ':')
+                .replace(/&#x0*3a;/gi, ':');
+            if (next === current) break;
+            current = next;
+        }
+        return current;
+    }
+
     isSafeHref(value) {
         if (!value || typeof value !== 'string') return false;
+        const self = this;
         function check(candidate) {
             const trimmed = String(candidate).trim();
             if (!trimmed) return false;
@@ -286,11 +301,12 @@ class InPlaceEditor {
                 return false;
             }
         }
-        if (!check(value)) return false;
-        let decoded = value;
+        const normalized = self.decodeHrefEntities(value);
+        if (!check(normalized)) return false;
+        let decoded = normalized;
         for (let i = 0; i < 3; i++) {
             try {
-                const next = decodeURIComponent(decoded);
+                const next = self.decodeHrefEntities(decodeURIComponent(decoded));
                 if (next === decoded) break;
                 decoded = next;
                 if (!check(decoded)) return false;

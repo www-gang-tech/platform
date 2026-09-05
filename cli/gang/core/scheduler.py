@@ -58,7 +58,12 @@ def parse_schedule_datetime(value: Any) -> datetime:
 
 
 def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
-    """Parse the first present, well-formed schedule date (publish_date, then alias)."""
+    """Parse present, well-formed schedule dates and return the latest instant.
+
+    A stale past ``publish_date`` must not beat a later ``scheduled_for``
+    (or the reverse) when gating publish or send.
+    """
+    parsed_dates = []
     for value in values:
         value = _unwrap_schedule_value(value)
         if _absent_schedule_date(value):
@@ -67,10 +72,12 @@ def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
         if isinstance(value, (list, tuple, dict, set)):
             continue
         try:
-            return parse_schedule_datetime(value)
+            parsed_dates.append(parse_schedule_datetime(value))
         except (ValueError, TypeError):
             continue
-    return None
+    if not parsed_dates:
+        return None
+    return max(parsed_dates)
 
 
 def _normalize_schedule_status(raw_status: Any, *, newsletter: bool, missing: bool) -> str:
@@ -370,6 +377,8 @@ class ContentScheduler:
 
         allowed = ('draft', 'scheduled', 'published', 'live', 'public', 'sent')
         if status not in allowed:
+            return False
+        if status == 'scheduled' and not publish_date:
             return False
 
         try:

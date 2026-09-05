@@ -486,6 +486,14 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     if not default_in_stock:
         buy_url = ''
         default_variant_id = ''
+    checkout_origins = collect_checkout_origins()
+    if buy_url:
+        parsed_buy = urlparse(buy_url)
+        buy_host = (parsed_buy.netloc or '').split('@')[-1]
+        buy_origin = f"{parsed_buy.scheme}://{buy_host}" if parsed_buy.scheme and buy_host else ''
+        same_origin_path = buy_url.startswith('/') and not buy_url.startswith('//')
+        if not same_origin_path and buy_origin not in checkout_origins:
+            buy_url = ''
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
@@ -547,6 +555,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'brand': brand_name,
         'category': product.get('category', ''),
         'availability': matching_default.get('availability') or first_offer.get('availability', 'https://schema.org/OutOfStock'),
+        'checkout_origins': checkout_origins,
         'jsonld': jsonld,
         'year': datetime.now().year,
         'navigation': config.get('nav', {}).get('main', []),
@@ -2124,6 +2133,11 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     if file_path.suffix != '.md' or not is_publishable_relpath(relative):
         click.echo("❌ File must be a publishable markdown file under a content category")
         ctx.exit(1)
+    resolved = resolve_studio_content_path(content_path, relative)
+    if resolved is None or not resolved.is_file():
+        click.echo("❌ File not found under content categories")
+        ctx.exit(1)
+    file_path = resolved
 
     status = (status or '').strip().lower()
     if status not in ALLOWED_SCHEDULE_STATUSES:
