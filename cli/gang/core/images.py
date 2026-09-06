@@ -97,8 +97,11 @@ class ImageProcessor:
     
     def generate_picture_element(self, image_src: str, alt_text: str, variants: List[Dict[str, Any]]) -> str:
         """Generate HTML <picture> element with responsive images"""
+        import html as html_module
+        safe_alt = html_module.escape(str(alt_text or ''), quote=True)
+        safe_src = html_module.escape(str(image_src or ''), quote=True)
         if not variants:
-            return f'<img src="{image_src}" alt="{alt_text}" loading="lazy">'
+            return f'<img src="{safe_src}" alt="{safe_alt}" loading="lazy">'
         
         # Group by format
         by_format = {}
@@ -115,7 +118,10 @@ class ImageProcessor:
         for fmt in ['avif', 'webp']:
             if fmt in by_format:
                 sources = by_format[fmt]
-                srcset = ', '.join([f"/assets/images/{v['path']} {v['width']}w" for v in sources])
+                srcset = ', '.join([
+                    f"/assets/images/{html_module.escape(str(v['path']), quote=True)} {v['width']}w"
+                    for v in sources
+                ])
                 html.append(f'  <source type="image/{fmt}" srcset="{srcset}">')
         
         # Fallback img
@@ -125,7 +131,7 @@ class ImageProcessor:
         else:
             fallback_src = image_src
         
-        html.append(f'  <img src="{fallback_src}" alt="{alt_text}" loading="lazy" decoding="async">')
+        html.append(f'  <img src="{html_module.escape(fallback_src, quote=True)}" alt="{safe_alt}" loading="lazy" decoding="async">')
         html.append('</picture>')
         
         return '\n'.join(html)
@@ -214,12 +220,11 @@ class ImageProcessor:
                 return match.group(0)
             
             # Check if we have variants for this image
-            # Extract filename from URL
             filename = url.split('/')[-1]
+            variants = image_map.get(url) or image_map.get(url.lstrip('/')) or image_map.get(filename)
             
-            if filename in image_map:
-                # Generate <picture> element
-                return self.generate_picture_element(url, alt_text, image_map[filename])
+            if variants:
+                return self.generate_picture_element(url, alt_text, variants)
             
             return match.group(0)
         
