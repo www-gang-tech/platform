@@ -90,9 +90,9 @@
                       data-currency="{{ currency }}"
                       data-image="{{ product_image }}"
                       data-product-url="/products/{{ slug }}/"
-                      data-checkout-url="{% if 'InStock' in availability and 'OutOfStock' not in availability %}{{ buy_url }}{% endif %}"
+                      data-checkout-url="{% if buy_url and 'InStock' in availability and 'OutOfStock' not in availability %}{{ buy_url }}{% endif %}"
                       data-sku="{{ sku }}"
-                      data-variant-id="{% if 'InStock' in availability and 'OutOfStock' not in availability %}{{ variant_id }}{% endif %}"
+                      data-variant-id="{% if buy_url and 'InStock' in availability and 'OutOfStock' not in availability %}{{ variant_id }}{% endif %}"
                       data-in-stock="{% if 'InStock' in availability and 'OutOfStock' not in availability %}true{% else %}false{% endif %}">
                     
                     {% if colors %}
@@ -134,10 +134,10 @@
                     </div>
                     
                     <p data-stock-message style="margin: 1rem 0; font-weight: 500;">
-                        {% if 'InStock' in availability %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
+                        {% if 'InStock' in availability and 'OutOfStock' not in availability %}✓ In Stock{% else %}✗ Out of Stock{% endif %}
                     </p>
                     
-                    <button type="submit" class="buy-button"{% if 'InStock' not in availability %} disabled{% endif %}>
+                    <button type="submit" class="buy-button"{% if 'InStock' not in availability or 'OutOfStock' in availability or not buy_url %} disabled{% endif %}>
                         Add to Cart
                     </button>
                 </form>

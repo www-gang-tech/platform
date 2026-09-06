@@ -59,8 +59,11 @@ def _is_safe_href_candidate(value: str) -> bool:
             host = (parsed.netloc or '').split('@')[-1]
             return bool(host) and host not in ('.', '..')
         return False
-    # Relative / root-relative / fragment: reject path traversal.
-    return not _href_has_dotdot(scheme_host)
+    # Relative / root-relative / fragment: reject path traversal and embedded
+    # `//` (`/.//evil.com`, `/foo//bar`) so href policy matches redirects.
+    if _href_has_dotdot(scheme_host):
+        return False
+    return '//' not in scheme_host
 
 
 def is_safe_href(value: Optional[str]) -> bool:

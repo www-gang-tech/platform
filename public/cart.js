@@ -47,21 +47,43 @@
         return decoded;
     }
 
+    function normalizeHref(value) {
+        let current = String(value);
+        for (let i = 0; i < 3; i++) {
+            const next = current
+                .replace(/&amp;/gi, '&')
+                .replace(/&colon;/gi, ':')
+                .replace(/&#0*58;/gi, ':')
+                .replace(/&#x0*3a;/gi, ':');
+            if (next === current) break;
+            current = next;
+        }
+        return decodeHref(current);
+    }
+
     function isSafeHttpUrl(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
         if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
             return false;
         }
-        const decoded = decodeHref(trimmed);
+        const decoded = normalizeHref(trimmed);
         if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) {
             return false;
         }
         if (decoded.split('/').some(function(seg) { return seg === '..'; })) {
             return false;
         }
+        const pathPart = decoded.replace(/\\/g, '/').split('?')[0].split('#')[0];
+        const isRelative = decoded.charAt(0) === '/' && decoded.charAt(1) !== '/';
+        if (isRelative) {
+            return pathPart.indexOf('//') === -1;
+        }
+        if (!/^https?:\/\//i.test(decoded)) {
+            return false;
+        }
         try {
-            const url = new URL(trimmed, window.location.origin);
+            const url = new URL(decoded);
             if (url.username) return false;
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch {
@@ -226,6 +248,10 @@
             } catch (err) {
                 checkoutUrl = '';
             }
+        }
+        if (!checkoutUrl) {
+            window.alert('Checkout is not configured for this product.');
+            return;
         }
         const variantParts = [];
         if (form.querySelector('[name="color"]')) variantParts.push(String(formData.get('color') ?? ''));

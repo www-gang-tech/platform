@@ -616,13 +616,13 @@ class KlaviyoProvider(EmailProvider):
                 }
             }
             
-            # Note: Actual implementation would use Klaviyo's preview/test endpoint
-            # For now, return success in demo mode
+            # Preview/test is not wired to a real Klaviyo endpoint yet.
+            # Do not report success or operators will believe a test was sent.
             return {
-                'success': True,
+                'success': False,
                 'test_email': test_email,
                 'provider': 'klaviyo',
-                'message': 'Test email sent'
+                'error': 'Klaviyo test send is not implemented; refusing to report success',
             }
         
         except Exception as e:
@@ -740,11 +740,11 @@ class MailchimpProvider(EmailProvider):
         if not test_email:
             return {'success': False, 'error': 'No TEST_EMAIL configured'}
         
-        # Create campaign and send test
         return {
-            'success': True,
+            'success': False,
             'test_email': test_email,
-            'provider': 'mailchimp'
+            'provider': 'mailchimp',
+            'error': 'Mailchimp test send is not implemented; refusing to report success',
         }
     
     def get_subscriber_count(self) -> int:

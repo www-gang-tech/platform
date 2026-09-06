@@ -494,6 +494,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         same_origin_path = buy_url.startswith('/') and not buy_url.startswith('//')
         if not same_origin_path and buy_origin not in checkout_origins:
             buy_url = ''
+            default_variant_id = ''
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
@@ -2133,9 +2134,15 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     if file_path.suffix != '.md' or not is_publishable_relpath(relative):
         click.echo("❌ File must be a publishable markdown file under a content category")
         ctx.exit(1)
+    if Path(relative).parts and Path(relative).parts[0] == 'products':
+        click.echo("❌ Product pages are owned by the commerce aggregator, not the content scheduler")
+        ctx.exit(1)
     resolved = resolve_studio_content_path(content_path, relative)
     if resolved is None or not resolved.is_file():
         click.echo("❌ File not found under content categories")
+        ctx.exit(1)
+    if resolved.parent.name == 'products':
+        click.echo("❌ Product pages are owned by the commerce aggregator, not the content scheduler")
         ctx.exit(1)
     file_path = resolved
 
@@ -2166,12 +2173,19 @@ def set_schedule(ctx, file_path, publish_date, now, status):
                 from gang.core.scheduler import parse_schedule_datetime
             pub_date = parse_schedule_datetime(publish_date)
         except Exception:
-            # Try common formats, including single-digit hours ("2025-12-25 9:00").
+            # Try common formats, including single-digit hours ("2025-12-25 9:00"
+            # and ISO "2025-12-25T9:00").
             pub_date = None
             text = str(publish_date).strip()
-            padded = re.sub(r'(?<=\s)(\d):', r'0\1:', text, count=1)
+            padded = re.sub(r'(?<=[\sT])(\d):', r'0\1:', text, count=1)
             for candidate in (text, padded):
-                for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S']:
+                for fmt in [
+                    '%Y-%m-%d',
+                    '%Y-%m-%d %H:%M',
+                    '%Y-%m-%d %H:%M:%S',
+                    '%Y-%m-%dT%H:%M',
+                    '%Y-%m-%dT%H:%M:%S',
+                ]:
                     try:
                         pub_date = datetime.strptime(candidate, fmt)
                         break
@@ -3011,12 +3025,13 @@ def generate_agentmap(ctx):
     agentmap = generator.generate(publishable, products if products else None)
     
     # Write AgentMap
+    dist_path.mkdir(parents=True, exist_ok=True)
     agentmap_file = dist_path / 'agentmap.json'
     agentmap_file.write_text(json.dumps(agentmap, indent=2))
     
     # Generate Content API
     api_dir = dist_path / 'api'
-    api_dir.mkdir(exist_ok=True)
+    api_dir.mkdir(parents=True, exist_ok=True)
     
     api_generator = ContentAPIGenerator(site_url)
     content_index = api_generator.generate_content_index(publishable, content_path)
@@ -3670,11 +3685,15 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_page.write_text(indexer.generate_search_page_html(config, templates_path))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
-        merge_sitemap_entries(all_content, discovery_sitemap_entries(tag_pages))
+        merge_sitemap_entries(
+            all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
+        )
         generators.generate_all(dist_path, all_content, all_posts)
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
-        merge_sitemap_entries(all_content, discovery_sitemap_entries(tag_pages))
+        merge_sitemap_entries(
+            all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
+        )
         generators.generate_all(dist_path, all_content, all_posts)
     
     # Generate AgentMap for AI agents
@@ -4123,13 +4142,23 @@ def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_
     return sitemap_entries
 
 
-def discovery_sitemap_entries(tag_pages: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
-    """Utility pages generated after the first sitemap pass."""
-    extras = [
-        {'url': '/search/', 'title': 'Search', 'type': 'utility'},
-        {'url': '/cart/', 'title': 'Cart', 'type': 'utility'},
-        {'url': '/sitemap/', 'title': 'Sitemap', 'type': 'utility'},
-    ]
+def discovery_sitemap_entries(
+    tag_pages: Optional[List[Dict[str, str]]] = None,
+    dist_path: Optional[Path] = None,
+) -> List[Dict[str, str]]:
+    """Utility pages generated after the first sitemap pass.
+
+    When ``dist_path`` is given, only advertise utilities that actually exist
+    so a failed cart/search/sitemap render cannot ghost those URLs.
+    """
+    extras = []
+    for url, title, rel in (
+        ('/search/', 'Search', 'search/index.html'),
+        ('/cart/', 'Cart', 'cart/index.html'),
+        ('/sitemap/', 'Sitemap', 'sitemap/index.html'),
+    ):
+        if dist_path is None or (dist_path / rel).is_file():
+            extras.append({'url': url, 'title': title, 'type': 'utility'})
     extras.extend(tag_pages or [])
     return extras
 
@@ -5939,7 +5968,9 @@ def serve(ctx, port, host):
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate search index: {e}")
 
-                merge_sitemap_entries(all_content, discovery_sitemap_entries(tag_pages))
+                merge_sitemap_entries(
+                    all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
+                )
                 generators.generate_all(dist_path, all_content, all_posts)
 
                 try:

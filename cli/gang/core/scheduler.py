@@ -21,7 +21,8 @@ def strip_frontmatter_prefix(content: str) -> str:
 def _unwrap_schedule_value(value: Any) -> Any:
     """CMS/ESP exports sometimes wrap a single date or status in a list."""
     seen = 0
-    while isinstance(value, (list, tuple)) and len(value) == 1 and seen < 8:
+    # Deep single-element wraps from CMS/ESP dumps; 64 is a cycle/DoS cap.
+    while isinstance(value, (list, tuple)) and len(value) == 1 and seen < 64:
         value = value[0]
         seen += 1
     return value
@@ -247,7 +248,8 @@ class ContentScheduler:
                         'status': 'draft',
                         'publish_date': None,
                         'title': frontmatter.get('title', file_path.stem),
-                        '_date_error': bool(date_present),
+                        # Missing and unparseable dates both fail CI (`gang schedule`).
+                        '_date_error': True,
                         'error': (
                             'invalid publish_date'
                             if date_present

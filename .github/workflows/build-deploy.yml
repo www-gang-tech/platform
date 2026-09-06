@@ -104,14 +104,29 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const manifest = JSON.parse(fs.readFileSync('.lighthouseci/manifest.json', 'utf8'));
+            const manifestPath = '.lighthouseci/manifest.json';
+            if (!fs.existsSync(manifestPath)) {
+              console.log('No Lighthouse manifest; skipping PR comment');
+              return;
+            }
+            let manifest;
+            try {
+              manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            } catch (err) {
+              console.log('Could not parse Lighthouse manifest; skipping PR comment');
+              return;
+            }
+            if (!Array.isArray(manifest) || !manifest.length) {
+              console.log('Empty Lighthouse manifest; skipping PR comment');
+              return;
+            }
             const results = manifest.map(result => {
-              const summary = result.summary;
+              const summary = result.summary || {};
               return `### ${result.url}\n` +
-                `- **Performance**: ${Math.round(summary.performance * 100)}\n` +
-                `- **Accessibility**: ${Math.round(summary.accessibility * 100)}\n` +
-                `- **Best Practices**: ${Math.round(summary['best-practices'] * 100)}\n` +
-                `- **SEO**: ${Math.round(summary.seo * 100)}`;
+                `- **Performance**: ${Math.round((summary.performance || 0) * 100)}\n` +
+                `- **Accessibility**: ${Math.round((summary.accessibility || 0) * 100)}\n` +
+                `- **Best Practices**: ${Math.round((summary['best-practices'] || 0) * 100)}\n` +
+                `- **SEO**: ${Math.round((summary.seo || 0) * 100)}`;
             }).join('\n\n');
             
             github.rest.issues.createComment({

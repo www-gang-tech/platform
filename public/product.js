@@ -48,22 +48,43 @@
         return decoded;
     }
 
+    function normalizeHref(value) {
+        let current = String(value);
+        for (let i = 0; i < 3; i++) {
+            const next = current
+                .replace(/&amp;/gi, '&')
+                .replace(/&colon;/gi, ':')
+                .replace(/&#0*58;/gi, ':')
+                .replace(/&#x0*3a;/gi, ':');
+            if (next === current) break;
+            current = next;
+        }
+        return decodeHref(current);
+    }
+
     function isSafeActionUrl(value) {
         if (!value || typeof value !== 'string') return false;
         const trimmed = value.trim();
         if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\')) {
             return false;
         }
-        const decoded = decodeHref(trimmed);
+        const decoded = normalizeHref(trimmed);
         if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) {
             return false;
         }
         if (decoded.split('/').some(function(seg) { return seg === '..'; })) {
             return false;
         }
-        if (trimmed.charAt(0) === '/' && trimmed.charAt(1) !== '/') return true;
+        const pathPart = decoded.replace(/\\/g, '/').split('?')[0].split('#')[0];
+        const isRelative = decoded.charAt(0) === '/' && decoded.charAt(1) !== '/';
+        if (isRelative) {
+            return pathPart.indexOf('//') === -1;
+        }
+        if (!/^https?:\/\//i.test(decoded)) {
+            return false;
+        }
         try {
-            const url = new URL(trimmed, window.location.origin);
+            const url = new URL(decoded);
             if (url.username) return false;
             return url.protocol === 'https:' || url.protocol === 'http:';
         } catch (err) {
@@ -154,11 +175,6 @@
             }
         }
         
-        if (buyButton) {
-            buyButton.disabled = !inStock;
-            buyButton.style.opacity = inStock ? '1' : '0.5';
-            buyButton.style.cursor = inStock ? 'pointer' : 'not-allowed';
-        }
         form.dataset.inStock = inStock ? 'true' : 'false';
         
         if (variant.image_index !== undefined && productImages.length > 0) {
@@ -173,11 +189,18 @@
         if (checkoutHref) {
             form.action = checkoutHref;
             form.dataset.checkoutUrl = checkoutHref;
+            form.dataset.variantId = variant.id != null ? String(variant.id) : '';
         } else {
             form.action = '#';
             delete form.dataset.checkoutUrl;
+            form.dataset.variantId = '';
         }
-        form.dataset.variantId = (inStock && variant.id != null) ? String(variant.id) : '';
+        if (buyButton) {
+            const canBuy = inStock && Boolean(checkoutHref);
+            buyButton.disabled = !canBuy;
+            buyButton.style.opacity = canBuy ? '1' : '0.5';
+            buyButton.style.cursor = canBuy ? 'pointer' : 'not-allowed';
+        }
         form.dataset.sku = variant.sku == null ? '' : String(variant.sku);
         form.dataset.price = (variant.price == null || variant.price === '') ? '0' : String(variant.price);
         form.dataset.currency = variant.currency ? String(variant.currency) : (form.dataset.currency || 'USD');

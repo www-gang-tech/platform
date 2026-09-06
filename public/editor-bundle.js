@@ -284,7 +284,7 @@ class InPlaceEditor {
             }
             const pathPart = normalized.split('?')[0].split('#')[0];
             if (pathPart.indexOf(':') === -1) {
-                return pathPart.split('/').indexOf('..') === -1;
+                return pathPart.split('/').indexOf('..') === -1 && pathPart.indexOf('//') === -1;
             }
             if (/^mailto:/i.test(trimmed)) {
                 const addr = trimmed.slice(7).split('?')[0];
