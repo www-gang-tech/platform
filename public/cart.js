@@ -71,7 +71,10 @@
         if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) {
             return false;
         }
-        if (decoded.split('/').some(function(seg) { return seg === '..'; })) {
+        if (/%00/i.test(trimmed) || decoded.indexOf('\0') !== -1 || /%00/i.test(decoded)) {
+            return false;
+        }
+        if (decoded.split('/').some(function(seg) { return seg === '..' || seg.indexOf('..') === 0; })) {
             return false;
         }
         const pathPart = decoded.replace(/\\/g, '/').split('?')[0].split('#')[0];
@@ -108,7 +111,8 @@
         if (value.startsWith('//') || value.startsWith('/\\') || value.startsWith('\\')) return false;
         const decoded = decodeHref(value);
         if (decoded.startsWith('//') || decoded.startsWith('/\\') || decoded.startsWith('\\')) return false;
-        if (decoded.split('/').some(function(seg) { return seg === '..'; })) return false;
+        if (/%00/i.test(value) || decoded.indexOf('\0') !== -1) return false;
+        if (decoded.split('/').some(function(seg) { return seg === '..' || seg.indexOf('..') === 0; })) return false;
         if (value.startsWith('/') && !value.startsWith('//')) return true;
         return isSafeHttpUrl(value);
     }
@@ -145,8 +149,9 @@
     }
 
     function isVariantInStock(variant) {
-        const avail = String((variant && variant.availability) || '');
-        return avail.indexOf('InStock') !== -1 && avail.indexOf('OutOfStock') === -1;
+        const avail = String((variant && variant.availability) || '').trim();
+        if (!avail || avail === 'OutOfStock' || avail.slice(-11) === '/OutOfStock') return false;
+        return avail === 'InStock' || avail.slice(-8) === '/InStock';
     }
 
     function resolveSelectedVariant(form, formData) {

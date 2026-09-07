@@ -301,8 +301,10 @@ def tag_href(tag: Any) -> str:
 def offer_is_in_stock(offer: Any) -> bool:
     if not isinstance(offer, dict):
         return False
-    avail = str(offer.get('availability') or '')
-    return 'InStock' in avail and 'OutOfStock' not in avail
+    avail = str(offer.get('availability') or '').strip()
+    if not avail or avail == 'OutOfStock' or avail.endswith('/OutOfStock'):
+        return False
+    return avail == 'InStock' or avail.endswith('/InStock')
 
 
 def safe_http_url(value: Any) -> str:
@@ -575,6 +577,10 @@ def comments_webhook_url(config: Dict[str, Any]) -> str:
         return ''
     lowered = url.lower()
     if any(marker in lowered for marker in PLACEHOLDER_WEBHOOK_MARKERS):
+        return ''
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or '').lower()
+    if host in {'localhost', '127.0.0.1', '::1', '0.0.0.0'} or host.endswith(('.localhost', '.local')):
         return ''
     return url
 
@@ -3377,7 +3383,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Add canonical URL
         url = public_content_url(content_type, slug)
         
-        context['canonical_url'] = f"{config['site']['url']}{url}"
+        context['canonical_url'] = f"{str(config['site']['url']).rstrip('/')}{url}"
         
         jsonld = context.get('jsonld')
         if not isinstance(jsonld, dict) or not jsonld:
@@ -3606,7 +3612,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo(f"⚠️  Could not generate product pages: {e}")
         products = []
     
-    # Always emit cart + HTML sitemap (footer links to /sitemap/ even with an empty catalog)
+    # Always emit cart (footer links to /cart/ even with an empty catalog)
     try:
         template_dir = Path(__file__).parent.parent.parent / 'templates'
         jinja_env = template_environment(template_dir)
@@ -3635,39 +3641,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         )
         (cart_dir / 'index.html').write_text(cart_html)
         click.echo("🛒 Generated cart page")
-        
-        sitemap_dir = dist_path / 'sitemap'
-        sitemap_dir.mkdir(parents=True, exist_ok=True)
-        sitemap_jsonld = {
-            '@context': 'https://schema.org',
-            '@type': 'CollectionPage',
-            'name': 'Sitemap',
-            'description': 'Complete sitemap of all pages',
-            'url': f"{str(config['site']['url']).rstrip('/')}/sitemap/",
-        }
-        sitemap_template = jinja_env.get_template('sitemap.html')
-        sitemap_html = sitemap_template.render(
-            site_title=config['site']['title'],
-            site_url=config['site']['url'],
-            pages=all_pages,
-            posts=all_posts,
-            projects=all_projects,
-            products=products,
-            people=all_people,
-            newsletters=all_newsletters,
-            tags=tag_pages,
-            utilities=[
-                {'url': '/search/', 'title': 'Search'},
-                {'url': '/cart/', 'title': 'Cart'},
-            ],
-            jsonld=sitemap_jsonld,
-            year=datetime.now().year,
-            build_time_iso=datetime.now().isoformat()
-        )
-        (sitemap_dir / 'index.html').write_text(sitemap_html)
-        click.echo("🗺️  Generated HTML sitemap")
     except Exception as e:
-        click.echo(f"⚠️  Could not generate cart/sitemap: {e}")
+        click.echo(f"⚠️  Could not generate cart: {e}")
     
     # Generate search index from the same publishable set the build rendered
     try:
@@ -3685,16 +3660,29 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         search_page.write_text(indexer.generate_search_page_html(config, templates_path))
         
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
-        merge_sitemap_entries(
-            all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
-        )
-        generators.generate_all(dist_path, all_content, all_posts)
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
-        merge_sitemap_entries(
-            all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
+
+    try:
+        write_html_sitemap(
+            dist_path,
+            config,
+            pages=all_pages,
+            posts=all_posts,
+            projects=all_projects,
+            products=products,
+            people=all_people,
+            newsletters=all_newsletters,
+            tags=tag_pages,
         )
-        generators.generate_all(dist_path, all_content, all_posts)
+        click.echo("🗺️  Generated HTML sitemap")
+    except Exception as e:
+        click.echo(f"⚠️  Could not generate sitemap: {e}")
+
+    merge_sitemap_entries(
+        all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
+    )
+    generators.generate_all(dist_path, all_content, all_posts)
     
     # Generate AgentMap for AI agents
     try:
@@ -4140,6 +4128,62 @@ def write_tag_pages(config: Dict, dist_path: Path, items: List[Dict], templates_
     click.echo(f"🏷️  Generated {len(by_tag)} tag page(s)")
     sitemap_entries.append({'url': '/tags/', 'title': 'Tags', 'type': 'list'})
     return sitemap_entries
+
+
+def html_sitemap_utilities(dist_path: Path) -> List[Dict[str, str]]:
+    """List search/cart on the HTML sitemap only when those pages exist."""
+    utilities = []
+    if (dist_path / 'search' / 'index.html').is_file():
+        utilities.append({'url': '/search/', 'title': 'Search'})
+    if (dist_path / 'cart' / 'index.html').is_file():
+        utilities.append({'url': '/cart/', 'title': 'Cart'})
+    return utilities
+
+
+def write_html_sitemap(
+    dist_path: Path,
+    config: Dict[str, Any],
+    *,
+    pages: List[Any],
+    posts: List[Any],
+    projects: List[Any],
+    products: List[Any],
+    people: List[Any],
+    newsletters: List[Any],
+    tags: List[Any],
+    live_reload_script: str = '',
+) -> None:
+    """Write /sitemap/ after cart/search so utility links are not ghosts."""
+    template_dir = Path(__file__).parent.parent.parent / 'templates'
+    jinja_env = template_environment(template_dir)
+    sitemap_dir = dist_path / 'sitemap'
+    sitemap_dir.mkdir(parents=True, exist_ok=True)
+    sitemap_jsonld = {
+        '@context': 'https://schema.org',
+        '@type': 'CollectionPage',
+        'name': 'Sitemap',
+        'description': 'Complete sitemap of all pages',
+        'url': f"{str(config['site']['url']).rstrip('/')}/sitemap/",
+    }
+    sitemap_template = jinja_env.get_template('sitemap.html')
+    sitemap_html = sitemap_template.render(
+        site_title=config['site']['title'],
+        site_url=config['site']['url'],
+        pages=pages,
+        posts=posts,
+        projects=projects,
+        products=products,
+        people=people,
+        newsletters=newsletters,
+        tags=tags,
+        utilities=html_sitemap_utilities(dist_path),
+        jsonld=sitemap_jsonld,
+        year=datetime.now().year,
+        build_time_iso=datetime.now().isoformat(),
+    )
+    if live_reload_script and '</body>' in sitemap_html:
+        sitemap_html = sitemap_html.replace('</body>', live_reload_script + '</body>')
+    (sitemap_dir / 'index.html').write_text(sitemap_html)
 
 
 def discovery_sitemap_entries(
@@ -4899,6 +4943,18 @@ def studio(ctx, port, host):
                         return False
                     if origin_port != port:
                         return False
+                    # Require the Origin host to match this request's Host so
+                    # http://[::1]:PORT cannot CSRF a server bound to 127.0.0.1.
+                    req_host = (self.headers.get('Host') or '').split('@')[-1].strip()
+                    if req_host.startswith('['):
+                        end = req_host.find(']')
+                        req_name = req_host[1:end].lower() if end != -1 else ''
+                    else:
+                        req_name = req_host.rsplit(':', 1)[0].lower()
+                    if host != req_name:
+                        return False
+                    if parsed.scheme and parsed.scheme != 'http':
+                        return False
                 return True
 
             def _read_json_body(self) -> Dict[str, Any]:
@@ -4944,7 +5000,7 @@ def studio(ctx, port, host):
                 if self.path.startswith('/api/') and not self._auth_ok():
                     self._reject_unauthorized()
                     return
-                if self.path == '/api/content':
+                if self.path in ('/api/content', '/api/content/list'):
                     try:
                         # List all content files
                         content_path = Path(config['build']['content']).resolve()
@@ -5671,7 +5727,7 @@ def serve(ctx, port, host):
                         'build_time_iso': build_time.isoformat(),
                         'jsonld': frontmatter.get('jsonld'),
                         'og_type': 'article' if content_type in ('posts', 'projects') else 'website',
-                        'canonical_url': f"{config['site']['url']}{url}",
+                        'canonical_url': f"{str(config['site']['url']).rstrip('/')}{url}",
                         'page_type': content_type.rstrip('s'),
                         'category': content_type,
                         'source_category': source_type,
@@ -5918,40 +5974,8 @@ def serve(ctx, port, host):
                     if '</body>' in cart_html:
                         cart_html = cart_html.replace('</body>', live_reload_script + '</body>')
                     (cart_dir / 'index.html').write_text(cart_html)
-
-                    sitemap_jsonld = {
-                        '@context': 'https://schema.org',
-                        '@type': 'CollectionPage',
-                        'name': 'Sitemap',
-                        'description': 'Complete sitemap of all pages',
-                        'url': f"{str(config['site']['url']).rstrip('/')}/sitemap/",
-                    }
-                    sitemap_dir = dist_path / 'sitemap'
-                    sitemap_dir.mkdir(parents=True, exist_ok=True)
-                    sitemap_template = jinja_env.get_template('sitemap.html')
-                    sitemap_html = sitemap_template.render(
-                        site_title=config['site']['title'],
-                        site_url=config['site']['url'],
-                        pages=all_pages,
-                        posts=all_posts,
-                        projects=all_projects,
-                        products=products,
-                        people=all_people,
-                        newsletters=all_newsletters,
-                        tags=tag_pages,
-                        utilities=[
-                            {'url': '/search/', 'title': 'Search'},
-                            {'url': '/cart/', 'title': 'Cart'},
-                        ],
-                        jsonld=sitemap_jsonld,
-                        year=datetime.now().year,
-                        build_time_iso=datetime.now().isoformat()
-                    )
-                    if '</body>' in sitemap_html:
-                        sitemap_html = sitemap_html.replace('</body>', live_reload_script + '</body>')
-                    (sitemap_dir / 'index.html').write_text(sitemap_html)
                 except Exception as e:
-                    click.echo(f"⚠️  Could not generate cart/sitemap: {e}")
+                    click.echo(f"⚠️  Could not generate cart: {e}")
 
                 try:
                     from core.search import SearchIndexer
@@ -5967,6 +5991,22 @@ def serve(ctx, port, host):
                     search_page.write_text(search_html)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate search index: {e}")
+
+                try:
+                    write_html_sitemap(
+                        dist_path,
+                        config,
+                        pages=all_pages,
+                        posts=all_posts,
+                        projects=all_projects,
+                        products=products,
+                        people=all_people,
+                        newsletters=all_newsletters,
+                        tags=tag_pages,
+                        live_reload_script=live_reload_script,
+                    )
+                except Exception as e:
+                    click.echo(f"⚠️  Could not generate sitemap: {e}")
 
                 merge_sitemap_entries(
                     all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)

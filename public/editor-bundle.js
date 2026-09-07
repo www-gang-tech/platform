@@ -283,8 +283,13 @@ class InPlaceEditor {
                 return false;
             }
             const pathPart = normalized.split('?')[0].split('#')[0];
+            if (trimmed.indexOf('\0') !== -1 || /%00/i.test(trimmed)) {
+                return false;
+            }
             if (pathPart.indexOf(':') === -1) {
-                return pathPart.split('/').indexOf('..') === -1 && pathPart.indexOf('//') === -1;
+                return pathPart.split('/').every(function(seg) {
+                    return seg !== '..' && seg.indexOf('..') !== 0;
+                }) && pathPart.indexOf('//') === -1;
             }
             if (/^mailto:/i.test(trimmed)) {
                 const addr = trimmed.slice(7).split('?')[0];

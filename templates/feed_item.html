@@ -20,7 +20,7 @@
     {% for asset in assets %}
     <figure>
       <img
-        src="{{ asset.src }}"
+        src="{{ asset.src|safe_url }}"
         width="{{ asset.width or 1200 }}"
         height="{{ asset.height or 675 }}"
         alt="{{ asset.alt or '' }}"
@@ -79,7 +79,7 @@
   {# Sheet type - CSV download #}
   {% if type == 'sheet' and csv %}
   <p class="data-download">
-    <a href="{{ csv }}" download class="button" itemprop="url">Download CSV</a>
+    <a href="{{ csv|safe_url }}" download class="button" itemprop="url">Download CSV</a>
   </p>
   {% endif %}
   

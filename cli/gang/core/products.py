@@ -322,7 +322,11 @@ class ProductSchema:
                 '@type': 'Offer',
                 'price': price,
                 'priceCurrency': currency.upper(),
-                'availability': 'https://schema.org/InStock' if product.get('active') else 'https://schema.org/OutOfStock'
+                'availability': (
+                    'https://schema.org/InStock'
+                    if coerce_available_flag(product.get('active')) is True
+                    else 'https://schema.org/OutOfStock'
+                )
             },
             '_meta': {
                 'source': 'stripe',
@@ -574,6 +578,8 @@ class GumroadClient:
             response.raise_for_status()
             
             data = response.json()
+            if not isinstance(data, dict) or data.get('success') is not True:
+                return None
             return data.get('products') or []
         
         except Exception as e:
@@ -658,8 +664,19 @@ class ProductAggregator:
             return products
         if cached and cached.get('products'):
             if not live_configured:
+                # Demo/empty tokens with a leftover store host must not restore
+                # that platform's stale live catalog (checkout-origin-only setup).
+                disabled = set()
+                if shopify_url and (not shopify_token or shopify_token == 'demo'):
+                    disabled.add('shopify')
+                if stripe_key == 'demo':
+                    disabled.add('stripe')
+                if gumroad_token == 'demo':
+                    disabled.add('gumroad')
                 restored: Dict[str, Any] = {}
                 for source, items in cached['products'].items():
+                    if source in disabled:
+                        continue
                     if cache_source_allowed(cached, source):
                         restored[source] = items if isinstance(items, list) else []
                 return restored or products

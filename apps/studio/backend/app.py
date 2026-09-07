@@ -118,6 +118,17 @@ def _is_loopback_origin():
             req_port = _STUDIO_PORT
         if origin_port != req_port:
             return False
+        # Origin host must match this request's Host (::1 is not 127.0.0.1).
+        req_host = (request.host or request.headers.get('Host') or '').split('@')[-1].strip()
+        if req_host.startswith('['):
+            end = req_host.find(']')
+            req_name = req_host[1:end].lower() if end != -1 else ''
+        else:
+            req_name = req_host.rsplit(':', 1)[0].lower()
+        if host != req_name:
+            return False
+        if parsed.scheme and parsed.scheme != (request.scheme or 'http'):
+            return False
     return True
 
 

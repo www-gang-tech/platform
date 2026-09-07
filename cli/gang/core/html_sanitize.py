@@ -28,12 +28,15 @@ def _normalize_href_entities(value: str) -> str:
 
 
 def _href_has_dotdot(path: str) -> bool:
-    return any(segment == '..' for segment in path.split('/'))
+    # ``..;`` and ``..%00`` are traversal gadgets on some proxies/servers.
+    return any(segment == '..' or segment.startswith('..') for segment in path.split('/'))
 
 
 def _is_safe_href_candidate(value: str) -> bool:
     """Single-pass href policy on an already-normalized candidate."""
     if not value:
+        return False
+    if '\x00' in value or '%00' in value.lower():
         return False
     # Browsers normalize backslash "protocol-relative" forms (/\evil, \\evil)
     # into cross-origin navigations; reject those alongside //host.
@@ -127,6 +130,8 @@ def sanitize_markdown_html(html: str) -> str:
 
     # Comments are not elements; leftover ``<!--><script>`` text still executes.
     html = _HTML_COMMENT_RE.sub('', html)
+    # Unclosed ``<!-->`` gadgets leave the tail as a text node (event handlers).
+    html = re.sub(r'<!--[\s\S]*', '', html)
 
     soup = BeautifulSoup(f'<div id="gang-md-root">{html}</div>', 'html.parser')
     root = soup.find(id='gang-md-root')
@@ -159,7 +164,13 @@ def sanitize_markdown_html(html: str) -> str:
 
     result = ''.join(str(child) for child in root.contents)
     # Parser quirks can leave ``<script>`` in text nodes or nested fragments.
-    return _LEFTOVER_SCRIPT_RE.sub('', result)
+    result = _LEFTOVER_SCRIPT_RE.sub('', result)
+    result = re.sub(
+        r'(?is)<(iframe|object|embed|svg|math)\b[^>]*>.*?</\1>|<(iframe|object|embed|svg|math)\b[^>]*>',
+        '',
+        result,
+    )
+    return re.sub(r'(?is)\s+on\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', result)
 
 
 def sanitize_content_hrefs(html: str) -> str:

@@ -8,21 +8,16 @@ from typing import Dict, Any, Optional
 import html
 import re
 from datetime import datetime
-from urllib.parse import urlparse
 
 
 def _safe_email_href(url: Any) -> str:
     """Allow only http(s) or root-relative hrefs; always quote-escape."""
-    raw = str(url or '').strip()
-    if raw.startswith('/') and not raw.startswith('//'):
-        return html.escape(raw, quote=True)
     try:
-        parsed = urlparse(raw)
-    except Exception:
-        return '#'
-    if parsed.scheme in ('http', 'https') and parsed.netloc:
-        return html.escape(raw, quote=True)
-    return '#'
+        from core.html_sanitize import safe_http_url
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url
+    safe = safe_http_url(url)
+    return html.escape(safe, quote=True) if safe else '#'
 
 
 class EmailTemplateGenerator:

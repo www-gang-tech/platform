@@ -131,14 +131,18 @@ class NewsletterManager:
             return {'error': 'Newsletter file is unreadable'}
         try:
             from core.scheduler import (
-                _normalize_schedule_status,
                 _parse_first_schedule_date,
+                frontmatter_values,
+                has_unparseable_schedule_date,
+                resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
         except ImportError:
             from gang.core.scheduler import (
-                _normalize_schedule_status,
                 _parse_first_schedule_date,
+                frontmatter_values,
+                has_unparseable_schedule_date,
+                resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
         content = strip_frontmatter_prefix(content)
@@ -159,15 +163,10 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
 
-        status = _normalize_schedule_status(
-            frontmatter.get('status'),
-            newsletter=True,
-            missing='status' not in frontmatter,
-        )
-        when = _parse_first_schedule_date(
-            frontmatter.get('publish_date'),
-            frontmatter.get('scheduled_for'),
-        )
+        status = resolve_schedule_status(frontmatter, newsletter=True)
+        publish_values = frontmatter_values(frontmatter, 'publish_date')
+        alias_values = frontmatter_values(frontmatter, 'scheduled_for')
+        when = _parse_first_schedule_date(*publish_values, *alias_values)
         now = datetime.now(timezone.utc)
         # Future dates must not send (or even test-send) before the latest
         # publish_date / scheduled_for, including draft/published status.
@@ -177,6 +176,12 @@ class NewsletterManager:
                 'success': False,
             }
         if status == 'scheduled' and when is None:
+            return {
+                'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                'success': False,
+            }
+        # Present-but-unparseable dates must not skip the gate as "no date".
+        if has_unparseable_schedule_date(*publish_values, *alias_values):
             return {
                 'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
                 'success': False,
@@ -246,9 +251,9 @@ class NewsletterManager:
             return {'error': 'Newsletter path must stay inside the newsletters directory'}
 
         try:
-            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+            from core.scheduler import resolve_schedule_status, strip_frontmatter_prefix
         except ImportError:
-            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+            from gang.core.scheduler import resolve_schedule_status, strip_frontmatter_prefix
         try:
             content = strip_frontmatter_prefix(file_path.read_text())
         except (OSError, UnicodeDecodeError):
@@ -268,11 +273,7 @@ class NewsletterManager:
             return {'error': 'Invalid frontmatter'}
         body = parts[2]
 
-        existing_status = _normalize_schedule_status(
-            frontmatter.get('status'),
-            newsletter=True,
-            missing='status' not in frontmatter,
-        )
+        existing_status = resolve_schedule_status(frontmatter, newsletter=True)
         if existing_status == 'sent':
             return {'error': 'Cannot reschedule a sent newsletter', 'success': False}
 
@@ -311,14 +312,16 @@ class NewsletterManager:
         
         try:
             from core.scheduler import (
-                _normalize_schedule_status,
                 _unwrap_schedule_value,
+                frontmatter_values,
+                resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
         except ImportError:
             from gang.core.scheduler import (
-                _normalize_schedule_status,
                 _unwrap_schedule_value,
+                frontmatter_values,
+                resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
 
@@ -337,11 +340,7 @@ class NewsletterManager:
                     if not isinstance(frontmatter, dict):
                         continue
                     
-                    status = _normalize_schedule_status(
-                        frontmatter.get('status'),
-                        newsletter=True,
-                        missing='status' not in frontmatter,
-                    )
+                    status = resolve_schedule_status(frontmatter, newsletter=True)
                     # Web-publish statuses are not email-send receipts.
                     if status in ('published', 'live', 'public'):
                         status = 'published'
@@ -355,7 +354,9 @@ class NewsletterManager:
                         'status': status,
                         'created': frontmatter.get('created', ''),
                         'sent_at': frontmatter.get('sent_at'),
-                        'scheduled_for': _unwrap_schedule_value(frontmatter.get('scheduled_for')),
+                        'scheduled_for': _unwrap_schedule_value(
+                            (frontmatter_values(frontmatter, 'scheduled_for') or [None])[0]
+                        ),
                         'recipients': frontmatter.get('recipients', 0)
                     })
             except:
@@ -539,25 +540,34 @@ class KlaviyoProvider(EmailProvider):
                 )
                 html_body = email_data.get('html_body') or email_data.get('html') or ''
                 text_body = email_data.get('text_body') or email_data.get('text') or ''
-                if messages and html_body:
-                    message_id = messages[0].get('id')
-                    if message_id:
-                        requests.patch(
-                            f"{self.base_url}/campaign-messages/{message_id}/",
-                            headers=headers,
-                            json={
-                                'data': {
-                                    'type': 'campaign-message',
-                                    'id': message_id,
-                                    'attributes': {
-                                        'content': {
-                                            'html': html_body,
-                                            'plain_text': text_body,
-                                        }
+                if html_body:
+                    message_id = messages[0].get('id') if messages else None
+                    if not message_id:
+                        return {
+                            'success': False,
+                            'error': 'Klaviyo campaign created without a message to patch',
+                        }
+                    patch_response = requests.patch(
+                        f"{self.base_url}/campaign-messages/{message_id}/",
+                        headers=headers,
+                        json={
+                            'data': {
+                                'type': 'campaign-message',
+                                'id': message_id,
+                                'attributes': {
+                                    'content': {
+                                        'html': html_body,
+                                        'plain_text': text_body,
                                     }
                                 }
-                            },
-                        )
+                            }
+                        },
+                    )
+                    if patch_response.status_code not in (200, 202):
+                        return {
+                            'success': False,
+                            'error': patch_response.json() if patch_response.content else patch_response.status_code,
+                        }
                 
                 # Send campaign
                 send_response = requests.post(

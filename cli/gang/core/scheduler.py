@@ -58,6 +58,60 @@ def parse_schedule_datetime(value: Any) -> datetime:
     return parsed
 
 
+def frontmatter_values(frontmatter: Dict[str, Any], *names: str) -> List[Any]:
+    """Collect values for schedule keys regardless of YAML key case."""
+    if not isinstance(frontmatter, dict) or not names:
+        return []
+    wanted = {name.lower() for name in names}
+    return [
+        value
+        for key, value in frontmatter.items()
+        if isinstance(key, str) and key.lower() in wanted
+    ]
+
+
+def drop_frontmatter_aliases(frontmatter: Dict[str, Any], *names: str) -> None:
+    """Remove non-canonical case variants so writes do not leave Status: sent."""
+    if not isinstance(frontmatter, dict) or not names:
+        return
+    wanted = {name.lower() for name in names}
+    for key in list(frontmatter):
+        if isinstance(key, str) and key.lower() in wanted and key not in names:
+            frontmatter.pop(key, None)
+
+
+def resolve_schedule_status(frontmatter: Dict[str, Any], *, newsletter: bool) -> str:
+    """Read status case-insensitively; conflicting keys fail closed as draft."""
+    values = frontmatter_values(frontmatter, 'status')
+    if not values:
+        return _normalize_schedule_status(None, newsletter=newsletter, missing=True)
+    norms = [
+        _normalize_schedule_status(value, newsletter=newsletter, missing=False)
+        for value in values
+    ]
+    if 'sent' in norms:
+        return 'sent'
+    unique = set(norms)
+    if len(unique) != 1:
+        return 'draft'
+    return norms[0]
+
+
+def has_unparseable_schedule_date(*values: Any) -> bool:
+    """True when a date field is present but cannot be parsed."""
+    for value in values:
+        value = _unwrap_schedule_value(value)
+        if _absent_schedule_date(value):
+            continue
+        if isinstance(value, (list, tuple, dict, set)):
+            return True
+        try:
+            parse_schedule_datetime(value)
+        except (ValueError, TypeError):
+            return True
+    return False
+
+
 def _parse_first_schedule_date(*values: Any) -> Optional[datetime]:
     """Parse present, well-formed schedule dates and return the latest instant.
 
@@ -192,13 +246,9 @@ class ContentScheduler:
             
             # Get status (YAML `no`/`false` and list wrappers must not publish).
             # Missing key defaults to published, except newsletters (draft until sent).
-            # Explicit null/empty fails closed.
+            # Explicit null/empty fails closed. CMS exports often use `Status`.
             is_newsletter = file_path.parent.name == 'newsletters'
-            status = _normalize_schedule_status(
-                frontmatter.get('status'),
-                newsletter=is_newsletter,
-                missing='status' not in frontmatter,
-            )
+            status = resolve_schedule_status(frontmatter, newsletter=is_newsletter)
             
             # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
             # `sent` keeps already-emailed newsletters on the static site.
@@ -214,19 +264,29 @@ class ContentScheduler:
             # Check publish_date. scheduled_for is a newsletter/ESP alias only.
             # Authored `date` is the common static-site fallback used by templates.
             # Unparseable publish_date must not hide a later valid field.
-            raw_publish = frontmatter.get('publish_date')
-            raw_alias = frontmatter.get('scheduled_for') if is_newsletter else None
-            raw_date = frontmatter.get('date')
+            # CMS/ESP dumps may capitalize Publish_date / Scheduled_for / Date.
+            raw_publish_values = frontmatter_values(frontmatter, 'publish_date')
+            raw_alias_values = (
+                frontmatter_values(frontmatter, 'scheduled_for') if is_newsletter else []
+            )
+            raw_date_values = frontmatter_values(frontmatter, 'date')
             # Scheduled items must not fall through to authored `date` when
             # publish_date is present but unparseable (typo would go live).
             if status == 'scheduled':
-                publish_date = _parse_first_schedule_date(raw_publish, raw_alias)
+                publish_date = _parse_first_schedule_date(
+                    *raw_publish_values, *raw_alias_values
+                )
             else:
-                publish_date = _parse_first_schedule_date(raw_publish, raw_alias, raw_date)
-            date_present = (
-                not _absent_schedule_date(raw_publish)
-                or not _absent_schedule_date(raw_alias)
-                or (status != 'scheduled' and not _absent_schedule_date(raw_date))
+                publish_date = _parse_first_schedule_date(
+                    *raw_publish_values, *raw_alias_values, *raw_date_values
+                )
+            date_present = any(
+                not _absent_schedule_date(value)
+                for value in (
+                    raw_publish_values
+                    + raw_alias_values
+                    + (raw_date_values if status != 'scheduled' else [])
+                )
             )
 
             if publish_date is None:
@@ -422,11 +482,7 @@ class ContentScheduler:
         if not isinstance(frontmatter, dict):
             return False
 
-        existing = _normalize_schedule_status(
-            frontmatter.get('status'),
-            newsletter=is_newsletter,
-            missing='status' not in frontmatter,
-        )
+        existing = resolve_schedule_status(frontmatter, newsletter=is_newsletter)
         # Sent newsletters are archive records; do not reschedule them to draft/live.
         if existing == 'sent' and status != 'sent':
             return False
@@ -435,6 +491,7 @@ class ContentScheduler:
             return False
         
         # Update frontmatter
+        drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for')
         if publish_date:
             iso = publish_date.isoformat()
             frontmatter['publish_date'] = iso

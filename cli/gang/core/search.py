@@ -51,7 +51,9 @@ class SearchIndexer:
                 continue
             meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
             slug = str(meta.get('slug') or meta.get('handle') or '').strip()
-            if not slug:
+            if not slug or '..' in slug or '/' in slug or '\\' in slug:
+                continue
+            if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', slug):
                 continue
             title = str(product.get('name') or slug)
             description = str(product.get('description') or '')[:200]
