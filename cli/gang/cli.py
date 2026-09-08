@@ -773,6 +773,27 @@ def collect_category_markdown(content_path: Path, include_products: bool = False
     return files
 
 
+def authored_content_date(frontmatter: Dict[str, Any], file_path: Optional[Path] = None) -> Any:
+    """Prefer frontmatter dates; fall back to git last-updated, never build time."""
+    date_val = (
+        frontmatter.get('date')
+        or frontmatter.get('sent_date')
+        or frontmatter.get('publish_date')
+    )
+    if date_val:
+        return date_val
+    if file_path is None:
+        return None
+    try:
+        from core.git_metadata import get_file_last_updated
+    except ImportError:
+        from gang.core.git_metadata import get_file_last_updated
+    meta = get_file_last_updated(Path(file_path))
+    if not meta:
+        return None
+    return meta.get('date_iso') or meta.get('date')
+
+
 def fallback_jsonld(
     content_type: str,
     title: str,
@@ -3344,6 +3365,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         # Never bake in-place editor chrome into published HTML.
         user_authenticated = False
         
+        content_date = authored_content_date(frontmatter, md_file)
         description = (
             frontmatter.get('summary')
             or frontmatter_seo(frontmatter).get('description')
@@ -3380,8 +3402,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
-            'date': frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date'),
-            'date_formatted': str(frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date') or ''),
+            'date': content_date,
+            'date_formatted': str(content_date or ''),
             'tags': tags,
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
@@ -5744,6 +5766,7 @@ def serve(ctx, port, host):
                         tags = []
                     tags = [str(tag) for tag in tags]
 
+                    content_date = authored_content_date(frontmatter, md_file)
                     description = (
                         frontmatter.get('summary')
                         or frontmatter_seo(frontmatter).get('description')
@@ -5771,8 +5794,8 @@ def serve(ctx, port, host):
                         'content': content_html,
                         'year': datetime.now().year,
                         'navigation': config.get('nav', {}).get('main', []),
-                        'date': frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date'),
-                        'date_formatted': str(frontmatter.get('date') or frontmatter.get('sent_date') or frontmatter.get('publish_date') or ''),
+                        'date': content_date,
+                        'date_formatted': str(content_date or ''),
                         'tags': tags,
                         'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
                         'build_time_iso': build_time.isoformat(),
