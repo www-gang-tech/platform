@@ -46,7 +46,6 @@ class AgentMapGenerator:
             'capabilities': capabilities,
             
             'endpoints': {
-                'api': f"{self.site_url}/api/",
                 'content': f"{self.site_url}/api/content.json",
                 'search': f"{self.site_url}/search-index.json",
                 'sitemap': f"{self.site_url}/sitemap.xml"
@@ -62,8 +61,8 @@ class AgentMapGenerator:
             'search': {
                 'endpoint': f"{self.site_url}/search-index.json",
                 'method': 'GET',
-                'parameters': ['q', 'category', 'limit'],
-                'description': 'Full-text search across all content'
+                'parameters': [],
+                'description': 'Static search index JSON; filter client-side'
             }
         }
         
@@ -83,6 +82,8 @@ class AgentMapGenerator:
         """Map content files by category and type"""
         by_category = {}
         types = []
+        # Build/serve emit list pages for these; /pages/ is never written.
+        list_index_categories = {'posts', 'projects', 'people', 'newsletters'}
         
         for file_path in content_files:
             category = file_path.parent.name
@@ -92,7 +93,11 @@ class AgentMapGenerator:
                 by_category[public_category] = []
                 types.append({
                     'type': public_category,
-                    'url': f"{self.site_url}/{public_category}/",
+                    'url': (
+                        f"{self.site_url}/{public_category}/"
+                        if public_category in list_index_categories
+                        else ''
+                    ),
                     'apiEndpoint': f"{self.site_url}/api/{public_category}.json"
                 })
             
@@ -102,6 +107,13 @@ class AgentMapGenerator:
                 'url': f"{self.site_url}/{public_category}/{slug}/",
                 'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json"
             })
+
+        for content_type in types:
+            if content_type.get('url'):
+                continue
+            items = by_category.get(content_type.get('type')) or []
+            if items:
+                content_type['url'] = items[0].get('url') or ''
         
         return {
             'types': types,

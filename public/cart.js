@@ -262,13 +262,21 @@
         if (form.querySelector('[name="color"]')) variantParts.push(String(formData.get('color') ?? ''));
         if (form.querySelector('[name="size"]')) variantParts.push(String(formData.get('size') ?? ''));
         if (form.querySelector('[name="option3"]')) variantParts.push(String(formData.get('option3') ?? ''));
+        const nextCurrency = String((selected && selected.currency) || form.dataset.currency || 'USD').toUpperCase();
+        const existingCart = getCart();
+        if (existingCart.some(function(row) {
+            return String(row.currency || 'USD').toUpperCase() !== nextCurrency;
+        })) {
+            window.alert('Checkout cannot mix currencies. Remove items so the cart uses one currency.');
+            return;
+        }
         const rawImage = (selected && selected.image) || form.dataset.image || '';
         const item = {
             id: variantId,
             name: form.dataset.productName || 'Product',
             variant: variantParts.join(' / '),
             price: toPrice((selected && selected.price != null ? selected.price : form.dataset.price) || '0'),
-            currency: String((selected && selected.currency) || form.dataset.currency || 'USD').toUpperCase(),
+            currency: nextCurrency,
             quantity: toQuantity(formData.get('quantity') || '1'),
             image: isSafeCartImage(rawImage) ? rawImage : '',
             url: checkoutUrl || form.dataset.productUrl || '',

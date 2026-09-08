@@ -132,6 +132,7 @@ class NewsletterManager:
         try:
             from core.scheduler import (
                 _parse_first_schedule_date,
+                drop_frontmatter_aliases,
                 frontmatter_values,
                 has_unparseable_schedule_date,
                 resolve_schedule_status,
@@ -140,6 +141,7 @@ class NewsletterManager:
         except ImportError:
             from gang.core.scheduler import (
                 _parse_first_schedule_date,
+                drop_frontmatter_aliases,
                 frontmatter_values,
                 has_unparseable_schedule_date,
                 resolve_schedule_status,
@@ -166,10 +168,11 @@ class NewsletterManager:
         status = resolve_schedule_status(frontmatter, newsletter=True)
         publish_values = frontmatter_values(frontmatter, 'publish_date')
         alias_values = frontmatter_values(frontmatter, 'scheduled_for')
-        when = _parse_first_schedule_date(*publish_values, *alias_values)
+        date_values = frontmatter_values(frontmatter, 'date')
+        when = _parse_first_schedule_date(*publish_values, *alias_values, *date_values)
         now = datetime.now(timezone.utc)
         # Future dates must not send (or even test-send) before the latest
-        # publish_date / scheduled_for, including draft/published status.
+        # publish_date / scheduled_for / date, including draft/published status.
         if when is not None and when > now:
             return {
                 'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
@@ -181,7 +184,7 @@ class NewsletterManager:
                 'success': False,
             }
         # Present-but-unparseable dates must not skip the gate as "no date".
-        if has_unparseable_schedule_date(*publish_values, *alias_values):
+        if has_unparseable_schedule_date(*publish_values, *alias_values, *date_values):
             return {
                 'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
                 'success': False,
@@ -212,6 +215,7 @@ class NewsletterManager:
         
         # Test sends must not flip archive status or rewrite the source file.
         if result.get('success') and not test_mode:
+            drop_frontmatter_aliases(frontmatter, 'status')
             frontmatter['status'] = 'sent'
             frontmatter['sent_at'] = datetime.now(timezone.utc).isoformat()
             frontmatter['provider'] = self.provider.name
@@ -251,9 +255,17 @@ class NewsletterManager:
             return {'error': 'Newsletter path must stay inside the newsletters directory'}
 
         try:
-            from core.scheduler import resolve_schedule_status, strip_frontmatter_prefix
+            from core.scheduler import (
+                drop_frontmatter_aliases,
+                resolve_schedule_status,
+                strip_frontmatter_prefix,
+            )
         except ImportError:
-            from gang.core.scheduler import resolve_schedule_status, strip_frontmatter_prefix
+            from gang.core.scheduler import (
+                drop_frontmatter_aliases,
+                resolve_schedule_status,
+                strip_frontmatter_prefix,
+            )
         try:
             content = strip_frontmatter_prefix(file_path.read_text())
         except (OSError, UnicodeDecodeError):
@@ -281,6 +293,8 @@ class NewsletterManager:
             send_date = send_date.replace(tzinfo=timezone.utc)
         
         # Site scheduler reads publish_date; keep scheduled_for for ESP tooling.
+        # Drop Status:/Publish_date: aliases so writes do not leave conflicting keys.
+        drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for')
         frontmatter['status'] = 'scheduled'
         frontmatter['scheduled_for'] = send_date.isoformat()
         frontmatter['publish_date'] = send_date.isoformat()

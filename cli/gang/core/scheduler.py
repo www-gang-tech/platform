@@ -248,6 +248,7 @@ class ContentScheduler:
             # Missing key defaults to published, except newsletters (draft until sent).
             # Explicit null/empty fails closed. CMS exports often use `Status`.
             is_newsletter = file_path.parent.name == 'newsletters'
+            implicit_status = not frontmatter_values(frontmatter, 'status')
             status = resolve_schedule_status(frontmatter, newsletter=is_newsletter)
             
             # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
@@ -301,8 +302,9 @@ class ContentScheduler:
                     continue
                 # Scheduled without a usable date fails closed. Garbage dates on
                 # already-published content are ignored so leftover ESP metadata
-                # cannot hide a live page.
-                if status == 'scheduled':
+                # cannot hide a live page. Missing status + unparseable date is
+                # not "already published" — fail closed like scheduled.
+                if status == 'scheduled' or (implicit_status and date_present):
                     draft.append({
                         'path': file_path,
                         'status': 'draft',
@@ -325,8 +327,11 @@ class ContentScheduler:
                 })
                 continue
 
-            # Already-live pages stay live even if leftover ESP dates are still future.
-            if status in ('sent', 'published', 'live', 'public') or publish_date <= now:
+            # Explicit live statuses stay live even if leftover ESP dates are
+            # still future. Missing status is not an explicit publish — a
+            # future date must embargo the page like `scheduled`.
+            already_live = status in ('sent', 'published', 'live', 'public') and not implicit_status
+            if already_live or publish_date <= now:
                 publishable.append({
                     'path': file_path,
                     'status': 'sent' if status == 'sent' else 'published',
@@ -490,8 +495,9 @@ class ContentScheduler:
         if status == 'sent' and existing != 'sent':
             return False
         
-        # Update frontmatter
-        drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for')
+        # Update frontmatter. Drop authored `date` so a leftover future Date:
+        # cannot republish after --now or conflict with publish_date.
+        drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for', 'date')
         if publish_date:
             iso = publish_date.isoformat()
             frontmatter['publish_date'] = iso
@@ -502,6 +508,7 @@ class ContentScheduler:
             # Remove both date keys so --now cannot leave a future scheduled_for.
             frontmatter.pop('publish_date', None)
             frontmatter.pop('scheduled_for', None)
+            frontmatter.pop('date', None)
             frontmatter['status'] = status
         
         # Write back

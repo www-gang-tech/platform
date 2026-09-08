@@ -87,8 +87,10 @@ def commerce_cache_key() -> Dict[str, str]:
     """Fingerprint configured stores so cache restore cannot mix catalogs."""
     stripe = os.environ.get('STRIPE_SECRET_KEY') or ''
     gumroad = os.environ.get('GUMROAD_ACCESS_TOKEN') or ''
+    shopify_token = os.environ.get('SHOPIFY_ACCESS_TOKEN') or ''
     return {
         'shopify_host': (_checkout_origin_host() or '').lower(),
+        'shopify_token': _secret_fingerprint(shopify_token),
         'stripe': _secret_fingerprint(stripe),
         'gumroad': _secret_fingerprint(gumroad),
     }
@@ -103,7 +105,14 @@ def cache_source_allowed(cached: Optional[Dict[str, Any]], source: str) -> bool:
     if source == 'shopify':
         recorded = (recorded_keys.get('shopify_host') or '').lower()
         current_host = current.get('shopify_host') or ''
-        return bool(recorded) and recorded == current_host
+        if not recorded or recorded != current_host:
+            return False
+        recorded_token = recorded_keys.get('shopify_token') or ''
+        current_token = current.get('shopify_token') or ''
+        # Legacy caches without a token fingerprint must not restore after rotation.
+        if not recorded_token or recorded_token != current_token:
+            return False
+        return True
     if source in ('stripe', 'gumroad'):
         recorded = recorded_keys.get(source) or ''
         current_fp = current.get(source) or ''
@@ -125,7 +134,11 @@ def coerce_available_flag(value: Any) -> Optional[bool]:
         text = value.strip().lower()
         if text in ('true', '1', 'yes', 'on'):
             return True
-        if text in ('false', '0', 'no', 'off', ''):
+        if text in (
+            'false', '0', 'no', 'off', '',
+            'outofstock', 'out_of_stock', 'soldout', 'sold_out',
+            'unavailable', 'notinstock', 'not_in_stock',
+        ):
             return False
         return None
     return None
@@ -681,11 +694,16 @@ class ProductAggregator:
                         restored[source] = items if isinstance(items, list) else []
                 return restored or products
             for source, items in cached['products'].items():
-                # Restore only configured sources that failed. A deconfigured
-                # platform must not resurrect stale catalog rows, and a
-                # successful empty list must not either.
-                if source in configured and source not in fetched_ok and cache_source_allowed(cached, source):
-                    products[source] = items if isinstance(items, list) else []
+                # Restore configured sources that failed, or that succeeded
+                # with an empty list (transient empty responses must not
+                # wipe a previously good catalog).
+                cached_items = items if isinstance(items, list) else []
+                if source not in configured or not cache_source_allowed(cached, source):
+                    continue
+                if source not in fetched_ok:
+                    products[source] = cached_items
+                elif not products.get(source) and cached_items:
+                    products[source] = cached_items
         
         has_products = any(products.get(source) for source in products)
         if has_products or fetched_ok:

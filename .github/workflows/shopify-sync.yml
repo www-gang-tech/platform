@@ -71,11 +71,15 @@ jobs:
           python3 << 'EOF'
           import json
           import os
+          import sys
           import yaml
           from pathlib import Path
           from bs4 import BeautifulSoup
           from datetime import datetime
-          from urllib.parse import urlparse, urlunparse
+          from urllib.parse import urlparse
+
+          sys.path.insert(0, str(Path('cli/gang').resolve()))
+          from core.html_sanitize import safe_http_url
           
           # Load mapping schema
           with open('schemas/product.map.json') as f:
@@ -165,19 +169,7 @@ jobs:
                           else:
                               available = qty_num > 0
                       raw_url = v.get('url') or v.get('buy_url') or ''
-                      if not isinstance(raw_url, str):
-                          raw_url = ''
-                      raw_url = raw_url.strip()
-                      parsed_url = urlparse(raw_url) if raw_url else None
-                      if (
-                          not parsed_url
-                          or parsed_url.scheme not in ('http', 'https')
-                          or not parsed_url.netloc
-                          or parsed_url.netloc.lower() in ('www.shopify.com', 'shopify.com')
-                      ):
-                          raw_url = ''
-                      elif '@' in parsed_url.netloc:
-                          raw_url = urlunparse(parsed_url._replace(netloc=parsed_url.netloc.split('@')[-1]))
+                      raw_url = safe_http_url(raw_url)
                       value.append({
                           'id': v.get('id'),
                           'title': v.get('title'),
@@ -205,6 +197,11 @@ jobs:
                   value = mapping['default']
               
               if value is not None:
+                  if key in ('url', 'image') and isinstance(value, str):
+                      value = safe_http_url(value)
+                  elif key in ('images', 'image') and isinstance(value, list):
+                      value = [safe_http_url(item) for item in value if isinstance(item, str)]
+                      value = [item for item in value if item]
                   front_matter[key] = value
 
           if not front_matter.get('currency'):
@@ -219,6 +216,7 @@ jobs:
           store = (os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or '').strip()
           if store and not store.startswith('http'):
               store = f'https://{store}'
+          store = safe_http_url(store)
           parsed_store = urlparse(store) if store else None
           store_host = ''
           if parsed_store and parsed_store.scheme in ('http', 'https'):

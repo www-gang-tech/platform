@@ -45,6 +45,28 @@ def is_safe_content_slug(slug: str) -> bool:
     return bool(SAFE_SLUG_RE.match(value)) and '..' not in value and '/' not in value and '\\' not in value
 
 
+def exclusive_rename(src: Path, dest: Path) -> None:
+    """Rename ``src`` to ``dest`` without replacing an existing file.
+
+    Linux ``rename(2)`` replaces the destination; a TOCTOU between
+    ``exists()`` and ``rename()`` can clobber another slug.
+    """
+    src_path = Path(src)
+    dest_path = Path(dest)
+    if dest_path.exists():
+        raise FileExistsError(str(dest_path))
+    try:
+        os.link(src_path, dest_path)
+    except FileExistsError:
+        raise
+    except OSError:
+        if dest_path.exists():
+            raise FileExistsError(str(dest_path))
+        src_path.rename(dest_path)
+        return
+    src_path.unlink(missing_ok=True)
+
+
 def content_canonical_url(site_url: Any, category: str, slug: str) -> str:
     """Absolute public URL; articles publish under /posts/."""
     return f"{str(site_url or '').rstrip('/')}{public_content_url(category, slug)}"
@@ -558,6 +580,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'brand': brand_name,
         'category': product.get('category', ''),
         'availability': matching_default.get('availability') or first_offer.get('availability', 'https://schema.org/OutOfStock'),
+        'in_stock': default_in_stock,
         'checkout_origins': checkout_origins,
         'jsonld': jsonld,
         'year': datetime.now().year,
@@ -763,19 +786,19 @@ def fallback_jsonld(
         date_str = date_val.isoformat() if hasattr(date_val, 'isoformat') else str(date_val)
         if isinstance(date_str, str):
             date_str = date_str.strip()
-    if not date_str:
-        date_str = datetime.now(timezone.utc).date().isoformat()
     if content_type in ('posts', 'articles'):
-        return {
+        payload = {
             '@context': 'https://schema.org',
             '@type': 'BlogPosting',
             'headline': title,
             'description': description,
-            'datePublished': date_str,
             'author': {'@type': 'Organization', 'name': site_title},
             'publisher': {'@type': 'Organization', 'name': site_title},
             'url': url,
         }
+        if date_str:
+            payload['datePublished'] = date_str
+        return payload
     if content_type == 'people':
         return {
             '@context': 'https://schema.org',
@@ -785,24 +808,28 @@ def fallback_jsonld(
             'url': url,
         }
     if content_type == 'projects':
-        return {
+        payload = {
             '@context': 'https://schema.org',
             '@type': 'CreativeWork',
             'name': title,
             'description': description,
             'author': {'@type': 'Organization', 'name': site_title},
-            'dateCreated': date_str,
             'url': url,
         }
+        if date_str:
+            payload['dateCreated'] = date_str
+        return payload
     if content_type == 'newsletters':
-        return {
+        payload = {
             '@context': 'https://schema.org',
             '@type': 'Article',
             'headline': title,
             'description': description,
-            'datePublished': date_str,
             'url': url,
         }
+        if date_str:
+            payload['datePublished'] = date_str
+        return payload
     return {
         '@context': 'https://schema.org',
         '@type': 'WebPage',
@@ -1909,8 +1936,14 @@ def rename_slug(ctx, old_slug, new_slug, category, redirect, no_redirect):
         click.echo(f"📄 Redirects file: .redirects.json")
 
     try:
-        old_file.rename(new_file)
+        exclusive_rename(old_file, new_file)
         click.echo(f"✅ File renamed: {old_file.name} → {new_file.name}")
+    except FileExistsError:
+        if redirect_manager is not None and prior_redirects is not None:
+            redirect_manager.restore_redirects(prior_redirects)
+            click.echo("↩️  Redirect rolled back after rename failure")
+        click.echo(f"❌ Slug '{new_slug}' already exists: {new_file}")
+        ctx.exit(1)
     except Exception as e:
         if redirect_manager is not None and prior_redirects is not None:
             redirect_manager.restore_redirects(prior_redirects)
@@ -5236,7 +5269,19 @@ def studio(ctx, port, host):
                             click.echo(f"✅ 301 redirect created: {old_url} → {new_url}")
 
                         try:
-                            old_file.rename(new_file)
+                            exclusive_rename(old_file, new_file)
+                        except FileExistsError:
+                            if redirect_manager is not None and prior_redirects is not None:
+                                redirect_manager.restore_redirects(prior_redirects)
+                            self.send_response(400)
+                            self.send_header('Content-type', 'application/json')
+                            self._send_cors()
+                            self.end_headers()
+                            self.wfile.write(json.dumps({
+                                'error': 'Slug already exists',
+                                'message': f'A file with slug "{new_slug}" already exists'
+                            }).encode())
+                            return
                         except Exception:
                             if redirect_manager is not None and prior_redirects is not None:
                                 redirect_manager.restore_redirects(prior_redirects)
@@ -5610,15 +5655,21 @@ def serve(ctx, port, host):
         def rebuild_site(ctx):
             """Rebuild the site"""
             click.echo("🔨 Rebuilding site...")
+            backup_path = dist_path.parent / f".{dist_path.name}.prev"
+            previous = None
             try:
                 # Import here to use fresh code
                 from core.templates import TemplateEngine
                 from core.generators import OutputGenerators
                 from core.optimizer import AIOptimizer
                 
-                # Clear dist
+                # Move the last good tree aside so a failed rebuild cannot
+                # leave the live-reload server serving an empty dist/.
                 if dist_path.exists():
-                    shutil.rmtree(dist_path)
+                    if backup_path.exists():
+                        shutil.rmtree(backup_path)
+                    dist_path.rename(backup_path)
+                    previous = backup_path
                 dist_path.mkdir(parents=True, exist_ok=True)
                 
                 # Initialize systems
@@ -6046,11 +6097,18 @@ def serve(ctx, port, host):
                     click.echo(f"⚠️  Could not generate AgentMap: {e}")
                 
                 click.echo("✅ Build complete!")
+                if previous and previous.exists():
+                    shutil.rmtree(previous, ignore_errors=True)
                 
             except Exception as e:
                 click.echo(f"❌ Build error: {e}", err=True)
                 import traceback
                 traceback.print_exc()
+                if previous is not None:
+                    if dist_path.exists():
+                        shutil.rmtree(dist_path, ignore_errors=True)
+                    if previous.exists():
+                        previous.rename(dist_path)
         
         def notify_reload():
             """Notify all connected clients to reload"""
