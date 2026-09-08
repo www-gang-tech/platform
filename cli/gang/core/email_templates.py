@@ -5,8 +5,19 @@ Converts content to email-ready HTML and plain text
 
 from pathlib import Path
 from typing import Dict, Any, Optional
+import html
 import re
 from datetime import datetime
+
+
+def _safe_email_href(url: Any) -> str:
+    """Allow only http(s) or root-relative hrefs; always quote-escape."""
+    try:
+        from core.html_sanitize import safe_http_url
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url
+    safe = safe_http_url(url)
+    return html.escape(safe, quote=True) if safe else '#'
 
 
 class EmailTemplateGenerator:
@@ -37,8 +48,24 @@ class EmailTemplateGenerator:
         
         # Process content for email
         email_content = self._process_content_for_email(content_html)
+        try:
+            from core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        except ImportError:
+            from gang.core.html_sanitize import sanitize_markdown_html, sanitize_content_hrefs
+        email_content = sanitize_content_hrefs(sanitize_markdown_html(email_content))
+        email_content = re.sub(r'(?is)<script[^>]*>.*?</script>', '', email_content)
+        email_content = re.sub(r'(?i)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', email_content)
+        title = html.escape(str(title or ''), quote=True)
+        preview_text = html.escape(str(preview_text or ''), quote=True)
+        site_title = html.escape(str(self.site_title or ''), quote=True)
+        site_url = _safe_email_href(self.site_url)
+        canonical_url = _safe_email_href(canonical_url)
+        if str(unsubscribe_url or '').strip() in ('{{unsubscribe_url}}', '{{{unsubscribe_url}}}'):
+            pass
+        else:
+            unsubscribe_url = _safe_email_href(unsubscribe_url)
         
-        html = f"""<!DOCTYPE html>
+        rendered = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -179,7 +206,7 @@ class EmailTemplateGenerator:
                     <!-- Header -->
                     <tr>
                         <td class="email-header">
-                            <a href="{self.site_url}">{self.site_title}</a>
+                            <a href="{site_url}">{site_title}</a>
                         </td>
                     </tr>
                     
@@ -206,7 +233,7 @@ class EmailTemplateGenerator:
                     <tr>
                         <td class="email-footer">
                             <p style="margin: 0 0 10px 0;">
-                                <strong>{self.site_title}</strong>
+                                <strong>{site_title}</strong>
                             </p>
                             <p style="margin: 0 0 10px 0;">
                                 You're receiving this because you subscribed to our newsletter.
@@ -216,7 +243,7 @@ class EmailTemplateGenerator:
                                 <a href="{unsubscribe_url}">Unsubscribe</a>
                             </p>
                             <p style="margin: 15px 0 0 0; font-size: 12px; color: #999;">
-                                © {datetime.now().year} {self.site_title}. All rights reserved.
+                                © {datetime.now().year} {site_title}. All rights reserved.
                             </p>
                         </td>
                     </tr>
@@ -229,7 +256,7 @@ class EmailTemplateGenerator:
 </body>
 </html>"""
         
-        return html
+        return rendered
     
     def generate_plain_text(
         self, 
@@ -345,11 +372,19 @@ class EmailOrchestrator:
         import yaml
         
         # Read original post
-        content = post_path.read_text()
-        
+        try:
+            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+        try:
+            content = strip_frontmatter_prefix(post_path.read_text())
+        except (OSError, UnicodeDecodeError):
+            content = ''
+
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -364,12 +399,14 @@ class EmailOrchestrator:
             'sent_date': metadata.get('created'),
             'esp_provider': metadata.get('esp_provider'),
             'canonical_url': metadata.get('canonical_url'),
-            'tags': frontmatter.get('tags', [])
+            'tags': frontmatter.get('tags', []),
+            # Archives stay draft until the ESP send marks them sent.
+            'status': 'draft',
         }
         
         # Create newsletter content
         newsletter_content = f"""---
-{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False)}---
+{yaml.dump(newsletter_frontmatter, default_flow_style=False, sort_keys=False, allow_unicode=True)}---
 {body}
 
 ---
@@ -386,6 +423,26 @@ class EmailOrchestrator:
         # Create unique slug by appending -newsletter to avoid conflicts with posts
         slug = f"{post_path.stem}-newsletter"
         newsletter_file = newsletters_dir / f"{slug}.md"
+        if newsletter_file.exists():
+            try:
+                existing = strip_frontmatter_prefix(newsletter_file.read_text())
+            except (OSError, UnicodeDecodeError):
+                existing = ''
+            if existing.startswith('---'):
+                existing_parts = existing.split('---', 2)
+                if len(existing_parts) >= 3:
+                    try:
+                        existing_fm = yaml.safe_load(existing_parts[1]) or {}
+                    except Exception:
+                        existing_fm = {}
+                    if isinstance(existing_fm, dict):
+                        existing_status = _normalize_schedule_status(
+                            existing_fm.get('status'),
+                            newsletter=True,
+                            missing='status' not in existing_fm,
+                        )
+                        if existing_status in ('sent', 'scheduled'):
+                            return newsletter_file
         newsletter_file.write_text(newsletter_content)
         
         return newsletter_file
@@ -406,7 +463,8 @@ class EmailOrchestrator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            raw_frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
+            frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
             body = parts[2] if len(parts) > 2 else ''
         else:
             frontmatter = {}
@@ -420,7 +478,12 @@ class EmailOrchestrator:
         # Get metadata
         title = frontmatter.get('title', post_path.stem.replace('-', ' ').title())
         slug = post_path.stem
-        canonical_url = f"{self.config.get('site', {}).get('url')}/posts/{slug}/"
+        category = post_path.parent.name
+        if category == 'articles':
+            category = 'posts'
+        elif category not in ('posts', 'projects', 'pages', 'people', 'newsletters'):
+            category = 'posts'
+        canonical_url = f"{str(self.config.get('site', {}).get('url') or '').rstrip('/')}/{category}/{slug}/"
         preview_text = frontmatter.get('summary', '')[:150]
         
         # Generate email templates
