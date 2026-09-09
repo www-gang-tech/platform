@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:;">
     
     <title>Products - {{ site_title }}</title>
     <meta name="description" content="Browse our collection of products">
@@ -20,17 +20,11 @@
     <meta name="twitter:title" content="Products - {{ site_title }}">
     <meta name="twitter:description" content="Browse our collection of products">
     
-    <!-- JSON-LD Collection Page -->
+    {% if jsonld %}
     <script type="application/ld+json">
-    {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        "name": "Products",
-        "description": "Product catalog",
-        "url": "{{ canonical_url }}",
-        "numberOfItems": {{ products | length }}
-    }
+    {{ jsonld | tojson_script }}
     </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -57,9 +51,10 @@
                         <p class="product-description">{{ product.description[:120] }}...</p>
                         {% endif %}
                         <p class="product-price">
-                            {% if product.offers %}
-                                {% set offer = product.offers[0] if product.offers is iterable and product.offers is not string else product.offers %}
-                                {{ offer.priceCurrency }} {{ offer.price }}
+                            {% if product.offers is mapping %}
+                                {{ product.offers.priceCurrency }} {{ product.offers.price }}
+                            {% elif product.offers is sequence and product.offers is not string and product.offers %}
+                                {{ product.offers[0].priceCurrency }} {{ product.offers[0].price }}
                             {% endif %}
                         </p>
                         <p class="product-meta">{{ product._meta.source }}</p>

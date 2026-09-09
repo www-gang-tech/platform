@@ -4,9 +4,13 @@ Track slug changes and generate 301 redirects.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+
+_SAFE_REDIRECT_PATH = re.compile(r'^/[A-Za-z0-9._~/-]*$')
+_UNSAFE_REDIRECT_CHARS = set(';{}"\'\\\n\r\t $')
 
 
 class RedirectManager:
@@ -34,6 +38,30 @@ class RedirectManager:
         with open(self.redirects_file, 'w') as f:
             json.dump(self.redirects, f, indent=2)
     
+    def _valid_redirect_target(self, value: str) -> bool:
+        if not isinstance(value, str) or not value:
+            return False
+        if any(ch in value for ch in _UNSAFE_REDIRECT_CHARS):
+            return False
+        if value.startswith('//') or value.startswith('/\\') or '\\' in value:
+            return False
+        if value.startswith('http://') or value.startswith('https://'):
+            try:
+                from core.html_sanitize import safe_http_url
+            except ImportError:
+                from gang.core.html_sanitize import safe_http_url
+            return bool(safe_http_url(value))
+        try:
+            from core.html_sanitize import is_safe_href
+        except ImportError:
+            from gang.core.html_sanitize import is_safe_href
+        if not is_safe_href(value):
+            return False
+        if not _SAFE_REDIRECT_PATH.match(value) or '//' in value:
+            return False
+        # `/posts/../admin` and `/../etc` must not become Location targets.
+        return '..' not in value.split('/')
+
     def add_redirect(
         self, 
         old_path: str, 
@@ -42,6 +70,8 @@ class RedirectManager:
         permanent: bool = True
     ) -> Dict[str, Any]:
         """Add a new redirect"""
+        if not self._valid_redirect_target(old_path) or not self._valid_redirect_target(new_path):
+            raise ValueError('Invalid redirect path')
         
         # Check if redirect already exists
         for redirect in self.redirects['redirects']:
@@ -67,6 +97,11 @@ class RedirectManager:
         
         return {'created': True, 'redirect': redirect}
     
+    def restore_redirects(self, redirects: List[Dict[str, Any]]) -> None:
+        """Replace the redirect list (used to roll back a failed rename)."""
+        self.redirects['redirects'] = [dict(item) for item in redirects]
+        self._save_redirects()
+
     def remove_redirect(self, old_path: str) -> bool:
         """Remove a redirect"""
         original_count = len(self.redirects['redirects'])
@@ -103,6 +138,10 @@ class RedirectManager:
         for redirect in self.redirects['redirects']:
             # Cloudflare Pages _redirects format:
             # /old-path /new-path 301
+            if not self._valid_redirect_target(redirect.get('from', '')):
+                continue
+            if not self._valid_redirect_target(redirect.get('to', '')):
+                continue
             status = redirect.get('status', 301)
             lines.append(f"{redirect['from']} {redirect['to']} {status}")
         
@@ -116,8 +155,14 @@ class RedirectManager:
         lines.append("")
         
         for redirect in self.redirects['redirects']:
-            status = redirect.get('status', 301)
-            lines.append(f"rewrite ^{redirect['from']}$ {redirect['to']} permanent;")
+            if not self._valid_redirect_target(redirect.get('from', '')):
+                continue
+            if not self._valid_redirect_target(redirect.get('to', '')):
+                continue
+            status = 'permanent' if redirect.get('status', 301) == 301 else 'redirect'
+            dest = redirect['to'].replace("'", "\\'")
+            from_path = re.escape(redirect['from'])
+            lines.append(f"rewrite ^{from_path}$ '{dest}' {status};")
         
         return '\n'.join(lines)
     
@@ -126,6 +171,10 @@ class RedirectManager:
         lines = []
         
         for redirect in self.redirects['redirects']:
+            if not self._valid_redirect_target(redirect.get('from', '')):
+                continue
+            if not self._valid_redirect_target(redirect.get('to', '')):
+                continue
             status = redirect.get('status', 301)
             lines.append(f"{redirect['from']} {redirect['to']} {status}")
         
