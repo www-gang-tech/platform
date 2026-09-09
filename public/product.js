@@ -100,11 +100,11 @@
         const meta = document.querySelector('meta[name="gang-checkout-origins"]');
         if (!meta) return new Set();
         const origins = String(meta.content || '').split(/\s+/).map(s => s.trim()).filter(Boolean);
-        return new Set(origins.map(function(s) {
+        return new Set(origins.flatMap(function(s) {
             try {
-                return new URL(s).origin;
+                return [new URL(s).origin];
             } catch (err) {
-                return s;
+                return [];
             }
         }));
     }

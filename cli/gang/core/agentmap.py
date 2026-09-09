@@ -4,9 +4,54 @@ Create navigation maps for AI agents to discover and interact with content.
 """
 
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 from datetime import datetime
 import json
+
+_PUBLIC_METADATA_KEYS = (
+    'title',
+    'description',
+    'summary',
+    'seo_description',
+    'date',
+    'publish_date',
+    'sent_date',
+    'updated',
+    'author',
+    'category',
+    'tags',
+    'status',
+    'image',
+    'canonical',
+    'slug',
+)
+
+
+def _public_content_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
+    """Allowlist scalar frontmatter for the Content API — never emit raw YAML."""
+    if not isinstance(frontmatter, dict):
+        return {}
+    try:
+        from core.html_sanitize import safe_http_url
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url
+    out: Dict[str, Any] = {}
+    for key in _PUBLIC_METADATA_KEYS:
+        if key not in frontmatter:
+            continue
+        value = frontmatter[key]
+        if key == 'image':
+            out[key] = safe_http_url(value) if isinstance(value, str) else ''
+        elif key == 'tags':
+            if isinstance(value, list):
+                out[key] = [str(tag) for tag in value if isinstance(tag, (str, int))]
+            elif isinstance(value, str) and value.strip():
+                out[key] = [value]
+        elif hasattr(value, 'isoformat'):
+            out[key] = value.isoformat()
+        elif isinstance(value, (str, int, float, bool)) or value is None:
+            out[key] = value
+    return out
 
 
 class AgentMapGenerator:
@@ -254,7 +299,7 @@ class ContentAPIGenerator:
             'url': f"{self.site_url}/{public_category}/{slug}/",
             'category': public_category,
             'slug': slug,
-            'metadata': frontmatter,
+            'metadata': _public_content_metadata(frontmatter),
             'content': {
                 'html': content_html,
                 'text': content_text,

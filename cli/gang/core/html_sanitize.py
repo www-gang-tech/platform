@@ -5,6 +5,7 @@ Shared HTML / URL sanitizers for Markdown fragments and template hrefs.
 from __future__ import annotations
 
 import html
+import ipaddress
 import re
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse, urlunparse
@@ -30,6 +31,51 @@ def _normalize_href_entities(value: str) -> str:
 def _href_has_dotdot(path: str) -> bool:
     # ``..;`` and ``..%00`` are traversal gadgets on some proxies/servers.
     return any(segment == '..' or segment.startswith('..') for segment in path.split('/'))
+
+
+def _coerce_ipv4(host: str) -> Optional[str]:
+    """Expand decimal and short IPv4 forms browsers accept (``127.1``, ``2130706433``)."""
+    if re.fullmatch(r'\d+', host):
+        try:
+            value = int(host)
+            if 0 <= value <= 0xFFFFFFFF:
+                return str(ipaddress.IPv4Address(value))
+        except (ValueError, OverflowError):
+            return None
+        return None
+    if not re.fullmatch(r'\d{1,3}(\.\d{1,3}){1,3}', host):
+        return None
+    parts = [int(part) for part in host.split('.')]
+    if any(part > 255 for part in parts):
+        return None
+    if len(parts) == 2:
+        return str(ipaddress.IPv4Address((parts[0] << 24) | parts[1]))
+    if len(parts) == 3:
+        return str(ipaddress.IPv4Address((parts[0] << 24) | (parts[1] << 16) | parts[2]))
+    return f'{parts[0]}.{parts[1]}.{parts[2]}.{parts[3]}'
+
+
+def _is_public_http_host(host: str) -> bool:
+    """Reject loopback, RFC1918, link-local, and other non-public HTTP hosts."""
+    host = (host or '').strip().lower().strip('[]')
+    if not host or host in {'localhost', '0.0.0.0', '::', '::1'}:
+        return False
+    if host.endswith(('.localhost', '.local', '.internal', '.lan')):
+        return False
+    candidate = _coerce_ipv4(host) or host
+    try:
+        ip = ipaddress.ip_address(candidate)
+    except ValueError:
+        # Single-label hosts are LAN/mDNS-style, not public publish targets.
+        return '.' in host and not host.startswith('.')
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
 
 
 def _is_safe_href_candidate(value: str) -> bool:
@@ -59,8 +105,8 @@ def _is_safe_href_candidate(value: str) -> bool:
             # Userinfo (`https://trusted@evil.com`) is a phishing gadget.
             if '@' in (parsed.netloc or '') or parsed.username:
                 return False
-            host = (parsed.netloc or '').split('@')[-1]
-            return bool(host) and host not in ('.', '..')
+            host = parsed.hostname or (parsed.netloc or '').split('@')[-1].split(':')[0]
+            return _is_public_http_host(host)
         return False
     # Relative / root-relative / fragment: reject path traversal and embedded
     # `//` (`/.//evil.com`, `/foo//bar`) so href policy matches redirects.
@@ -114,7 +160,10 @@ def safe_http_url(value: Any) -> str:
     if parsed.scheme not in ('http', 'https') or not parsed.netloc:
         return ''
     host = (parsed.netloc or '').split('@')[-1]
-    if not host or host.lower() in ('www.shopify.com', 'shopify.com'):
+    hostname = parsed.hostname or host.split(':')[0]
+    if not host or not _is_public_http_host(hostname):
+        return ''
+    if hostname.lower() in {'www.shopify.com', 'shopify.com'} or hostname.lower().endswith('.shopify.com'):
         return ''
     if '@' in parsed.netloc:
         return urlunparse(parsed._replace(netloc=host))

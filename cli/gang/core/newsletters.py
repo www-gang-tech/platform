@@ -72,12 +72,12 @@ class NewsletterManager:
         
         slug = self._generate_slug(title)
         if not slug or '..' in slug or '/' in slug or '\\' in slug:
-            return {'error': 'Could not generate a safe newsletter slug'}
+            return {'error': 'Could not generate a safe newsletter slug', 'success': False}
         file_path = self.newsletters_path / f"{slug}.md"
         
         # Check if exists
         if file_path.exists():
-            return {'error': 'Newsletter with this slug already exists'}
+            return {'error': 'Newsletter with this slug already exists', 'success': False}
         
         # Create frontmatter
         frontmatter = {
@@ -123,12 +123,12 @@ class NewsletterManager:
         
         file_path = self._resolve_newsletter_file(file_path)
         if file_path is None or not file_path.is_file():
-            return {'error': 'Newsletter path must stay inside the newsletters directory'}
+            return {'error': 'Newsletter path must stay inside the newsletters directory', 'success': False}
 
         try:
             content = file_path.read_text()
         except (OSError, UnicodeDecodeError):
-            return {'error': 'Newsletter file is unreadable'}
+            return {'error': 'Newsletter file is unreadable', 'success': False}
         try:
             from core.scheduler import (
                 _parse_first_schedule_date,
@@ -151,44 +151,51 @@ class NewsletterManager:
         
         # Parse frontmatter
         if not content.startswith('---'):
-            return {'error': 'No frontmatter found'}
+            return {'error': 'No frontmatter found', 'success': False}
         
         parts = content.split('---', 2)
         if len(parts) < 3:
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         
         try:
             frontmatter = yaml.safe_load(parts[1]) or {}
         except Exception:
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         if not isinstance(frontmatter, dict):
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         body = parts[2]
 
         status = resolve_schedule_status(frontmatter, newsletter=True)
         publish_values = frontmatter_values(frontmatter, 'publish_date')
         alias_values = frontmatter_values(frontmatter, 'scheduled_for')
         date_values = frontmatter_values(frontmatter, 'date')
-        when = _parse_first_schedule_date(*publish_values, *alias_values, *date_values)
+        # Site scheduler ignores authored `date` for status=scheduled; send must
+        # not use a leftover Date: to email a fail-closed draft.
+        if status == 'scheduled':
+            schedule_values = (*publish_values, *alias_values)
+        else:
+            schedule_values = (*publish_values, *alias_values, *date_values)
+        when = _parse_first_schedule_date(*schedule_values)
         now = datetime.now(timezone.utc)
-        # Future dates must not send (or even test-send) before the latest
-        # publish_date / scheduled_for / date, including draft/published status.
-        if when is not None and when > now:
-            return {
-                'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
-                'success': False,
-            }
-        if status == 'scheduled' and when is None:
-            return {
-                'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
-                'success': False,
-            }
-        # Present-but-unparseable dates must not skip the gate as "no date".
-        if has_unparseable_schedule_date(*publish_values, *alias_values, *date_values):
-            return {
-                'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
-                'success': False,
-            }
+        # Already-sent archives stay test-sendable even with leftover future
+        # dates (the site already keeps them live). Other statuses honor the gate.
+        if status != 'sent':
+            if when is not None and when > now:
+                return {
+                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                    'success': False,
+                }
+            if status == 'scheduled' and when is None:
+                return {
+                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                    'success': False,
+                }
+            # Present-but-unparseable dates must not skip the gate as "no date".
+            if has_unparseable_schedule_date(*schedule_values):
+                return {
+                    'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
+                    'success': False,
+                }
         if status not in ('draft', 'published', 'live', 'public', 'scheduled', 'sent'):
             return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         if status == 'sent' and not test_mode:
@@ -252,7 +259,7 @@ class NewsletterManager:
         
         file_path = self._resolve_newsletter_file(file_path)
         if file_path is None or not file_path.is_file():
-            return {'error': 'Newsletter path must stay inside the newsletters directory'}
+            return {'error': 'Newsletter path must stay inside the newsletters directory', 'success': False}
 
         try:
             from core.scheduler import (
@@ -269,20 +276,20 @@ class NewsletterManager:
         try:
             content = strip_frontmatter_prefix(file_path.read_text())
         except (OSError, UnicodeDecodeError):
-            return {'error': 'Newsletter file is unreadable'}
+            return {'error': 'Newsletter file is unreadable', 'success': False}
         if not content.startswith('---'):
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         parts = content.split('---', 2)
         
         if len(parts) < 3:
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         
         try:
             frontmatter = yaml.safe_load(parts[1]) or {}
         except Exception:
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         if not isinstance(frontmatter, dict):
-            return {'error': 'Invalid frontmatter'}
+            return {'error': 'Invalid frontmatter', 'success': False}
         body = parts[2]
 
         existing_status = resolve_schedule_status(frontmatter, newsletter=True)
@@ -294,7 +301,8 @@ class NewsletterManager:
         
         # Site scheduler reads publish_date; keep scheduled_for for ESP tooling.
         # Drop Status:/Publish_date: aliases so writes do not leave conflicting keys.
-        drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for')
+        drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for', 'date')
+        frontmatter.pop('date', None)
         frontmatter['status'] = 'scheduled'
         frontmatter['scheduled_for'] = send_date.isoformat()
         frontmatter['publish_date'] = send_date.isoformat()
@@ -326,14 +334,14 @@ class NewsletterManager:
         
         try:
             from core.scheduler import (
-                _unwrap_schedule_value,
+                _parse_first_schedule_date,
                 frontmatter_values,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
         except ImportError:
             from gang.core.scheduler import (
-                _unwrap_schedule_value,
+                _parse_first_schedule_date,
                 frontmatter_values,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
@@ -360,6 +368,9 @@ class NewsletterManager:
                         status = 'published'
                     if status not in newsletters:
                         status = 'draft'
+                    scheduled_when = _parse_first_schedule_date(
+                        *frontmatter_values(frontmatter, 'scheduled_for')
+                    )
                     
                     newsletters[status].append({
                         'slug': file_path.stem,
@@ -368,9 +379,7 @@ class NewsletterManager:
                         'status': status,
                         'created': frontmatter.get('created', ''),
                         'sent_at': frontmatter.get('sent_at'),
-                        'scheduled_for': _unwrap_schedule_value(
-                            (frontmatter_values(frontmatter, 'scheduled_for') or [None])[0]
-                        ),
+                        'scheduled_for': scheduled_when.isoformat() if scheduled_when else None,
                         'recipients': frontmatter.get('recipients', 0)
                     })
             except:

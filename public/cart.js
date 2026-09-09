@@ -121,11 +121,11 @@
         const meta = document.querySelector('meta[name="gang-checkout-origins"]');
         if (!meta) return new Set();
         const origins = String(meta.content || '').split(/\s+/).map(s => s.trim()).filter(Boolean);
-        return new Set(origins.map(function(s) {
+        return new Set(origins.flatMap(function(s) {
             try {
-                return new URL(s).origin;
+                return [new URL(s).origin];
             } catch (err) {
-                return s;
+                return [];
             }
         }));
     }
@@ -483,7 +483,8 @@
                 }
                 parsed = new URL(Array.from(allow)[0]);
             }
-            if (parsed.origin === 'https://www.shopify.com') {
+            const host = String(parsed.hostname || '').toLowerCase();
+            if (host === 'shopify.com' || host.endsWith('.shopify.com')) {
                 skipped.push(item);
                 return;
             }

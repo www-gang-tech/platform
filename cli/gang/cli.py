@@ -352,8 +352,23 @@ def split_variant_name(variant_name: str) -> Tuple[str, str]:
     return text, ''
 
 
+def merchant_checkout_url(raw: Any, origins: Optional[List[str]] = None) -> str:
+    """Keep only absolute http(s) checkout URLs on the configured allowlist."""
+    url = safe_http_url(raw)
+    if not url:
+        return ''
+    allowed = origins if origins is not None else collect_checkout_origins()
+    parsed = urlparse(url)
+    host = (parsed.netloc or '').split('@')[-1]
+    origin = f"{parsed.scheme}://{host}" if parsed.scheme and host else ''
+    if origin and origin in allowed:
+        return url
+    return ''
+
+
 def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str) -> Dict[str, Any]:
     """Normalize product + offers into template context, preferring in-stock defaults."""
+    checkout_origins = collect_checkout_origins()
     raw_images = product.get('image', [])
     type_name = type(raw_images).__name__
     if type_name in ('list', 'tuple'):
@@ -421,7 +436,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
                 'price': offer.get('price', '0'),
                 'currency': offer.get('priceCurrency', 'USD'),
                 'availability': offer.get('availability') or 'https://schema.org/OutOfStock',
-                'url': safe_http_url(offer.get('url')),
+                'url': merchant_checkout_url(offer.get('url'), checkout_origins),
                 'sku': offer.get('sku', ''),
                 'id': numeric_variant_id(variant_id),
                 'image_index': image_index,
@@ -503,22 +518,15 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     except ImportError:
         from gang.core.products import _plain_text
     description = _plain_text(product.get('description', ''))
-    buy_url = safe_http_url(matching_default.get('url') or first_offer.get('url'))
+    buy_url = merchant_checkout_url(
+        matching_default.get('url') or first_offer.get('url'), checkout_origins
+    )
     default_in_stock = offer_is_in_stock({
         'availability': matching_default.get('availability') or first_offer.get('availability')
     })
-    if not default_in_stock:
+    if not default_in_stock or not buy_url:
         buy_url = ''
         default_variant_id = ''
-    checkout_origins = collect_checkout_origins()
-    if buy_url:
-        parsed_buy = urlparse(buy_url)
-        buy_host = (parsed_buy.netloc or '').split('@')[-1]
-        buy_origin = f"{parsed_buy.scheme}://{buy_host}" if parsed_buy.scheme and buy_host else ''
-        same_origin_path = buy_url.startswith('/') and not buy_url.startswith('//')
-        if not same_origin_path and buy_origin not in checkout_origins:
-            buy_url = ''
-            default_variant_id = ''
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
@@ -6132,6 +6140,10 @@ def serve(ctx, port, host):
                         shutil.rmtree(dist_path, ignore_errors=True)
                     if previous.exists():
                         previous.rename(dist_path)
+                elif dist_path.exists():
+                    # First rebuild has no prior tree to restore; drop the
+                    # partial dist so the dev server cannot serve a half-build.
+                    shutil.rmtree(dist_path, ignore_errors=True)
         
         def notify_reload():
             """Notify all connected clients to reload"""

@@ -277,6 +277,17 @@ class ContentScheduler:
                 publish_date = _parse_first_schedule_date(
                     *raw_publish_values, *raw_alias_values
                 )
+                # Garbage scheduled_for must not be ignored when publish_date parses.
+                if has_unparseable_schedule_date(*raw_publish_values, *raw_alias_values):
+                    draft.append({
+                        'path': file_path,
+                        'status': 'draft',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem),
+                        '_date_error': True,
+                        'error': 'invalid publish_date',
+                    })
+                    continue
             else:
                 publish_date = _parse_first_schedule_date(
                     *raw_publish_values, *raw_alias_values, *raw_date_values
@@ -498,6 +509,9 @@ class ContentScheduler:
         # Update frontmatter. Drop authored `date` so a leftover future Date:
         # cannot republish after --now or conflict with publish_date.
         drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for', 'date')
+        # Canonical `date` is not an alias — drop it so leftover authored dates
+        # cannot become a second send/publish clock after scheduling.
+        frontmatter.pop('date', None)
         if publish_date:
             iso = publish_date.isoformat()
             frontmatter['publish_date'] = iso

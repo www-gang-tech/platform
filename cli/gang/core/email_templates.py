@@ -373,9 +373,9 @@ class EmailOrchestrator:
         
         # Read original post
         try:
-            from core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+            from core.scheduler import resolve_schedule_status, strip_frontmatter_prefix
         except ImportError:
-            from gang.core.scheduler import _normalize_schedule_status, strip_frontmatter_prefix
+            from gang.core.scheduler import resolve_schedule_status, strip_frontmatter_prefix
         try:
             content = strip_frontmatter_prefix(post_path.read_text())
         except (OSError, UnicodeDecodeError):
@@ -436,10 +436,8 @@ class EmailOrchestrator:
                     except Exception:
                         existing_fm = {}
                     if isinstance(existing_fm, dict):
-                        existing_status = _normalize_schedule_status(
-                            existing_fm.get('status'),
-                            newsletter=True,
-                            missing='status' not in existing_fm,
+                        existing_status = resolve_schedule_status(
+                            existing_fm, newsletter=True
                         )
                         if existing_status in ('sent', 'scheduled'):
                             return newsletter_file
