@@ -6167,7 +6167,11 @@ def serve(ctx, port, host):
 
             def _send_cors(self):
                 origin = self.headers.get('Origin', '')
-                if origin.startswith('http://127.0.0.1:') or origin.startswith('http://localhost:'):
+                allowed = {
+                    f'http://127.0.0.1:{port}',
+                    f'http://localhost:{port}',
+                }
+                if origin in allowed:
                     self.send_header('Access-Control-Allow-Origin', origin)
                     self.send_header('Vary', 'Origin')
             

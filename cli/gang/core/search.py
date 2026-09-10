@@ -8,7 +8,7 @@ from typing import Dict, List, Any
 import html as html_module
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import yaml
 
 
@@ -26,7 +26,7 @@ class SearchIndexer:
         """
         index = {
             'version': '1.0',
-            'generated': datetime.now().isoformat(),
+            'generated': datetime.now(timezone.utc).isoformat(),
             'documents': []
         }
         

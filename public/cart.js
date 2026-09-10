@@ -477,11 +477,8 @@
                 }
             }
             if (!parsed || parsed.origin === window.location.origin) {
-                if (allow.size !== 1) {
-                    skipped.push(item);
-                    return;
-                }
-                parsed = new URL(Array.from(allow)[0]);
+                skipped.push(item);
+                return;
             }
             const host = String(parsed.hostname || '').toLowerCase();
             if (host === 'shopify.com' || host.endsWith('.shopify.com')) {

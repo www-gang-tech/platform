@@ -37,12 +37,12 @@
         <div class="grid grid-2">
             {% for product in products %}
             <article class="product-card">
-                <a href="/products/{{ product._meta.slug or product._meta.handle }}/">
+                <a href="{{ ('/products/' ~ (product._meta.slug or product._meta.handle) ~ '/')|safe_url }}">
                     {% if product.image %}
                         {% if product.image is string %}
-                        <img src="{{ product.image }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
+                        <img src="{{ product.image|safe_url }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
                         {% else %}
-                        <img src="{{ product.image[0] }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
+                        <img src="{{ product.image[0]|safe_url }}" alt="{{ product.name }}" class="product-image" width="300" height="300" loading="lazy" decoding="async">
                         {% endif %}
                     {% endif %}
                     <div class="product-info">

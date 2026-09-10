@@ -17,9 +17,9 @@
 {# Pagination (if needed) #}
 {% if pagination %}
 <nav aria-label="Pagination" class="pagination">
-  {% if pagination.prev %}<a href="{{ pagination.prev }}" rel="prev">← Newer</a>{% endif %}
+  {% if pagination.prev %}<a href="{{ pagination.prev|safe_url }}" rel="prev">← Newer</a>{% endif %}
   <span>Page {{ pagination.current }} of {{ pagination.total }}</span>
-  {% if pagination.next %}<a href="{{ pagination.next }}" rel="next">Older →</a>{% endif %}
+  {% if pagination.next %}<a href="{{ pagination.next|safe_url }}" rel="next">Older →</a>{% endif %}
 </nav>
 {% endif %}
 {% endblock %}

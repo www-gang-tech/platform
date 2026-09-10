@@ -30,7 +30,7 @@
                     Issue #{{ newsletter.issue_number }} · {{ newsletter.sent_date }}
                 </p>
                 <h2 style="margin-bottom: 0.5rem;">
-                    <a href="/newsletters/{{ newsletter.slug }}/">{{ newsletter.title }}</a>
+                    <a href="{{ ('/newsletters/' ~ newsletter.slug ~ '/')|safe_url }}">{{ newsletter.title }}</a>
                 </h2>
                 {% if newsletter.preview %}
                 <p>{{ newsletter.preview }}</p>

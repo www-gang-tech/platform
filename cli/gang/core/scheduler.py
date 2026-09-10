@@ -338,6 +338,17 @@ class ContentScheduler:
                 })
                 continue
 
+            # Newsletters stay off the static site until they are sent.
+            # An overdue `scheduled` issue must not leak before send flips status.
+            if is_newsletter and status == 'scheduled':
+                scheduled_future.append({
+                    'path': file_path,
+                    'status': 'scheduled',
+                    'publish_date': publish_date,
+                    'title': frontmatter.get('title', file_path.stem)
+                })
+                continue
+
             # Explicit live statuses stay live even if leftover ESP dates are
             # still future. Missing status is not an explicit publish — a
             # future date must embargo the page like `scheduled`.
@@ -414,7 +425,9 @@ class ContentScheduler:
                 now = datetime.now(timezone.utc)
                 delta = pub_date - now
                 
-                if delta.days > 0:
+                if delta.total_seconds() <= 0:
+                    time_str = "overdue"
+                elif delta.days > 0:
                     time_str = f"in {delta.days} day(s)"
                 elif delta.seconds > 3600:
                     hours = delta.seconds // 3600

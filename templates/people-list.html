@@ -12,10 +12,10 @@
         <div class="people-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; margin-top: 1.5rem;">
             {% for person in people_list %}
             <article class="person-card" style="border: 1px solid var(--color-border); border-radius: 8px; padding: 1.5rem; transition: transform 0.2s;">
-                <a href="{{ person.url }}" style="text-decoration: none; color: inherit; display: block;">
+                <a href="{{ person.url|safe_url }}" style="text-decoration: none; color: inherit; display: block;">
                     {% if person.image %}
                     <img 
-                        src="{{ person.image }}" 
+                        src="{{ person.image|safe_url }}" 
                         alt="{{ person.title }} profile picture" 
                         width="120" 
                         height="120" 

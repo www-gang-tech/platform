@@ -298,6 +298,8 @@ class NewsletterManager:
 
         if send_date.tzinfo is None:
             send_date = send_date.replace(tzinfo=timezone.utc)
+        if send_date <= datetime.now(timezone.utc):
+            return {'error': 'Schedule date must be in the future', 'success': False}
         
         # Site scheduler reads publish_date; keep scheduled_for for ESP tooling.
         # Drop Status:/Publish_date: aliases so writes do not leave conflicting keys.
@@ -336,6 +338,7 @@ class NewsletterManager:
             from core.scheduler import (
                 _parse_first_schedule_date,
                 frontmatter_values,
+                has_unparseable_schedule_date,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -343,6 +346,7 @@ class NewsletterManager:
             from gang.core.scheduler import (
                 _parse_first_schedule_date,
                 frontmatter_values,
+                has_unparseable_schedule_date,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -368,9 +372,18 @@ class NewsletterManager:
                         status = 'published'
                     if status not in newsletters:
                         status = 'draft'
+                    publish_values = frontmatter_values(frontmatter, 'publish_date')
+                    alias_values = frontmatter_values(frontmatter, 'scheduled_for')
                     scheduled_when = _parse_first_schedule_date(
-                        *frontmatter_values(frontmatter, 'scheduled_for')
+                        *publish_values, *alias_values
                     )
+                    # Mirror the site scheduler: scheduled without a usable
+                    # date, or with garbage dates, is a fail-closed draft.
+                    if status == 'scheduled' and (
+                        scheduled_when is None
+                        or has_unparseable_schedule_date(*publish_values, *alias_values)
+                    ):
+                        status = 'draft'
                     
                     newsletters[status].append({
                         'slug': file_path.stem,

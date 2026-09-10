@@ -5,7 +5,7 @@ Create navigation maps for AI agents to discover and interact with content.
 
 from pathlib import Path
 from typing import Any, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 _PUBLIC_METADATA_KEYS = (
@@ -83,7 +83,7 @@ class AgentMapGenerator:
             '@context': 'https://schema.org',
             '@type': 'WebSite',
             'version': '1.0',
-            'generated': datetime.now().isoformat(),
+            'generated': datetime.now(timezone.utc).isoformat(),
             'name': self.config.get('site', {}).get('title', 'Site'),
             'url': self.site_url,
             'description': self.config.get('site', {}).get('description', ''),
@@ -203,17 +203,21 @@ class ContentAPIGenerator:
     ) -> Dict[str, Any]:
         """Generate master content index API"""
         import yaml
+        try:
+            from core.scheduler import strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import strip_frontmatter_prefix
         
         index = {
             'version': '1.0',
-            'generated': datetime.now().isoformat(),
+            'generated': datetime.now(timezone.utc).isoformat(),
             'totalItems': len(content_files),
             'items': []
         }
         
         for file_path in content_files:
             try:
-                content = file_path.read_text()
+                content = strip_frontmatter_prefix(file_path.read_text())
                 
                 # Parse frontmatter
                 frontmatter = {}
@@ -227,24 +231,28 @@ class ContentAPIGenerator:
                 category = file_path.parent.name
                 slug = file_path.stem
                 public_category = 'posts' if category == 'articles' else category
-                
+                meta = _public_content_metadata(frontmatter)
+                title = meta.get('title')
+                if not isinstance(title, str) or not title.strip():
+                    title = slug.replace('-', ' ').title()
+                summary = meta.get('summary') or meta.get('description') or ''
+                if not isinstance(summary, str):
+                    summary = ''
                 date_val = (
-                    frontmatter.get('date')
-                    or frontmatter.get('publish_date')
-                    or frontmatter.get('sent_date')
+                    meta.get('date')
+                    or meta.get('publish_date')
+                    or meta.get('sent_date')
                     or ''
                 )
-                if hasattr(date_val, 'isoformat'):
-                    date_val = date_val.isoformat()
                 item = {
-                    'title': frontmatter.get('title', slug.replace('-', ' ').title()),
+                    'title': title,
                     'url': f"{self.site_url}/{public_category}/{slug}/",
                     'apiEndpoint': f"{self.site_url}/api/{public_category}/{slug}.json",
                     'category': public_category,
                     'slug': slug,
-                    'summary': frontmatter.get('summary', frontmatter.get('description', '')),
+                    'summary': summary,
                     'date': str(date_val or ''),
-                    'tags': frontmatter.get('tags', [])
+                    'tags': meta.get('tags') or [],
                 }
                 
                 index['items'].append(item)
@@ -262,8 +270,12 @@ class ContentAPIGenerator:
         """Generate API JSON for a single content file"""
         import yaml
         import markdown
+        try:
+            from core.scheduler import strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import strip_frontmatter_prefix
         
-        content = file_path.read_text()
+        content = strip_frontmatter_prefix(file_path.read_text())
         
         # Parse frontmatter
         frontmatter = {}
@@ -305,7 +317,7 @@ class ContentAPIGenerator:
                 'text': content_text,
                 'markdown': body
             },
-            'retrieved': datetime.now().isoformat()
+            'retrieved': datetime.now(timezone.utc).isoformat()
         }
 
     def write_content_apis(
