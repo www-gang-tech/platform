@@ -6,7 +6,7 @@
         <div style="display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap;">
             {% if image %}
             <img 
-                src="{{ image }}" 
+                src="{{ image|safe_url }}" 
                 alt="{{ title }} profile picture" 
                 width="200" 
                 height="200" 

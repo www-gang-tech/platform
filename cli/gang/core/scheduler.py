@@ -89,12 +89,32 @@ def resolve_schedule_status(frontmatter: Dict[str, Any], *, newsletter: bool) ->
         _normalize_schedule_status(value, newsletter=newsletter, missing=False)
         for value in values
     ]
-    if 'sent' in norms:
-        return 'sent'
     unique = set(norms)
+    # Mixed lists that include sent are not a send receipt.
+    if 'sent' in unique and len(unique) != 1:
+        return 'draft'
+    if unique == {'sent'}:
+        return 'sent'
     if len(unique) != 1:
         return 'draft'
     return norms[0]
+
+
+def newsletter_send_receipt(frontmatter: Dict[str, Any]) -> bool:
+    """True when frontmatter has evidence of a real campaign send."""
+    if not isinstance(frontmatter, dict):
+        return False
+    for name in ('sent_at', 'sent_date', 'campaign_id'):
+        for value in frontmatter_values(frontmatter, name):
+            value = _unwrap_schedule_value(value)
+            if _absent_schedule_date(value):
+                continue
+            if isinstance(value, (list, tuple, dict, set)):
+                continue
+            if isinstance(value, str) and not str(value).strip():
+                continue
+            return True
+    return False
 
 
 def has_unparseable_schedule_date(*values: Any) -> bool:
@@ -149,11 +169,12 @@ def _normalize_schedule_status(raw_status: Any, *, newsletter: bool, missing: bo
             if isinstance(item, (list, tuple, dict, set)):
                 return 'draft'
             norms.append(_normalize_schedule_status(item, newsletter=newsletter, missing=False))
-        # Keep sent-archive semantics if any entry is sent; otherwise require
-        # a single consistent status so [published, scheduled] cannot go live.
-        if 'sent' in norms:
-            return 'sent'
+        # Mixed lists that include sent are not a send receipt.
         unique = set(norms)
+        if 'sent' in unique and len(unique) != 1:
+            return 'draft'
+        if unique == {'sent'}:
+            return 'sent'
         if len(unique) != 1:
             return 'draft'
         return norms[0]
@@ -261,6 +282,17 @@ class ContentScheduler:
                     'title': frontmatter.get('title', file_path.stem)
                 })
                 continue
+
+            # Spoofed `status: sent` without a send receipt must not go live.
+            if is_newsletter and status == 'sent' and not newsletter_send_receipt(frontmatter):
+                draft.append({
+                    'path': file_path,
+                    'status': 'draft',
+                    'publish_date': None,
+                    'title': frontmatter.get('title', file_path.stem),
+                    'error': 'status=sent requires sent_at, sent_date, or campaign_id',
+                })
+                continue
             
             # Check publish_date. scheduled_for is a newsletter/ESP alias only.
             # Authored `date` is the common static-site fallback used by templates.
@@ -330,6 +362,15 @@ class ContentScheduler:
                         ),
                     })
                     continue
+                # Newsletters stay off the static site until send writes a receipt.
+                if is_newsletter:
+                    draft.append({
+                        'path': file_path,
+                        'status': 'draft',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem),
+                    })
+                    continue
                 publishable.append({
                     'path': file_path,
                     'status': status,
@@ -340,13 +381,22 @@ class ContentScheduler:
 
             # Newsletters stay off the static site until they are sent.
             # An overdue `scheduled` issue must not leak before send flips status.
-            if is_newsletter and status == 'scheduled':
-                scheduled_future.append({
-                    'path': file_path,
-                    'status': 'scheduled',
-                    'publish_date': publish_date,
-                    'title': frontmatter.get('title', file_path.stem)
-                })
+            # `published`/`live`/`public` are ready-to-send, not a send receipt.
+            if is_newsletter and status != 'sent':
+                if status == 'scheduled':
+                    scheduled_future.append({
+                        'path': file_path,
+                        'status': 'scheduled',
+                        'publish_date': publish_date,
+                        'title': frontmatter.get('title', file_path.stem)
+                    })
+                else:
+                    draft.append({
+                        'path': file_path,
+                        'status': 'draft',
+                        'publish_date': publish_date,
+                        'title': frontmatter.get('title', file_path.stem),
+                    })
                 continue
 
             # Explicit live statuses stay live even if leftover ESP dates are

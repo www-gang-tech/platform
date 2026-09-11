@@ -301,7 +301,8 @@ class ProductSchema:
             '_meta': {
                 'source': 'shopify',
                 'id': product.get('id'),
-                'handle': product.get('handle'),
+                'handle': commerce_slug(product.get('handle'), product.get('id'), product.get('title')),
+                'slug': commerce_slug(product.get('handle'), product.get('id'), product.get('title')),
                 'url': product_url,
                 'variants': variants,
                 'created_at': product.get('created_at'),
@@ -315,15 +316,39 @@ class ProductSchema:
         prices = product.get('prices') or []
         if not isinstance(prices, list):
             prices = [prices] if isinstance(prices, dict) else []
-        first_price = prices[0] if prices and isinstance(prices[0], dict) else {}
-        unit_amount = first_price.get('unit_amount') or 0
-        try:
-            price = str(int(unit_amount) / 100)
-        except (TypeError, ValueError):
-            price = '0'
-        currency = (first_price.get('currency') or 'usd')
-        if not isinstance(currency, str):
-            currency = 'usd'
+        availability = (
+            'https://schema.org/InStock'
+            if coerce_available_flag(product.get('active')) is True
+            else 'https://schema.org/OutOfStock'
+        )
+        offers = []
+        for price_obj in prices:
+            if not isinstance(price_obj, dict):
+                continue
+            unit_amount = price_obj.get('unit_amount') or 0
+            try:
+                price = str(int(unit_amount) / 100)
+            except (TypeError, ValueError):
+                price = '0'
+            currency = price_obj.get('currency') or 'usd'
+            if not isinstance(currency, str):
+                currency = 'usd'
+            recurring = price_obj.get('recurring') if isinstance(price_obj.get('recurring'), dict) else {}
+            interval = recurring.get('interval') or price_obj.get('nickname') or ''
+            offers.append({
+                '@type': 'Offer',
+                'price': price,
+                'priceCurrency': currency.upper(),
+                'availability': availability,
+                'name': interval,
+                'id': price_obj.get('id') or '',
+            })
+        first_offer = offers[0] if offers else {
+            '@type': 'Offer',
+            'price': '0',
+            'priceCurrency': 'USD',
+            'availability': availability,
+        }
         
         return {
             '@context': 'https://schema.org',
@@ -331,16 +356,7 @@ class ProductSchema:
             'name': product.get('name', ''),
             'description': product.get('description', ''),
             'image': _safe_image_urls(product.get('images') or []),
-            'offers': {
-                '@type': 'Offer',
-                'price': price,
-                'priceCurrency': currency.upper(),
-                'availability': (
-                    'https://schema.org/InStock'
-                    if coerce_available_flag(product.get('active')) is True
-                    else 'https://schema.org/OutOfStock'
-                )
-            },
+            'offers': offers if len(offers) > 1 else first_offer,
             '_meta': {
                 'source': 'stripe',
                 'id': product.get('id'),

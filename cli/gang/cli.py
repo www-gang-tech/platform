@@ -261,6 +261,62 @@ def assign_unique_catalog_slugs(products: List[Any]) -> List[Any]:
     return unique
 
 
+def _public_offer(offer: Any, origins: List[str]) -> Optional[Dict[str, Any]]:
+    """Storefront-safe offer: allowlisted URL, no inventory internals."""
+    if not isinstance(offer, dict):
+        return None
+    public: Dict[str, Any] = {
+        '@type': offer.get('@type') or 'Offer',
+        'price': offer.get('price'),
+        'priceCurrency': offer.get('priceCurrency'),
+        'availability': offer.get('availability'),
+    }
+    for key in ('sku', 'name', 'id'):
+        if offer.get(key) not in (None, ''):
+            public[key] = offer.get(key)
+    url = merchant_checkout_url(offer.get('url'), origins)
+    if url:
+        public['url'] = url
+    return public
+
+
+def public_product_records(
+    products: Optional[List[Any]],
+    origins: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Strip internal `_meta` payloads before writing public `/api/products.json`."""
+    allowed = origins if origins is not None else collect_checkout_origins()
+    public_products: List[Dict[str, Any]] = []
+    for product in products or []:
+        if not isinstance(product, dict):
+            continue
+        record = {key: value for key, value in product.items() if key != '_meta'}
+        offers = record.get('offers')
+        if isinstance(offers, list):
+            record['offers'] = [
+                item for item in (_public_offer(offer, allowed) for offer in offers) if item
+            ]
+        elif isinstance(offers, dict):
+            cleaned = _public_offer(offers, allowed)
+            if cleaned:
+                record['offers'] = cleaned
+            else:
+                record.pop('offers', None)
+        meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
+        handle = str(meta.get('slug') or meta.get('handle') or '').strip()
+        public_meta = {
+            'source': meta.get('source'),
+            'slug': handle,
+            'handle': handle,
+        }
+        store_url = merchant_checkout_url(meta.get('url'), allowed)
+        if store_url:
+            public_meta['url'] = store_url
+        record['_meta'] = public_meta
+        public_products.append(record)
+    return public_products
+
+
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
     """Parse YAML frontmatter, always returning a dict even for empty/invalid YAML."""
     try:
@@ -948,6 +1004,57 @@ def minify_html_source(original_html: str) -> str:
         work = work.replace(f'GANGMINIFY{nonce}{index}END', block)
     return work
 
+
+def minify_dist(dist_path: Path) -> None:
+    """Minify HTML, CSS, and JS under ``dist``. Raises on I/O failure."""
+    js_files = [f for f in dist_path.rglob('*.js')]
+    js_original = 0
+    js_minified = 0
+    for js_file in js_files:
+        if js_file.name == 'editor-bundle.js':
+            continue
+        js_content = js_file.read_text()
+        js_original += len(js_content)
+        js_content = minify_js_source(js_content)
+        js_minified += len(js_content)
+        js_file.write_text(js_content)
+
+    if js_files:
+        js_savings = ((js_original - js_minified) / js_original * 100) if js_original > 0 else 0
+        click.echo(f"🗜️  Minified {len(js_files)} JS file(s) ({js_savings:.1f}% reduction)")
+
+    css_files = [f for f in dist_path.rglob('*.css')]
+    css_original = 0
+    css_minified = 0
+    for css_file in css_files:
+        css_content = css_file.read_text()
+        css_original += len(css_content)
+        css_content = re.sub(r'/\*.*?\*/', '', css_content, flags=re.DOTALL)
+        css_content = re.sub(r'\s+', ' ', css_content)
+        css_content = re.sub(r'\s*([{}:;,])\s*', r'\1', css_content)
+        css_minified += len(css_content.strip())
+        css_file.write_text(css_content.strip())
+
+    if css_files:
+        css_savings = ((css_original - css_minified) / css_original * 100) if css_original > 0 else 0
+        click.echo(f"🗜️  Minified {len(css_files)} CSS file(s) ({css_savings:.1f}% reduction)")
+
+    html_files = [f for f in dist_path.rglob('*.html')]
+    minified_count = 0
+    original_size = 0
+    minified_size = 0
+    for html_file in html_files:
+        original_html = html_file.read_text()
+        original_size += len(original_html)
+        minified = minify_html_source(original_html)
+        minified_size += len(minified)
+        html_file.write_text(minified)
+        minified_count += 1
+
+    savings = ((original_size - minified_size) / original_size * 100) if original_size > 0 else 0
+    click.echo(f"🗜️  Minified {minified_count} HTML files ({savings:.1f}% reduction)")
+
+
 @click.group()
 @click.pass_context
 def cli(ctx):
@@ -1060,6 +1167,7 @@ def check_contracts(ctx, verbose):
         'projects': 'project',
         'products': 'product',
         'people': 'person',
+        'newsletters': 'newsletter',
     }
     
     for content_type_dir, contract_type in type_mapping.items():
@@ -2213,17 +2321,26 @@ def set_schedule(ctx, file_path, publish_date, now, status):
         click.echo("❌ Product pages are owned by the commerce aggregator, not the content scheduler")
         ctx.exit(1)
     file_path = resolved
+    is_newsletter = file_path.parent.name == 'newsletters'
 
     status = (status or '').strip().lower()
     if status not in ALLOWED_SCHEDULE_STATUSES:
         click.echo(f"❌ Invalid status: {status}")
         click.echo(f"   Use one of: {', '.join(ALLOWED_SCHEDULE_STATUSES)}")
         ctx.exit(1)
+    if is_newsletter and status in ('published', 'live', 'public'):
+        click.echo("❌ Newsletters go live on the site only after send marks status: sent")
+        click.echo("   Use --status scheduled or --status draft")
+        ctx.exit(1)
     
     if now:
         # --now with the default `--status scheduled` means publish immediately.
+        # Newsletters stay off-site until send, so --now unschedules to draft.
         # An explicit draft/sent/live status is preserved after clearing dates.
-        clear_status = 'published' if status == 'scheduled' else status
+        if is_newsletter:
+            clear_status = 'draft'
+        else:
+            clear_status = 'published' if status == 'scheduled' else status
         success = scheduler.set_publish_date(file_path, None, clear_status)
         if success:
             click.echo(f"✅ Removed schedule from {file_path.name}")
@@ -2268,8 +2385,12 @@ def set_schedule(ctx, file_path, publish_date, now, status):
         
         # Ensure timezone aware
         if pub_date.tzinfo is None:
-            from datetime import timezone
             pub_date = pub_date.replace(tzinfo=timezone.utc)
+        if is_newsletter:
+            if pub_date <= datetime.now(timezone.utc):
+                click.echo("❌ Newsletter schedule date must be in the future")
+                ctx.exit(1)
+            status = 'scheduled'
         
         success = scheduler.set_publish_date(file_path, pub_date, status)
         
@@ -3086,7 +3207,9 @@ def generate_agentmap(ctx):
     
     # Get products if available (do not force demo catalog)
     aggregator = ProductAggregator(config)
-    products = aggregator.get_normalized_products(status_filter='active')
+    products = assign_unique_catalog_slugs(
+        aggregator.get_normalized_products(status_filter='active') or []
+    )
     
     # Generate AgentMap
     generator = AgentMapGenerator(config, site_url)
@@ -3110,10 +3233,11 @@ def generate_agentmap(ctx):
     )
     
     if products:
+        public_products = public_product_records(products)
         (api_dir / 'products.json').write_text(json.dumps({
-            'products': products,
-            'count': len(products),
-            'generated': datetime.now().isoformat(),
+            'products': public_products,
+            'count': len(public_products),
+            'generated': datetime.now(timezone.utc).isoformat(),
         }, indent=2))
     
     click.echo(f"✅ Generated AgentMap with {len(publishable)} content items")
@@ -3193,6 +3317,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     click.echo("🔨 Building site...")
     config = ctx.obj
+    build_errors: List[str] = []
     
     # Slug uniqueness check (enabled by default)
     if check_slugs:
@@ -3725,6 +3850,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo(f"🔍 Generated search index ({len(search_index['documents'])} documents)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate search index: {e}")
+        build_errors.append(f'search: {e}')
 
     try:
         write_html_sitemap(
@@ -3750,17 +3876,13 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate AgentMap for AI agents
     try:
         from core.agentmap import AgentMapGenerator, ContentAPIGenerator
-        from core.products import ProductAggregator
         
         publishable_paths = [
             Path(item) if not isinstance(item, Path) else item
             for item in publishable_files
         ]
         
-        aggregator = ProductAggregator(config)
-        products = aggregator.get_normalized_products(status_filter='active')
-        
-        # Generate AgentMap
+        # Reuse the slugged catalog already rendered as PLP/PDP pages.
         site_url = config.get('site', {}).get('url', 'https://example.com')
         generator = AgentMapGenerator(config, site_url)
         agentmap = generator.generate(publishable_paths, products if products else None)
@@ -3782,78 +3904,25 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         
         # Generate products API
         if products:
+            public_products = public_product_records(products)
             products_api = {
-                'products': products,
-                'count': len(products),
-                'generated': datetime.now().isoformat()
+                'products': public_products,
+                'count': len(public_products),
+                'generated': datetime.now(timezone.utc).isoformat()
             }
             (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2))
         
         click.echo(f"🤖 Generated AgentMap with {len(publishable_paths)} content items")
     except Exception as e:
         click.echo(f"⚠️  Could not generate AgentMap: {e}")
+        build_errors.append(f'AgentMap: {e}')
     
-    # Minify HTML, CSS, and JS (simple implementation)
+    # Minify HTML, CSS, and JS (same pass as gang serve rebuild)
     try:
-        import re
-        
-        # Minify JS (safer approach - preserve operators)
-        js_files = [f for f in dist_path.rglob('*.js')]
-        js_original = 0
-        js_minified = 0
-        for js_file in js_files:
-            # Skip editor-bundle.js to avoid corruption
-            if js_file.name == 'editor-bundle.js':
-                continue
-                
-            js_content = js_file.read_text()
-            js_original += len(js_content)
-            js_content = minify_js_source(js_content)
-            js_minified += len(js_content)
-            js_file.write_text(js_content)
-        
-        if js_files:
-            js_savings = ((js_original - js_minified) / js_original * 100) if js_original > 0 else 0
-            click.echo(f"🗜️  Minified {len(js_files)} JS file(s) ({js_savings:.1f}% reduction)")
-        
-        # Minify CSS
-        css_files = [f for f in dist_path.rglob('*.css')]
-        css_original = 0
-        css_minified = 0
-        for css_file in css_files:
-            css_content = css_file.read_text()
-            css_original += len(css_content)
-            # Remove comments
-            css_content = re.sub(r'/\*.*?\*/', '', css_content, flags=re.DOTALL)
-            # Remove extra whitespace
-            css_content = re.sub(r'\s+', ' ', css_content)
-            # Remove spaces around special characters
-            css_content = re.sub(r'\s*([{}:;,])\s*', r'\1', css_content)
-            css_minified += len(css_content.strip())
-            css_file.write_text(css_content.strip())
-        
-        if css_files:
-            css_savings = ((css_original - css_minified) / css_original * 100) if css_original > 0 else 0
-            click.echo(f"🗜️  Minified {len(css_files)} CSS file(s) ({css_savings:.1f}% reduction)")
-        
-        # Minify HTML
-        html_files = [f for f in dist_path.rglob('*.html')]
-        minified_count = 0
-        original_size = 0
-        minified_size = 0
-        
-        for html_file in html_files:
-            original_html = html_file.read_text()
-            original_size += len(original_html)
-            minified = minify_html_source(original_html)
-            minified_size += len(minified)
-            html_file.write_text(minified)
-            minified_count += 1
-        
-        savings = ((original_size - minified_size) / original_size * 100) if original_size > 0 else 0
-        click.echo(f"🗜️  Minified {minified_count} HTML files ({savings:.1f}% reduction)")
+        minify_dist(dist_path)
     except Exception as e:
         click.echo(f"⚠️  Could not minify assets: {e}")
+        build_errors.append(f'minify: {e}')
     
     # End profiling
     if profiler:
@@ -3863,6 +3932,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         profiler.record_files('projects', len(all_projects))
         profiler.save_run()
     
+    if build_errors:
+        click.echo("❌ Build completed with errors:", err=True)
+        for error in build_errors:
+            click.echo(f"   • {error}", err=True)
+        ctx.exit(1)
+
     click.echo(f"✅ Build complete! Output in {dist_path}")
     
     # Show performance report if requested
@@ -6097,17 +6172,14 @@ def serve(ctx, port, host):
 
                 try:
                     from core.agentmap import AgentMapGenerator, ContentAPIGenerator
-                    from core.products import ProductAggregator
 
                     publishable_paths = [
                         Path(item) if not isinstance(item, Path) else item
                         for item in publishable_files
                     ]
-                    aggregator = ProductAggregator(config)
-                    agent_products = aggregator.get_normalized_products(status_filter='active')
                     site_url = config.get('site', {}).get('url', 'https://example.com')
                     generator = AgentMapGenerator(config, site_url)
-                    agentmap = generator.generate(publishable_paths, agent_products if agent_products else None)
+                    agentmap = generator.generate(publishable_paths, products if products else None)
                     (dist_path / 'agentmap.json').write_text(json.dumps(agentmap, indent=2))
 
                     api_dir = dist_path / 'api'
@@ -6118,14 +6190,20 @@ def serve(ctx, port, host):
                     api_generator.write_content_apis(
                         publishable_paths, content_path, api_dir, safe_slug=is_safe_content_slug
                     )
-                    if agent_products:
+                    if products:
+                        public_products = public_product_records(products)
                         (api_dir / 'products.json').write_text(json.dumps({
-                            'products': agent_products,
-                            'count': len(agent_products),
-                            'generated': datetime.now().isoformat(),
+                            'products': public_products,
+                            'count': len(public_products),
+                            'generated': datetime.now(timezone.utc).isoformat(),
                         }, indent=2))
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate AgentMap: {e}")
+
+                try:
+                    minify_dist(dist_path)
+                except Exception as e:
+                    click.echo(f"⚠️  Could not minify assets: {e}")
                 
                 click.echo("✅ Build complete!")
                 if previous and previous.exists():

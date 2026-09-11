@@ -97,6 +97,10 @@
     function isExplicitlyInStock(value) {
         return value === true || value === 'true';
     }
+
+    function isBlockedOutOfStock(value) {
+        return value === false || value === 'false';
+    }
     
     function isNumericVariantId(value) {
         let text = String(value == null ? '' : value).trim();
@@ -459,7 +463,7 @@
         const items = [];
         const skipped = [];
         cart.forEach(item => {
-            if (!isExplicitlyInStock(item.inStock)) {
+            if (isBlockedOutOfStock(item.inStock)) {
                 skipped.push(item);
                 return;
             }

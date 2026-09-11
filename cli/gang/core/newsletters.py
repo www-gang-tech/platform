@@ -135,6 +135,7 @@ class NewsletterManager:
                 drop_frontmatter_aliases,
                 frontmatter_values,
                 has_unparseable_schedule_date,
+                newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -144,6 +145,7 @@ class NewsletterManager:
                 drop_frontmatter_aliases,
                 frontmatter_values,
                 has_unparseable_schedule_date,
+                newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -177,9 +179,11 @@ class NewsletterManager:
             schedule_values = (*publish_values, *alias_values, *date_values)
         when = _parse_first_schedule_date(*schedule_values)
         now = datetime.now(timezone.utc)
-        # Already-sent archives stay test-sendable even with leftover future
-        # dates (the site already keeps them live). Other statuses honor the gate.
-        if status != 'sent':
+        has_receipt = newsletter_send_receipt(frontmatter)
+        # Test sends do not mutate frontmatter — allow previewing a future-dated
+        # issue. Campaign send still honors the embargo. Spoofed `sent` without
+        # a receipt is treated as unsent so a real send can write one.
+        if not has_receipt and not test_mode:
             if when is not None and when > now:
                 return {
                     'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
@@ -198,7 +202,7 @@ class NewsletterManager:
                 }
         if status not in ('draft', 'published', 'live', 'public', 'scheduled', 'sent'):
             return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
-        if status == 'sent' and not test_mode:
+        if status == 'sent' and has_receipt and not test_mode:
             return {'error': 'Newsletter already sent', 'success': False}
         
         # Convert markdown to HTML
@@ -339,6 +343,7 @@ class NewsletterManager:
                 _parse_first_schedule_date,
                 frontmatter_values,
                 has_unparseable_schedule_date,
+                newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -347,6 +352,7 @@ class NewsletterManager:
                 _parse_first_schedule_date,
                 frontmatter_values,
                 has_unparseable_schedule_date,
+                newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -370,6 +376,8 @@ class NewsletterManager:
                     # Web-publish statuses are not email-send receipts.
                     if status in ('published', 'live', 'public'):
                         status = 'published'
+                    if status == 'sent' and not newsletter_send_receipt(frontmatter):
+                        status = 'draft'
                     if status not in newsletters:
                         status = 'draft'
                     publish_values = frontmatter_values(frontmatter, 'publish_date')
