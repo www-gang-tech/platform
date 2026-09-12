@@ -80,6 +80,7 @@ jobs:
 
           sys.path.insert(0, str(Path('cli/gang').resolve()))
           from core.html_sanitize import safe_http_url
+          from core.products import coerce_available_flag
           
           # Load mapping schema
           with open('schemas/product.map.json') as f:
@@ -145,21 +146,7 @@ jobs:
                       except (TypeError, ValueError):
                           qty_num = 0
                       policy = str(v.get('inventory_policy') or '')
-                      raw_available = v.get('available')
-                      if isinstance(raw_available, bool):
-                          available = raw_available
-                      elif isinstance(raw_available, (int, float)) and not isinstance(raw_available, bool):
-                          available = raw_available != 0
-                      elif isinstance(raw_available, str):
-                          flag = raw_available.strip().lower()
-                          if flag in ('true', '1', 'yes', 'on'):
-                              available = True
-                          elif flag in ('false', '0', 'no', 'off', ''):
-                              available = False
-                          else:
-                              available = None
-                      else:
-                          available = None
+                      available = coerce_available_flag(v.get('available'))
                       inventory_management = v.get('inventory_management')
                       if available is None:
                           if inventory_management is None or inventory_management == '':

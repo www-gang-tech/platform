@@ -40,7 +40,7 @@ def _public_content_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
         if key not in frontmatter:
             continue
         value = frontmatter[key]
-        if key == 'image':
+        if key in ('image', 'canonical'):
             out[key] = safe_http_url(value) if isinstance(value, str) else ''
         elif key == 'tags':
             if isinstance(value, list):
@@ -78,6 +78,7 @@ class AgentMapGenerator:
         capabilities = ['read', 'search']
         if products:
             capabilities.append('purchase')
+        catalog = products or []
         
         agentmap = {
             '@context': 'https://schema.org',
@@ -93,7 +94,8 @@ class AgentMapGenerator:
             'endpoints': {
                 'content': f"{self.site_url}/api/content.json",
                 'search': f"{self.site_url}/search-index.json",
-                'sitemap': f"{self.site_url}/sitemap.xml"
+                'sitemap': f"{self.site_url}/sitemap.xml",
+                'products': f"{self.site_url}/api/products.json",
             },
             
             'contentTypes': content_map['types'],
@@ -111,15 +113,12 @@ class AgentMapGenerator:
             }
         }
         
-        # Add products if available
-        if products:
-            agentmap['endpoints']['products'] = f"{self.site_url}/api/products.json"
-            agentmap['commerce'] = {
-                'enabled': True,
-                'productsEndpoint': f"{self.site_url}/api/products.json",
-                'platforms': self._detect_platforms(products),
-                'totalProducts': len(products)
-            }
+        agentmap['commerce'] = {
+            'enabled': bool(catalog),
+            'productsEndpoint': f"{self.site_url}/api/products.json",
+            'platforms': self._detect_platforms(catalog) if catalog else [],
+            'totalProducts': len(catalog),
+        }
         
         return agentmap
     
@@ -258,8 +257,9 @@ class ContentAPIGenerator:
                 index['items'].append(item)
             
             except Exception as e:
-                continue
-        
+                raise RuntimeError(f'Content API index failed for {file_path}: {e}') from e
+
+        index['totalItems'] = len(index['items'])
         return index
     
     def generate_single_content_api(
@@ -337,8 +337,8 @@ class ContentAPIGenerator:
         for file_path in content_files:
             try:
                 item = self.generate_single_content_api(file_path, content_path)
-            except Exception:
-                continue
+            except Exception as e:
+                raise RuntimeError(f'Content API failed for {file_path}: {e}') from e
             category = str(item.get('category') or '')
             slug = str(item.get('slug') or '')
             if not category or not slug_re.match(category):

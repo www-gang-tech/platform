@@ -195,7 +195,10 @@ class NewsletterManager:
                     'success': False,
                 }
             # Present-but-unparseable dates must not skip the gate as "no date".
-            if has_unparseable_schedule_date(*schedule_values):
+            # Draft leftovers like publish_date: TBD should not block a send.
+            if has_unparseable_schedule_date(*schedule_values) and status in (
+                'scheduled', 'published', 'live', 'public'
+            ):
                 return {
                     'error': 'Scheduled newsletters must be sent after their date or unscheduled first',
                     'success': False,
@@ -268,12 +271,16 @@ class NewsletterManager:
         try:
             from core.scheduler import (
                 drop_frontmatter_aliases,
+                drop_newsletter_receipts,
+                newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
         except ImportError:
             from gang.core.scheduler import (
                 drop_frontmatter_aliases,
+                drop_newsletter_receipts,
+                newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
             )
@@ -297,7 +304,7 @@ class NewsletterManager:
         body = parts[2]
 
         existing_status = resolve_schedule_status(frontmatter, newsletter=True)
-        if existing_status == 'sent':
+        if existing_status == 'sent' and newsletter_send_receipt(frontmatter):
             return {'error': 'Cannot reschedule a sent newsletter', 'success': False}
 
         if send_date.tzinfo is None:
@@ -309,6 +316,7 @@ class NewsletterManager:
         # Drop Status:/Publish_date: aliases so writes do not leave conflicting keys.
         drop_frontmatter_aliases(frontmatter, 'status', 'publish_date', 'scheduled_for', 'date')
         frontmatter.pop('date', None)
+        drop_newsletter_receipts(frontmatter)
         frontmatter['status'] = 'scheduled'
         frontmatter['scheduled_for'] = send_date.isoformat()
         frontmatter['publish_date'] = send_date.isoformat()

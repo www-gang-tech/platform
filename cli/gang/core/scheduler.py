@@ -6,7 +6,12 @@ Handle scheduled publishing of content based on publish_date.
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import re
 import yaml
+
+_PLACEHOLDER_CAMPAIGN_IDS = {
+    '0', 'false', 'true', 'none', 'null', 'pending', 'tbd', 'n/a', 'na',
+}
 
 
 def strip_frontmatter_prefix(content: str) -> str:
@@ -52,7 +57,29 @@ def parse_schedule_datetime(value: Any) -> datetime:
         text = str(value).strip()
         if text.endswith(('Z', 'z')):
             text = text[:-1] + '+00:00'
-        parsed = datetime.fromisoformat(text)
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            # Match the CLI fallback so frontmatter "2025-12-25 9:00" parses.
+            padded = re.sub(r'(?<=[\sT])(\d):', r'0\1:', text, count=1)
+            parsed = None
+            for candidate in (text, padded):
+                for fmt in (
+                    '%Y-%m-%d',
+                    '%Y-%m-%d %H:%M',
+                    '%Y-%m-%d %H:%M:%S',
+                    '%Y-%m-%dT%H:%M',
+                    '%Y-%m-%dT%H:%M:%S',
+                ):
+                    try:
+                        parsed = datetime.strptime(candidate, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if parsed is not None:
+                    break
+            if parsed is None:
+                raise ValueError(f'Invalid datetime: {value!r}')
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
@@ -100,21 +127,51 @@ def resolve_schedule_status(frontmatter: Dict[str, Any], *, newsletter: bool) ->
     return norms[0]
 
 
+def _is_newsletter_receipt_value(name: str, value: Any) -> bool:
+    """True when one receipt field looks like a real ESP send record."""
+    value = _unwrap_schedule_value(value)
+    if _absent_schedule_date(value):
+        return False
+    if isinstance(value, (list, tuple, dict, set)):
+        return False
+    if name in ('sent_at', 'sent_date'):
+        if isinstance(value, bool):
+            return False
+        try:
+            parse_schedule_datetime(value)
+            return True
+        except (ValueError, TypeError):
+            return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        token = value.strip()
+        if not token or token.lower() in _PLACEHOLDER_CAMPAIGN_IDS:
+            return False
+        return True
+    return False
+
+
 def newsletter_send_receipt(frontmatter: Dict[str, Any]) -> bool:
     """True when frontmatter has evidence of a real campaign send."""
     if not isinstance(frontmatter, dict):
         return False
     for name in ('sent_at', 'sent_date', 'campaign_id'):
         for value in frontmatter_values(frontmatter, name):
-            value = _unwrap_schedule_value(value)
-            if _absent_schedule_date(value):
-                continue
-            if isinstance(value, (list, tuple, dict, set)):
-                continue
-            if isinstance(value, str) and not str(value).strip():
-                continue
-            return True
+            if _is_newsletter_receipt_value(name, value):
+                return True
     return False
+
+
+def drop_newsletter_receipts(frontmatter: Dict[str, Any]) -> None:
+    """Remove send-receipt keys so drafts cannot inherit a spoofed archive."""
+    if not isinstance(frontmatter, dict):
+        return
+    drop_frontmatter_aliases(frontmatter, 'sent_at', 'sent_date', 'campaign_id')
+    for key in ('sent_at', 'sent_date', 'campaign_id'):
+        frontmatter.pop(key, None)
 
 
 def has_unparseable_schedule_date(*values: Any) -> bool:
@@ -543,6 +600,8 @@ class ContentScheduler:
                 frontmatter['publish_date'] = iso
                 if is_newsletter:
                     frontmatter['scheduled_for'] = iso
+            if is_newsletter and status != 'sent':
+                drop_newsletter_receipts(frontmatter)
             
             new_content = (
                 f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{content}"
@@ -562,11 +621,14 @@ class ContentScheduler:
             return False
 
         existing = resolve_schedule_status(frontmatter, newsletter=is_newsletter)
-        # Sent newsletters are archive records; do not reschedule them to draft/live.
+        has_receipt = newsletter_send_receipt(frontmatter)
+        # Sent archives with a real receipt cannot be rescheduled. Spoofed
+        # `status: sent` without a valid receipt may be moved back to draft.
         if existing == 'sent' and status != 'sent':
-            return False
+            if not (is_newsletter and not has_receipt):
+                return False
         # Do not mark content sent without going through the send provider.
-        if status == 'sent' and existing != 'sent':
+        if status == 'sent' and not (existing == 'sent' and has_receipt):
             return False
         
         # Update frontmatter. Drop authored `date` so a leftover future Date:
@@ -575,6 +637,8 @@ class ContentScheduler:
         # Canonical `date` is not an alias — drop it so leftover authored dates
         # cannot become a second send/publish clock after scheduling.
         frontmatter.pop('date', None)
+        if is_newsletter and status != 'sent':
+            drop_newsletter_receipts(frontmatter)
         if publish_date:
             iso = publish_date.isoformat()
             frontmatter['publish_date'] = iso

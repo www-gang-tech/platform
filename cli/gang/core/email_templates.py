@@ -396,7 +396,7 @@ class EmailOrchestrator:
             'date': datetime.now().strftime('%Y-%m-%d'),  # Use simple date format
             'summary': frontmatter.get('summary', ''),
             'newsletter_id': metadata.get('slug'),
-            'sent_date': metadata.get('created'),
+            'created': metadata.get('created'),
             'esp_provider': metadata.get('esp_provider'),
             'canonical_url': metadata.get('canonical_url'),
             'tags': frontmatter.get('tags', []),
@@ -411,7 +411,7 @@ class EmailOrchestrator:
 
 ---
 
-*This newsletter was sent on {datetime.now().strftime('%B %d, %Y')}.*
+*This newsletter draft was prepared on {datetime.now().strftime('%B %d, %Y')}.*
 
 [View archive of all newsletters](/newsletters/)
 """

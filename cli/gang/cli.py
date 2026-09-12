@@ -317,6 +317,21 @@ def public_product_records(
     return public_products
 
 
+def write_public_products_api(
+    api_dir: Path,
+    products: Optional[List[Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Always emit `/api/products.json`, including an empty catalog."""
+    api_dir.mkdir(parents=True, exist_ok=True)
+    public_products = public_product_records(products)
+    (api_dir / 'products.json').write_text(json.dumps({
+        'products': public_products,
+        'count': len(public_products),
+        'generated': datetime.now(timezone.utc).isoformat(),
+    }, indent=2))
+    return public_products
+
+
 def parse_frontmatter_text(content: str) -> Tuple[Dict[str, Any], str]:
     """Parse YAML frontmatter, always returning a dict even for empty/invalid YAML."""
     try:
@@ -993,6 +1008,12 @@ def minify_html_source(original_html: str) -> str:
     )
     work = re.sub(
         r'<style\b[^>]*>.*?</style>',
+        _protect,
+        work,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    work = re.sub(
+        r'<pre\b[^>]*>.*?</pre>',
         _protect,
         work,
         flags=re.DOTALL | re.IGNORECASE,
@@ -2390,7 +2411,8 @@ def set_schedule(ctx, file_path, publish_date, now, status):
             if pub_date <= datetime.now(timezone.utc):
                 click.echo("❌ Newsletter schedule date must be in the future")
                 ctx.exit(1)
-            status = 'scheduled'
+            if status != 'draft':
+                status = 'scheduled'
         
         success = scheduler.set_publish_date(file_path, pub_date, status)
         
@@ -3232,17 +3254,10 @@ def generate_agentmap(ctx):
         publishable, content_path, api_dir, safe_slug=is_safe_content_slug
     )
     
-    if products:
-        public_products = public_product_records(products)
-        (api_dir / 'products.json').write_text(json.dumps({
-            'products': public_products,
-            'count': len(public_products),
-            'generated': datetime.now(timezone.utc).isoformat(),
-        }, indent=2))
+    public_products = write_public_products_api(api_dir, products)
     
     click.echo(f"✅ Generated AgentMap with {len(publishable)} content items")
-    if products:
-        click.echo(f"✅ Generated Products API with {len(products)} products")
+    click.echo(f"✅ Generated Products API with {len(public_products)} products")
     click.echo(f"📄 Files: agentmap.json, api/content.json")
 
 @cli.command()
@@ -3724,78 +3739,84 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         redirect_list = redirect_manager.list_all_redirects()
         
         if redirect_list:
-            redirect_manager.write_redirects_file(format='cloudflare')
-            click.echo(f"🔀 Generated {len(redirect_list)} redirect(s) → dist/_redirects")
+            issues = redirect_manager.validate_redirect_chain()
+            if issues:
+                for issue in issues:
+                    build_errors.append(f'redirects: {issue}')
+            else:
+                redirect_manager.write_redirects_file(format='cloudflare')
+                click.echo(f"🔀 Generated {len(redirect_list)} redirect(s) → dist/_redirects")
     except Exception as e:
         click.echo(f"⚠️  Could not generate redirects: {e}")
+        build_errors.append(f'redirects: {e}')
     
-    # Generate product pages (only active products)
+    # Generate product pages. Always emit the PLP so header/cart links do not 404.
     products = []
     try:
         from core.products import ProductAggregator
         
         aggregator = ProductAggregator(config)
-        products = aggregator.get_normalized_products(status_filter='active')
-        
-        if products:
-            click.echo(f"🛒 Generating {len(products)} product page(s)...")
-            
-            template_dir = Path(__file__).parent.parent.parent / 'templates'
-            jinja_env = template_environment(template_dir)
-            
-            products_path = dist_path / 'products'
-            products_path.mkdir(parents=True, exist_ok=True)
-            
-            # Generate PLP
-            products = assign_unique_catalog_slugs(products)
-            plp_template = jinja_env.get_template('products-list.html')
-            plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
-            plp_html = plp_template.render(
-                products=products,
-                site_title=config['site']['title'],
-                lang=config['site'].get('language', 'en'),
-                site_url=config['site']['url'],
-                canonical_url=plp_canonical,
-                jsonld={
-                    '@context': 'https://schema.org',
-                    '@type': 'CollectionPage',
-                    'name': 'Products',
-                    'description': 'Product catalog',
-                    'url': plp_canonical,
-                    'numberOfItems': len(products),
-                },
-                year=datetime.now().year,
-                navigation=config.get('nav', {}).get('main', []),
-                build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
-                build_time_iso=datetime.now().isoformat()
-            )
-            (products_path / 'index.html').write_text(plp_html)
-            
-            # Generate PDPs
-            pdp_template = jinja_env.get_template('product.html')
-            for product in products:
-                # Use 'handle' if 'slug' not present (Shopify uses 'handle')
-                slug = product['_meta'].get('slug') or product['_meta'].get('handle')
-                if not slug:
-                    click.echo(f"⚠️  Skipping product without slug/handle: {product.get('name')}")
-                    continue
-                if not is_safe_content_slug(str(slug)):
-                    click.echo(f"⚠️  Skipping product with unsafe slug/handle: {slug}")
-                    continue
-                
-                pdp_dir = products_path / slug
-                pdp_dir.mkdir(parents=True, exist_ok=True)
-                pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
-                (pdp_dir / 'index.html').write_text(pdp_html)
-                all_content.append({
-                    'url': f'/products/{slug}/',
-                    'title': product.get('name', slug),
-                    'type': 'product',
-                })
-            
-            all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
-            generators.generate_all(dist_path, all_content, all_posts)
-            click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
+        products = assign_unique_catalog_slugs(
+            aggregator.get_normalized_products(status_filter='active') or []
+        )
+        click.echo(f"🛒 Generating {len(products)} product page(s)...")
+    except Exception as e:
+        click.echo(f"⚠️  Could not load products: {e}")
+        products = []
+
+    try:
+        template_dir = Path(__file__).parent.parent.parent / 'templates'
+        jinja_env = template_environment(template_dir)
+
+        products_path = dist_path / 'products'
+        products_path.mkdir(parents=True, exist_ok=True)
+
+        plp_template = jinja_env.get_template('products-list.html')
+        plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
+        plp_html = plp_template.render(
+            products=products,
+            site_title=config['site']['title'],
+            lang=config['site'].get('language', 'en'),
+            site_url=config['site']['url'],
+            canonical_url=plp_canonical,
+            jsonld={
+                '@context': 'https://schema.org',
+                '@type': 'CollectionPage',
+                'name': 'Products',
+                'description': 'Product catalog',
+                'url': plp_canonical,
+                'numberOfItems': len(products),
+            },
+            year=datetime.now().year,
+            navigation=config.get('nav', {}).get('main', []),
+            build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+            build_time_iso=datetime.now().isoformat()
+        )
+        (products_path / 'index.html').write_text(plp_html)
+
+        pdp_template = jinja_env.get_template('product.html')
+        for product in products:
+            slug = product['_meta'].get('slug') or product['_meta'].get('handle')
+            if not slug:
+                click.echo(f"⚠️  Skipping product without slug/handle: {product.get('name')}")
+                continue
+            if not is_safe_content_slug(str(slug)):
+                click.echo(f"⚠️  Skipping product with unsafe slug/handle: {slug}")
+                continue
+
+            pdp_dir = products_path / slug
+            pdp_dir.mkdir(parents=True, exist_ok=True)
+            pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
+            (pdp_dir / 'index.html').write_text(pdp_html)
+            all_content.append({
+                'url': f'/products/{slug}/',
+                'title': product.get('name', slug),
+                'type': 'product',
+            })
+
+        all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
+        generators.generate_all(dist_path, all_content, all_posts)
+        click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
         products = []
@@ -3902,15 +3923,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             publishable_paths, content_path, api_dir, safe_slug=is_safe_content_slug
         )
         
-        # Generate products API
-        if products:
-            public_products = public_product_records(products)
-            products_api = {
-                'products': public_products,
-                'count': len(public_products),
-                'generated': datetime.now(timezone.utc).isoformat()
-            }
-            (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2))
+        write_public_products_api(api_dir, products)
         
         click.echo(f"🤖 Generated AgentMap with {len(publishable_paths)} content items")
     except Exception as e:
@@ -4275,6 +4288,8 @@ def html_sitemap_utilities(dist_path: Path) -> List[Dict[str, str]]:
         utilities.append({'url': '/search/', 'title': 'Search'})
     if (dist_path / 'cart' / 'index.html').is_file():
         utilities.append({'url': '/cart/', 'title': 'Cart'})
+    if (dist_path / 'products' / 'index.html').is_file():
+        utilities.append({'url': '/products/', 'title': 'Products'})
     return utilities
 
 
@@ -4338,6 +4353,7 @@ def discovery_sitemap_entries(
         ('/search/', 'Search', 'search/index.html'),
         ('/cart/', 'Cart', 'cart/index.html'),
         ('/sitemap/', 'Sitemap', 'sitemap/index.html'),
+        ('/products/', 'Products', 'products/index.html'),
     ):
         if dist_path is None or (dist_path / rel).is_file():
             extras.append({'url': url, 'title': title, 'type': 'utility'})
@@ -5782,6 +5798,7 @@ def serve(ctx, port, host):
                 generators = OutputGenerators(config)
                 optimizer = AIOptimizer(config)
                 tag_pages: List[Dict[str, str]] = []
+                rebuild_errors: List[str] = []
                 
                 # Copy public assets
                 if public_path.exists():
@@ -6033,72 +6050,74 @@ def serve(ctx, port, host):
                     redirect_manager = RedirectManager(content_path, dist_path)
                     redirect_list = redirect_manager.list_all_redirects()
                     if redirect_list:
-                        redirect_manager.write_redirects_file(format='cloudflare')
+                        issues = redirect_manager.validate_redirect_chain()
+                        if issues:
+                            for issue in issues:
+                                rebuild_errors.append(f'redirects: {issue}')
+                        else:
+                            redirect_manager.write_redirects_file(format='cloudflare')
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate redirects: {e}")
+                    rebuild_errors.append(f'redirects: {e}')
                 
-                # Generate product pages (only active products)
+                # Always emit the PLP so header/cart links do not 404.
+                products = []
                 try:
                     from core.products import ProductAggregator
                     
                     aggregator = ProductAggregator(config)
-                    products = aggregator.get_normalized_products(status_filter='active') or []
+                    products = assign_unique_catalog_slugs(
+                        aggregator.get_normalized_products(status_filter='active') or []
+                    )
+                    template_dir = Path(__file__).parent.parent.parent / 'templates'
+                    jinja_env = template_environment(template_dir)
                     
-                    if products:
-                        products = assign_unique_catalog_slugs(products)
-                        template_dir = Path(__file__).parent.parent.parent / 'templates'
-                        jinja_env = template_environment(template_dir)
+                    products_path = dist_path / 'products'
+                    products_path.mkdir(parents=True, exist_ok=True)
+                    
+                    plp_template = jinja_env.get_template('products-list.html')
+                    plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
+                    plp_html = plp_template.render(
+                        products=products,
+                        site_title=config['site']['title'],
+                        lang=config['site'].get('language', 'en'),
+                        canonical_url=plp_canonical,
+                        jsonld={
+                            '@context': 'https://schema.org',
+                            '@type': 'CollectionPage',
+                            'name': 'Products',
+                            'description': 'Product catalog',
+                            'url': plp_canonical,
+                            'numberOfItems': len(products),
+                        },
+                        year=datetime.now().year,
+                        navigation=config.get('nav', {}).get('main', []),
+                        build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                        build_time_iso=datetime.now().isoformat()
+                    )
+                    if '</body>' in plp_html:
+                        plp_html = plp_html.replace('</body>', live_reload_script + '</body>')
+                    (products_path / 'index.html').write_text(plp_html)
+                    
+                    pdp_template = jinja_env.get_template('product.html')
+                    for product in products:
+                        slug = product['_meta'].get('slug') or product['_meta'].get('handle')
+                        if not slug or not is_safe_content_slug(str(slug)):
+                            continue
                         
-                        products_path = dist_path / 'products'
-                        products_path.mkdir(parents=True, exist_ok=True)
-                        
-                        # Generate PLP
-                        plp_template = jinja_env.get_template('products-list.html')
-                        plp_canonical = f"{str(config['site']['url']).rstrip('/')}/products/"
-                        plp_html = plp_template.render(
-                            products=products,
-                            site_title=config['site']['title'],
-                            lang=config['site'].get('language', 'en'),
-                            canonical_url=plp_canonical,
-                            jsonld={
-                                '@context': 'https://schema.org',
-                                '@type': 'CollectionPage',
-                                'name': 'Products',
-                                'description': 'Product catalog',
-                                'url': plp_canonical,
-                                'numberOfItems': len(products),
-                            },
-                            year=datetime.now().year,
-                            navigation=config.get('nav', {}).get('main', []),
-                            build_time=datetime.now().strftime('%Y-%m-%d %H:%M'),
-                            build_time_iso=datetime.now().isoformat()
-                        )
-                        # Inject live reload
-                        if '</body>' in plp_html:
-                            plp_html = plp_html.replace('</body>', live_reload_script + '</body>')
-                        (products_path / 'index.html').write_text(plp_html)
-                        
-                        # Generate PDPs
-                        pdp_template = jinja_env.get_template('product.html')
-                        for product in products:
-                            slug = product['_meta'].get('slug') or product['_meta'].get('handle')
-                            if not slug or not is_safe_content_slug(str(slug)):
-                                continue
-                            
-                            pdp_dir = products_path / slug
-                            pdp_dir.mkdir(parents=True, exist_ok=True)
-                            pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
-                            # Inject live reload
-                            if '</body>' in pdp_html:
-                                pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
-                            (pdp_dir / 'index.html').write_text(pdp_html)
-                            all_content.append({
-                                'url': f'/products/{slug}/',
-                                'title': product.get('name', slug),
-                                'type': 'product',
-                            })
-                        all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
-                        generators.generate_all(dist_path, all_content, all_posts)
+                        pdp_dir = products_path / slug
+                        pdp_dir.mkdir(parents=True, exist_ok=True)
+                        pdp_html = pdp_template.render(**build_pdp_context(product, config, slug))
+                        if '</body>' in pdp_html:
+                            pdp_html = pdp_html.replace('</body>', live_reload_script + '</body>')
+                        (pdp_dir / 'index.html').write_text(pdp_html)
+                        all_content.append({
+                            'url': f'/products/{slug}/',
+                            'title': product.get('name', slug),
+                            'type': 'product',
+                        })
+                    all_content.append({'url': '/products/', 'title': 'Products', 'type': 'list'})
+                    generators.generate_all(dist_path, all_content, all_posts)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate product pages: {e}")
                     products = []
@@ -6148,6 +6167,7 @@ def serve(ctx, port, host):
                     search_page.write_text(search_html)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate search index: {e}")
+                    rebuild_errors.append(f'search: {e}')
 
                 try:
                     write_html_sitemap(
@@ -6179,7 +6199,7 @@ def serve(ctx, port, host):
                     ]
                     site_url = config.get('site', {}).get('url', 'https://example.com')
                     generator = AgentMapGenerator(config, site_url)
-                    agentmap = generator.generate(publishable_paths, products if products else None)
+                    agentmap = generator.generate(publishable_paths, products)
                     (dist_path / 'agentmap.json').write_text(json.dumps(agentmap, indent=2))
 
                     api_dir = dist_path / 'api'
@@ -6190,20 +6210,19 @@ def serve(ctx, port, host):
                     api_generator.write_content_apis(
                         publishable_paths, content_path, api_dir, safe_slug=is_safe_content_slug
                     )
-                    if products:
-                        public_products = public_product_records(products)
-                        (api_dir / 'products.json').write_text(json.dumps({
-                            'products': public_products,
-                            'count': len(public_products),
-                            'generated': datetime.now(timezone.utc).isoformat(),
-                        }, indent=2))
+                    write_public_products_api(api_dir, products)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate AgentMap: {e}")
+                    rebuild_errors.append(f'AgentMap: {e}')
 
                 try:
                     minify_dist(dist_path)
                 except Exception as e:
                     click.echo(f"⚠️  Could not minify assets: {e}")
+                    rebuild_errors.append(f'minify: {e}')
+
+                if rebuild_errors:
+                    raise RuntimeError('; '.join(rebuild_errors))
                 
                 click.echo("✅ Build complete!")
                 if previous and previous.exists():
