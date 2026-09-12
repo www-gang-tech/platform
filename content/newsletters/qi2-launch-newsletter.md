@@ -1,6 +1,7 @@
 ---
 canonical_url: https://example.com/posts/qi2-launch/
 date: '2025-10-12'
+status: sent
 esp_provider: klaviyo
 jsonld: {}
 newsletter_id: qi2-launch

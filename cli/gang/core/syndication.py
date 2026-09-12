@@ -64,6 +64,8 @@ class ContentSyndicator:
             return {'error': 'Invalid frontmatter'}
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return {'error': 'Invalid frontmatter'}
         body = parts[2]
         
         # Check if already syndicated
@@ -75,7 +77,12 @@ class ContentSyndicator:
         
         # Build canonical URL
         slug = file_path.stem
-        canonical = f"{self.canonical_url}/posts/{slug}/"
+        category = file_path.parent.name
+        if category == 'articles':
+            category = 'posts'
+        elif category not in ('posts', 'projects', 'pages', 'people', 'newsletters'):
+            category = 'posts'
+        canonical = f"{str(self.canonical_url or '').rstrip('/')}/{category}/{slug}/"
         
         results = {}
         
@@ -318,6 +325,8 @@ class ContentSyndicator:
             return False
         
         frontmatter = yaml.safe_load(parts[1]) or {}
+        if not isinstance(frontmatter, dict):
+            return False
         body = parts[2]
         
         # Add syndication URLs

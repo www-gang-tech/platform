@@ -11,17 +11,32 @@ jobs:
         with: { node-version: 20 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: npm ci || true
-      - run: pip install -e ./cli/gang || true
-      - name: Build & audit
+      - name: Install Node dependencies
         run: |
-          gang optimize
-          gang image
+          if [ -f package.json ]; then
+            npm ci
+          else
+            echo "No package.json; skipping npm ci"
+          fi
+      - run: pip install -r requirements.txt
+      - run: pip install -e ./cli/gang
+      - name: Build & audit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            gang optimize
+          else
+            echo "Skipping gang optimize (ANTHROPIC_API_KEY not set)"
+          fi
+          gang image public --check-alt
           gang build
           gang check
+          gang check-contracts
           gang audit
       - name: Answerability report
-        run: gang report --answerability --out reports
+        run: gang report --answerability --format html
       - name: CrUX snapshot
         run: node scripts/crux_snapshot.js
         env:
