@@ -478,6 +478,36 @@
         let currentFile = null;
         let editor = null;
         let validationPassed = false;
+        let preservedFrontmatter = null;
+
+        function splitFrontmatter(markdown) {
+            const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+            if (!match) {
+                return { frontmatter: null, body: markdown || '' };
+            }
+            return { frontmatter: match[1], body: match[2] };
+        }
+
+        function joinFrontmatter(frontmatter, body) {
+            if (frontmatter == null) {
+                return body;
+            }
+            return `---\n${frontmatter}\n---\n${body || ''}`;
+        }
+
+        function publicContentUrl(category, slug) {
+            const publicCategory = category === 'articles' ? 'posts' : category;
+            return `/${publicCategory}/${slug}/`;
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         
         // Initialize Toast UI Editor
         function initEditor() {
@@ -535,34 +565,44 @@
                     const item = document.createElement('div');
                     item.className = 'content-item';
                     item.innerHTML = `
-                        <div class="content-item-name">${file.name}</div>
-                        <div class="content-item-type">${file.type}</div>
+                        <div class="content-item-name">${escapeHtml(file.name)}</div>
+                        <div class="content-item-type">${escapeHtml(file.type)}</div>
                     `;
-                    item.onclick = () => loadFile(file.path);
+                    item.onclick = (event) => loadFile(file.path, event);
                     listEl.appendChild(item);
                 });
             } catch (e) {
                 console.error('Failed to load content list:', e);
-                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
+                listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${escapeHtml(e.message)}<br><br>Check browser console for details</div>`;
             }
         }
         
         // Load specific file
-        async function loadFile(path) {
+        async function loadFile(path, event) {
             if (!editor) return;
             
             try {
                 const response = await fetch(`/api/content/${path}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 const content = await response.text();
                 
                 currentFile = path;
-                editor.setMarkdown(content);
+                const split = splitFrontmatter(content);
+                preservedFrontmatter = split.frontmatter;
+                editor.setMarkdown(split.body);
                 
                 // Update active state
                 document.querySelectorAll('.content-item').forEach(item => {
                     item.classList.remove('active');
                 });
-                event.target.closest('.content-item').classList.add('active');
+                const clicked = event && event.target && event.target.closest
+                    ? event.target.closest('.content-item')
+                    : null;
+                if (clicked) {
+                    clicked.classList.add('active');
+                }
                 
                 // Enable rename button when a file is loaded
                 document.getElementById('renameSlugBtn').disabled = false;
@@ -611,7 +651,10 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ content: markdown })
+                    body: JSON.stringify({
+                        content: markdown,
+                        category: (currentFile || '').split('/')[0] || ''
+                    })
                 });
                 
                 const result = await response.json();
@@ -643,9 +686,11 @@
                     <div style="background: #f0f9f0; border: 1px solid #4caf50; padding: 1rem; border-radius: 4px;">
                         <strong>Found ${result.headings.length} heading(s):</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.headings.map(([level, text]) => 
-                                `<li>h${level}: ${text}</li>`
-                            ).join('')}
+                            ${result.headings.map((heading) => {
+                                const level = heading.level != null ? heading.level : heading[0];
+                                const text = heading.text != null ? heading.text : heading[1];
+                                return `<li>h${escapeHtml(level)}: ${escapeHtml(text)}</li>`;
+                            }).join('')}
                         </ul>
                     </div>
                 `;
@@ -659,14 +704,14 @@
                     <div style="background: #ffebee; border: 1px solid #ef5350; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                         <strong>Errors:</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.errors.map(error => `<li>${error}</li>`).join('')}
+                            ${result.errors.map(error => `<li>${escapeHtml(error)}</li>`).join('')}
                         </ul>
                     </div>
                     ${result.suggestions && result.suggestions.length > 0 ? `
                         <div style="background: #fff3e0; border: 1px solid #ff9800; padding: 1rem; border-radius: 4px;">
                             <strong>How to fix:</strong>
                             <ul style="margin-top: 0.5rem;">
-                                ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+                                ${result.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
                             </ul>
                         </div>
                     ` : ''}
@@ -715,7 +760,7 @@
             }
             
             try {
-                const markdown = editor.getMarkdown();
+                const markdown = joinFrontmatter(preservedFrontmatter, editor.getMarkdown());
                 
                 const response = await fetch(`/api/content/${currentFile}`, {
                     method: 'PUT',
@@ -825,8 +870,8 @@
                         html += `
                             <div class="redirect-item">
                                 <div class="redirect-info">
-                                    <div style="font-weight: 500;">${p.name}</div>
-                                    <div class="redirect-from">${currency} ${price} · ${p._meta.source}</div>
+                                    <div style="font-weight: 500;">${escapeHtml(p.name)}</div>
+                                    <div class="redirect-from">${escapeHtml(currency)} ${escapeHtml(price)} · ${escapeHtml(p._meta && p._meta.source)}</div>
                                 </div>
                             </div>
                         `;
@@ -866,8 +911,8 @@
                 const redirectPreview = document.getElementById('redirectPreview');
                 
                 if (newSlug && createRedirect) {
-                    const oldUrl = `/${category}/${slug}/`;
-                    const newUrl = `/${category}/${newSlug}/`;
+                    const oldUrl = publicContentUrl(category, slug);
+                    const newUrl = publicContentUrl(category, newSlug);
                     redirectPreview.textContent = `${oldUrl} → ${newUrl}`;
                     redirectInfo.style.display = 'block';
                 } else {
@@ -973,12 +1018,17 @@
                 listEl.innerHTML = redirects.map(r => `
                     <div class="redirect-item">
                         <div class="redirect-info">
-                            <div class="redirect-from">${r.from}</div>
-                            <div class="redirect-to">→ ${r.to}</div>
+                            <div class="redirect-from">${escapeHtml(r.from)}</div>
+                            <div class="redirect-to">→ ${escapeHtml(r.to)}</div>
                         </div>
-                        <button class="redirect-delete" onclick="deleteRedirect('${r.from}')">Delete</button>
+                        <button class="redirect-delete" data-from="${escapeHtml(r.from)}">Delete</button>
                     </div>
                 `).join('');
+                listEl.querySelectorAll('.redirect-delete').forEach(function(button) {
+                    button.addEventListener('click', function() {
+                        deleteRedirect(button.getAttribute('data-from'));
+                    });
+                });
             } catch (e) {
                 console.error('Failed to load redirects:', e);
                 document.getElementById('redirectsList').innerHTML = '<p style="color: #ff6b6b;">Failed to load redirects</p>';

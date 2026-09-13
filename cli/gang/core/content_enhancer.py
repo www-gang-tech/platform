@@ -5,7 +5,7 @@ Reading time, freshness checker, code highlighting, summarization.
 
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 import os
 
@@ -131,8 +131,12 @@ class ContentFreshnessChecker:
                         'message': 'Invalid date format'
                     }
         
-        # Calculate age
-        now = datetime.now()
+        # Calculate age (normalize naive/aware so ISO dates with offsets do not crash)
+        now = datetime.now(timezone.utc)
+        if getattr(last_updated, 'tzinfo', None) is None:
+            last_updated = last_updated.replace(tzinfo=timezone.utc)
+        else:
+            last_updated = last_updated.astimezone(timezone.utc)
         age = now - last_updated
         
         # Detect content type

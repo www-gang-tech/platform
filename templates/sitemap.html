@@ -3,11 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:;">
     
     <title>Sitemap - {{ site_title }}</title>
     <meta name="description" content="Complete sitemap of all pages, posts, projects, and products">
     <link rel="canonical" href="{{ site_url }}/sitemap/">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson_script }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -30,7 +35,7 @@
             <h2>Pages</h2>
             <ul class="unstyled">
                 {% for page in pages %}
-                <li><a href="{{ page.url }}">{{ page.title }}</a></li>
+                <li><a href="{{ page.url|safe_url }}">{{ page.title }}</a></li>
                 {% endfor %}
             </ul>
         </section>
@@ -42,7 +47,7 @@
             <ul class="unstyled">
                 {% for post in posts %}
                 <li>
-                    <a href="{{ post.url }}">{{ post.title }}</a>
+                    <a href="{{ post.url|safe_url }}">{{ post.title }}</a>
                     {% if post.date %}<span style="color: var(--color-muted); font-size: 0.9rem;"> · {{ post.date }}</span>{% endif %}
                 </li>
                 {% endfor %}
@@ -55,7 +60,7 @@
             <h2>Projects</h2>
             <ul class="unstyled">
                 {% for project in projects %}
-                <li><a href="{{ project.url }}">{{ project.title }}</a></li>
+                <li><a href="{{ project.url|safe_url }}">{{ project.title }}</a></li>
                 {% endfor %}
             </ul>
         </section>
@@ -66,7 +71,51 @@
             <h2>Products</h2>
             <ul class="unstyled">
                 {% for product in products %}
-                <li><a href="/products/{{ product._meta.slug or product._meta.handle }}/">{{ product.name }}</a></li>
+                <li><a href="{{ ('/products/' ~ (product._meta.slug or product._meta.handle) ~ '/')|safe_url }}">{{ product.name }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+        
+        {% if newsletters %}
+        <section style="margin-top: 2rem;">
+            <h2>Newsletters</h2>
+            <ul class="unstyled">
+                {% for issue in newsletters %}
+                <li><a href="{{ issue.url|safe_url }}">{{ issue.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+        
+        {% if people %}
+        <section style="margin-top: 2rem;">
+            <h2>People</h2>
+            <ul class="unstyled">
+                {% for person in people %}
+                <li><a href="{{ person.url|safe_url }}">{{ person.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
+        {% if tags %}
+        <section style="margin-top: 2rem;">
+            <h2>Tags</h2>
+            <ul class="unstyled">
+                {% for tag in tags %}
+                <li><a href="{{ tag.url|safe_url }}">{{ tag.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
+        {% if utilities %}
+        <section style="margin-top: 2rem;">
+            <h2>Utilities</h2>
+            <ul class="unstyled">
+                {% for page in utilities %}
+                <li><a href="{{ page.url|safe_url }}">{{ page.title }}</a></li>
                 {% endfor %}
             </ul>
         </section>
