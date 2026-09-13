@@ -494,8 +494,20 @@ class KlaviyoTemplateGenerator:
         items_html = ""
         total = 0
         
-        for item in cart_items:
-            item_total = float(item['price']) * int(item['quantity'])
+        for item in cart_items or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                price = float(item.get('price') or 0)
+            except (TypeError, ValueError):
+                price = 0.0
+            try:
+                quantity = int(item.get('quantity') or 1)
+            except (TypeError, ValueError):
+                quantity = 1
+            if quantity < 1:
+                quantity = 1
+            item_total = price * quantity
             total += item_total
             
             items_html += f"""

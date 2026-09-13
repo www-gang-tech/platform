@@ -301,7 +301,37 @@ class InPlaceEditor {
             try {
                 const url = new URL(trimmed);
                 if (url.username) return false;
-                return url.protocol === 'https:' || url.protocol === 'http:';
+                if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+                const host = String(url.hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+                if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::' || host === '::1') {
+                    return false;
+                }
+                if (/\.(localhost|local|internal|lan)$/.test(host)) return false;
+                const dotted = host.split('.');
+                const decimalOctet = function(part) {
+                    return /^\d+$/.test(part) && !(part.length > 1 && part.charAt(0) === '0');
+                };
+                if (/^\d+(\.\d+){1,3}$/.test(host)) {
+                    if (!dotted.every(decimalOctet)) return false;
+                    const nums = dotted.map(Number);
+                    if (nums.some(function(n) { return n > 255; })) return false;
+                    while (nums.length < 4) nums.push(0);
+                    if (nums[0] === 0 || nums[0] === 10 || nums[0] === 127) return false;
+                    if (nums[0] === 192 && nums[1] === 168) return false;
+                    if (nums[0] === 172 && nums[1] >= 16 && nums[1] <= 31) return false;
+                    if (nums[0] === 169 && nums[1] === 254) return false;
+                } else if (/^\d+$/.test(host)) {
+                    if (!decimalOctet(host)) return false;
+                    const value = Number(host);
+                    if (value < 0 || value > 0xffffffff) return false;
+                    const a = (value >>> 24) & 255;
+                    const b = (value >>> 16) & 255;
+                    if (a === 0 || a === 10 || a === 127) return false;
+                    if (a === 192 && b === 168) return false;
+                    if (a === 172 && b >= 16 && b <= 31) return false;
+                    if (a === 169 && b === 254) return false;
+                }
+                return true;
             } catch (err) {
                 return false;
             }

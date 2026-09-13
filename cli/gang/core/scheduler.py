@@ -9,10 +9,6 @@ from typing import Any, Dict, List, Optional
 import re
 import yaml
 
-_PLACEHOLDER_CAMPAIGN_IDS = {
-    '0', 'false', 'true', 'none', 'null', 'pending', 'tbd', 'n/a', 'na',
-}
-
 
 def strip_frontmatter_prefix(content: str) -> str:
     """Drop UTF-8 BOM and leading whitespace so ``---`` frontmatter is still found."""
@@ -128,37 +124,32 @@ def resolve_schedule_status(frontmatter: Dict[str, Any], *, newsletter: bool) ->
 
 
 def _is_newsletter_receipt_value(name: str, value: Any) -> bool:
-    """True when one receipt field looks like a real ESP send record."""
+    """True when a send timestamp is parseable and not in the future.
+
+    ``campaign_id`` alone is not a receipt — any non-placeholder string would
+    let spoofed ``status: sent`` publish. Real sends always write ``sent_at``.
+    """
     value = _unwrap_schedule_value(value)
     if _absent_schedule_date(value):
         return False
-    if isinstance(value, (list, tuple, dict, set)):
+    if isinstance(value, (list, tuple, dict, set, bool)):
         return False
-    if name in ('sent_at', 'sent_date'):
-        if isinstance(value, bool):
-            return False
-        try:
-            parse_schedule_datetime(value)
-            return True
-        except (ValueError, TypeError):
-            return False
-    if isinstance(value, bool):
+    if name not in ('sent_at', 'sent_date'):
         return False
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        token = value.strip()
-        if not token or token.lower() in _PLACEHOLDER_CAMPAIGN_IDS:
-            return False
-        return True
-    return False
+    try:
+        parsed = parse_schedule_datetime(value)
+    except (ValueError, TypeError):
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed <= datetime.now(timezone.utc)
 
 
 def newsletter_send_receipt(frontmatter: Dict[str, Any]) -> bool:
-    """True when frontmatter has evidence of a real campaign send."""
+    """True when frontmatter has a parseable past-or-now send timestamp."""
     if not isinstance(frontmatter, dict):
         return False
-    for name in ('sent_at', 'sent_date', 'campaign_id'):
+    for name in ('sent_at', 'sent_date'):
         for value in frontmatter_values(frontmatter, name):
             if _is_newsletter_receipt_value(name, value):
                 return True
@@ -347,7 +338,7 @@ class ContentScheduler:
                     'status': 'draft',
                     'publish_date': None,
                     'title': frontmatter.get('title', file_path.stem),
-                    'error': 'status=sent requires sent_at, sent_date, or campaign_id',
+                    'error': 'status=sent requires a parseable sent_at or sent_date',
                 })
                 continue
             
@@ -381,6 +372,20 @@ class ContentScheduler:
                 publish_date = _parse_first_schedule_date(
                     *raw_publish_values, *raw_alias_values, *raw_date_values
                 )
+                # Implicit publish + a garbage/multi-value schedule field must
+                # not fall through to a leftover authored date.
+                if implicit_status and has_unparseable_schedule_date(
+                    *raw_publish_values, *raw_alias_values, *raw_date_values
+                ):
+                    draft.append({
+                        'path': file_path,
+                        'status': 'draft',
+                        'publish_date': None,
+                        'title': frontmatter.get('title', file_path.stem),
+                        '_date_error': True,
+                        'error': 'invalid publish_date',
+                    })
+                    continue
             date_present = any(
                 not _absent_schedule_date(value)
                 for value in (

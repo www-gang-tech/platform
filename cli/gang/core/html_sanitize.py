@@ -33,9 +33,16 @@ def _href_has_dotdot(path: str) -> bool:
     return any(segment == '..' or segment.startswith('..') for segment in path.split('/'))
 
 
+def _ipv4_part_is_decimal(part: str) -> bool:
+    """Reject leading-zero octets so browsers cannot treat them as octal."""
+    return bool(part) and part.isdigit() and not (len(part) > 1 and part.startswith('0'))
+
+
 def _coerce_ipv4(host: str) -> Optional[str]:
     """Expand decimal and short IPv4 forms browsers accept (``127.1``, ``2130706433``)."""
     if re.fullmatch(r'\d+', host):
+        if not _ipv4_part_is_decimal(host):
+            return None
         try:
             value = int(host)
             if 0 <= value <= 0xFFFFFFFF:
@@ -43,9 +50,12 @@ def _coerce_ipv4(host: str) -> Optional[str]:
         except (ValueError, OverflowError):
             return None
         return None
-    if not re.fullmatch(r'\d{1,3}(\.\d{1,3}){1,3}', host):
+    if not re.fullmatch(r'\d+(\.\d+){1,3}', host):
         return None
-    parts = [int(part) for part in host.split('.')]
+    raw_parts = host.split('.')
+    if not all(_ipv4_part_is_decimal(part) for part in raw_parts):
+        return None
+    parts = [int(part) for part in raw_parts]
     if any(part > 255 for part in parts):
         return None
     if len(parts) == 2:
@@ -62,7 +72,12 @@ def _is_public_http_host(host: str) -> bool:
         return False
     if host.endswith(('.localhost', '.local', '.internal', '.lan')):
         return False
-    candidate = _coerce_ipv4(host) or host
+    numeric = bool(re.fullmatch(r'\d+(\.\d+){0,3}', host))
+    candidate = _coerce_ipv4(host)
+    if numeric and not candidate:
+        # Leading-zero / octal / junk dotted quads are not public hostnames.
+        return False
+    candidate = candidate or host
     try:
         ip = ipaddress.ip_address(candidate)
     except ValueError:

@@ -96,27 +96,35 @@ def variant_axes(offer: Any) -> Tuple[str, str]:
     option2 = str(offer.get('option2') or '').strip()
     name = str(offer.get('name') or offer.get('title') or '').strip()
 
-    if '/' in name:
+    usable_option1 = option1 if option1.lower() not in DEFAULT_VARIANT_TITLES else ''
+    usable_option2 = option2 if option2.lower() not in DEFAULT_VARIANT_TITLES else ''
+    # Prefer canonical Shopify options over slash-split titles so mixed
+    # option/title catalogs cannot collapse two variants onto one tuple.
+    if usable_option1 or usable_option2:
+        if usable_option2:
+            if not color:
+                color = usable_option1
+            if not size:
+                size = usable_option2
+        elif is_size_like(usable_option1):
+            if not size:
+                size = usable_option1
+        elif not color:
+            color = usable_option1
+    elif '/' in name:
         parts = [part.strip() for part in name.split('/') if part.strip()]
         if not color and parts:
             color = parts[0]
         if not size and len(parts) > 1:
             size = parts[1]
     else:
-        usable_option1 = option1 if option1.lower() not in DEFAULT_VARIANT_TITLES else ''
         usable_name = name if name.lower() not in DEFAULT_VARIANT_TITLES else ''
-        axis = usable_option1 or usable_name
-        if option2:
-            if not color:
-                color = axis
-            if not size:
-                size = option2
-        elif axis:
-            if is_size_like(axis):
+        if usable_name:
+            if is_size_like(usable_name):
                 if not size:
-                    size = axis
+                    size = usable_name
             elif not color:
-                color = axis
+                color = usable_name
 
     if color.lower() in DEFAULT_VARIANT_TITLES:
         color = ''
@@ -3819,7 +3827,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
     except Exception as e:
         click.echo(f"⚠️  Could not generate product pages: {e}")
-        products = []
+        build_errors.append(f'products: {e}')
     
     # Always emit cart (footer links to /cart/ even with an empty catalog)
     try:
@@ -3852,6 +3860,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("🛒 Generated cart page")
     except Exception as e:
         click.echo(f"⚠️  Could not generate cart: {e}")
+        build_errors.append(f'cart: {e}')
     
     # Generate search index from the same publishable set the build rendered
     try:
@@ -3888,6 +3897,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("🗺️  Generated HTML sitemap")
     except Exception as e:
         click.echo(f"⚠️  Could not generate sitemap: {e}")
+        build_errors.append(f'sitemap: {e}')
 
     merge_sitemap_entries(
         all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
@@ -6069,6 +6079,11 @@ def serve(ctx, port, host):
                     products = assign_unique_catalog_slugs(
                         aggregator.get_normalized_products(status_filter='active') or []
                     )
+                except Exception as e:
+                    click.echo(f"⚠️  Could not load products: {e}")
+                    products = []
+
+                try:
                     template_dir = Path(__file__).parent.parent.parent / 'templates'
                     jinja_env = template_environment(template_dir)
                     
@@ -6120,7 +6135,7 @@ def serve(ctx, port, host):
                     generators.generate_all(dist_path, all_content, all_posts)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate product pages: {e}")
-                    products = []
+                    rebuild_errors.append(f'products: {e}')
 
                 try:
                     template_dir = Path(__file__).parent.parent.parent / 'templates'
@@ -6152,6 +6167,7 @@ def serve(ctx, port, host):
                     (cart_dir / 'index.html').write_text(cart_html)
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate cart: {e}")
+                    rebuild_errors.append(f'cart: {e}')
 
                 try:
                     from core.search import SearchIndexer
@@ -6184,6 +6200,7 @@ def serve(ctx, port, host):
                     )
                 except Exception as e:
                     click.echo(f"⚠️  Could not generate sitemap: {e}")
+                    rebuild_errors.append(f'sitemap: {e}')
 
                 merge_sitemap_entries(
                     all_content, discovery_sitemap_entries(tag_pages, dist_path=dist_path)
@@ -6227,6 +6244,7 @@ def serve(ctx, port, host):
                 click.echo("✅ Build complete!")
                 if previous and previous.exists():
                     shutil.rmtree(previous, ignore_errors=True)
+                return True
                 
             except Exception as e:
                 click.echo(f"❌ Build error: {e}", err=True)
@@ -6241,6 +6259,7 @@ def serve(ctx, port, host):
                     # First rebuild has no prior tree to restore; drop the
                     # partial dist so the dev server cannot serve a half-build.
                     shutil.rmtree(dist_path, ignore_errors=True)
+                return False
         
         def notify_reload():
             """Notify all connected clients to reload"""
@@ -6311,7 +6330,9 @@ def serve(ctx, port, host):
         
         # Initial build
         click.echo("🔨 Initial build...")
-        rebuild_site(ctx)
+        if not rebuild_site(ctx):
+            click.echo("❌ Initial build failed", err=True)
+            ctx.exit(1)
         
         # Start file watcher
         observer = Observer()
