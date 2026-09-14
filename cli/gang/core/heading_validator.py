@@ -17,7 +17,7 @@ class HeadingValidator:
     def __init__(self):
         self.md = markdown.Markdown()
     
-    def validate_markdown(self, content: str) -> Dict[str, any]:
+    def validate_markdown(self, content: str, template_owns_h1: bool = False) -> Dict[str, any]:
         """
         Validate heading order in markdown content
         
@@ -60,7 +60,7 @@ class HeadingValidator:
             return result
         
         # Validate heading order
-        errors = self._validate_heading_sequence(headings)
+        errors = self._validate_heading_sequence(headings, require_h1=not template_owns_h1)
         
         if errors:
             result['valid'] = False
@@ -112,7 +112,11 @@ class HeadingValidator:
         
         return result
     
-    def _validate_heading_sequence(self, headings: List[Tuple[int, str, Optional[int]]]) -> List[str]:
+    def _validate_heading_sequence(
+        self,
+        headings: List[Tuple[int, str, Optional[int]]],
+        require_h1: bool = True,
+    ) -> List[str]:
         """
         Check if headings are in sequential order (no skips)
         
@@ -126,7 +130,7 @@ class HeadingValidator:
         
         # Check for multiple h1s
         h1_count = sum(1 for level, _, _ in headings if level == 1)
-        if h1_count == 0:
+        if h1_count == 0 and require_h1:
             errors.append("Missing h1 heading. Every page should have exactly one h1.")
         elif h1_count > 1:
             h1_headings = [f"'{text}' (line {line})" if line else f"'{text}'" 

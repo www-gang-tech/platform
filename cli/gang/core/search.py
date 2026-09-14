@@ -4,10 +4,11 @@ Generate search index and provide search functionality.
 """
 
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List, Optional
+import html as html_module
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import yaml
 
 
@@ -25,24 +26,55 @@ class SearchIndexer:
         """
         index = {
             'version': '1.0',
-            'generated': datetime.now().isoformat(),
+            'generated': datetime.now(timezone.utc).isoformat(),
             'documents': []
         }
         
         for file_path in content_files:
-            try:
-                doc = self._index_file(file_path)
-                if doc:
-                    index['documents'].append(doc)
-            except Exception as e:
-                # Skip files that can't be indexed
-                continue
+            doc = self._index_file(file_path)
+            if doc:
+                index['documents'].append(doc)
         
         return index
+
+    def add_product_documents(self, index: Dict[str, Any], products: List[Any]) -> None:
+        """Index catalog PDPs so /search/ can find products, not only markdown."""
+        if not isinstance(index, dict):
+            return
+        docs = index.setdefault('documents', [])
+        for product in products or []:
+            if not isinstance(product, dict):
+                continue
+            meta = product.get('_meta') if isinstance(product.get('_meta'), dict) else {}
+            slug = str(meta.get('slug') or meta.get('handle') or '').strip()
+            if not slug or '..' in slug or '/' in slug or '\\' in slug:
+                continue
+            if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', slug):
+                continue
+            title = str(product.get('name') or slug)
+            description = str(product.get('description') or '')[:200]
+            docs.append({
+                'id': f'products/{slug}',
+                'title': title,
+                'description': description,
+                'url': f'/products/{slug}/',
+                'category': 'products',
+                'tags': [],
+                'content': description,
+                'searchable': f'{title} {title} {description}'.lower(),
+                'date': '',
+            })
     
-    def _index_file(self, file_path: Path) -> Dict[str, Any]:
+    def _index_file(self, file_path: Path) -> Optional[Dict[str, Any]]:
         """Index a single markdown file"""
-        content = file_path.read_text()
+        slug = file_path.stem
+        if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', slug) or '..' in slug:
+            return None
+        try:
+            from core.scheduler import strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import strip_frontmatter_prefix
+        content = strip_frontmatter_prefix(file_path.read_text())
         
         # Parse frontmatter
         frontmatter = {}
@@ -50,31 +82,40 @@ class SearchIndexer:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            if len(parts) >= 3:
-                try:
-                    frontmatter = yaml.safe_load(parts[1]) or {}
-                    body = parts[2]
-                except:
-                    pass
+            if len(parts) < 3:
+                raise RuntimeError(f'Search index failed for {file_path}: truncated frontmatter')
+            try:
+                frontmatter = yaml.safe_load(parts[1]) or {}
+                body = parts[2]
+            except Exception as e:
+                raise RuntimeError(f'Search index failed for {file_path}: {e}') from e
         
-        # Extract metadata
-        title = frontmatter.get('title', file_path.stem.replace('-', ' ').title())
-        description = frontmatter.get('description') or frontmatter.get('summary', '')
+        if not isinstance(frontmatter, dict):
+            raise RuntimeError(f'Search index failed for {file_path}: frontmatter must be a mapping')
+        
+        def _json_safe(value):
+            if value is None:
+                return ''
+            if hasattr(value, 'isoformat'):
+                return value.isoformat()
+            return str(value)
+        
+        title = _json_safe(frontmatter.get('title') or file_path.stem.replace('-', ' ').title())
+        description = frontmatter.get('description') or frontmatter.get('summary') or ''
+        description = _json_safe(description)
         tags = frontmatter.get('tags', [])
+        if isinstance(tags, str):
+            tags = [tags]
+        elif not isinstance(tags, (list, tuple)):
+            tags = [str(tags)] if tags else []
+        else:
+            tags = [str(tag) for tag in tags]
         category = file_path.parent.name
         
-        # Generate URL
+        # Generate URL — articles publish under /posts/ to match gang build
         slug = file_path.stem
-        if category == 'posts':
-            url = f"/posts/{slug}/"
-        elif category == 'projects':
-            url = f"/projects/{slug}/"
-        elif category == 'pages':
-            url = f"/pages/{slug}/"
-        elif category == 'people':
-            url = f"/people/{slug}/"
-        else:
-            url = f"/{category}/{slug}/"
+        public_category = 'posts' if category == 'articles' else category
+        url = f"/{public_category}/{slug}/"
         
         # Clean body text (remove markdown syntax)
         clean_text = self._clean_markdown(body)
@@ -92,11 +133,16 @@ class SearchIndexer:
             'title': title,
             'description': description,
             'url': url,
-            'category': category,
+            'category': public_category,
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': frontmatter.get('date', ''),
+            'date': _json_safe(
+                frontmatter.get('date')
+                or frontmatter.get('publish_date')
+                or frontmatter.get('sent_date')
+                or ''
+            ),
         }
     
     def _clean_markdown(self, text: str) -> str:
@@ -128,14 +174,32 @@ class SearchIndexer:
         
         return text.strip()
     
-    def generate_search_page_html(self) -> str:
+    def generate_search_page_html(self, config: Dict[str, Any] = None, templates_path=None) -> str:
         """Generate a standalone search page HTML"""
-        return '''<!DOCTYPE html>
-<html lang="en">
+        site = (config or {}).get('site') or {}
+        site_title = site.get('title', 'GANG')
+        site_url = str(site.get('url', '')).rstrip('/')
+        lang = site.get('language', 'en')
+        description = site.get('description', 'Search the site')
+        jsonld = json.dumps({
+            '@context': 'https://schema.org',
+            '@type': 'WebPage',
+            'name': 'Search',
+            'description': description,
+            'url': f'{site_url}/search/',
+        }, indent=2).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+        html = '''<!DOCTYPE html>
+<html lang="__LANG__">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Search</title>
+    <title>Search - __SITE_TITLE__</title>
+    <meta name="description" content="__DESCRIPTION__">
+    <link rel="canonical" href="__SITE_URL__/search/">
+    <script type="application/ld+json">
+__JSONLD__
+    </script>
+    <link rel="stylesheet" href="/assets/style.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -226,7 +290,16 @@ class SearchIndexer:
     </style>
 </head>
 <body>
-    <h1>🔍 Search</h1>
+    <header>
+        <a href="/"><strong>__SITE_TITLE__</strong></a>
+        <nav aria-label="Main">
+            <a href="/">Home</a>
+            <a href="/posts/">Posts</a>
+            <a href="/search/">Search</a>
+        </nav>
+    </header>
+    <main>
+    <h1>Search</h1>
     
     <div class="search-box">
         <input 
@@ -281,9 +354,14 @@ class SearchIndexer:
                         score += 10;
                     }
                     
-                    // Exact match in content
-                    const regex = new RegExp(term, 'gi');
-                    const matches = (searchable.match(regex) || []).length;
+                    // Literal match in content (user input is not a regex)
+                    const hay = String(searchable || '').toLowerCase();
+                    let from = 0;
+                    let matches = 0;
+                    while (term && (from = hay.indexOf(term, from)) !== -1) {
+                        matches++;
+                        from += term.length;
+                    }
                     score += matches;
                 }
                 
@@ -316,11 +394,11 @@ class SearchIndexer:
             container.innerHTML = results.map(r => `
                 <div class="result">
                     <div class="result-title">
-                        <a href="${r.url}">${escapeHtml(r.title)}</a>
+                        <a href="${escapeHtml(r.url)}">${escapeHtml(r.title)}</a>
                     </div>
                     <div class="result-meta">
                         <span class="result-category">${escapeHtml(r.category)}</span>
-                        ${r.date ? '<span>' + r.date + '</span>' : ''}
+                        ${r.date ? '<span>' + escapeHtml(r.date) + '</span>' : ''}
                     </div>
                     <div class="result-description">
                         ${escapeHtml(r.description || r.content)}
@@ -347,7 +425,6 @@ class SearchIndexer:
         // Auto-focus search box
         document.getElementById('searchInput').focus();
         
-        // Search from URL parameter
         const urlParams = new URLSearchParams(window.location.search);
         const queryParam = urlParams.get('q');
         if (queryParam) {
@@ -355,6 +432,17 @@ class SearchIndexer:
             setTimeout(() => search(queryParam), 500);
         }
     </script>
+    </main>
+    <footer>
+        <p>&copy; __SITE_TITLE__. Built with GANG.</p>
+    </footer>
 </body>
 </html>'''
+        return (
+            html.replace('__LANG__', html_module.escape(str(lang or 'en'), quote=True))
+                .replace('__SITE_TITLE__', html_module.escape(str(site_title or '')))
+                .replace('__DESCRIPTION__', html_module.escape(str(description or ''), quote=True))
+                .replace('__SITE_URL__', html_module.escape(str(site_url or ''), quote=True))
+                .replace('__JSONLD__', jsonld)
+        )
 

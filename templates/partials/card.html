@@ -2,7 +2,7 @@
 <article class="card" aria-labelledby="card-{{ item.slug }}">
   <p class="kicker">{{ item.type|upper }} · <time datetime="{{ item.date }}">{{ item.date|date("%b %e, %Y") }}</time></p>
   <h2 id="card-{{ item.slug }}">
-    <a href="{{ item.url }}">{{ item.title or item.summary or item.type|upper }}</a>
+    <a href="{{ item.url|safe_url }}">{{ item.title or item.summary or item.type|upper }}</a>
   </h2>
 
   {% if item.assets and item.assets[0] %}
@@ -23,14 +23,15 @@
     <p class="summary">{{ item.summary }}</p>
   {% endif %}
 
-  {% if item.cta and item.cta.href %}
-    <p class="cta"><a class="button" href="{{ item.cta.href }}">{{ item.cta.label or "View" }}</a></p>
+  {% if item.cta and item.cta.href|safe_url %}
+    <p class="cta"><a class="button" href="{{ item.cta.href|safe_url }}">{{ item.cta.label or "View" }}</a></p>
   {% endif %}
 
   {% if item.tags %}
     <ul class="tags" aria-label="Tags">
       {% for tag in item.tags %}
-        <li><a href="/tags/{{ tag|urlencode }}/">#{{ tag }}</a></li>
+        {% set href = tag|tag_href %}
+        {% if href %}<li><a href="{{ href }}">#{{ tag }}</a></li>{% endif %}
       {% endfor %}
     </ul>
   {% endif %}
