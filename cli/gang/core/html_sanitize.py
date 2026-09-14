@@ -83,6 +83,7 @@ def _is_public_http_host(host: str) -> bool:
     except ValueError:
         # Single-label hosts are LAN/mDNS-style, not public publish targets.
         return '.' in host and not host.startswith('.')
+    cgnat = ipaddress.ip_network('100.64.0.0/10')
     return not (
         ip.is_private
         or ip.is_loopback
@@ -90,6 +91,7 @@ def _is_public_http_host(host: str) -> bool:
         or ip.is_multicast
         or ip.is_reserved
         or ip.is_unspecified
+        or (ip.version == 4 and ip in cgnat)
     )
 
 

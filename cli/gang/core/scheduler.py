@@ -53,6 +53,9 @@ def parse_schedule_datetime(value: Any) -> datetime:
         text = str(value).strip()
         if text.endswith(('Z', 'z')):
             text = text[:-1] + '+00:00'
+        # Reject single-digit minutes (`14:4` → 14:04) so typos cannot shift embargoes.
+        if re.search(r'(?<=[\sT])\d{1,2}:\d(?!\d)', text):
+            raise ValueError(f'Invalid datetime: {value!r}')
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError:
@@ -146,14 +149,37 @@ def _is_newsletter_receipt_value(name: str, value: Any) -> bool:
 
 
 def newsletter_send_receipt(frontmatter: Dict[str, Any]) -> bool:
-    """True when frontmatter has a parseable past-or-now send timestamp."""
+    """True when frontmatter has a consistent past-or-now send timestamp.
+
+    Conflicting case aliases (`sent_at` vs `SENT_AT`) fail closed, matching
+    ``resolve_schedule_status``. A future instant anywhere is not a receipt.
+    """
     if not isinstance(frontmatter, dict):
         return False
+    instants = []
     for name in ('sent_at', 'sent_date'):
         for value in frontmatter_values(frontmatter, name):
-            if _is_newsletter_receipt_value(name, value):
-                return True
-    return False
+            unwrapped = _unwrap_schedule_value(value)
+            if _absent_schedule_date(unwrapped):
+                continue
+            if isinstance(unwrapped, (list, tuple, dict, set, bool)):
+                continue
+            try:
+                parsed = parse_schedule_datetime(unwrapped)
+            except (ValueError, TypeError):
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            instants.append(parsed)
+    if not instants:
+        return False
+    now = datetime.now(timezone.utc)
+    if any(item > now for item in instants):
+        return False
+    first = instants[0]
+    if any(item != first for item in instants[1:]):
+        return False
+    return True
 
 
 def drop_newsletter_receipts(frontmatter: Dict[str, Any]) -> None:
@@ -338,6 +364,7 @@ class ContentScheduler:
                     'status': 'draft',
                     'publish_date': None,
                     'title': frontmatter.get('title', file_path.stem),
+                    '_date_error': True,
                     'error': 'status=sent requires a parseable sent_at or sent_date',
                 })
                 continue

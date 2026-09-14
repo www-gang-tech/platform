@@ -299,7 +299,7 @@ jobs:
             
             **Product**: `${{ steps.extract.outputs.handle }}`  
             **Synced at**: `${{ steps.pr_branch.outputs.timestamp }}`  
-            **Shopify ID**: `${{ github.event.client_payload.product.id }}`
+            **Shopify ID**: `${{ steps.extract.outputs.product_id }}`
             
             ### Changes
             

@@ -161,6 +161,44 @@ def auth_status():
     })
 
 
+@app.route('/api/content')
+@app.route('/api/content/list')
+def list_content():
+    """List all editable content files"""
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+    content_files = []
+    
+    for content_type in ['pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people']:
+        type_dir = CONTENT_DIR / content_type
+        if type_dir.exists():
+            for md_file in type_dir.glob('*.md'):
+                if not SAFE_SLUG_RE.match(md_file.stem) or '..' in md_file.stem:
+                    continue
+                # Parse frontmatter to get title
+                try:
+                    content = md_file.read_text(encoding='utf-8')
+                    frontmatter, _body = _parse_frontmatter(content)
+                    title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
+                    if not isinstance(title, str) or not title.strip():
+                        title = md_file.stem.replace('-', ' ').title()
+                    
+                    public_type = 'posts' if content_type == 'articles' else content_type
+                    content_files.append({
+                        'type': content_type,
+                        'slug': md_file.stem,
+                        'name': title,
+                        'title': title,
+                        'path': content_type + "/" + md_file.stem,
+                        'url': "/" + public_type + "/" + md_file.stem + "/"
+                    })
+                except Exception as e:
+                    print("Error reading " + str(md_file) + ": " + str(e))
+    
+    return jsonify(content_files)
+
+
 @app.route('/api/content/<path:file_path>')
 def get_content(file_path):
     """Get markdown content for editing"""
@@ -370,41 +408,6 @@ def trigger_build():
             'status': 'error',
             'message': str(e)
         }), 500
-
-
-@app.route('/api/content')
-@app.route('/api/content/list')
-def list_content():
-    """List all editable content files"""
-    auth_error = _require_auth()
-    if auth_error:
-        return auth_error
-    content_files = []
-    
-    for content_type in ['pages', 'posts', 'articles', 'projects', 'newsletters', 'products', 'people']:
-        type_dir = CONTENT_DIR / content_type
-        if type_dir.exists():
-            for md_file in type_dir.glob('*.md'):
-                if not SAFE_SLUG_RE.match(md_file.stem) or '..' in md_file.stem:
-                    continue
-                # Parse frontmatter to get title
-                try:
-                    content = md_file.read_text(encoding='utf-8')
-                    frontmatter, _body = _parse_frontmatter(content)
-                    title = frontmatter.get('title', md_file.stem.replace('-', ' ').title())
-                    
-                    public_type = 'posts' if content_type == 'articles' else content_type
-                    content_files.append({
-                        'type': content_type,
-                        'slug': md_file.stem,
-                        'title': title,
-                        'path': content_type + "/" + md_file.stem,
-                        'url': "/" + public_type + "/" + md_file.stem + "/"
-                    })
-                except Exception as e:
-                    print("Error reading " + str(md_file) + ": " + str(e))
-    
-    return jsonify(content_files)
 
 
 if __name__ == '__main__':

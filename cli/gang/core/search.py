@@ -4,7 +4,7 @@ Generate search index and provide search functionality.
 """
 
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Any, Dict, List, Optional
 import html as html_module
 import json
 import re
@@ -31,13 +31,9 @@ class SearchIndexer:
         }
         
         for file_path in content_files:
-            try:
-                doc = self._index_file(file_path)
-                if doc:
-                    index['documents'].append(doc)
-            except Exception as e:
-                # Skip files that can't be indexed
-                continue
+            doc = self._index_file(file_path)
+            if doc:
+                index['documents'].append(doc)
         
         return index
 
@@ -69,9 +65,16 @@ class SearchIndexer:
                 'date': '',
             })
     
-    def _index_file(self, file_path: Path) -> Dict[str, Any]:
+    def _index_file(self, file_path: Path) -> Optional[Dict[str, Any]]:
         """Index a single markdown file"""
-        content = file_path.read_text()
+        slug = file_path.stem
+        if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', slug) or '..' in slug:
+            return None
+        try:
+            from core.scheduler import strip_frontmatter_prefix
+        except ImportError:
+            from gang.core.scheduler import strip_frontmatter_prefix
+        content = strip_frontmatter_prefix(file_path.read_text())
         
         # Parse frontmatter
         frontmatter = {}
@@ -79,15 +82,16 @@ class SearchIndexer:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            if len(parts) >= 3:
-                try:
-                    frontmatter = yaml.safe_load(parts[1]) or {}
-                    body = parts[2]
-                except:
-                    pass
+            if len(parts) < 3:
+                raise RuntimeError(f'Search index failed for {file_path}: truncated frontmatter')
+            try:
+                frontmatter = yaml.safe_load(parts[1]) or {}
+                body = parts[2]
+            except Exception as e:
+                raise RuntimeError(f'Search index failed for {file_path}: {e}') from e
         
         if not isinstance(frontmatter, dict):
-            frontmatter = {}
+            raise RuntimeError(f'Search index failed for {file_path}: frontmatter must be a mapping')
         
         def _json_safe(value):
             if value is None:

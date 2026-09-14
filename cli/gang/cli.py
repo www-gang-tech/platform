@@ -606,6 +606,27 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     if not default_in_stock or not buy_url:
         buy_url = ''
         default_variant_id = ''
+    # Duplicate axis tuples cannot be resolved by cart.js; do not advertise a SKU.
+    if variants_list:
+        axis_groups: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+        for item in variants_list:
+            key = (
+                str(item.get('color') or ''),
+                str(item.get('size') or ''),
+                str(item.get('option3') or ''),
+            )
+            axis_groups.setdefault(key, []).append(item)
+        for group in axis_groups.values():
+            stocked = [
+                item for item in group
+                if offer_is_in_stock({'availability': item.get('availability')})
+            ]
+            ids = {item.get('id') for item in group}
+            if len(stocked) > 1 or (len(group) > 1 and len(ids) > 1):
+                buy_url = ''
+                default_variant_id = ''
+                default_in_stock = False
+                break
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
@@ -3678,15 +3699,14 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     index_html = index_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
     (dist_path / 'index.html').write_text(index_html)
     
-    # Create newsletters list page
-    if all_newsletters:
-        newsletters_dir = dist_path / 'newsletters'
-        newsletters_dir.mkdir(parents=True, exist_ok=True)
-        
-        newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
-        page_size_bytes = len(newsletters_html.encode('utf-8'))
-        newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-        (newsletters_dir / 'index.html').write_text(newsletters_html)
+    # Always create newsletters/people indexes (nav and AgentMap advertise them).
+    click.echo("📄 Creating newsletters index...")
+    newsletters_dir = dist_path / 'newsletters'
+    newsletters_dir.mkdir(parents=True, exist_ok=True)
+    newsletters_html = create_list_page_simple(config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path)
+    page_size_bytes = len(newsletters_html.encode('utf-8'))
+    newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+    (newsletters_dir / 'index.html').write_text(newsletters_html)
     
     # Create list pages
     # Always create posts index page, even if empty
@@ -3704,13 +3724,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
         (dist_path / 'projects' / 'index.html').write_text(projects_html)
     
-    if all_people:
-        click.echo("📄 Creating people index...")
-        people_html = create_list_page_simple(config, all_people, 'People', templates_path, path='/people/')
-        page_size_bytes = len(people_html.encode('utf-8'))
-        people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
-        (dist_path / 'people').mkdir(parents=True, exist_ok=True)
-        (dist_path / 'people' / 'index.html').write_text(people_html)
+    click.echo("📄 Creating people index...")
+    people_html = create_list_page_simple(config, all_people, 'People', templates_path, path='/people/')
+    page_size_bytes = len(people_html.encode('utf-8'))
+    people_html = people_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
+    (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+    (dist_path / 'people' / 'index.html').write_text(people_html)
     
     tag_pages = write_tag_pages(
         config,
@@ -3722,14 +3741,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate outputs
     click.echo("🗺️  Generating sitemap, feeds, etc...")
     all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
-    if all_posts:
-        all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
+    all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
-    if all_people:
-        all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
-    if all_newsletters:
-        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
+    all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
+    all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
     # Combine all content for sitemap generation
     all_content = all_pages + all_posts + all_projects + all_people + all_newsletters
@@ -6016,23 +6032,21 @@ def serve(ctx, port, host):
                     projects_html = projects_html.replace('__PAGE_SIZE__', format_bytes(page_size_bytes))
                     (dist_path / 'projects' / 'index.html').write_text(projects_html)
 
-                if all_people:
-                    people_html = create_list_page_simple(config, all_people, 'People', templates_path, path='/people/')
-                    if '</body>' in people_html:
-                        people_html = people_html.replace('</body>', live_reload_script + '</body>')
-                    people_html = people_html.replace('__PAGE_SIZE__', format_bytes(len(people_html.encode('utf-8'))))
-                    (dist_path / 'people').mkdir(parents=True, exist_ok=True)
-                    (dist_path / 'people' / 'index.html').write_text(people_html)
+                people_html = create_list_page_simple(config, all_people, 'People', templates_path, path='/people/')
+                if '</body>' in people_html:
+                    people_html = people_html.replace('</body>', live_reload_script + '</body>')
+                people_html = people_html.replace('__PAGE_SIZE__', format_bytes(len(people_html.encode('utf-8'))))
+                (dist_path / 'people').mkdir(parents=True, exist_ok=True)
+                (dist_path / 'people' / 'index.html').write_text(people_html)
 
-                if all_newsletters:
-                    newsletters_html = create_list_page_simple(
-                        config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path
-                    )
-                    if '</body>' in newsletters_html:
-                        newsletters_html = newsletters_html.replace('</body>', live_reload_script + '</body>')
-                    newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(len(newsletters_html.encode('utf-8'))))
-                    (dist_path / 'newsletters').mkdir(parents=True, exist_ok=True)
-                    (dist_path / 'newsletters' / 'index.html').write_text(newsletters_html)
+                newsletters_html = create_list_page_simple(
+                    config, sorted(all_newsletters, key=lambda x: x.get('date', ''), reverse=True), 'Newsletters', templates_path
+                )
+                if '</body>' in newsletters_html:
+                    newsletters_html = newsletters_html.replace('</body>', live_reload_script + '</body>')
+                newsletters_html = newsletters_html.replace('__PAGE_SIZE__', format_bytes(len(newsletters_html.encode('utf-8'))))
+                (dist_path / 'newsletters').mkdir(parents=True, exist_ok=True)
+                (dist_path / 'newsletters' / 'index.html').write_text(newsletters_html)
 
                 tag_pages = write_tag_pages(
                     config,
@@ -6043,14 +6057,11 @@ def serve(ctx, port, host):
                 
                 # Generate outputs (same all_content set as gang build)
                 all_pages.append({'url': '/', 'title': config['site']['title'], 'type': 'home'})
-                if all_posts:
-                    all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
+                all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
                 if all_projects:
                     all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
-                if all_people:
-                    all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
-                if all_newsletters:
-                    all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
+                all_pages.append({'url': '/people/', 'title': 'People', 'type': 'list'})
+                all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
 
                 all_content = all_pages + all_posts + all_projects + all_people + all_newsletters
                 generators.generate_all(dist_path, all_content, all_posts)

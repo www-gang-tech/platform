@@ -267,8 +267,12 @@ class EmailTemplateGenerator:
     ) -> str:
         """Generate plain text version of email"""
         
-        # Convert HTML to plain text
+        # Convert HTML to plain text. Sanitize URLs the same way as HTML so
+        # internal/javascript values cannot leak into auto-linked .txt drafts.
         text_content = self._html_to_text(content_html)
+        canonical_url = _safe_email_href(canonical_url)
+        if str(unsubscribe_url or '').strip() not in ('{{unsubscribe_url}}', '{{{unsubscribe_url}}}'):
+            unsubscribe_url = _safe_email_href(unsubscribe_url)
         
         plain = f"""{title}
 {'=' * len(title)}

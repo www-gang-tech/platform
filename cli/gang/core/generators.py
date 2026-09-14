@@ -14,7 +14,7 @@ class OutputGenerators:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.site = config.get('site', {})
-        self.site_url = self.site.get('url', 'https://example.com')
+        self.site_url = str(self.site.get('url', 'https://example.com') or 'https://example.com').rstrip('/')
     
     def generate_sitemap(self, pages: List[Dict[str, Any]]) -> str:
         """Generate sitemap.xml"""

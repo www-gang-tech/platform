@@ -565,7 +565,7 @@
                     const item = document.createElement('div');
                     item.className = 'content-item';
                     item.innerHTML = `
-                        <div class="content-item-name">${escapeHtml(file.name)}</div>
+                        <div class="content-item-name">${escapeHtml(file.title || file.name || file.slug)}</div>
                         <div class="content-item-type">${escapeHtml(file.type)}</div>
                     `;
                     item.onclick = (event) => loadFile(file.path, event);

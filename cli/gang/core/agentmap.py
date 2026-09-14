@@ -306,12 +306,16 @@ class ContentAPIGenerator:
         slug = file_path.stem
         public_category = 'posts' if category == 'articles' else category
         
+        meta = _public_content_metadata(frontmatter)
+        title = meta.get('title')
+        if not isinstance(title, str) or not title.strip():
+            title = slug.replace('-', ' ').title()
         return {
-            'title': frontmatter.get('title', slug.replace('-', ' ').title()),
+            'title': title,
             'url': f"{self.site_url}/{public_category}/{slug}/",
             'category': public_category,
             'slug': slug,
-            'metadata': _public_content_metadata(frontmatter),
+            'metadata': meta,
             'content': {
                 'html': content_html,
                 'text': content_text,
