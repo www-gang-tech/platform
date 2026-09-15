@@ -9,7 +9,6 @@ import os
 import json
 import html as html_module
 from datetime import datetime
-from urllib.parse import urlparse
 
 
 def _esc(value: Any) -> str:
@@ -19,18 +18,12 @@ def _esc(value: Any) -> str:
 def _safe_http_attr(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         value = value[0] if value else ''
-    url = str(value or '').strip()
-    if not url:
-        return ''
-    if url.startswith('/') and not url.startswith('//'):
-        return html_module.escape(url, quote=True)
     try:
-        parsed = urlparse(url)
-    except Exception:
-        return ''
-    if parsed.scheme in ('http', 'https') and parsed.netloc:
-        return html_module.escape(url, quote=True)
-    return ''
+        from core.html_sanitize import safe_http_url
+    except ImportError:
+        from gang.core.html_sanitize import safe_http_url
+    safe = safe_http_url(value)
+    return html_module.escape(safe, quote=True) if safe else ''
 
 
 class KlaviyoClient:

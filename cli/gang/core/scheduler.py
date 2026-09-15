@@ -347,8 +347,11 @@ class ContentScheduler:
             status = resolve_schedule_status(frontmatter, newsletter=is_newsletter)
             
             # Allowlist only: unknown/archived/pending/true/yes fail closed as draft.
-            # `sent` keeps already-emailed newsletters on the static site.
-            if status not in ('published', 'scheduled', 'live', 'public', 'sent'):
+            # `sent` is newsletter-only; posts cannot spoof a send receipt to go live.
+            allowed_statuses = ('published', 'scheduled', 'live', 'public')
+            if is_newsletter:
+                allowed_statuses = allowed_statuses + ('sent',)
+            if status not in allowed_statuses:
                 draft.append({
                     'path': file_path,
                     'status': 'draft',
@@ -491,7 +494,10 @@ class ContentScheduler:
             # Explicit live statuses stay live even if leftover ESP dates are
             # still future. Missing status is not an explicit publish — a
             # future date must embargo the page like `scheduled`.
-            already_live = status in ('sent', 'published', 'live', 'public') and not implicit_status
+            already_live = (
+                status in ('published', 'live', 'public')
+                or (is_newsletter and status == 'sent')
+            ) and not implicit_status
             if already_live or publish_date <= now:
                 publishable.append({
                     'path': file_path,

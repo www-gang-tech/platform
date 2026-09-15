@@ -38,6 +38,18 @@ def _ipv4_part_is_decimal(part: str) -> bool:
     return bool(part) and part.isdigit() and not (len(part) > 1 and part.startswith('0'))
 
 
+_REBIND_HOSTS = {'localtest.me'}
+_REBIND_SUFFIXES = ('.nip.io', '.sslip.io', '.xip.io', '.localtest.me')
+
+
+def _normalize_http_host(host: str) -> str:
+    """Lowercase, strip brackets, and drop a trailing DNS dot browsers ignore."""
+    host = (host or '').strip().lower().strip('[]')
+    while host.endswith('.') and host not in {'.', ''}:
+        host = host[:-1]
+    return host
+
+
 def _coerce_ipv4(host: str) -> Optional[str]:
     """Expand decimal and short IPv4 forms browsers accept (``127.1``, ``2130706433``)."""
     if re.fullmatch(r'\d+', host):
@@ -67,10 +79,15 @@ def _coerce_ipv4(host: str) -> Optional[str]:
 
 def _is_public_http_host(host: str) -> bool:
     """Reject loopback, RFC1918, link-local, and other non-public HTTP hosts."""
-    host = (host or '').strip().lower().strip('[]')
+    host = _normalize_http_host(host)
     if not host or host in {'localhost', '0.0.0.0', '::', '::1'}:
         return False
     if host.endswith(('.localhost', '.local', '.internal', '.lan')):
+        return False
+    if host in _REBIND_HOSTS or host.endswith(_REBIND_SUFFIXES):
+        return False
+    # Browsers accept hex IPv4 labels (``0x7f.0.0.1`` → 127.0.0.1).
+    if any(re.fullmatch(r'(?i)0x[0-9a-f]+', label) for label in host.split('.')):
         return False
     numeric = bool(re.fullmatch(r'\d+(\.\d+){0,3}', host))
     candidate = _coerce_ipv4(host)
@@ -113,10 +130,9 @@ def _is_safe_href_candidate(value: str) -> bool:
     if ':' in scheme_host:
         lower = scheme_host.lower()
         if lower.startswith('mailto:'):
-            addr = lower[7:]
-            local = addr.split('@', 1)[0]
-            # Reject mailto:javascript:… and other nested schemes.
-            return bool(addr) and ':' not in local
+            addr = lower[7:].split('?', 1)[0]
+            # Reject mailto:javascript:… and nested schemes in local or domain.
+            return bool(addr) and addr.count('@') <= 1 and ':' not in addr
         if lower.startswith(('http://', 'https://')):
             parsed = urlparse(value)
             # Userinfo (`https://trusted@evil.com`) is a phishing gadget.

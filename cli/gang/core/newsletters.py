@@ -133,6 +133,7 @@ class NewsletterManager:
             from core.scheduler import (
                 _parse_first_schedule_date,
                 drop_frontmatter_aliases,
+                drop_newsletter_receipts,
                 frontmatter_values,
                 has_unparseable_schedule_date,
                 newsletter_send_receipt,
@@ -143,6 +144,7 @@ class NewsletterManager:
             from gang.core.scheduler import (
                 _parse_first_schedule_date,
                 drop_frontmatter_aliases,
+                drop_newsletter_receipts,
                 frontmatter_values,
                 has_unparseable_schedule_date,
                 newsletter_send_receipt,
@@ -230,6 +232,7 @@ class NewsletterManager:
         # Test sends must not flip archive status or rewrite the source file.
         if result.get('success') and not test_mode:
             drop_frontmatter_aliases(frontmatter, 'status')
+            drop_newsletter_receipts(frontmatter)
             frontmatter['status'] = 'sent'
             frontmatter['sent_at'] = datetime.now(timezone.utc).isoformat()
             frontmatter['provider'] = self.provider.name

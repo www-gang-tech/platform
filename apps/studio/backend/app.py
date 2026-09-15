@@ -284,7 +284,8 @@ def validate_headings():
     if not headings:
         return jsonify({
             'valid': True,
-            'message': 'No headings found (optional for some content types)'
+            'message': 'No headings found (optional for some content types)',
+            'headings': [],
         })
     
     errors = []
@@ -382,8 +383,20 @@ def trigger_build():
         auto_push = os.environ.get('AUTO_PUSH', 'false').lower() == 'true'
         
         if auto_push:
+            branch = subprocess.run(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if not branch or branch == 'HEAD':
+                return jsonify({
+                    'status': 'committed',
+                    'deploying': False,
+                    'message': 'Changes committed. Detached HEAD cannot be auto-pushed.',
+                })
             subprocess.run(
-                ['git', 'push', 'origin', 'main'],
+                ['git', 'push', 'origin', branch],
                 check=True
             )
             return jsonify({

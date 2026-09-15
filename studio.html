@@ -684,9 +684,9 @@
                         ✅ Heading structure is valid!
                     </div>
                     <div style="background: #f0f9f0; border: 1px solid #4caf50; padding: 1rem; border-radius: 4px;">
-                        <strong>Found ${result.headings.length} heading(s):</strong>
+                        <strong>Found ${(result.headings || []).length} heading(s):</strong>
                         <ul style="margin-top: 0.5rem;">
-                            ${result.headings.map((heading) => {
+                            ${(result.headings || []).map((heading) => {
                                 const level = heading.level != null ? heading.level : heading[0];
                                 const text = heading.text != null ? heading.text : heading[1];
                                 return `<li>h${escapeHtml(level)}: ${escapeHtml(text)}</li>`;
@@ -777,7 +777,7 @@
                     }, 2000);
                 } else {
                     const result = await response.json();
-                    throw new Error(result.message || 'Failed to save');
+                    throw new Error(result.error || result.message || 'Failed to save');
                 }
             } catch (e) {
                 console.error('Failed to save:', e);

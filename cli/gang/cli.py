@@ -285,6 +285,9 @@ def _public_offer(offer: Any, origins: List[str]) -> Optional[Dict[str, Any]]:
     url = merchant_checkout_url(offer.get('url'), origins)
     if url:
         public['url'] = url
+    else:
+        # No purchasable URL must not advertise InStock to agents.
+        public['availability'] = 'https://schema.org/OutOfStock'
     return public
 
 
@@ -617,12 +620,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
             )
             axis_groups.setdefault(key, []).append(item)
         for group in axis_groups.values():
-            stocked = [
-                item for item in group
-                if offer_is_in_stock({'availability': item.get('availability')})
-            ]
-            ids = {item.get('id') for item in group}
-            if len(stocked) > 1 or (len(group) > 1 and len(ids) > 1):
+            if len(group) > 1:
                 buy_url = ''
                 default_variant_id = ''
                 default_in_stock = False
@@ -883,11 +881,22 @@ def collect_category_markdown(content_path: Path, include_products: bool = False
 
 def authored_content_date(frontmatter: Dict[str, Any], file_path: Optional[Path] = None) -> Any:
     """Prefer frontmatter dates; fall back to git last-updated, never build time."""
-    date_val = (
-        frontmatter.get('date')
-        or frontmatter.get('sent_date')
-        or frontmatter.get('publish_date')
-    )
+    date_val = None
+    if isinstance(frontmatter, dict):
+        try:
+            from core.scheduler import frontmatter_values, newsletter_send_receipt
+        except ImportError:
+            from gang.core.scheduler import frontmatter_values, newsletter_send_receipt
+        if newsletter_send_receipt(frontmatter):
+            receipt_values = frontmatter_values(frontmatter, 'sent_at', 'sent_date')
+            if receipt_values:
+                date_val = receipt_values[0]
+        if not date_val:
+            for name in ('date', 'sent_date', 'sent_at', 'publish_date'):
+                values = frontmatter_values(frontmatter, name)
+                if values:
+                    date_val = values[0]
+                    break
     if date_val:
         return date_val
     if file_path is None:
@@ -1048,6 +1057,7 @@ def minify_html_source(original_html: str) -> str:
         flags=re.DOTALL | re.IGNORECASE,
     )
     work = re.sub(r'<!--.*?-->', '', work, flags=re.DOTALL)
+    work = re.sub(r'<!--[\s\S]*', '', work)
     work = re.sub(r'>\s+<', '><', work)
     work = '\n'.join(line.strip() for line in work.split('\n') if line.strip())
     for index, block in enumerate(protected):
@@ -3599,7 +3609,12 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'social_links': sanitize_social_links(frontmatter.get('social_links')),
             'summary': frontmatter.get('summary') or '',
             'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
-            'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
+            'sent_date': (
+                frontmatter.get('sent_at')
+                or frontmatter.get('sent_date')
+                or frontmatter.get('date')
+                or ''
+            ),
             'status': frontmatter.get('status') or '',
         }
         
@@ -5204,10 +5219,33 @@ def studio(ctx, port, host):
                             for md_file in sorted(category_path.glob('*.md')):
                                 if not is_safe_content_slug(md_file.stem):
                                     continue
+                                try:
+                                    from core.scheduler import strip_frontmatter_prefix
+                                except ImportError:
+                                    from gang.core.scheduler import strip_frontmatter_prefix
+                                title = md_file.stem
+                                try:
+                                    raw = strip_frontmatter_prefix(
+                                        md_file.read_text(encoding='utf-8')
+                                    )
+                                    if raw.startswith('---'):
+                                        parts = raw.split('---', 2)
+                                        if len(parts) >= 3:
+                                            fm = yaml.safe_load(parts[1]) or {}
+                                            if isinstance(fm, dict):
+                                                raw_title = fm.get('title')
+                                                if isinstance(raw_title, str) and raw_title.strip():
+                                                    title = raw_title.strip()
+                                except (OSError, UnicodeDecodeError, yaml.YAMLError):
+                                    title = md_file.stem
+                                public_type = 'posts' if category == 'articles' else category
                                 files.append({
                                     'path': str(md_file.relative_to(content_path)),
                                     'type': category,
-                                    'name': md_file.stem
+                                    'name': title,
+                                    'title': title,
+                                    'slug': md_file.stem,
+                                    'url': f'/{public_type}/{md_file.stem}/',
                                 })
                         
                         click.echo(f"📂 Found {len(files)} content files: {[f['name'] for f in files]}")
@@ -5735,7 +5773,8 @@ def serve(ctx, port, host):
                 if str(dist_path) in event.src_path or '/__pycache__/' in event.src_path:
                     return
                 
-                if event.src_path.startswith('.') or '/.git/' in event.src_path:
+                src_path = str(event.src_path).replace('\\', '/')
+                if Path(event.src_path).name.startswith('.') or '/.git/' in src_path:
                     return
 
                 src_name = Path(event.src_path).name
@@ -5942,7 +5981,12 @@ def serve(ctx, port, host):
                         'social_links': sanitize_social_links(frontmatter.get('social_links')),
                         'summary': frontmatter.get('summary') or '',
                         'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
-                        'sent_date': frontmatter.get('sent_date') or frontmatter.get('date') or '',
+                        'sent_date': (
+                frontmatter.get('sent_at')
+                or frontmatter.get('sent_date')
+                or frontmatter.get('date')
+                or ''
+            ),
                         'status': frontmatter.get('status') or '',
                     }
                     if not isinstance(context.get('jsonld'), dict) or not context.get('jsonld'):

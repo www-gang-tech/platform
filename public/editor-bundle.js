@@ -258,6 +258,68 @@ class InPlaceEditor {
         return '---\n' + this.preservedFrontmatter + '\n---\n' + (body || '');
     }
 
+    isPublicHttpHost(host) {
+        host = String(host || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+        while (host.length > 1 && host.endsWith('.')) {
+            host = host.slice(0, -1);
+        }
+        if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::' || host === '::1') {
+            return false;
+        }
+        if (/\.(localhost|local|internal|lan)$/.test(host)) return false;
+        if (host === 'localtest.me' || /\.(nip\.io|sslip\.io|xip\.io|localtest\.me)$/.test(host)) {
+            return false;
+        }
+        if (host.split('.').some(function(label) { return /^0x[0-9a-f]+$/i.test(label); })) {
+            return false;
+        }
+        function blockedV4(a, b) {
+            if (a === 0 || a === 10 || a === 127) return true;
+            if (a === 192 && b === 168) return true;
+            if (a === 172 && b >= 16 && b <= 31) return true;
+            if (a === 169 && b === 254) return true;
+            if (a === 100 && b >= 64 && b <= 127) return true;
+            return false;
+        }
+        const dotted = host.split('.');
+        const decimalOctet = function(part) {
+            return /^\d+$/.test(part) && !(part.length > 1 && part.charAt(0) === '0');
+        };
+        if (/^\d+(\.\d+){1,3}$/.test(host)) {
+            if (!dotted.every(decimalOctet)) return false;
+            const nums = dotted.map(Number);
+            if (nums.some(function(n) { return n > 255; })) return false;
+            while (nums.length < 4) nums.push(0);
+            return !blockedV4(nums[0], nums[1]);
+        }
+        if (/^\d+$/.test(host)) {
+            if (!decimalOctet(host)) return false;
+            const value = Number(host);
+            if (value < 0 || value > 0xffffffff) return false;
+            return !blockedV4((value >>> 24) & 255, (value >>> 16) & 255);
+        }
+        if (host.indexOf(':') !== -1) {
+            if (host === '::1' || host === '::') return false;
+            const mappedDot = host.match(/(?:^|:)ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+            if (mappedDot) {
+                const parts = mappedDot[1].split('.').map(Number);
+                return !blockedV4(parts[0], parts[1]);
+            }
+            const mappedHex = host.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+            if (mappedHex) {
+                const hi = parseInt(mappedHex[1], 16);
+                return !blockedV4((hi >> 8) & 255, hi & 255);
+            }
+            const first = host.split(':').find(function(part) { return part.length; }) || '0';
+            const n = parseInt(first, 16);
+            if (!isNaN(n) && ((n & 0xfe00) === 0xfc00 || (n & 0xffc0) === 0xfe80 || (n & 0xff00) === 0xff00)) {
+                return false;
+            }
+            return true;
+        }
+        return host.indexOf('.') !== -1 && host.charAt(0) !== '.';
+    }
+
     decodeHrefEntities(value) {
         let current = String(value);
         for (let i = 0; i < 3; i++) {
@@ -293,7 +355,7 @@ class InPlaceEditor {
             }
             if (/^mailto:/i.test(trimmed)) {
                 const addr = trimmed.slice(7).split('?')[0];
-                return Boolean(addr) && addr.split('@')[0].indexOf(':') === -1;
+                return Boolean(addr) && (addr.match(/@/g) || []).length <= 1 && addr.indexOf(':') === -1;
             }
             if (!/^https?:\/\//i.test(trimmed)) {
                 return false;
@@ -302,40 +364,7 @@ class InPlaceEditor {
                 const url = new URL(trimmed);
                 if (url.username) return false;
                 if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
-                const host = String(url.hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
-                if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::' || host === '::1') {
-                    return false;
-                }
-                if (/\.(localhost|local|internal|lan)$/.test(host)) return false;
-                const dotted = host.split('.');
-                const decimalOctet = function(part) {
-                    return /^\d+$/.test(part) && !(part.length > 1 && part.charAt(0) === '0');
-                };
-                if (/^\d+(\.\d+){1,3}$/.test(host)) {
-                    if (!dotted.every(decimalOctet)) return false;
-                    const nums = dotted.map(Number);
-                    if (nums.some(function(n) { return n > 255; })) return false;
-                    while (nums.length < 4) nums.push(0);
-                    if (nums[0] === 0 || nums[0] === 10 || nums[0] === 127) return false;
-                    if (nums[0] === 192 && nums[1] === 168) return false;
-                    if (nums[0] === 172 && nums[1] >= 16 && nums[1] <= 31) return false;
-                    if (nums[0] === 169 && nums[1] === 254) return false;
-                    if (nums[0] === 100 && nums[1] >= 64 && nums[1] <= 127) return false;
-                } else if (/^\d+$/.test(host)) {
-                    if (!decimalOctet(host)) return false;
-                    const value = Number(host);
-                    if (value < 0 || value > 0xffffffff) return false;
-                    const a = (value >>> 24) & 255;
-                    const b = (value >>> 16) & 255;
-                    if (a === 0 || a === 10 || a === 127) return false;
-                    if (a === 192 && b === 168) return false;
-                    if (a === 172 && b >= 16 && b <= 31) return false;
-                    if (a === 169 && b === 254) return false;
-                    if (a === 100 && b >= 64 && b <= 127) return false;
-                } else if (host.indexOf('.') === -1 && host.indexOf(':') === -1) {
-                    return false;
-                }
-                return true;
+                return self.isPublicHttpHost(url.hostname);
             } catch (err) {
                 return false;
             }

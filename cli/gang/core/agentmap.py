@@ -15,6 +15,7 @@ _PUBLIC_METADATA_KEYS = (
     'seo_description',
     'date',
     'publish_date',
+    'sent_at',
     'sent_date',
     'updated',
     'author',
@@ -222,11 +223,21 @@ class ContentAPIGenerator:
                 frontmatter = {}
                 if content.startswith('---'):
                     parts = content.split('---', 2)
-                    if len(parts) >= 3:
+                    if len(parts) < 3:
+                        raise RuntimeError(
+                            f'Content API index failed for {file_path}: truncated frontmatter'
+                        )
+                    try:
                         frontmatter = yaml.safe_load(parts[1]) or {}
+                    except Exception as e:
+                        raise RuntimeError(
+                            f'Content API index failed for {file_path}: {e}'
+                        ) from e
                 
                 if not isinstance(frontmatter, dict):
-                    frontmatter = {}
+                    raise RuntimeError(
+                        f'Content API index failed for {file_path}: frontmatter must be a mapping'
+                    )
                 category = file_path.parent.name
                 slug = file_path.stem
                 public_category = 'posts' if category == 'articles' else category
@@ -238,9 +249,10 @@ class ContentAPIGenerator:
                 if not isinstance(summary, str):
                     summary = ''
                 date_val = (
-                    meta.get('date')
-                    or meta.get('publish_date')
+                    meta.get('sent_at')
                     or meta.get('sent_date')
+                    or meta.get('date')
+                    or meta.get('publish_date')
                     or ''
                 )
                 item = {
@@ -283,11 +295,19 @@ class ContentAPIGenerator:
         
         if content.startswith('---'):
             parts = content.split('---', 2)
-            if len(parts) >= 3:
+            if len(parts) < 3:
+                raise RuntimeError(
+                    f'Content API failed for {file_path}: truncated frontmatter'
+                )
+            try:
                 frontmatter = yaml.safe_load(parts[1]) or {}
                 body = parts[2]
+            except Exception as e:
+                raise RuntimeError(f'Content API failed for {file_path}: {e}') from e
         if not isinstance(frontmatter, dict):
-            frontmatter = {}
+            raise RuntimeError(
+                f'Content API failed for {file_path}: frontmatter must be a mapping'
+            )
         
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra'])
