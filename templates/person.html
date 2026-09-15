@@ -6,7 +6,7 @@
         <div style="display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap;">
             {% if image %}
             <img 
-                src="{{ image }}" 
+                src="{{ image|safe_url }}" 
                 alt="{{ title }} profile picture" 
                 width="200" 
                 height="200" 
@@ -25,9 +25,10 @@
                 <nav aria-label="Social links" style="margin-top: 1rem;">
                     <ul style="list-style: none; padding: 0; margin: 0; display: flex; gap: 1rem; flex-wrap: wrap;">
                         {% for link in social_links %}
+                        {% if link.url|safe_url %}
                         <li>
                             <a 
-                                href="{{ link.url }}" 
+                                href="{{ link.url|safe_url }}" 
                                 rel="noopener noreferrer"
                                 itemprop="sameAs"
                                 class="ext"
@@ -36,6 +37,7 @@
                                 {{ link.platform|default(link.url) }}
                             </a>
                         </li>
+                        {% endif %}
                         {% endfor %}
                     </ul>
                 </nav>

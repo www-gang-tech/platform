@@ -5,7 +5,7 @@ Extract contributor and update information from git history.
 
 from pathlib import Path
 from typing import Dict, List, Optional, Set
-from datetime import datetime
+from datetime import datetime, timezone
 import subprocess
 import re
 
@@ -20,20 +20,27 @@ def get_git_root(file_path: Path) -> Optional[Path]:
     return None
 
 
+def _repo_relative_path(file_path: Path) -> Optional[tuple]:
+    """Return (repo_root, rel_path) using resolved paths so relative inputs work."""
+    resolved = Path(file_path).resolve()
+    repo_root = get_git_root(resolved)
+    if not repo_root:
+        return None
+    try:
+        return repo_root, resolved.relative_to(repo_root)
+    except ValueError:
+        return None
+
+
 def get_file_contributors(file_path: Path, limit: int = 10) -> List[str]:
     """
     Get unique contributors (authors) for a file from git history.
     Returns a list of contributor names.
     """
-    repo_root = get_git_root(file_path)
-    if not repo_root:
+    located = _repo_relative_path(file_path)
+    if not located:
         return []
-    
-    try:
-        # Get relative path from repo root
-        rel_path = file_path.relative_to(repo_root)
-    except ValueError:
-        return []
+    repo_root, rel_path = located
     
     try:
         # Use git log to get all authors who modified the file
@@ -69,14 +76,10 @@ def get_file_last_updated(file_path: Path) -> Optional[Dict[str, str]]:
     Get the last update date and time for a file from git.
     Returns dict with 'date', 'date_iso', 'date_formatted', and 'author'.
     """
-    repo_root = get_git_root(file_path)
-    if not repo_root:
+    located = _repo_relative_path(file_path)
+    if not located:
         return None
-    
-    try:
-        rel_path = file_path.relative_to(repo_root)
-    except ValueError:
-        return None
+    repo_root, rel_path = located
     
     try:
         # Get the most recent commit for this file
@@ -99,7 +102,7 @@ def get_file_last_updated(file_path: Path) -> Optional[Dict[str, str]]:
         author = parts[1]
         
         # Convert timestamp to datetime
-        dt = datetime.fromtimestamp(timestamp)
+        dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         
         return {
             'date': dt.isoformat(),

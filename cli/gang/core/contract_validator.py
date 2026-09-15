@@ -22,7 +22,12 @@ class ContractValidator:
         contracts = {}
         
         for contract_file in self.contracts_dir.glob('*.yml'):
-            contract = yaml.safe_load(contract_file.read_text())
+            try:
+                contract = yaml.safe_load(contract_file.read_text())
+            except yaml.YAMLError:
+                continue
+            if not isinstance(contract, dict) or 'type' not in contract:
+                continue
             contracts[contract['type']] = contract
         
         return contracts
@@ -32,7 +37,11 @@ class ContractValidator:
         
         contract = self.contracts.get(content_type)
         if not contract:
-            return {'valid': True, 'errors': [], 'warnings': [f'No contract for type: {content_type}']}
+            return {
+                'valid': False,
+                'errors': [f'No contract for type: {content_type}'],
+                'warnings': [],
+            }
         
         html_content = html_path.read_text()
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -148,22 +157,53 @@ class ContractValidator:
         
         required_type = jsonld_rules.get('required_type')
         required_props = jsonld_rules.get('required_props', [])
+        required_in_offers = jsonld_rules.get('required_in_offers', [])
         
         for script in jsonld_scripts:
             try:
                 data = json.loads(script.string)
-                
-                # Check @type
-                if required_type and data.get('@type') != required_type:
-                    errors.append(f"JSON-LD @type is '{data.get('@type')}', expected '{required_type}'")
-                
-                # Check required props
-                for prop in required_props:
-                    if prop not in data:
-                        errors.append(f"Missing required JSON-LD property: {prop}")
-                
             except json.JSONDecodeError:
                 errors.append("Invalid JSON-LD: failed to parse")
+                continue
+
+            nodes = []
+            if isinstance(data, list):
+                nodes = [item for item in data if isinstance(item, dict)]
+            elif isinstance(data, dict):
+                graph = data.get('@graph')
+                if isinstance(graph, list):
+                    nodes = [item for item in graph if isinstance(item, dict)]
+                else:
+                    nodes = [data]
+            else:
+                errors.append("Invalid JSON-LD: expected object or array")
+                continue
+
+            matched = False
+            for node in nodes:
+                node_type = node.get('@type')
+                node_types = node_type if isinstance(node_type, list) else [node_type]
+                if required_type and required_type not in node_types:
+                    continue
+                matched = True
+                for prop in required_props:
+                    if prop not in node or node.get(prop) in (None, '', [], {}):
+                        errors.append(f"Missing required JSON-LD property: {prop}")
+                if required_in_offers:
+                    offers = node.get('offers')
+                    offer_list = offers if isinstance(offers, list) else [offers] if isinstance(offers, dict) else []
+                    if not offer_list:
+                        errors.append("Missing required JSON-LD offers")
+                    for offer in offer_list:
+                        if not isinstance(offer, dict):
+                            errors.append("Invalid JSON-LD offer")
+                            continue
+                        for prop in required_in_offers:
+                            if prop not in offer or offer.get(prop) in (None, '', [], {}):
+                                errors.append(f"Missing required JSON-LD offer property: {prop}")
+            if required_type and not matched:
+                types = [node.get('@type') for node in nodes]
+                errors.append(f"JSON-LD @type is {types!r}, expected '{required_type}'")
         
         return {'errors': errors}
     
