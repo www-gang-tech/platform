@@ -7,6 +7,7 @@ from __future__ import annotations
 import html
 import ipaddress
 import re
+import unicodedata
 from typing import Any, Optional
 from urllib.parse import unquote, urlparse, urlunparse
 
@@ -18,10 +19,11 @@ _LEFTOVER_SCRIPT_RE = re.compile(r'(?is)<script\b[^>]*>.*?</script>|<script\b[^>
 
 def _normalize_href_entities(value: str) -> str:
     """Unescape HTML entities, including ``&colon;``, before scheme checks."""
-    current = str(value)
+    current = unicodedata.normalize('NFKC', str(value))
     for _ in range(3):
         nxt = html.unescape(current)
         nxt = _COLON_ENTITY_RE.sub(':', nxt)
+        nxt = unicodedata.normalize('NFKC', nxt)
         if nxt == current:
             break
         current = nxt
@@ -40,6 +42,16 @@ def _ipv4_part_is_decimal(part: str) -> bool:
 
 _REBIND_HOSTS = {'localtest.me'}
 _REBIND_SUFFIXES = ('.nip.io', '.sslip.io', '.xip.io', '.localtest.me')
+_SHOPIFY_PLATFORM_HOSTS = {'www.shopify.com', 'shopify.com'}
+_SHOPIFY_CDN_HOSTS = {'cdn.shopify.com', 'cdn.shopifycdn.net'}
+
+
+def _is_blocked_shopify_host(host: str) -> bool:
+    """Reject Shopify marketing/admin hosts, but keep CDN image hosts."""
+    hostname = (host or '').strip().lower().strip('[]')
+    if hostname in _SHOPIFY_CDN_HOSTS:
+        return False
+    return hostname in _SHOPIFY_PLATFORM_HOSTS or hostname.endswith('.shopify.com')
 
 
 def _normalize_http_host(host: str) -> str:
@@ -196,7 +208,7 @@ def safe_http_url(value: Any) -> str:
     hostname = parsed.hostname or host.split(':')[0]
     if not host or not _is_public_http_host(hostname):
         return ''
-    if hostname.lower() in {'www.shopify.com', 'shopify.com'} or hostname.lower().endswith('.shopify.com'):
+    if _is_blocked_shopify_host(hostname):
         return ''
     if '@' in parsed.netloc:
         return urlunparse(parsed._replace(netloc=host))

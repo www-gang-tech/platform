@@ -208,6 +208,10 @@ def convert_markdown_html(body: str) -> str:
 
 def collect_checkout_origins(products: Optional[List[Any]] = None) -> List[str]:
     """Configured merchant origins only — catalog URLs must not widen the allowlist."""
+    try:
+        from core.html_sanitize import _is_public_http_host
+    except ImportError:
+        from gang.core.html_sanitize import _is_public_http_host
     origins = set()
     candidates = [
         os.environ.get('SHOPIFY_STORE_URL') or os.environ.get('SHOPIFY_STORE') or '',
@@ -222,10 +226,19 @@ def collect_checkout_origins(products: Optional[List[Any]] = None) -> List[str]:
         if not store_url.startswith('http'):
             store_url = f'https://{store_url}'
         parsed = urlparse(store_url)
+        if parsed.scheme not in ('http', 'https'):
+            continue
+        if '@' in (parsed.netloc or '') or parsed.username:
+            continue
         host = (parsed.netloc or '').split('@')[-1]
-        if parsed.scheme in ('http', 'https') and host:
-            if host.lower() not in ('www.shopify.com', 'shopify.com'):
-                origins.add(f"{parsed.scheme}://{host}")
+        hostname = parsed.hostname or host.split(':')[0]
+        if not host or not hostname:
+            continue
+        if hostname.lower() in ('www.shopify.com', 'shopify.com'):
+            continue
+        if not _is_public_http_host(hostname):
+            continue
+        origins.add(f"{parsed.scheme}://{host}")
     return sorted(origins)
 
 
@@ -291,6 +304,19 @@ def _public_offer(offer: Any, origins: List[str]) -> Optional[Dict[str, Any]]:
     return public
 
 
+def _offers_have_duplicate_axes(offers: List[Any]) -> bool:
+    """True when two offers collapse onto the same color/size/option3 tuple."""
+    groups: Dict[Tuple[str, str, str], int] = {}
+    for offer in offers or []:
+        if not isinstance(offer, dict):
+            continue
+        color, size = variant_axes(offer)
+        extra = variant_option3(offer)
+        key = (str(color or ''), str(size or ''), str(extra or ''))
+        groups[key] = groups.get(key, 0) + 1
+    return any(count > 1 for count in groups.values())
+
+
 def public_product_records(
     products: Optional[List[Any]],
     origins: Optional[List[str]] = None,
@@ -304,6 +330,11 @@ def public_product_records(
         record = {key: value for key, value in product.items() if key != '_meta'}
         offers = record.get('offers')
         if isinstance(offers, list):
+            if _offers_have_duplicate_axes(offers):
+                offers = [
+                    {**offer, 'url': ''} if isinstance(offer, dict) else offer
+                    for offer in offers
+                ]
             record['offers'] = [
                 item for item in (_public_offer(offer, allowed) for offer in offers) if item
             ]
@@ -609,32 +640,30 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
     if not default_in_stock or not buy_url:
         buy_url = ''
         default_variant_id = ''
+        default_in_stock = False
     # Duplicate axis tuples cannot be resolved by cart.js; do not advertise a SKU.
-    if variants_list:
-        axis_groups: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
+    if variants_list and _offers_have_duplicate_axes(variants_list):
+        buy_url = ''
+        default_variant_id = ''
+        default_in_stock = False
         for item in variants_list:
-            key = (
-                str(item.get('color') or ''),
-                str(item.get('size') or ''),
-                str(item.get('option3') or ''),
-            )
-            axis_groups.setdefault(key, []).append(item)
-        for group in axis_groups.values():
-            if len(group) > 1:
-                buy_url = ''
-                default_variant_id = ''
-                default_in_stock = False
-                break
+            item['url'] = ''
+    pdp_url = f"{str(config['site']['url']).rstrip('/')}/products/{slug}/"
     jsonld_offers = []
     if variants_list:
         for item in variants_list:
+            checkout = item.get('url') or ''
             offer = {
                 '@type': 'Offer',
                 'price': str(item.get('price') or '0'),
                 'priceCurrency': item.get('currency') or 'USD',
-                'availability': item.get('availability') or 'https://schema.org/OutOfStock',
+                'availability': (
+                    item.get('availability') or 'https://schema.org/OutOfStock'
+                    if checkout else
+                    'https://schema.org/OutOfStock'
+                ),
             }
-            offer['url'] = item.get('url') or f"{config['site']['url']}/products/{slug}/"
+            offer['url'] = checkout or pdp_url
             if item.get('sku'):
                 offer['sku'] = item['sku']
             jsonld_offers.append(offer)
@@ -643,9 +672,13 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
             '@type': 'Offer',
             'price': str(first_offer.get('price') or '0'),
             'priceCurrency': first_offer.get('priceCurrency') or 'USD',
-            'availability': first_offer.get('availability') or 'https://schema.org/OutOfStock',
+            'availability': (
+                first_offer.get('availability') or 'https://schema.org/OutOfStock'
+                if buy_url else
+                'https://schema.org/OutOfStock'
+            ),
         }
-        offer['url'] = buy_url or f"{config['site']['url']}/products/{slug}/"
+        offer['url'] = buy_url or pdp_url
         jsonld_offers.append(offer)
 
     jsonld = {
@@ -653,19 +686,25 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         '@type': 'Product',
         'name': title,
         'description': description,
-        'url': f"{config['site']['url']}/products/{slug}/",
+        'url': pdp_url,
         'image': images,
         'sku': matching_default.get('sku') or product.get('sku', ''),
         'offers': jsonld_offers[0] if len(jsonld_offers) == 1 else jsonld_offers,
     }
     jsonld['brand'] = {'@type': 'Brand', 'name': brand_name or config['site']['title']}
+    default_availability = (
+        matching_default.get('availability') or first_offer.get('availability') or
+        'https://schema.org/OutOfStock'
+    )
+    if not default_in_stock:
+        default_availability = 'https://schema.org/OutOfStock'
 
     return {
         'lang': config['site'].get('language', 'en'),
         'site_title': config['site']['title'],
         'title': title,
         'description': description,
-        'canonical_url': f"{config['site']['url']}/products/{slug}/",
+        'canonical_url': pdp_url,
         'slug': slug,
         'product_image': images[0] if images else '',
         'product_images': images,
@@ -685,7 +724,7 @@ def build_pdp_context(product: Dict[str, Any], config: Dict[str, Any], slug: str
         'sku': matching_default.get('sku') or product.get('sku', ''),
         'brand': brand_name,
         'category': product.get('category', ''),
-        'availability': matching_default.get('availability') or first_offer.get('availability', 'https://schema.org/OutOfStock'),
+        'availability': default_availability,
         'in_stock': default_in_stock,
         'checkout_origins': checkout_origins,
         'jsonld': jsonld,
@@ -879,6 +918,25 @@ def collect_category_markdown(content_path: Path, include_products: bool = False
     return files
 
 
+def newsletter_sent_date_label(frontmatter: Dict[str, Any]) -> Any:
+    """Template send date from case-insensitive receipt keys, never raw get()."""
+    if not isinstance(frontmatter, dict):
+        return ''
+    try:
+        from core.scheduler import frontmatter_values, newsletter_send_receipt
+    except ImportError:
+        from gang.core.scheduler import frontmatter_values, newsletter_send_receipt
+    if newsletter_send_receipt(frontmatter):
+        values = frontmatter_values(frontmatter, 'sent_at', 'sent_date')
+        if values:
+            return values[0]
+    for name in ('sent_at', 'sent_date', 'date'):
+        values = frontmatter_values(frontmatter, name)
+        if values:
+            return values[0]
+    return ''
+
+
 def authored_content_date(frontmatter: Dict[str, Any], file_path: Optional[Path] = None) -> Any:
     """Prefer frontmatter dates; fall back to git last-updated, never build time."""
     date_val = None
@@ -977,9 +1035,35 @@ def fallback_jsonld(
     }
 
 
+def _js_can_start_regex(emitted: List[str]) -> bool:
+    """True when `/` begins a regex literal rather than division or a comment."""
+    text = ''.join(emitted)
+    i = len(text) - 1
+    while i >= 0 and text[i] in ' \t\r\n':
+        i -= 1
+    if i < 0:
+        return True
+    ch = text[i]
+    if ch in ',=:!&|?~^%+(;[{':
+        return True
+    if ch in ')]}' or ch.isdigit() or ch == '.':
+        return False
+    if ch.isalnum() or ch in '$_':
+        j = i
+        while j >= 0 and (text[j].isalnum() or text[j] in '$_'):
+            j -= 1
+        ident = text[j + 1:i + 1]
+        return ident in {
+            'return', 'throw', 'typeof', 'delete', 'void', 'new',
+            'in', 'instanceof', 'case', 'else', 'do', 'yield', 'await',
+            'extends',
+        }
+    return True
+
+
 def minify_js_source(js_content: str) -> str:
-    """Strip comments outside string/template literals so URL and regex-like text stay intact."""
-    out = []
+    """Strip comments outside string/template/regex literals."""
+    out: List[str] = []
     i = 0
     n = len(js_content)
     while i < n:
@@ -1020,6 +1104,29 @@ def minify_js_source(js_content: str) -> str:
                 while i < n and js_content[i] != '\n':
                     i += 1
                 continue
+        if ch == '/' and _js_can_start_regex(out):
+            out.append(ch)
+            i += 1
+            in_class = False
+            while i < n:
+                cur = js_content[i]
+                out.append(cur)
+                if cur == '\\' and i + 1 < n:
+                    out.append(js_content[i + 1])
+                    i += 2
+                    continue
+                if cur == '[':
+                    in_class = True
+                elif cur == ']' and in_class:
+                    in_class = False
+                elif cur == '/' and not in_class:
+                    i += 1
+                    while i < n and js_content[i].isalpha():
+                        out.append(js_content[i])
+                        i += 1
+                    break
+                i += 1
+            continue
         out.append(ch)
         i += 1
     js_content = ''.join(out)
@@ -1044,6 +1151,8 @@ def minify_html_source(original_html: str) -> str:
         original_html,
         flags=re.DOTALL | re.IGNORECASE,
     )
+    if re.search(r'<script\b', work, flags=re.IGNORECASE):
+        raise ValueError('unclosed <script> block; refusing to minify')
     work = re.sub(
         r'<style\b[^>]*>.*?</style>',
         _protect,
@@ -2411,37 +2520,15 @@ def set_schedule(ctx, file_path, publish_date, now, status):
     elif publish_date:
         # Parse and set publish date
         try:
-            # Try ISO format first
-            try:
-                from core.scheduler import parse_schedule_datetime
-            except ImportError:
-                from gang.core.scheduler import parse_schedule_datetime
+            from core.scheduler import parse_schedule_datetime
+        except ImportError:
+            from gang.core.scheduler import parse_schedule_datetime
+        try:
             pub_date = parse_schedule_datetime(publish_date)
-        except Exception:
-            # Try common formats, including single-digit hours ("2025-12-25 9:00"
-            # and ISO "2025-12-25T9:00").
-            pub_date = None
-            text = str(publish_date).strip()
-            padded = re.sub(r'(?<=[\sT])(\d):', r'0\1:', text, count=1)
-            for candidate in (text, padded):
-                for fmt in [
-                    '%Y-%m-%d',
-                    '%Y-%m-%d %H:%M',
-                    '%Y-%m-%d %H:%M:%S',
-                    '%Y-%m-%dT%H:%M',
-                    '%Y-%m-%dT%H:%M:%S',
-                ]:
-                    try:
-                        pub_date = datetime.strptime(candidate, fmt)
-                        break
-                    except ValueError:
-                        continue
-                if pub_date is not None:
-                    break
-            if pub_date is None:
-                click.echo(f"❌ Invalid date format: {publish_date}")
-                click.echo("   Use: YYYY-MM-DD or YYYY-MM-DD HH:MM or ISO format")
-                ctx.exit(1)
+        except (ValueError, TypeError):
+            click.echo(f"❌ Invalid date format: {publish_date}")
+            click.echo("   Use: YYYY-MM-DD or YYYY-MM-DD HH:MM or ISO format")
+            ctx.exit(1)
         
         # Ensure timezone aware
         if pub_date.tzinfo is None:
@@ -3609,12 +3696,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             'social_links': sanitize_social_links(frontmatter.get('social_links')),
             'summary': frontmatter.get('summary') or '',
             'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
-            'sent_date': (
-                frontmatter.get('sent_at')
-                or frontmatter.get('sent_date')
-                or frontmatter.get('date')
-                or ''
-            ),
+            'sent_date': newsletter_sent_date_label(frontmatter),
             'status': frontmatter.get('status') or '',
         }
         
@@ -5981,12 +6063,7 @@ def serve(ctx, port, host):
                         'social_links': sanitize_social_links(frontmatter.get('social_links')),
                         'summary': frontmatter.get('summary') or '',
                         'issue_number': frontmatter.get('issue_number') or frontmatter.get('newsletter_id') or '',
-                        'sent_date': (
-                frontmatter.get('sent_at')
-                or frontmatter.get('sent_date')
-                or frontmatter.get('date')
-                or ''
-            ),
+                        'sent_date': newsletter_sent_date_label(frontmatter),
                         'status': frontmatter.get('status') or '',
                     }
                     if not isinstance(context.get('jsonld'), dict) or not context.get('jsonld'):

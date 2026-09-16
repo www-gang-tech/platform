@@ -34,11 +34,21 @@ def _checkout_origin_host() -> str:
         if not store.startswith('http'):
             store = f'https://{store}'
         parsed = urlparse(store)
+        if parsed.scheme not in ('http', 'https'):
+            continue
+        if '@' in (parsed.netloc or '') or parsed.username:
+            continue
         host = (parsed.netloc or '').split('@')[-1]
-        if parsed.scheme in ('http', 'https') and host and host.lower() not in (
-            'www.shopify.com', 'shopify.com'
-        ):
-            return host
+        hostname = parsed.hostname or host.split(':')[0]
+        if not host or hostname.lower() in ('www.shopify.com', 'shopify.com'):
+            continue
+        try:
+            from core.html_sanitize import _is_public_http_host
+        except ImportError:
+            from gang.core.html_sanitize import _is_public_http_host
+        if not _is_public_http_host(hostname):
+            continue
+        return host
     return ''
 
 

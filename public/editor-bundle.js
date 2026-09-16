@@ -322,14 +322,17 @@ class InPlaceEditor {
 
     decodeHrefEntities(value) {
         let current = String(value);
+        try { current = current.normalize('NFKC'); } catch (err) { /* ignore */ }
         for (let i = 0; i < 3; i++) {
             const next = current
                 .replace(/&amp;/gi, '&')
                 .replace(/&colon;/gi, ':')
                 .replace(/&#0*58;/gi, ':')
                 .replace(/&#x0*3a;/gi, ':');
-            if (next === current) break;
-            current = next;
+            let folded = next;
+            try { folded = next.normalize('NFKC'); } catch (err) { /* ignore */ }
+            if (folded === current) break;
+            current = folded;
         }
         return current;
     }

@@ -56,6 +56,8 @@ def parse_schedule_datetime(value: Any) -> datetime:
         # Reject single-digit minutes (`14:4` → 14:04) so typos cannot shift embargoes.
         if re.search(r'(?<=[\sT])\d{1,2}:\d(?!\d)', text):
             raise ValueError(f'Invalid datetime: {value!r}')
+        # Pad single-digit hours so fromisoformat accepts T9:00:00+00:00.
+        text = re.sub(r'(?<=[\sT])(\d):(\d{2})', r'0\1:\2', text, count=1)
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError:
@@ -84,6 +86,15 @@ def parse_schedule_datetime(value: Any) -> datetime:
     return parsed
 
 
+def _schedule_key_name(key: str) -> str:
+    """Normalize Status / SENT_AT / sentAt onto status / sent_at."""
+    if not isinstance(key, str) or not key:
+        return ''
+    if '_' in key or key.isupper() or key.islower():
+        return key.lower()
+    return re.sub(r'([A-Z])', r'_\1', key).lower().strip('_')
+
+
 def frontmatter_values(frontmatter: Dict[str, Any], *names: str) -> List[Any]:
     """Collect values for schedule keys regardless of YAML key case."""
     if not isinstance(frontmatter, dict) or not names:
@@ -92,7 +103,7 @@ def frontmatter_values(frontmatter: Dict[str, Any], *names: str) -> List[Any]:
     return [
         value
         for key, value in frontmatter.items()
-        if isinstance(key, str) and key.lower() in wanted
+        if isinstance(key, str) and _schedule_key_name(key) in wanted
     ]
 
 
@@ -102,7 +113,7 @@ def drop_frontmatter_aliases(frontmatter: Dict[str, Any], *names: str) -> None:
         return
     wanted = {name.lower() for name in names}
     for key in list(frontmatter):
-        if isinstance(key, str) and key.lower() in wanted and key not in names:
+        if isinstance(key, str) and _schedule_key_name(key) in wanted and key not in names:
             frontmatter.pop(key, None)
 
 
