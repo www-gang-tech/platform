@@ -21,13 +21,12 @@ class TOCGenerator:
         # Extract headings
         headings = []
         heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$', re.MULTILINE)
+        used_slugs = set()
         
         for match in heading_pattern.finditer(content):
             level = len(match.group(1))
             text = match.group(2).strip()
-            
-            # Generate slug from heading text
-            slug = TOCGenerator._generate_slug(text)
+            slug = TOCGenerator._unique_slug(text, used_slugs)
             
             headings.append({
                 'level': level,
@@ -38,11 +37,12 @@ class TOCGenerator:
         # Generate TOC HTML
         toc_html = TOCGenerator._generate_toc_html(headings)
         
-        # Add anchors to content
+        # Add anchors to content using the same unique slugs, in order
+        slug_iter = iter(heading['slug'] for heading in headings)
         def replace_heading(match):
             level = len(match.group(1))
             text = match.group(2).strip()
-            slug = TOCGenerator._generate_slug(text)
+            slug = next(slug_iter)
             
             return f'{"#" * level} <a id="{slug}" href="#{slug}" class="heading-anchor" aria-hidden="true"></a>{text}'
         
@@ -62,6 +62,7 @@ class TOCGenerator:
         # Extract headings from HTML
         headings = []
         heading_pattern = re.compile(r'<(h[1-6])(?:\s+[^>]*)?>(.+?)</\1>', re.IGNORECASE)
+        used_slugs = set()
         
         for match in heading_pattern.finditer(html_content):
             tag = match.group(1).lower()
@@ -70,7 +71,7 @@ class TOCGenerator:
             
             # Remove HTML tags from text
             text_clean = re.sub(r'<[^>]+>', '', text).strip()
-            slug = TOCGenerator._generate_slug(text_clean)
+            slug = TOCGenerator._unique_slug(text_clean, used_slugs)
             
             headings.append({
                 'level': level,
@@ -86,6 +87,17 @@ class TOCGenerator:
             'has_toc': len(headings) > 2
         }
     
+    @staticmethod
+    def _unique_slug(text: str, used: set) -> str:
+        base = TOCGenerator._generate_slug(text) or 'section'
+        slug = base
+        n = 2
+        while slug in used:
+            slug = f'{base}-{n}'
+            n += 1
+        used.add(slug)
+        return slug
+
     @staticmethod
     def _generate_slug(text: str) -> str:
         """Generate URL-safe slug from heading text"""
