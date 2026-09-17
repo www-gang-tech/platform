@@ -3,11 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self' https:;">
     
     <title>{{ title }} - {{ site_title }}</title>
     <meta name="description" content="{{ description }}">
     <link rel="canonical" href="{{ canonical_url }}">
+    {% if jsonld %}
+    <script type="application/ld+json">
+    {{ jsonld | tojson_script }}
+    </script>
+    {% endif %}
     
     <link rel="stylesheet" href="/assets/style.css">
 </head>
@@ -20,7 +25,7 @@
             {% for crumb in breadcrumbs %}
             <li>
                 {% if not loop.last %}
-                <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+                <a href="{{ crumb.url|safe_url }}">{{ crumb.label }}</a>
                 {% else %}
                 <span aria-current="page">{{ crumb.label }}</span>
                 {% endif %}
@@ -33,7 +38,7 @@
     <main style="max-width: 65ch; margin: 0 auto;">
         <div class="newsletter-header">
             <p class="newsletter-meta">
-                Newsletter #{{ issue_number }} · Sent on {{ sent_date }}
+                Newsletter #{{ issue_number }}{% if sent_date %} · {% if status == 'sent' or not status %}Sent{% else %}Published{% endif %} on {{ sent_date | date('%B %d, %Y') }}{% endif %}
             </p>
             <h1>{{ title }}</h1>
         </div>

@@ -184,16 +184,17 @@ class ImagePipeline:
             return
         
         import yaml
-        frontmatter = yaml.safe_load(parts[1])
+        raw_frontmatter = yaml.safe_load(parts[1])
+        frontmatter = raw_frontmatter if isinstance(raw_frontmatter, dict) else {}
         
         # Add/update images array
-        if 'images' not in frontmatter:
+        if 'images' not in frontmatter or not isinstance(frontmatter.get('images'), list):
             frontmatter['images'] = []
         
         # Find or create entry for this image
         image_entry = None
         for img in frontmatter['images']:
-            if img.get('src') == image_filename:
+            if isinstance(img, dict) and img.get('src') == image_filename:
                 image_entry = img
                 break
         
