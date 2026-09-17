@@ -36,11 +36,16 @@ def _public_content_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
         from core.html_sanitize import safe_http_url
     except ImportError:
         from gang.core.html_sanitize import safe_http_url
+    try:
+        from core.scheduler import authored_frontmatter_date, frontmatter_values
+    except ImportError:
+        from gang.core.scheduler import authored_frontmatter_date, frontmatter_values
     out: Dict[str, Any] = {}
     for key in _PUBLIC_METADATA_KEYS:
-        if key not in frontmatter:
+        values = frontmatter_values(frontmatter, key)
+        if not values:
             continue
-        value = frontmatter[key]
+        value = values[0]
         if key in ('image', 'canonical'):
             out[key] = safe_http_url(value) if isinstance(value, str) else ''
         elif key == 'tags':
@@ -52,6 +57,12 @@ def _public_content_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
             out[key] = value.isoformat()
         elif isinstance(value, (str, int, float, bool)) or value is None:
             out[key] = value
+    receipt_date = authored_frontmatter_date(frontmatter)
+    if receipt_date is not None:
+        if hasattr(receipt_date, 'isoformat'):
+            out['date'] = receipt_date.isoformat()
+        elif isinstance(receipt_date, (str, int, float)):
+            out['date'] = receipt_date
     return out
 
 
@@ -248,13 +259,19 @@ class ContentAPIGenerator:
                 summary = meta.get('summary') or meta.get('description') or ''
                 if not isinstance(summary, str):
                     summary = ''
-                date_val = (
-                    meta.get('sent_at')
-                    or meta.get('sent_date')
-                    or meta.get('date')
-                    or meta.get('publish_date')
-                    or ''
-                )
+                try:
+                    from core.scheduler import authored_frontmatter_date
+                except ImportError:
+                    from gang.core.scheduler import authored_frontmatter_date
+                date_val = authored_frontmatter_date(frontmatter)
+                if date_val is None:
+                    date_val = (
+                        meta.get('sent_at')
+                        or meta.get('sent_date')
+                        or meta.get('date')
+                        or meta.get('publish_date')
+                        or ''
+                    )
                 item = {
                     'title': title,
                     'url': f"{self.site_url}/{public_category}/{slug}/",

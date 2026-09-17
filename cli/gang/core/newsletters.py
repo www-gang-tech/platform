@@ -209,6 +209,11 @@ class NewsletterManager:
             return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         if status == 'sent' and has_receipt and not test_mode:
             return {'error': 'Newsletter already sent', 'success': False}
+        if not test_mode and not has_receipt and frontmatter_values(frontmatter, 'sending_at'):
+            return {
+                'error': 'Newsletter send already in progress or receipt write failed; refuse duplicate send',
+                'success': False,
+            }
         
         # Convert markdown to HTML
         html_body = self._markdown_to_email_html(body)
@@ -227,7 +232,28 @@ class NewsletterManager:
         if test_mode:
             result = self.provider.send_test(email_data)
         else:
+            # Persist a send lock before the ESP call so a later receipt-write
+            # failure cannot create a second campaign on retry.
+            drop_frontmatter_aliases(frontmatter, 'sending_at')
+            frontmatter['sending_at'] = datetime.now(timezone.utc).isoformat()
+            lock_content = (
+                f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{body}"
+            )
+            try:
+                file_path.write_text(lock_content)
+            except OSError as exc:
+                return {'error': f'Could not persist send lock: {exc}', 'success': False}
             result = self.provider.send_campaign(email_data)
+            if not result.get('success'):
+                drop_frontmatter_aliases(frontmatter, 'sending_at')
+                frontmatter.pop('sending_at', None)
+                try:
+                    file_path.write_text(
+                        f"---\n{yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)}---\n{body}"
+                    )
+                except OSError:
+                    pass
+                return result
         
         # Test sends must not flip archive status or rewrite the source file.
         if result.get('success') and not test_mode:

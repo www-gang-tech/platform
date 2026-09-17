@@ -119,6 +119,7 @@
             if (a === 172 && b >= 16 && b <= 31) return true;
             if (a === 169 && b === 254) return true;
             if (a === 100 && b >= 64 && b <= 127) return true;
+            if (a >= 224) return true;
             return false;
         }
         const dotted = host.split('.');
@@ -140,6 +141,13 @@
         }
         if (host.indexOf(':') !== -1) {
             if (host === '::1' || host === '::') return false;
+            const hextets = host.split(':');
+            if (hextets.length === 8 && hextets.every(function(part) { return /^[0-9a-f]{0,4}$/.test(part); })) {
+                const nums = hextets.map(function(part) { return parseInt(part || '0', 16); });
+                if (nums.slice(0, 7).every(function(n) { return n === 0; }) && (nums[7] === 0 || nums[7] === 1)) {
+                    return false;
+                }
+            }
             const mappedDot = host.match(/(?:^|:)ffff:(\d+\.\d+\.\d+\.\d+)$/i);
             if (mappedDot) {
                 const parts = mappedDot[1].split('.').map(Number);

@@ -440,6 +440,15 @@ class ShopifyClient:
             import requests
 
             store_host = self.store_url.split('/')[0].split('?')[0].split('@')[-1].lower()
+            parsed_store = urlparse(f'https://{store_host}')
+            hostname = parsed_store.hostname or store_host.split(':')[0]
+            try:
+                from core.html_sanitize import _is_public_http_host
+            except ImportError:
+                from gang.core.html_sanitize import _is_public_http_host
+            if not hostname or not _is_public_http_host(hostname):
+                print('Error fetching from Shopify: non-public store host')
+                return None
             headers = {
                 'X-Shopify-Access-Token': self.access_token,
                 'Content-Type': 'application/json'

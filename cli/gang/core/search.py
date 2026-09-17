@@ -92,6 +92,15 @@ class SearchIndexer:
         
         if not isinstance(frontmatter, dict):
             raise RuntimeError(f'Search index failed for {file_path}: frontmatter must be a mapping')
+
+        try:
+            from core.scheduler import authored_frontmatter_date
+        except ImportError:
+            from gang.core.scheduler import authored_frontmatter_date
+
+        def _authored_index_date(payload):
+            value = authored_frontmatter_date(payload)
+            return '' if value is None else value
         
         def _json_safe(value):
             if value is None:
@@ -137,12 +146,7 @@ class SearchIndexer:
             'tags': tags,
             'content': clean_text[:500],  # First 500 chars for preview
             'searchable': searchable.lower(),  # Lowercase for case-insensitive search
-            'date': _json_safe(
-                frontmatter.get('date')
-                or frontmatter.get('publish_date')
-                or frontmatter.get('sent_date')
-                or ''
-            ),
+            'date': _json_safe(_authored_index_date(frontmatter)),
         }
     
     def _clean_markdown(self, text: str) -> str:

@@ -58,6 +58,8 @@ def parse_schedule_datetime(value: Any) -> datetime:
             raise ValueError(f'Invalid datetime: {value!r}')
         # Pad single-digit hours so fromisoformat accepts T9:00:00+00:00.
         text = re.sub(r'(?<=[\sT])(\d):(\d{2})', r'0\1:\2', text, count=1)
+        # Pad single-digit timezone hours (`+9:00`) the same way.
+        text = re.sub(r'([+-])(\d):(\d{2})$', r'\g<1>0\2:\3', text)
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError:
@@ -193,12 +195,29 @@ def newsletter_send_receipt(frontmatter: Dict[str, Any]) -> bool:
     return True
 
 
+def authored_frontmatter_date(frontmatter: Dict[str, Any]) -> Any:
+    """Prefer a consistent send receipt over leftover draft ``date`` keys."""
+    if not isinstance(frontmatter, dict):
+        return None
+    if newsletter_send_receipt(frontmatter):
+        values = frontmatter_values(frontmatter, 'sent_at', 'sent_date')
+        if values:
+            return values[0]
+    for name in ('date', 'sent_date', 'sent_at', 'publish_date'):
+        values = frontmatter_values(frontmatter, name)
+        if values:
+            return values[0]
+    return None
+
+
 def drop_newsletter_receipts(frontmatter: Dict[str, Any]) -> None:
     """Remove send-receipt keys so drafts cannot inherit a spoofed archive."""
     if not isinstance(frontmatter, dict):
         return
-    drop_frontmatter_aliases(frontmatter, 'sent_at', 'sent_date', 'campaign_id')
-    for key in ('sent_at', 'sent_date', 'campaign_id'):
+    drop_frontmatter_aliases(
+        frontmatter, 'sent_at', 'sent_date', 'campaign_id', 'sending_at'
+    )
+    for key in ('sent_at', 'sent_date', 'campaign_id', 'sending_at'):
         frontmatter.pop(key, None)
 
 

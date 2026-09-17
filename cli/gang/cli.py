@@ -942,19 +942,10 @@ def authored_content_date(frontmatter: Dict[str, Any], file_path: Optional[Path]
     date_val = None
     if isinstance(frontmatter, dict):
         try:
-            from core.scheduler import frontmatter_values, newsletter_send_receipt
+            from core.scheduler import authored_frontmatter_date
         except ImportError:
-            from gang.core.scheduler import frontmatter_values, newsletter_send_receipt
-        if newsletter_send_receipt(frontmatter):
-            receipt_values = frontmatter_values(frontmatter, 'sent_at', 'sent_date')
-            if receipt_values:
-                date_val = receipt_values[0]
-        if not date_val:
-            for name in ('date', 'sent_date', 'sent_at', 'publish_date'):
-                values = frontmatter_values(frontmatter, name)
-                if values:
-                    date_val = values[0]
-                    break
+            from gang.core.scheduler import authored_frontmatter_date
+        date_val = authored_frontmatter_date(frontmatter)
     if date_val:
         return date_val
     if file_path is None:
