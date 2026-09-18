@@ -58,8 +58,9 @@ def parse_schedule_datetime(value: Any) -> datetime:
             raise ValueError(f'Invalid datetime: {value!r}')
         # Pad single-digit hours so fromisoformat accepts T9:00:00+00:00.
         text = re.sub(r'(?<=[\sT])(\d):(\d{2})', r'0\1:\2', text, count=1)
-        # Pad single-digit timezone hours (`+9:00`) the same way.
+        # Pad single-digit timezone hours (`+9:00`) and hour-only offsets (`+9`).
         text = re.sub(r'([+-])(\d):(\d{2})$', r'\g<1>0\2:\3', text)
+        text = re.sub(r'([+-])(\d)$', r'\g<1>0\2:00', text)
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError:
@@ -195,19 +196,51 @@ def newsletter_send_receipt(frontmatter: Dict[str, Any]) -> bool:
     return True
 
 
+def _scalar_schedule_value(value: Any) -> Any:
+    """Unwrap CMS list wrappers and drop empty/structured leftovers."""
+    value = _unwrap_schedule_value(value)
+    if _absent_schedule_date(value):
+        return None
+    if isinstance(value, (list, tuple, dict, set, bool)):
+        return None
+    return value
+
+
 def authored_frontmatter_date(frontmatter: Dict[str, Any]) -> Any:
     """Prefer a consistent send receipt over leftover draft ``date`` keys."""
     if not isinstance(frontmatter, dict):
         return None
     if newsletter_send_receipt(frontmatter):
-        values = frontmatter_values(frontmatter, 'sent_at', 'sent_date')
-        if values:
-            return values[0]
+        for value in frontmatter_values(frontmatter, 'sent_at', 'sent_date'):
+            scalar = _scalar_schedule_value(value)
+            if scalar is not None:
+                return scalar
     for name in ('date', 'sent_date', 'sent_at', 'publish_date'):
-        values = frontmatter_values(frontmatter, name)
-        if values:
-            return values[0]
+        for value in frontmatter_values(frontmatter, name):
+            scalar = _scalar_schedule_value(value)
+            if scalar is not None:
+                return scalar
     return None
+
+
+def newsletter_send_lock(frontmatter: Dict[str, Any]) -> bool:
+    """True when a parseable ``sending_at`` lock is present.
+
+    Empty/junk leftovers (``TBD``, ``false``, ``[]``) are not a lock — only a
+    real timestamp written before the ESP call should block retries.
+    """
+    if not isinstance(frontmatter, dict):
+        return False
+    for value in frontmatter_values(frontmatter, 'sending_at'):
+        scalar = _scalar_schedule_value(value)
+        if scalar is None:
+            continue
+        try:
+            parse_schedule_datetime(scalar)
+        except (ValueError, TypeError):
+            continue
+        return True
+    return False
 
 
 def drop_newsletter_receipts(frontmatter: Dict[str, Any]) -> None:

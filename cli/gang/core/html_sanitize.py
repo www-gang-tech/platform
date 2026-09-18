@@ -112,10 +112,19 @@ def _is_public_http_host(host: str) -> bool:
     except ValueError:
         # Single-label hosts are LAN/mDNS-style, not public publish targets.
         return '.' in host and not host.startswith('.')
-    # IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is reserved as a prefix, so apply
-    # the IPv4 public-host policy to the embedded address instead.
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        return _is_public_http_host(str(ip.ipv4_mapped))
+    # Embedded IPv4 (mapped, 6to4, deprecated compatible, SIIT) is reserved as a
+    # prefix, so apply the IPv4 public-host policy to the inner address instead.
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            return _is_public_http_host(str(ip.ipv4_mapped))
+        sixtofour = getattr(ip, 'sixtofour', None)
+        if sixtofour is not None:
+            return _is_public_http_host(str(sixtofour))
+        packed = ip.packed
+        if packed[:12] == b'\x00' * 12:
+            return _is_public_http_host(str(ipaddress.IPv4Address(packed[12:])))
+        if packed[:8] == b'\x00' * 8 and packed[8:12] == b'\xff\xff\x00\x00':
+            return _is_public_http_host(str(ipaddress.IPv4Address(packed[12:])))
     cgnat = ipaddress.ip_network('100.64.0.0/10')
     return not (
         ip.is_private

@@ -143,17 +143,32 @@
         }
         if (host.indexOf(':') !== -1) {
             if (host === '::1' || host === '::') return false;
+            if (/^64:ff9b:/i.test(host)) return false;
+            const teredo = host.match(/^2001:([0-9a-f]{0,4}):/i);
+            if (teredo && parseInt(teredo[1] || '0', 16) === 0) return false;
+            if (/^2002:/i.test(host)) {
+                const six = host.match(/^2002:([0-9a-f]{0,4}):([0-9a-f]{0,4})/i);
+                if (!six) return false;
+                const hi = parseInt(six[1] || '0', 16);
+                return !blockedV4((hi >> 8) & 255, hi & 255);
+            }
+            const dottedTail = host.match(/(?:^|:)(\d+\.\d+\.\d+\.\d+)$/);
+            if (dottedTail) {
+                const parts = dottedTail[1].split('.').map(Number);
+                if (parts.some(function(n) { return n > 255; })) return false;
+                return !blockedV4(parts[0], parts[1]);
+            }
+            const compactCompat = host.match(/^:?:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+            if (compactCompat && !/:ffff:/i.test(host)) {
+                const hi = parseInt(compactCompat[1], 16);
+                return !blockedV4((hi >> 8) & 255, hi & 255);
+            }
             const hextets = host.split(':');
             if (hextets.length === 8 && hextets.every(function(part) { return /^[0-9a-f]{0,4}$/.test(part); })) {
                 const nums = hextets.map(function(part) { return parseInt(part || '0', 16); });
-                if (nums.slice(0, 7).every(function(n) { return n === 0; }) && (nums[7] === 0 || nums[7] === 1)) {
-                    return false;
+                if (nums[5] === 0xffff || (nums[4] === 0xffff && nums[5] === 0) || nums.slice(0, 6).every(function(n) { return n === 0; })) {
+                    return !blockedV4((nums[6] >> 8) & 255, nums[6] & 255);
                 }
-            }
-            const mappedDot = host.match(/(?:^|:)ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-            if (mappedDot) {
-                const parts = mappedDot[1].split('.').map(Number);
-                return !blockedV4(parts[0], parts[1]);
             }
             const mappedHex = host.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
             if (mappedHex) {

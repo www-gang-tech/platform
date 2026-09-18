@@ -923,18 +923,11 @@ def newsletter_sent_date_label(frontmatter: Dict[str, Any]) -> Any:
     if not isinstance(frontmatter, dict):
         return ''
     try:
-        from core.scheduler import frontmatter_values, newsletter_send_receipt
+        from core.scheduler import authored_frontmatter_date
     except ImportError:
-        from gang.core.scheduler import frontmatter_values, newsletter_send_receipt
-    if newsletter_send_receipt(frontmatter):
-        values = frontmatter_values(frontmatter, 'sent_at', 'sent_date')
-        if values:
-            return values[0]
-    for name in ('sent_at', 'sent_date', 'date'):
-        values = frontmatter_values(frontmatter, name)
-        if values:
-            return values[0]
-    return ''
+        from gang.core.scheduler import authored_frontmatter_date
+    value = authored_frontmatter_date(frontmatter)
+    return '' if value is None else value
 
 
 def authored_content_date(frontmatter: Dict[str, Any], file_path: Optional[Path] = None) -> Any:
@@ -1150,6 +1143,8 @@ def minify_html_source(original_html: str) -> str:
         work,
         flags=re.DOTALL | re.IGNORECASE,
     )
+    if re.search(r'<style\b', work, flags=re.IGNORECASE):
+        raise ValueError('unclosed <style> block; refusing to minify')
     work = re.sub(
         r'<pre\b[^>]*>.*?</pre>',
         _protect,

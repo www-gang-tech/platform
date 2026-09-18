@@ -459,7 +459,12 @@ class ShopifyClient:
             products: List[Dict[str, Any]] = []
             seen_ids = set()
             for _ in range(20):
-                response = requests.get(url, headers=headers, params=params, timeout=30)
+                response = requests.get(
+                    url, headers=headers, params=params, timeout=30, allow_redirects=False
+                )
+                if 300 <= response.status_code < 400:
+                    print('Error fetching from Shopify: refusing redirected Admin response')
+                    return None
                 response.raise_for_status()
                 page = (response.json() or {}).get('products') or []
                 for product in page:
@@ -478,7 +483,14 @@ class ShopifyClient:
                 if not next_link:
                     break
                 parsed = urlparse(next_link)
-                if parsed.scheme != 'https' or (parsed.hostname or '').lower() != store_host:
+                next_host = (parsed.hostname or '').lower()
+                if (
+                    parsed.scheme != 'https'
+                    or parsed.username
+                    or '@' in (parsed.netloc or '')
+                    or next_host != (hostname or '').lower()
+                    or not _is_public_http_host(next_host)
+                ):
                     break
                 url = next_link
                 params = None

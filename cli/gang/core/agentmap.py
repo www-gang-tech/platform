@@ -37,15 +37,25 @@ def _public_content_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
     except ImportError:
         from gang.core.html_sanitize import safe_http_url
     try:
-        from core.scheduler import authored_frontmatter_date, frontmatter_values
+        from core.scheduler import (
+            _scalar_schedule_value,
+            authored_frontmatter_date,
+            frontmatter_values,
+        )
     except ImportError:
-        from gang.core.scheduler import authored_frontmatter_date, frontmatter_values
+        from gang.core.scheduler import (
+            _scalar_schedule_value,
+            authored_frontmatter_date,
+            frontmatter_values,
+        )
     out: Dict[str, Any] = {}
     for key in _PUBLIC_METADATA_KEYS:
         values = frontmatter_values(frontmatter, key)
         if not values:
             continue
-        value = values[0]
+        value = values[0] if key == 'tags' else _scalar_schedule_value(values[0])
+        if value is None and key != 'tags':
+            continue
         if key in ('image', 'canonical'):
             out[key] = safe_http_url(value) if isinstance(value, str) else ''
         elif key == 'tags':

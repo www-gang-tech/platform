@@ -136,6 +136,7 @@ class NewsletterManager:
                 drop_newsletter_receipts,
                 frontmatter_values,
                 has_unparseable_schedule_date,
+                newsletter_send_lock,
                 newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
@@ -147,6 +148,7 @@ class NewsletterManager:
                 drop_newsletter_receipts,
                 frontmatter_values,
                 has_unparseable_schedule_date,
+                newsletter_send_lock,
                 newsletter_send_receipt,
                 resolve_schedule_status,
                 strip_frontmatter_prefix,
@@ -209,7 +211,7 @@ class NewsletterManager:
             return {'error': f'Cannot send newsletter with status {status!r}', 'success': False}
         if status == 'sent' and has_receipt and not test_mode:
             return {'error': 'Newsletter already sent', 'success': False}
-        if not test_mode and not has_receipt and frontmatter_values(frontmatter, 'sending_at'):
+        if not test_mode and not has_receipt and newsletter_send_lock(frontmatter):
             return {
                 'error': 'Newsletter send already in progress or receipt write failed; refuse duplicate send',
                 'success': False,
