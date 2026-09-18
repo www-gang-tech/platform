@@ -6,6 +6,7 @@ class InPlaceEditor {
         this.overlay = null;
         this.editorElement = null;
         this.originalContent = '';
+        this.preservedFrontmatter = null;
         this.currentFile = '';
         this.floatingToolbar = null;
         this.isActive = false;
@@ -25,6 +26,9 @@ class InPlaceEditor {
             }
             
             this.originalContent = await response.text();
+            const split = this.splitFrontmatter(this.originalContent);
+            this.preservedFrontmatter = split.frontmatter;
+            this.bodyContent = split.body;
             
             // Create and show editor overlay
             this.createOverlay();
@@ -44,7 +48,7 @@ class InPlaceEditor {
         overlay.innerHTML = `
             <div class="editor-container">
                 <div class="editor-header">
-                    <h2>Edit: ${this.getPageTitle()}</h2>
+                    <h2></h2>
                     <div class="editor-header-actions">
                         <button class="editor-actions-btn" id="actions-toggle">
                             <i class="fa-solid fa-bars"></i> Actions
@@ -68,6 +72,11 @@ class InPlaceEditor {
             </div>
         `;
         
+        const titleEl = overlay.querySelector('h2');
+        if (titleEl) {
+            titleEl.textContent = 'Edit: ' + this.getPageTitle();
+        }
+        
         // Create editor content area
         const container = overlay.querySelector('.editor-container');
         this.editorElement = this.initEditor();
@@ -89,7 +98,7 @@ class InPlaceEditor {
         editor.className = 'editor-content';
         editor.contentEditable = 'true';
         editor.setAttribute('data-placeholder', 'Start writing...');
-        editor.innerHTML = this.markdownToHtml(this.originalContent);
+        editor.innerHTML = this.markdownToHtml(this.bodyContent || this.originalContent);
         
         // Keyboard shortcuts
         editor.addEventListener('keydown', (e) => {
@@ -100,6 +109,12 @@ class InPlaceEditor {
             if (e.key === 'Escape') {
                 this.cancel();
             }
+        });
+
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+            document.execCommand('insertText', false, text || '');
         });
         
         // Show floating toolbar on selection
@@ -212,7 +227,7 @@ class InPlaceEditor {
             document.execCommand('formatBlock', false, '<code>');
         } else if (cmd === 'link') {
             const url = prompt('Enter URL:');
-            if (url) {
+            if (url && this.isSafeHref(url)) {
                 document.execCommand('createLink', false, url);
             }
         }
@@ -220,23 +235,226 @@ class InPlaceEditor {
         this.hideFloatingToolbar();
     }
 
+    escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    splitFrontmatter(markdown) {
+        const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+        if (!match) {
+            return { frontmatter: null, body: markdown || '' };
+        }
+        return { frontmatter: match[1], body: match[2] };
+    }
+
+    joinFrontmatter(body) {
+        if (this.preservedFrontmatter == null) {
+            return body;
+        }
+        return '---\n' + this.preservedFrontmatter + '\n---\n' + (body || '');
+    }
+
+    isPublicHttpHost(host) {
+        host = String(host || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+        while (host.length > 1 && host.endsWith('.')) {
+            host = host.slice(0, -1);
+        }
+        if (!host || host === 'localhost' || host === '0.0.0.0' || host === '::' || host === '::1') {
+            return false;
+        }
+        if (/\.(localhost|local|internal|lan)$/.test(host)) return false;
+        if (host === 'localtest.me' || /\.(nip\.io|sslip\.io|xip\.io|localtest\.me)$/.test(host)) {
+            return false;
+        }
+        if (host.split('.').some(function(label) { return /^0x[0-9a-f]+$/i.test(label); })) {
+            return false;
+        }
+        function blockedV4(a, b) {
+            if (a === 0 || a === 10 || a === 127) return true;
+            if (a === 192 && b === 168) return true;
+            if (a === 172 && b >= 16 && b <= 31) return true;
+            if (a === 169 && b === 254) return true;
+            if (a === 100 && b >= 64 && b <= 127) return true;
+            if (a >= 224) return true;
+            return false;
+        }
+        const dotted = host.split('.');
+        const decimalOctet = function(part) {
+            return /^\d+$/.test(part) && !(part.length > 1 && part.charAt(0) === '0');
+        };
+        if (/^\d+(\.\d+){1,3}$/.test(host)) {
+            if (!dotted.every(decimalOctet)) return false;
+            const nums = dotted.map(Number);
+            if (nums.some(function(n) { return n > 255; })) return false;
+            while (nums.length < 4) nums.push(0);
+            return !blockedV4(nums[0], nums[1]);
+        }
+        if (/^\d+$/.test(host)) {
+            if (!decimalOctet(host)) return false;
+            const value = Number(host);
+            if (value < 0 || value > 0xffffffff) return false;
+            return !blockedV4((value >>> 24) & 255, (value >>> 16) & 255);
+        }
+        if (host.indexOf(':') !== -1) {
+            if (host === '::1' || host === '::') return false;
+            if (/^64:ff9b:/i.test(host)) return false;
+            const teredo = host.match(/^2001:([0-9a-f]{0,4}):/i);
+            if (teredo && parseInt(teredo[1] || '0', 16) === 0) return false;
+            if (/^2002:/i.test(host)) {
+                const six = host.match(/^2002:([0-9a-f]{0,4}):([0-9a-f]{0,4})/i);
+                if (!six) return false;
+                const hi = parseInt(six[1] || '0', 16);
+                return !blockedV4((hi >> 8) & 255, hi & 255);
+            }
+            const dottedTail = host.match(/(?:^|:)(\d+\.\d+\.\d+\.\d+)$/);
+            if (dottedTail) {
+                const parts = dottedTail[1].split('.').map(Number);
+                if (parts.some(function(n) { return n > 255; })) return false;
+                return !blockedV4(parts[0], parts[1]);
+            }
+            const compactCompat = host.match(/^:?:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+            if (compactCompat && !/:ffff:/i.test(host)) {
+                const hi = parseInt(compactCompat[1], 16);
+                return !blockedV4((hi >> 8) & 255, hi & 255);
+            }
+            const hextets = host.split(':');
+            if (hextets.length === 8 && hextets.every(function(part) { return /^[0-9a-f]{0,4}$/.test(part); })) {
+                const nums = hextets.map(function(part) { return parseInt(part || '0', 16); });
+                if (nums[5] === 0xffff || (nums[4] === 0xffff && nums[5] === 0) || nums.slice(0, 6).every(function(n) { return n === 0; })) {
+                    return !blockedV4((nums[6] >> 8) & 255, nums[6] & 255);
+                }
+            }
+            const mappedHex = host.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+            if (mappedHex) {
+                const hi = parseInt(mappedHex[1], 16);
+                return !blockedV4((hi >> 8) & 255, hi & 255);
+            }
+            const first = host.split(':').find(function(part) { return part.length; }) || '0';
+            const n = parseInt(first, 16);
+            if (!isNaN(n) && ((n & 0xfe00) === 0xfc00 || (n & 0xffc0) === 0xfe80 || (n & 0xff00) === 0xff00)) {
+                return false;
+            }
+            return true;
+        }
+        return host.indexOf('.') !== -1 && host.charAt(0) !== '.';
+    }
+
+    decodeHrefEntities(value) {
+        let current = String(value);
+        try { current = current.normalize('NFKC'); } catch (err) { /* ignore */ }
+        for (let i = 0; i < 3; i++) {
+            const next = current
+                .replace(/&amp;/gi, '&')
+                .replace(/&colon;/gi, ':')
+                .replace(/&#0*58;/gi, ':')
+                .replace(/&#x0*3a;/gi, ':');
+            let folded = next;
+            try { folded = next.normalize('NFKC'); } catch (err) { /* ignore */ }
+            if (folded === current) break;
+            current = folded;
+        }
+        return current;
+    }
+
+    isSafeHref(value) {
+        if (!value || typeof value !== 'string') return false;
+        const self = this;
+        function check(candidate) {
+            const trimmed = String(candidate).trim();
+            if (!trimmed) return false;
+            const normalized = trimmed.replace(/\\/g, '/');
+            if (trimmed.startsWith('//') || trimmed.startsWith('/\\') || trimmed.startsWith('\\') || normalized.startsWith('//')) {
+                return false;
+            }
+            const pathPart = normalized.split('?')[0].split('#')[0];
+            if (trimmed.indexOf('\0') !== -1 || /%00/i.test(trimmed)) {
+                return false;
+            }
+            if (pathPart.indexOf(':') === -1) {
+                return pathPart.split('/').every(function(seg) {
+                    return seg !== '..' && seg.indexOf('..') !== 0;
+                }) && pathPart.indexOf('//') === -1;
+            }
+            if (/^mailto:/i.test(trimmed)) {
+                const addr = trimmed.slice(7).split('?')[0];
+                return Boolean(addr) && (addr.match(/@/g) || []).length <= 1 && addr.indexOf(':') === -1;
+            }
+            if (!/^https?:\/\//i.test(trimmed)) {
+                return false;
+            }
+            try {
+                const url = new URL(trimmed);
+                if (url.username) return false;
+                if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+                return self.isPublicHttpHost(url.hostname);
+            } catch (err) {
+                return false;
+            }
+        }
+        const normalized = self.decodeHrefEntities(value);
+        if (!check(normalized)) return false;
+        let decoded = normalized;
+        for (let i = 0; i < 3; i++) {
+            try {
+                const next = self.decodeHrefEntities(decodeURIComponent(decoded));
+                if (next === decoded) break;
+                decoded = next;
+                if (!check(decoded)) return false;
+            } catch (err) {
+                break;
+            }
+        }
+        return true;
+    }
+
     // Markdown to HTML converter
     markdownToHtml(markdown) {
-        return markdown
+        const self = this;
+        const text = this.escapeHtml(markdown);
+        return text
             .replace(/^### (.+)$/gm, '<h3>$1</h3>')
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
             .replace(/^# (.+)$/gm, '<h1>$1</h1>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+            .replace(/\[(.+?)\]\((.+?)\)/g, function(_, label, href) {
+                const rawHref = String(href).replace(/&amp;/g, '&');
+                const url = self.isSafeHref(rawHref) ? rawHref : '#';
+                return '<a href="' + self.escapeHtml(url) + '">' + label + '</a>';
+            })
             .replace(/`(.+?)`/g, '<code>$1</code>')
-            .split('\n\n').map(p => `<p>${p}</p>`).join('');
+            .split('\n\n').map(function(p) { return '<p>' + p + '</p>'; }).join('');
     }
 
     // HTML to Markdown converter
     htmlToMarkdown(html) {
-        const temp = document.createElement('div');
-        temp.innerHTML = html;
+        const parsed = new DOMParser().parseFromString(
+            '<div id="gang-md-root">' + (html || '') + '</div>',
+            'text/html'
+        );
+        const temp = parsed.getElementById('gang-md-root') || parsed.body;
+        const self = this;
+        temp.querySelectorAll('script, style, iframe, object, embed, form').forEach(function(node) {
+            node.remove();
+        });
+        temp.querySelectorAll('*').forEach(function(node) {
+            Array.from(node.attributes).forEach(function(attr) {
+                const name = attr.name.toLowerCase();
+                if (name.indexOf('on') === 0) {
+                    node.removeAttribute(attr.name);
+                    return;
+                }
+                if (['href', 'src', 'srcset', 'action', 'formaction', 'poster', 'xlink:href'].indexOf(name) !== -1) {
+                    if (!self.isSafeHref(attr.value)) {
+                        node.setAttribute(attr.name, '#');
+                    }
+                }
+            });
+        });
         
         return temp.innerHTML
             .replace(/<h1>(.+?)<\/h1>/g, '# $1\n\n')
@@ -256,7 +474,7 @@ class InPlaceEditor {
 
     async saveContent() {
         try {
-            const content = this.getContent();
+            const content = this.joinFrontmatter(this.getContent());
             
             const response = await fetch(`http://localhost:5001/api/content/${this.currentFile}`, {
                 method: 'PUT',
@@ -282,12 +500,13 @@ class InPlaceEditor {
         try {
             const content = this.getContent();
             
+            const category = document.body.dataset.sourceCategory || document.body.dataset.category || '';
             const response = await fetch('http://localhost:5001/api/validate-headings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ content })
+                body: JSON.stringify({ content, category })
             });
             
             if (!response.ok) {
@@ -299,7 +518,10 @@ class InPlaceEditor {
             if (result.valid) {
                 this.showNotification('Content validation passed', 'success');
             } else {
-                this.showNotification('Validation failed: ' + result.message, 'error');
+                const details = (result.errors && result.errors.length)
+                    ? result.errors.join(', ')
+                    : (result.message || 'heading issues');
+                this.showNotification('Validation failed: ' + details, 'error');
             }
             
         } catch (error) {
@@ -351,10 +573,10 @@ class InPlaceEditor {
 
     getCurrentFilePath() {
         const pageType = document.body.dataset.pageType || 'page';
-        const category = document.body.dataset.category || '';
+        const category = document.body.dataset.sourceCategory || document.body.dataset.category || '';
         const slug = document.body.dataset.slug || '';
         
-        if (pageType === 'page' && category && slug) {
+        if (category && slug) {
             return `${category}/${slug}`;
         }
         

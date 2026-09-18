@@ -230,11 +230,22 @@ class ContentImporter:
     def _replace_data_urls_with_markdown(self, content: str, images: List[Dict[str, Any]]) -> str:
         """Replace data URLs with markdown image references"""
         for image in images:
-            if image['type'] == 'uploaded':
-                alt = image['alt'] or 'Image'
-                markdown_img = f"![{alt}]({image['source']})"
-                # Replace the data URL with markdown
-                content = re.sub(r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+', markdown_img, content, count=1)
+            if image.get('type') not in ('uploaded', 'data_url'):
+                continue
+            alt = image.get('alt') or 'Image'
+            source = image.get('source') or ''
+            if not source:
+                continue
+            markdown_img = f"![{alt}]({source})"
+            if source.startswith('data:'):
+                content = content.replace(source, markdown_img, 1)
+            else:
+                content = re.sub(
+                    r'data:image/[^;]+;base64,[A-Za-z0-9+/=]+',
+                    markdown_img,
+                    content,
+                    count=1,
+                )
         
         return content
     
@@ -400,8 +411,17 @@ Respond with just the alt text, no quotes or formatting."""
 {content}
 """
         
-        # Determine file path
-        file_path = self.content_path / category / f"{slug}.md"
+        # Jail category/slug so AI-suggested paths cannot escape the content root.
+        importable = {'posts', 'articles', 'pages', 'projects', 'newsletters', 'people'}
+        category = str(category or '').strip().strip('/')
+        slug = str(slug or '').strip()
+        if category not in importable or '..' in category or '/' in category or '\\' in category:
+            raise ValueError(f'invalid import category: {category}')
+        if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', slug) or '..' in slug:
+            raise ValueError(f'invalid import slug: {slug}')
+        content_root = self.content_path.resolve()
+        file_path = (content_root / category / f"{slug}.md").resolve()
+        file_path.relative_to(content_root)
         
         return file_path, markdown_content
     
@@ -413,11 +433,16 @@ Respond with just the alt text, no quotes or formatting."""
     ) -> Dict[str, Any]:
         """Save imported content and optionally create git commit"""
         
+        content_root = self.content_path.resolve()
+        dest = Path(file_path).resolve()
+        dest.relative_to(content_root)
+        
         # Create parent directory
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         
         # Write file
-        file_path.write_text(content)
+        dest.write_text(content)
+        file_path = dest
         
         result = {
             'file_path': str(file_path),
@@ -457,7 +482,7 @@ class SlugChecker:
         duplicates = {}
         
         # Scan all content types
-        for content_type in ['posts', 'pages', 'projects', 'newsletters', 'people']:
+        for content_type in ['posts', 'articles', 'pages', 'projects', 'newsletters', 'people', 'products']:
             type_path = self.content_path / content_type
             if not type_path.exists():
                 continue

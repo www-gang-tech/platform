@@ -228,26 +228,30 @@ class SEOPreviewGenerator:
         )
         
         html_parts = []
+        import html as html_module
+
+        def attr(value: Any) -> str:
+            return html_module.escape(str(value or ''), quote=True)
         
         # Title
-        html_parts.append(f'<title>{tags["title"]}</title>')
-        html_parts.append(f'<meta name="description" content="{tags["description"]}">')
-        html_parts.append(f'<link rel="canonical" href="{tags["canonical"]}">')
+        html_parts.append(f'<title>{attr(tags["title"])}</title>')
+        html_parts.append(f'<meta name="description" content="{attr(tags["description"])}">')
+        html_parts.append(f'<link rel="canonical" href="{attr(tags["canonical"])}">')
         
         # Open Graph
         for key, value in tags.items():
             if key.startswith('og:'):
-                html_parts.append(f'<meta property="{key}" content="{value}">')
+                html_parts.append(f'<meta property="{attr(key)}" content="{attr(value)}">')
         
         # Twitter
         for key, value in tags.items():
             if key.startswith('twitter:'):
-                html_parts.append(f'<meta name="{key}" content="{value}">')
+                html_parts.append(f'<meta name="{attr(key)}" content="{attr(value)}">')
         
         # Article meta
         for key, value in tags.items():
             if key.startswith('article:'):
-                html_parts.append(f'<meta property="{key}" content="{value}">')
+                html_parts.append(f'<meta property="{attr(key)}" content="{attr(value)}">')
         
         return '\n'.join(html_parts)
     
