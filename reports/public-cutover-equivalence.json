@@ -1,0 +1,1216 @@
+{
+  "summary": {
+    "legacy_output": ".context/public-cutover-legacy",
+    "vault_output": ".context/public-cutover-vault",
+    "records_compared": 9,
+    "equivalent": 9,
+    "acceptable_expected_difference": 0,
+    "blocking_difference": 0
+  },
+  "records": [
+    {
+      "url": "/newsletters/qi2-launch-newsletter/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/newsletters/qi2-launch-newsletter/",
+          "vault": "/newsletters/qi2-launch-newsletter/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "newsletters/qi2-launch-newsletter/index.html",
+          "vault": "newsletters/qi2-launch-newsletter/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Qi2 Launch",
+          "vault": "Qi2 Launch"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<div class=\"newsletter-header\"><p class=\"newsletter-meta\"> Newsletter # \u00b7 Sent on </p><h1>Qi2 Launch</h1></div><article class=\"markdown-body\"><h2>What's New in Qi2</h2><p>The key innovation is the <strong>Magnetic Power Profile</strong> - devices and chargers use magnets to snap into perfect alignment.</p><h3>Key Improvements</h3><ul><li><strong>15W guaranteed</strong> (vs inconsistent speeds in Qi v1)</li><li>Perfect alignment every time via magnets</li><li>Better energy efficiency (less heat waste)</li><li>Unified ecosystem (no more proprietary fast charging)</li></ul><h2>Who Benefits?</h2><p>Everyone, eventually. While iPhones 12+ already support magnetic charging, Android manufacturers are building Qi2 into new flagships.</p><hr /><p><em>Last updated: May 10, 2025</em></p><hr /><p><em>This newsletter was sent on October 12, 2025.</em></p><p><a href=\"/newsletters/\">View archive of all newsletters</a></p></article><div style=\"margin-top: 3rem; text-align: center;\"><p><a href=\"/newsletters/\">\u2190 Back to all newsletters</a></p></div>",
+          "vault": "<div class=\"newsletter-header\"><p class=\"newsletter-meta\"> Newsletter # \u00b7 Sent on </p><h1>Qi2 Launch</h1></div><article class=\"markdown-body\"><h2>What's New in Qi2</h2><p>The key innovation is the <strong>Magnetic Power Profile</strong> - devices and chargers use magnets to snap into perfect alignment.</p><h3>Key Improvements</h3><ul><li><strong>15W guaranteed</strong> (vs inconsistent speeds in Qi v1)</li><li>Perfect alignment every time via magnets</li><li>Better energy efficiency (less heat waste)</li><li>Unified ecosystem (no more proprietary fast charging)</li></ul><h2>Who Benefits?</h2><p>Everyone, eventually. While iPhones 12+ already support magnetic charging, Android manufacturers are building Qi2 into new flagships.</p><hr /><p><em>Last updated: May 10, 2025</em></p><hr /><p><em>This newsletter was sent on October 12, 2025.</em></p><p><a href=\"/newsletters/\">View archive of all newsletters</a></p></article><div style=\"margin-top: 3rem; text-align: center;\"><p><a href=\"/newsletters/\">\u2190 Back to all newsletters</a></p></div>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/newsletters/qi2-launch-newsletter/",
+          "vault": "https://gang-platform.dev/newsletters/qi2-launch-newsletter/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/newsletters/",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/newsletters/",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/pages/about/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/pages/about/",
+          "vault": "/pages/about/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "pages/about/index.html",
+          "vault": "pages/about/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "About GANG Platform - AI-First Static Publishing",
+          "vault": "About GANG Platform - AI-First Static Publishing"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": "Learn about GANG, the AI-first static publishing platform that builds semantic, accessible, and fast websites. Zero JavaScript, WCAG AA compliant.",
+            "title": "About - AI-First Static Publishing"
+          },
+          "vault": {
+            "description": "Learn about GANG, the AI-first static publishing platform that builds semantic, accessible, and fast websites. Zero JavaScript, WCAG AA compliant.",
+            "title": "About - AI-First Static Publishing"
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article><div class=\"markdown-body\"><h1>About</h1><p><strong>GANG Website</strong> is an AI-first static publishing platform that builds the web we deserve: semantic, accessible, and fast.</p><h2>Mission</h2><p>We believe the web should be built on documents, not apps. Modern web publishing has lost its way with bloated JavaScript applications and proprietary ecosystems. GANG brings back the fundamental simplicity and accessibility of HTML while adding AI-powered intelligence.</p><h2>Features</h2><h3><strong>Requirements</strong></h3><ul><li><strong>Static-first:</strong> Pre-rendered HTML, no server required</li><li><strong>Semantic HTML:</strong> Meaningful markup that machines and humans understand </li><li><strong>Zero JavaScript:</strong> For content pages. If it doesn't need interaction, it doesn't need JS</li><li><strong>AI-assisted:</strong> Let AI handle the boring parts (alt text, JSON-LD, SEO metadata)</li><li><strong>Standards-compliant:</strong> Follow W3C specs, not framework opinions</li></ul><h3><strong>Performance</strong></h3><ul><li><strong>Enforced budgets:</strong> HTML \u226430KB, CSS \u226410KB, JS=0 on content pages</li><li><strong>Lighthouse scores:</strong> Performance \u226595, Accessibility \u226598, Best Practices/SEO =100</li><li><strong>Core Web Vitals:</strong> Sub-2.5s LCP, minimal CLS, fast INP</li><li><strong>Progressive enhancement:</strong> Works without JavaScript, enhanced with minimal JS</li></ul><h3><strong>Accessibility</strong></h3><ul><li><strong>WCAG 2.2 AA compliance</strong> by default, not as an afterthought</li><li><strong>Semantic HTML</strong> with proper landmarks and heading structure</li><li><strong>Keyboard navigation</strong> and screen reader support</li><li><strong>Color contrast</strong> that meets AA standards</li><li><strong>No information hidden</strong> behind client rendering</li></ul><h2>Enforcements</h2><p>Every page published with GANG meets these standards:</p><ol><li><strong>HTML Semantics &amp; Robustness</strong> - Native semantic elements, valid markup</li><li><strong>Accessibility (WCAG 2.2 AA)</strong> - Complete keyboard navigation, proper ARIA</li><li><strong>Internationalization</strong> - UTF-8, language attributes, locale-aware formats</li><li><strong>Metadata &amp; Machine-Readability</strong> - Complete meta tags, JSON-LD, sitemaps</li><li><strong>Images &amp; Media</strong> - Responsive pictures, proper alt text, lazy loading</li><li><strong>Performance &amp; Delivery</strong> - Enforced budgets, optimized assets</li><li><strong>Privacy &amp; Security</strong> - Strong CSP, no third-party scripts by default</li><li><strong>Progressive Enhancement</strong> - Works without JS, graceful degradation</li></ol><h2>Approach</h2><p>Traditional CMSs make you fill out 50 form fields for every post. GANG is different:</p><ol><li><strong>Write your content</strong> in Markdown</li><li><strong>Run <code>gang optimize</code></strong> \u2014 AI fills in:</li><li>SEO titles and descriptions</li><li>Image alt text</li><li>JSON-LD structured data</li><li>OpenGraph metadata</li><li><strong>Run <code>gang build</code></strong> \u2014 Get a perfect, standards-compliant static site</li></ol><p>The AI is your assistant, not your master. It fills in the tedious metadata, but you maintain complete control over your content.</p><h2>Built for the Future</h2><p>GANG is designed for: - <strong>Content creators</strong> who want to focus on writing, not technical setup - <strong>Developers</strong> who need a fast, reliable publishing platform - <strong>Businesses</strong> that require performance, accessibility, and SEO - <strong>Anyone</strong> who believes the web should be fast, accessible, and semantic</p><h2>Open Source</h2><p>GANG is open source and available on <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a>. Use it, extend it, fork it. Our only demand: <strong>respect the quality bars.</strong></p><h2>Get Started</h2><p>Ready to build the web we deserve?</p><pre><code class=\"language-bash\"># Install GANG CLI pip install gang-cli # Initialize a new site gang init # Start building gang serve </code></pre><p><strong>Learn more:</strong><a href=\"/pages/about/\">Documentation</a> \u00b7 <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a> \u00b7 <a href=\"/pages/contact/\">Contact</a></p></div></article>",
+          "vault": "<article><div class=\"markdown-body\"><h1>About</h1><p><strong>GANG Website</strong> is an AI-first static publishing platform that builds the web we deserve: semantic, accessible, and fast.</p><h2>Mission</h2><p>We believe the web should be built on documents, not apps. Modern web publishing has lost its way with bloated JavaScript applications and proprietary ecosystems. GANG brings back the fundamental simplicity and accessibility of HTML while adding AI-powered intelligence.</p><h2>Features</h2><h3><strong>Requirements</strong></h3><ul><li><strong>Static-first:</strong> Pre-rendered HTML, no server required</li><li><strong>Semantic HTML:</strong> Meaningful markup that machines and humans understand </li><li><strong>Zero JavaScript:</strong> For content pages. If it doesn't need interaction, it doesn't need JS</li><li><strong>AI-assisted:</strong> Let AI handle the boring parts (alt text, JSON-LD, SEO metadata)</li><li><strong>Standards-compliant:</strong> Follow W3C specs, not framework opinions</li></ul><h3><strong>Performance</strong></h3><ul><li><strong>Enforced budgets:</strong> HTML \u226430KB, CSS \u226410KB, JS=0 on content pages</li><li><strong>Lighthouse scores:</strong> Performance \u226595, Accessibility \u226598, Best Practices/SEO =100</li><li><strong>Core Web Vitals:</strong> Sub-2.5s LCP, minimal CLS, fast INP</li><li><strong>Progressive enhancement:</strong> Works without JavaScript, enhanced with minimal JS</li></ul><h3><strong>Accessibility</strong></h3><ul><li><strong>WCAG 2.2 AA compliance</strong> by default, not as an afterthought</li><li><strong>Semantic HTML</strong> with proper landmarks and heading structure</li><li><strong>Keyboard navigation</strong> and screen reader support</li><li><strong>Color contrast</strong> that meets AA standards</li><li><strong>No information hidden</strong> behind client rendering</li></ul><h2>Enforcements</h2><p>Every page published with GANG meets these standards:</p><ol><li><strong>HTML Semantics &amp; Robustness</strong> - Native semantic elements, valid markup</li><li><strong>Accessibility (WCAG 2.2 AA)</strong> - Complete keyboard navigation, proper ARIA</li><li><strong>Internationalization</strong> - UTF-8, language attributes, locale-aware formats</li><li><strong>Metadata &amp; Machine-Readability</strong> - Complete meta tags, JSON-LD, sitemaps</li><li><strong>Images &amp; Media</strong> - Responsive pictures, proper alt text, lazy loading</li><li><strong>Performance &amp; Delivery</strong> - Enforced budgets, optimized assets</li><li><strong>Privacy &amp; Security</strong> - Strong CSP, no third-party scripts by default</li><li><strong>Progressive Enhancement</strong> - Works without JS, graceful degradation</li></ol><h2>Approach</h2><p>Traditional CMSs make you fill out 50 form fields for every post. GANG is different:</p><ol><li><strong>Write your content</strong> in Markdown</li><li><strong>Run <code>gang optimize</code></strong> \u2014 AI fills in:</li><li>SEO titles and descriptions</li><li>Image alt text</li><li>JSON-LD structured data</li><li>OpenGraph metadata</li><li><strong>Run <code>gang build</code></strong> \u2014 Get a perfect, standards-compliant static site</li></ol><p>The AI is your assistant, not your master. It fills in the tedious metadata, but you maintain complete control over your content.</p><h2>Built for the Future</h2><p>GANG is designed for: - <strong>Content creators</strong> who want to focus on writing, not technical setup - <strong>Developers</strong> who need a fast, reliable publishing platform - <strong>Businesses</strong> that require performance, accessibility, and SEO - <strong>Anyone</strong> who believes the web should be fast, accessible, and semantic</p><h2>Open Source</h2><p>GANG is open source and available on <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a>. Use it, extend it, fork it. Our only demand: <strong>respect the quality bars.</strong></p><h2>Get Started</h2><p>Ready to build the web we deserve?</p><pre><code class=\"language-bash\"># Install GANG CLI pip install gang-cli # Initialize a new site gang init # Start building gang serve </code></pre><p><strong>Learn more:</strong><a href=\"/pages/about/\">Documentation</a> \u00b7 <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a> \u00b7 <a href=\"/pages/contact/\">Contact</a></p></div></article>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/pages/about/",
+          "vault": "https://gang-platform.dev/pages/about/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/pages/contact/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/pages/contact/",
+          "vault": "/pages/contact/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "pages/contact/index.html",
+          "vault": "pages/contact/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Contact",
+          "vault": "Contact"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article><div class=\"markdown-body\"><h1>Contact</h1><h2>Offline</h2><p><strong>Gang Tech, LLC</strong><br /> 228 Park Ave S<br /> PMB 400205<br /> New York, New York<br />10003-1502 US</p><h2>Online</h2><h3>Inquiries</h3><ul><li><strong>General:</strong><a href=\"mailto:info@gang.tech\">info@gang.tech</a></li><li><strong>Support:</strong><a href=\"mailto:support@gang.tech\">support@gang.tech</a></li><li><strong>Press:</strong><a href=\"mailto:press@gang.tech\">press@gang.tech</a></li><li><strong>Response Time:</strong> Within 24-48 hours</li></ul><h3>Social Media</h3><ul><li><strong>GitHub:</strong><a href=\"https://github.com/www-gang-tech\" rel=\"noopener noreferrer\">@www-gang-tech</a></li><li><strong>Instagram:</strong><a href=\"https://instagram.com/gang__tech\" rel=\"noopener noreferrer\">@gang__tech</a></li><li><strong>Twitter:</strong><a href=\"https://twitter.com/gang__tech\" rel=\"noopener noreferrer\">@gang__tech</a></li></ul><h2>Office Hours</h2><p>Monday - Friday: 9:00 AM - 5:00 PM (EST)</p><h2>Contribute</h2><ul><li><strong>Website:</strong><a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">github.com/www-gang-tech/platform</a></li></ul></div></article>",
+          "vault": "<article><div class=\"markdown-body\"><h1>Contact</h1><h2>Offline</h2><p><strong>Gang Tech, LLC</strong><br /> 228 Park Ave S<br /> PMB 400205<br /> New York, New York<br />10003-1502 US</p><h2>Online</h2><h3>Inquiries</h3><ul><li><strong>General:</strong><a href=\"mailto:info@gang.tech\">info@gang.tech</a></li><li><strong>Support:</strong><a href=\"mailto:support@gang.tech\">support@gang.tech</a></li><li><strong>Press:</strong><a href=\"mailto:press@gang.tech\">press@gang.tech</a></li><li><strong>Response Time:</strong> Within 24-48 hours</li></ul><h3>Social Media</h3><ul><li><strong>GitHub:</strong><a href=\"https://github.com/www-gang-tech\" rel=\"noopener noreferrer\">@www-gang-tech</a></li><li><strong>Instagram:</strong><a href=\"https://instagram.com/gang__tech\" rel=\"noopener noreferrer\">@gang__tech</a></li><li><strong>Twitter:</strong><a href=\"https://twitter.com/gang__tech\" rel=\"noopener noreferrer\">@gang__tech</a></li></ul><h2>Office Hours</h2><p>Monday - Friday: 9:00 AM - 5:00 PM (EST)</p><h2>Contribute</h2><ul><li><strong>Website:</strong><a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">github.com/www-gang-tech/platform</a></li></ul></div></article>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/pages/contact/",
+          "vault": "https://gang-platform.dev/pages/contact/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/pages/faq/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/pages/faq/",
+          "vault": "/pages/faq/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "pages/faq/index.html",
+          "vault": "pages/faq/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Frequently Asked Questions",
+          "vault": "Frequently Asked Questions"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article><div class=\"markdown-body\"><h1>Frequently Asked Questions</h1><h2>General Questions</h2><h3>What is GANG?</h3><p>GANG is an AI-first static publishing platform that prioritizes accessibility, performance, and machine legibility. We build the smallest possible website that guarantees these core principles, then add only features that measurably improve comprehension, trust, or conversion.</p><h3>Who is GANG for?</h3><p>GANG is designed for content creators, publishers, and businesses who want: - Lightning-fast websites - Perfect accessibility scores - SEO and AI optimization - E-commerce integration - Complete control over their content</p><h3>Is GANG open source?</h3><p>Yes! GANG is open source and available on <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a>.</p><h2>Technical Questions</h2><h3>What technologies does GANG use?</h3><ul><li><strong>Backend:</strong> Python with Click CLI</li><li><strong>Templates:</strong> Jinja2</li><li><strong>Content:</strong> Markdown with YAML frontmatter</li><li><strong>Frontend:</strong> Semantic HTML5, modern CSS, minimal JavaScript</li><li><strong>Build:</strong> Static site generation</li></ul><h3>What are the performance budgets?</h3><ul><li><strong>HTML:</strong> \u226430KB per page</li><li><strong>CSS:</strong> \u226410KB (currently ~9KB minified)</li><li><strong>JavaScript:</strong> \u226410KB (currently ~6KB minified)</li><li><strong>Lighthouse Scores:</strong> Performance \u226595, Accessibility \u226598, Best Practices 100, SEO 100</li></ul><h3>Does GANG require JavaScript?</h3><p>No! All core functionality works without JavaScript. JavaScript is used only for progressive enhancement: - Shopping cart state management - Product variant switching - Real-time form updates</p><h3>What accessibility standards does GANG follow?</h3><p>GANG is fully conformant with <strong>WCAG 2.2 Level AA</strong>. This includes: - Semantic HTML structure - Proper heading hierarchy - Keyboard navigation - Screen reader support - Color contrast compliance - Focus indicators - Alt text for images</p><h2>Content &amp; Publishing</h2><h3>How do I create content?</h3><p>Content is written in Markdown with YAML frontmatter:</p><pre><code class=\"language-markdown\">--- title: My Article date: 2025-10-12 author: Your Name category: Tutorial tags: [Web Development, Accessibility] --- # My Article Your content here... </code></pre><h3>Can I schedule content?</h3><p>Yes! Use the <code>publish_date</code> field in frontmatter:</p><pre><code class=\"language-yaml\">--- title: Future Post publish_date: 2025-12-01 --- </code></pre><p>Run <code>gang build</code> and only published content will appear.</p><h3>How does the taxonomy system work?</h3><p>GANG uses a Notion-style hierarchical taxonomy: - <strong>Categories:</strong> Product \u2192 Font, Tutorial \u2192 Development - <strong>Tags:</strong> Open Source, Typography, SEO - <strong>Commands:</strong><code>gang taxonomy list</code>, <code>gang taxonomy add-category</code></p><h2>E-commerce</h2><h3>What platforms does GANG support?</h3><p>Currently: - <strong>Shopify</strong> (fully integrated) - <strong>Stripe</strong> (planned) - <strong>Gumroad</strong> (planned)</p><h3>How does the shopping cart work?</h3><ul><li><strong>Storage:</strong> localStorage (client-side)</li><li><strong>Add to Cart:</strong> Form submission with JavaScript enhancement</li><li><strong>Checkout:</strong> Direct to Shopify checkout</li><li><strong>No server required:</strong> Fully static</li></ul><h3>Can I track inventory?</h3><p>Yes! GANG syncs with Shopify's inventory system and shows real-time stock status on product pages.</p><h2>SEO &amp; AI</h2><h3>How is GANG optimized for AI?</h3><ul><li><strong>AgentMap.json:</strong> Machine-readable site navigation</li><li><strong>JSON-LD:</strong> Structured data on every page</li><li><strong>Content API:</strong> JSON endpoints for all content</li><li><strong>Semantic HTML:</strong> Proper document structure</li><li><strong>RSS Feed:</strong> JSON Feed format</li></ul><h3>What structured data does GANG include?</h3><ul><li><strong>Articles:</strong> Blog posts with author, date, tags</li><li><strong>Products:</strong> Full product schema with variants</li><li><strong>Organization:</strong> Company information</li><li><strong>Breadcrumbs:</strong> Navigation hierarchy</li><li><strong>CollectionPage:</strong> Category and list pages</li></ul><h2>Performance</h2><h3>How fast is GANG?</h3><ul><li><strong>First Contentful Paint:</strong> &lt;1s</li><li><strong>Time to Interactive:</strong> &lt;2s</li><li><strong>Total Page Weight:</strong> &lt;30KB (HTML + CSS + JS)</li><li><strong>Lighthouse Performance:</strong> 95-100</li></ul><h3>What optimizations does GANG use?</h3><ul><li><strong>HTML Minification:</strong> ~18% reduction</li><li><strong>CSS Minification:</strong> ~35% reduction</li><li><strong>JavaScript Minification:</strong> ~41% reduction</li><li><strong>Resource Hints:</strong> Preload, preconnect</li><li><strong>Deferred Scripts:</strong> Non-blocking JavaScript</li><li><strong>Image Optimization:</strong> AVIF/WebP with fallbacks</li></ul><h2>Support</h2><h3>How do I get help?</h3><ul><li><strong>Documentation:</strong> Check our <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub repository</a></li><li><strong>Issues:</strong> Report bugs on GitHub</li><li><strong>Email:</strong> support@gang.tech</li><li><strong>Community:</strong> Join our discussions</li></ul><h3>Can I contribute?</h3><p>Absolutely! We welcome contributions: 1. Fork the repository 2. Create a feature branch 3. Submit a pull request 4. Follow our code style and accessibility guidelines</p><h2>Pricing</h2><h3>Is GANG free?</h3><p>Yes! GANG is open source and free to use. You only pay for: - Hosting (Cloudflare Pages, Netlify, etc.) - Optional services (Shopify, Klaviyo, etc.) - Media storage (Cloudflare R2, S3, etc.)</p><h3>What are the hosting costs?</h3><p>Typical costs: - <strong>Cloudflare Pages:</strong> Free tier available - <strong>Cloudflare R2:</strong> $0.015/GB/month - <strong>Domain:</strong> ~$10-15/year</p><p>For most sites: <strong>&lt;$5/month total</strong></p><hr /><p><em>Have more questions? <a href=\"/pages/contact/\">Contact us</a></em></p></div></article>",
+          "vault": "<article><div class=\"markdown-body\"><h1>Frequently Asked Questions</h1><h2>General Questions</h2><h3>What is GANG?</h3><p>GANG is an AI-first static publishing platform that prioritizes accessibility, performance, and machine legibility. We build the smallest possible website that guarantees these core principles, then add only features that measurably improve comprehension, trust, or conversion.</p><h3>Who is GANG for?</h3><p>GANG is designed for content creators, publishers, and businesses who want: - Lightning-fast websites - Perfect accessibility scores - SEO and AI optimization - E-commerce integration - Complete control over their content</p><h3>Is GANG open source?</h3><p>Yes! GANG is open source and available on <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a>.</p><h2>Technical Questions</h2><h3>What technologies does GANG use?</h3><ul><li><strong>Backend:</strong> Python with Click CLI</li><li><strong>Templates:</strong> Jinja2</li><li><strong>Content:</strong> Markdown with YAML frontmatter</li><li><strong>Frontend:</strong> Semantic HTML5, modern CSS, minimal JavaScript</li><li><strong>Build:</strong> Static site generation</li></ul><h3>What are the performance budgets?</h3><ul><li><strong>HTML:</strong> \u226430KB per page</li><li><strong>CSS:</strong> \u226410KB (currently ~9KB minified)</li><li><strong>JavaScript:</strong> \u226410KB (currently ~6KB minified)</li><li><strong>Lighthouse Scores:</strong> Performance \u226595, Accessibility \u226598, Best Practices 100, SEO 100</li></ul><h3>Does GANG require JavaScript?</h3><p>No! All core functionality works without JavaScript. JavaScript is used only for progressive enhancement: - Shopping cart state management - Product variant switching - Real-time form updates</p><h3>What accessibility standards does GANG follow?</h3><p>GANG is fully conformant with <strong>WCAG 2.2 Level AA</strong>. This includes: - Semantic HTML structure - Proper heading hierarchy - Keyboard navigation - Screen reader support - Color contrast compliance - Focus indicators - Alt text for images</p><h2>Content &amp; Publishing</h2><h3>How do I create content?</h3><p>Content is written in Markdown with YAML frontmatter:</p><pre><code class=\"language-markdown\">--- title: My Article date: 2025-10-12 author: Your Name category: Tutorial tags: [Web Development, Accessibility] --- # My Article Your content here... </code></pre><h3>Can I schedule content?</h3><p>Yes! Use the <code>publish_date</code> field in frontmatter:</p><pre><code class=\"language-yaml\">--- title: Future Post publish_date: 2025-12-01 --- </code></pre><p>Run <code>gang build</code> and only published content will appear.</p><h3>How does the taxonomy system work?</h3><p>GANG uses a Notion-style hierarchical taxonomy: - <strong>Categories:</strong> Product \u2192 Font, Tutorial \u2192 Development - <strong>Tags:</strong> Open Source, Typography, SEO - <strong>Commands:</strong><code>gang taxonomy list</code>, <code>gang taxonomy add-category</code></p><h2>E-commerce</h2><h3>What platforms does GANG support?</h3><p>Currently: - <strong>Shopify</strong> (fully integrated) - <strong>Stripe</strong> (planned) - <strong>Gumroad</strong> (planned)</p><h3>How does the shopping cart work?</h3><ul><li><strong>Storage:</strong> localStorage (client-side)</li><li><strong>Add to Cart:</strong> Form submission with JavaScript enhancement</li><li><strong>Checkout:</strong> Direct to Shopify checkout</li><li><strong>No server required:</strong> Fully static</li></ul><h3>Can I track inventory?</h3><p>Yes! GANG syncs with Shopify's inventory system and shows real-time stock status on product pages.</p><h2>SEO &amp; AI</h2><h3>How is GANG optimized for AI?</h3><ul><li><strong>AgentMap.json:</strong> Machine-readable site navigation</li><li><strong>JSON-LD:</strong> Structured data on every page</li><li><strong>Content API:</strong> JSON endpoints for all content</li><li><strong>Semantic HTML:</strong> Proper document structure</li><li><strong>RSS Feed:</strong> JSON Feed format</li></ul><h3>What structured data does GANG include?</h3><ul><li><strong>Articles:</strong> Blog posts with author, date, tags</li><li><strong>Products:</strong> Full product schema with variants</li><li><strong>Organization:</strong> Company information</li><li><strong>Breadcrumbs:</strong> Navigation hierarchy</li><li><strong>CollectionPage:</strong> Category and list pages</li></ul><h2>Performance</h2><h3>How fast is GANG?</h3><ul><li><strong>First Contentful Paint:</strong> &lt;1s</li><li><strong>Time to Interactive:</strong> &lt;2s</li><li><strong>Total Page Weight:</strong> &lt;30KB (HTML + CSS + JS)</li><li><strong>Lighthouse Performance:</strong> 95-100</li></ul><h3>What optimizations does GANG use?</h3><ul><li><strong>HTML Minification:</strong> ~18% reduction</li><li><strong>CSS Minification:</strong> ~35% reduction</li><li><strong>JavaScript Minification:</strong> ~41% reduction</li><li><strong>Resource Hints:</strong> Preload, preconnect</li><li><strong>Deferred Scripts:</strong> Non-blocking JavaScript</li><li><strong>Image Optimization:</strong> AVIF/WebP with fallbacks</li></ul><h2>Support</h2><h3>How do I get help?</h3><ul><li><strong>Documentation:</strong> Check our <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub repository</a></li><li><strong>Issues:</strong> Report bugs on GitHub</li><li><strong>Email:</strong> support@gang.tech</li><li><strong>Community:</strong> Join our discussions</li></ul><h3>Can I contribute?</h3><p>Absolutely! We welcome contributions: 1. Fork the repository 2. Create a feature branch 3. Submit a pull request 4. Follow our code style and accessibility guidelines</p><h2>Pricing</h2><h3>Is GANG free?</h3><p>Yes! GANG is open source and free to use. You only pay for: - Hosting (Cloudflare Pages, Netlify, etc.) - Optional services (Shopify, Klaviyo, etc.) - Media storage (Cloudflare R2, S3, etc.)</p><h3>What are the hosting costs?</h3><p>Typical costs: - <strong>Cloudflare Pages:</strong> Free tier available - <strong>Cloudflare R2:</strong> $0.015/GB/month - <strong>Domain:</strong> ~$10-15/year</p><p>For most sites: <strong>&lt;$5/month total</strong></p><hr /><p><em>Have more questions? <a href=\"/pages/contact/\">Contact us</a></em></p></div></article>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/pages/faq/",
+          "vault": "https://gang-platform.dev/pages/faq/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/pages/features/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/pages/features/",
+          "vault": "/pages/features/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "pages/features/index.html",
+          "vault": "pages/features/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Features",
+          "vault": "Features"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": null,
+          "vault": null
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article><div class=\"markdown-body\"><h1>Platform Features</h1><p>A comprehensive overview of all features available in the GANG platform.</p><h2>Core Publishing Features</h2><h3>Static Site Generation</h3><ul><li>\u2705 Markdown with YAML frontmatter</li><li>\u2705 Jinja2 templating engine</li><li>\u2705 Hot reload development server (<code>gang serve</code>)</li><li>\u2705 Incremental builds with performance profiling</li><li>\u2705 Build caching system (MD5-based)</li><li>\u2705 HTML minification (18% reduction)</li><li>\u2705 CSS minification (35% reduction)</li><li>\u2705 JavaScript minification (36% reduction)</li></ul><h3>Content Management System (Studio)</h3><ul><li>\u2705 Web-based editor (Toast UI)</li><li>\u2705 Live markdown editing</li><li>\u2705 File browser with content organization</li><li>\u2705 Save/publish workflow</li><li>\u2705 Real-time preview</li><li>\u2705 SEO preview pane (infrastructure ready)</li><li>\u2705 Slug management UI</li></ul><h2>Content Types</h2><ul><li>\u2705 <strong>Posts</strong> - Blog articles with dates and tags</li><li>\u2705 <strong>Pages</strong> - Static pages (About, Contact, Manifesto, FAQ, WCAG)</li><li>\u2705 <strong>Projects</strong> - Portfolio items</li><li>\u2705 <strong>Newsletters</strong> - Email archive with public listing</li><li>\u2705 <strong>Products</strong> - E-commerce (Shopify integration)</li></ul><h2>Content Management Features</h2><h3>Content Quality &amp; Analysis</h3><ul><li>\u2705 Content Quality Analyzer (<code>gang analyze</code>)</li><li>Readability scoring (Flesch-Kincaid)</li><li>SEO analysis</li><li>Structure validation</li><li>Accessibility checks</li><li>Batch analysis mode</li><li>JSON output for CI/CD</li><li>Minimum score enforcement (default: 85)</li></ul><h3>Link Management</h3><ul><li>\u2705 Link Validator (<code>gang validate --links</code>)</li><li>Internal link checking</li><li>External HTTP validation</li><li>Broken link detection</li><li>Whitelist for git remotes</li><li>JSON output</li><li>\u2705 AI-Powered Link Fixer (<code>gang fix</code>)</li><li>Suggests fixes for broken links</li><li>Semantic similarity matching</li><li>Git commit integration</li></ul><h3>Content Scheduling</h3><ul><li>\u2705 Publish Date Support</li><li>Future-dated content</li><li>Draft/scheduled/published states</li><li><code>gang schedule</code> - View schedule</li><li><code>gang set-schedule</code> - Set publish dates</li><li>Build-time filtering</li></ul><h3>Content Versioning</h3><ul><li>\u2705 Git-Based History</li><li><code>gang history &lt;file&gt;</code> - View changes</li><li><code>gang restore &lt;file&gt; &lt;commit&gt;</code> - Restore version</li><li><code>gang changes</code> - Recent changes</li><li>Full diff support</li></ul><h3>Slug Management</h3><ul><li>\u2705 Slug Checker (<code>gang slugs</code>)</li><li>Uniqueness validation</li><li>Integrated into build process</li><li>Conflict detection</li><li>\u2705 Slug Renaming (<code>gang rename-slug</code>)</li><li>Safe renaming with file moves</li><li>Optional 301 redirect creation</li><li>CLI and CMS UI support</li></ul><h3>Taxonomy System</h3><ul><li>\u2705 Hierarchical Categories</li><li>Product \u2192 Font, Design, Software, Hardware</li><li>Tutorial \u2192 Development, Design, Marketing</li><li>News \u2192 Announcement, Release, Update</li><li>Opinion \u2192 Essay, Review, Analysis</li><li>\u2705 Tag Management</li><li><code>gang taxonomy list</code> - View all</li><li><code>gang taxonomy add-category</code> - Add categories</li><li><code>gang taxonomy add-tag</code> - Add tags</li><li><code>gang taxonomy analyze</code> - Usage analysis</li><li>SEO-friendly breadcrumbs</li><li>Related content suggestions</li></ul><h3>Content Import</h3><ul><li>\u2705 Multi-Source Import (<code>gang import-content</code>)</li><li>File upload</li><li>Clipboard paste</li><li>Image extraction</li><li>Image compression</li><li>Cloudflare R2 upload</li><li>AI alt text generation</li><li>AI category suggestion</li><li>Slug uniqueness checking</li></ul><h2>E-Commerce Features</h2><h3>Product Management</h3><ul><li>\u2705 Multi-Platform Aggregation</li><li>Shopify (fully integrated via Admin REST API)</li><li>Stripe (infrastructure ready)</li><li>Gumroad (infrastructure ready)</li><li>Product sync (<code>gang products sync</code>)</li><li>Status filtering (Draft/Active/Archived)</li><li>\u2705 Product Pages</li><li>Product Listing Page (PLP)</li><li>Product Detail Pages (PDP)</li><li>Variant support (colors, sizes)</li><li>Real-time inventory tracking</li><li>Schema.org Product JSON-LD</li><li>Image galleries (6 images per product)</li><li>Dynamic forms with variant selection</li></ul><h3>Shopping Cart</h3><ul><li>\u2705 Client-Side Cart (localStorage)</li><li>Add to cart from PDP</li><li>Cart page (<code>/cart/</code>)</li><li>Update quantities (JavaScript)</li><li>Remove items (JavaScript)</li><li>Cart count badge (all pages)</li><li>Persistent across sessions</li><li>Works without JS (progressive enhancement)</li><li>\u2705 Checkout</li><li>Direct to Shopify checkout</li><li>Variant-specific URLs</li><li>Quantity handling</li><li>No server required (fully static)</li></ul><h3>Inventory Management</h3><ul><li>\u2705 Real-time stock status</li><li>\u2705 Out-of-stock detection</li><li>\u2705 Variant-level inventory</li><li>\u2705 Button disable when out of stock</li><li>\u2705 Visual indicators (\u2713 In Stock / \u2717 Out of Stock)</li></ul><h2>Email &amp; Newsletter Features</h2><h3>Email System (Multi-ESP)</h3><ul><li>\u2705 Supported ESPs:</li><li>Klaviyo (recommended for e-commerce)</li><li>Buttondown (simple newsletters)</li><li>ConvertKit</li><li>MailerLite</li><li>Postmark</li><li>SendGrid</li><li>\u2705 Email Templates</li><li>Minimal, accessible HTML</li><li>Single column, 600px max-width</li><li>Semantic structure</li><li>16px base font, system fonts</li><li>High contrast (WCAG AA)</li><li>Alt text on images</li><li>Plain text version included</li></ul><h3>Klaviyo Integration</h3><ul><li>\u2705 Campaign Management</li><li><code>gang email klaviyo-create</code> - Create from post</li><li><code>gang email klaviyo-lists</code> - View lists</li><li><code>gang email klaviyo-campaigns</code> - View campaigns</li><li>Native Shopify sync</li><li>Revenue attribution</li><li>Customer segmentation</li><li>\u2705 E-Commerce Flows (templates ready)</li><li>Abandoned cart recovery</li><li>Welcome series</li><li>Post-purchase</li><li>Browse abandonment</li><li>Win-back campaigns</li><li>Product launches</li></ul><h3>Newsletter Archive</h3><ul><li>\u2705 Public Newsletter Listing</li><li><code>/newsletters/</code> - Archive page</li><li>Individual newsletter pages with slugs</li><li>Automatic from Klaviyo campaigns</li><li>Chronological listing</li><li>Search indexing</li><li>RSS feed inclusion</li></ul><h3>Deliverability Tools</h3><ul><li>\u2705 DNS Checker (<code>gang email check-deliverability</code>)</li><li>SPF record validation</li><li>DKIM checking</li><li>DMARC verification</li><li>MX record lookup</li><li>Setup guide generation</li></ul><h2>SEO &amp; Discovery Features</h2><h3>Search Engine Optimization</h3><ul><li>\u2705 Meta Tags</li><li>Title, description on every page</li><li>Canonical URLs</li><li>Open Graph (Facebook, LinkedIn)</li><li>Twitter Cards</li><li>Language tags</li><li>\u2705 Structured Data (JSON-LD)</li><li>Article schema (posts)</li><li>Product schema (e-commerce)</li><li>Organization schema</li><li>Breadcrumb navigation</li><li>CollectionPage (listings)</li><li>WebSite schema</li><li>\u2705 Sitemaps</li><li>XML sitemap (<code>sitemap.xml</code>)</li><li>HTML sitemap (<code>/sitemap/</code>)</li><li>Automatic generation on build</li><li>All content types included</li><li>\u2705 RSS Feed</li><li>JSON Feed format (<code>/feed.json</code>)</li><li>Linked in footer</li><li>All posts included</li></ul><h3>AI Optimization</h3><ul><li>\u2705 AgentMap.json</li><li>Machine-readable site navigation</li><li>Canonical URLs</li><li>Content types</li><li>Relationships mapping</li><li>API endpoints</li><li>\u2705 Content API</li><li>JSON endpoints for all content</li><li><code>/api/content.json</code></li><li><code>/api/products.json</code></li><li>Programmatic access</li><li>\u2705 Auto-Generated Metadata</li><li>AI alt text for images</li><li>AI category suggestions</li><li>AI content optimization</li><li>AI link suggestions</li></ul><h3>Static Site Search</h3><ul><li>\u2705 Client-side search index</li><li>\u2705 Search page (<code>/search/</code>)</li><li>\u2705 Full-text indexing</li><li>\u2705 No server required</li></ul><h2>Accessibility Features</h2><h3>WCAG 2.2 Level AA Compliance</h3><ul><li>\u2705 Semantic HTML (proper landmarks)</li><li>\u2705 Single H1 per page</li><li>\u2705 No heading skips</li><li>\u2705 Color contrast (AA compliant)</li><li>Text: #1a1a1a on #ffffff</li><li>Links: #0052a3 (sufficient contrast)</li><li>Muted: #595959</li><li>\u2705 Link distinguishability (underlines)</li><li>\u2705 Keyboard navigation</li><li>\u2705 Focus indicators</li><li>\u2705 Alt text on images</li><li>\u2705 Form labels and descriptions</li><li>\u2705 ARIA attributes where needed</li></ul><h3>WCAG Conformance Statement</h3><ul><li>\u2705 Published at <code>/pages/wcag-conformance/</code></li><li>\u2705 Full conformance details</li><li>\u2705 Assessment approach</li><li>\u2705 Feedback mechanism</li><li>\u2705 Compatibility information</li></ul><h2>Performance Features</h2><h3>Performance Budgets</h3><ul><li>\u2705 Enforced Limits:</li><li>HTML: \u226430KB per page</li><li>CSS: \u226410KB (currently ~9KB minified)</li><li>JS: \u226410KB (currently ~6KB minified)</li><li>Lighthouse: Perf \u226595, A11y \u226598, BP 100, SEO 100</li></ul><h3>Optimization</h3><ul><li>\u2705 Resource Hints</li><li>Preload for CSS</li><li>Preconnect for CDNs</li><li>DNS-prefetch optimization</li><li>\u2705 Progressive Enhancement</li><li>Works without JavaScript</li><li>Deferred script loading</li><li>Non-blocking resources</li></ul><h3>Performance Monitoring</h3><ul><li>\u2705 Build performance profiling</li><li>\u2705 Page size tracking (shown in footer)</li><li>\u2705 Lighthouse score display (all 100s)</li><li>\u2705 Last updated timestamps</li></ul><h2>Media Management</h2><h3>Cloudflare R2 Integration</h3><ul><li>\u2705 Commands:</li><li><code>gang media upload</code> - Upload files</li><li><code>gang media list</code> - List objects</li><li><code>gang media sync</code> - Sync directory</li><li><code>gang media delete</code> - Remove objects</li><li>\u2705 Image Processing:</li><li>Resize images</li><li>Format conversion (AVIF, WebP)</li><li>Compression</li><li>Automatic optimization</li></ul><h2>Security &amp; Privacy</h2><h3>Security Headers</h3><ul><li>\u2705 Content Security Policy (CSP)</li><li>\u2705 Referrer Policy</li><li>\u2705 External link security (<code>rel=\"noopener noreferrer\"</code>)</li><li>\u2705 Automatic external link processing</li><li>\u2705 Form action validation</li></ul><h3>Privacy-First</h3><ul><li>\u2705 No tracking pixels in emails</li><li>\u2705 No third-party analytics scripts</li><li>\u2705 Server-side analytics ready (Cloudflare)</li><li>\u2705 GDPR-friendly email workflow</li></ul><h2>Design &amp; UI Features</h2><h3>Design System</h3><ul><li>\u2705 Layout:</li><li>800px max-width (centered)</li><li>Consistent spacing</li><li>Responsive grid</li><li>Mobile-first</li><li>\u2705 Typography:</li><li>System fonts (no web fonts)</li><li>16px base</li><li>1.6 line-height</li><li>Proper heading hierarchy</li><li>\u2705 Color System:</li><li>CSS custom properties</li><li>Light/dark mode toggle</li><li>High contrast</li><li>AA-compliant colors</li><li>\u2705 Components:</li><li>Minimal, clean aesthetic</li><li>Accessible forms</li><li>Semantic buttons</li></ul><h3>Dark Mode</h3><ul><li>\u2705 CSS-only toggle (<code>:has()</code> selector)</li><li>\u2705 Site-wide persistence</li><li>\u2705 Respects system preference</li><li>\u2705 Smooth transitions</li><li>\u2705 All pages supported</li></ul><h2>Comments &amp; Reviews</h2><h3>Comment System</h3><ul><li>\u2705 Database-free comments (static YAML files)</li><li>\u2705 Comment forms on posts and products</li><li>\u2705 Manual approval workflow</li><li>\u2705 n8n webhook integration</li><li>\u2705 GitHub issue-based approval queue</li><li>\u2705 Privacy-focused (email hashing)</li><li>\u2705 Spam protection (honeypot)</li><li>\u2705 Progressive enhancement</li><li>\u2705 CLI management (<code>gang comments</code>)</li></ul><h2>Build &amp; Deploy Features</h2><h3>Build Process</h3><ul><li>\u2705 Commands:</li><li><code>gang build</code> - Full build</li><li><code>gang build --profile</code> - With profiling</li><li><code>gang build --check-quality</code> - With quality gates</li><li><code>gang build --validate-links</code> - With link validation</li><li><code>gang serve</code> - Dev server with live reload</li><li>\u2705 Quality Gates:</li><li>Slug uniqueness checking</li><li>Content quality scoring (min: 85)</li><li>Link validation (optional)</li><li>Lighthouse assertions</li><li>\u2705 Outputs:</li><li>Static HTML files</li><li>Minified CSS/JS</li><li>Sitemap (XML + HTML)</li><li>RSS feed (JSON Feed)</li><li>AgentMap.json</li><li>robots.txt</li><li>Search index</li><li>Product pages</li><li>Newsletter archive</li></ul><h3>301 Redirects</h3><ul><li>\u2705 Redirect Management (<code>gang redirects</code>)</li><li>Add redirects</li><li>Remove redirects</li><li>List all redirects</li><li>Validate redirects</li><li>Platform-specific generation:<ul><li>Cloudflare (<code>_redirects</code>)</li><li>Nginx (<code>redirects.conf</code>)</li><li>Netlify (<code>_redirects</code>)</li></ul></li></ul><h2>CLI Commands</h2><h3>Content Management</h3><ul><li><code>gang serve</code> - Dev server with live reload</li><li><code>gang build</code> - Build static site</li><li><code>gang optimize</code> - AI content optimization</li><li><code>gang analyze</code> - Content quality analysis</li><li><code>gang validate</code> - Link validation</li><li><code>gang fix</code> - AI-powered link fixing</li></ul><h3>Content Scheduling &amp; Versioning</h3><ul><li><code>gang schedule</code> - View schedule</li><li><code>gang set-schedule</code> - Schedule post</li><li><code>gang history</code> - View version history</li><li><code>gang restore</code> - Restore to version</li><li><code>gang changes</code> - Recent changes</li></ul><h3>E-Commerce</h3><ul><li><code>gang products sync</code> - Sync products</li><li><code>gang products list</code> - List products</li></ul><h3>Email Marketing</h3><ul><li><code>gang email klaviyo-create</code> - Create from post</li><li><code>gang email klaviyo-lists</code> - View lists</li><li><code>gang email klaviyo-campaigns</code> - View campaigns</li></ul><h3>Media Management</h3><ul><li><code>gang media upload</code> - Upload files</li><li><code>gang media list</code> - List objects</li><li><code>gang media sync</code> - Sync directory</li><li><code>gang media delete</code> - Remove objects</li></ul><h3>Quality &amp; Performance</h3><ul><li><code>gang check</code> - Validate contracts</li><li><code>gang performance</code> - View build performance history</li><li><code>gang slugs</code> - Check slug uniqueness</li></ul><h3>Comments</h3><ul><li><code>gang comments list</code> - List comments</li><li><code>gang comments approve</code> - Approve comment</li><li><code>gang comments reject</code> - Reject comment</li><li><code>gang comments delete</code> - Delete comment</li><li><code>gang comments stats</code> - View statistics</li></ul><h2>Technical Specifications</h2><h3>Frontend Stack</h3><ul><li>\u2705 HTML: Semantic HTML5</li><li>\u2705 CSS: Single external file (9KB minified)</li><li>\u2705 JavaScript: Minimal vanilla JS (6KB minified)</li><li>\u2705 Images: AVIF/WebP with fallbacks</li><li>\u2705 Fonts: System fonts only</li></ul><h3>Backend Stack</h3><ul><li>\u2705 Language: Python 3.13</li><li>\u2705 CLI: Click framework</li><li>\u2705 Templates: Jinja2</li><li>\u2705 Markdown: Python-Markdown with extensions</li><li>\u2705 YAML: PyYAML for frontmatter</li><li>\u2705 HTTP: Requests for API calls</li><li>\u2705 File watching: Watchdog</li></ul><h3>External Integrations</h3><ul><li>\u2705 Shopify: Admin REST API</li><li>\u2705 Klaviyo: v2024-10-15 API</li><li>\u2705 Cloudflare R2: S3-compatible</li><li>\u2705 Anthropic API: Claude for AI features</li><li>\u2705 ESPs: 6 providers supported</li></ul><h2>Quality Metrics</h2><h3>Performance Achievements</h3><ul><li><strong>HTML:</strong> ~8KB average (30KB budget)</li><li><strong>CSS:</strong> 9KB minified (10KB budget)</li><li><strong>JavaScript:</strong> 6KB total (10KB budget)</li><li><strong>Total Page Weight:</strong> ~23KB (well under budget)</li><li><strong>Lighthouse Scores:</strong> 100/100/100/100</li><li><strong>Build Time:</strong> ~2-3 seconds</li><li><strong>Minification Savings:</strong> ~12KB (37.9%)</li></ul><h3>Content Scale</h3><ul><li><strong>Posts:</strong> Unlimited</li><li><strong>Pages:</strong> Unlimited</li><li><strong>Projects:</strong> Unlimited</li><li><strong>Newsletters:</strong> Unlimited</li><li><strong>Products:</strong> Unlimited (Shopify-synced)</li><li><strong>Images:</strong> Unlimited (R2 storage)</li></ul><h2>Platform Statistics</h2><ul><li><strong>Total Features:</strong> 60+</li><li><strong>CLI Commands:</strong> 50+</li><li><strong>Content Types:</strong> 5</li><li><strong>Templates:</strong> 9</li><li><strong>Core Modules:</strong> 20+</li><li><strong>ESP Integrations:</strong> 6</li><li><strong>Product Platforms:</strong> 3 (Shopify active)</li><li><strong>Lines of Code:</strong> ~15,000+</li><li><strong>Documentation Files:</strong> 20+</li></ul><hr /><p><strong>Status:</strong> \ud83d\ude80 Production Ready</p><p><em>GANG Platform v1.0 - AI-first static publishing with e-commerce, newsletters, and comments</em></p></div></article>",
+          "vault": "<article><div class=\"markdown-body\"><h1>Platform Features</h1><p>A comprehensive overview of all features available in the GANG platform.</p><h2>Core Publishing Features</h2><h3>Static Site Generation</h3><ul><li>\u2705 Markdown with YAML frontmatter</li><li>\u2705 Jinja2 templating engine</li><li>\u2705 Hot reload development server (<code>gang serve</code>)</li><li>\u2705 Incremental builds with performance profiling</li><li>\u2705 Build caching system (MD5-based)</li><li>\u2705 HTML minification (18% reduction)</li><li>\u2705 CSS minification (35% reduction)</li><li>\u2705 JavaScript minification (36% reduction)</li></ul><h3>Content Management System (Studio)</h3><ul><li>\u2705 Web-based editor (Toast UI)</li><li>\u2705 Live markdown editing</li><li>\u2705 File browser with content organization</li><li>\u2705 Save/publish workflow</li><li>\u2705 Real-time preview</li><li>\u2705 SEO preview pane (infrastructure ready)</li><li>\u2705 Slug management UI</li></ul><h2>Content Types</h2><ul><li>\u2705 <strong>Posts</strong> - Blog articles with dates and tags</li><li>\u2705 <strong>Pages</strong> - Static pages (About, Contact, Manifesto, FAQ, WCAG)</li><li>\u2705 <strong>Projects</strong> - Portfolio items</li><li>\u2705 <strong>Newsletters</strong> - Email archive with public listing</li><li>\u2705 <strong>Products</strong> - E-commerce (Shopify integration)</li></ul><h2>Content Management Features</h2><h3>Content Quality &amp; Analysis</h3><ul><li>\u2705 Content Quality Analyzer (<code>gang analyze</code>)</li><li>Readability scoring (Flesch-Kincaid)</li><li>SEO analysis</li><li>Structure validation</li><li>Accessibility checks</li><li>Batch analysis mode</li><li>JSON output for CI/CD</li><li>Minimum score enforcement (default: 85)</li></ul><h3>Link Management</h3><ul><li>\u2705 Link Validator (<code>gang validate --links</code>)</li><li>Internal link checking</li><li>External HTTP validation</li><li>Broken link detection</li><li>Whitelist for git remotes</li><li>JSON output</li><li>\u2705 AI-Powered Link Fixer (<code>gang fix</code>)</li><li>Suggests fixes for broken links</li><li>Semantic similarity matching</li><li>Git commit integration</li></ul><h3>Content Scheduling</h3><ul><li>\u2705 Publish Date Support</li><li>Future-dated content</li><li>Draft/scheduled/published states</li><li><code>gang schedule</code> - View schedule</li><li><code>gang set-schedule</code> - Set publish dates</li><li>Build-time filtering</li></ul><h3>Content Versioning</h3><ul><li>\u2705 Git-Based History</li><li><code>gang history &lt;file&gt;</code> - View changes</li><li><code>gang restore &lt;file&gt; &lt;commit&gt;</code> - Restore version</li><li><code>gang changes</code> - Recent changes</li><li>Full diff support</li></ul><h3>Slug Management</h3><ul><li>\u2705 Slug Checker (<code>gang slugs</code>)</li><li>Uniqueness validation</li><li>Integrated into build process</li><li>Conflict detection</li><li>\u2705 Slug Renaming (<code>gang rename-slug</code>)</li><li>Safe renaming with file moves</li><li>Optional 301 redirect creation</li><li>CLI and CMS UI support</li></ul><h3>Taxonomy System</h3><ul><li>\u2705 Hierarchical Categories</li><li>Product \u2192 Font, Design, Software, Hardware</li><li>Tutorial \u2192 Development, Design, Marketing</li><li>News \u2192 Announcement, Release, Update</li><li>Opinion \u2192 Essay, Review, Analysis</li><li>\u2705 Tag Management</li><li><code>gang taxonomy list</code> - View all</li><li><code>gang taxonomy add-category</code> - Add categories</li><li><code>gang taxonomy add-tag</code> - Add tags</li><li><code>gang taxonomy analyze</code> - Usage analysis</li><li>SEO-friendly breadcrumbs</li><li>Related content suggestions</li></ul><h3>Content Import</h3><ul><li>\u2705 Multi-Source Import (<code>gang import-content</code>)</li><li>File upload</li><li>Clipboard paste</li><li>Image extraction</li><li>Image compression</li><li>Cloudflare R2 upload</li><li>AI alt text generation</li><li>AI category suggestion</li><li>Slug uniqueness checking</li></ul><h2>E-Commerce Features</h2><h3>Product Management</h3><ul><li>\u2705 Multi-Platform Aggregation</li><li>Shopify (fully integrated via Admin REST API)</li><li>Stripe (infrastructure ready)</li><li>Gumroad (infrastructure ready)</li><li>Product sync (<code>gang products sync</code>)</li><li>Status filtering (Draft/Active/Archived)</li><li>\u2705 Product Pages</li><li>Product Listing Page (PLP)</li><li>Product Detail Pages (PDP)</li><li>Variant support (colors, sizes)</li><li>Real-time inventory tracking</li><li>Schema.org Product JSON-LD</li><li>Image galleries (6 images per product)</li><li>Dynamic forms with variant selection</li></ul><h3>Shopping Cart</h3><ul><li>\u2705 Client-Side Cart (localStorage)</li><li>Add to cart from PDP</li><li>Cart page (<code>/cart/</code>)</li><li>Update quantities (JavaScript)</li><li>Remove items (JavaScript)</li><li>Cart count badge (all pages)</li><li>Persistent across sessions</li><li>Works without JS (progressive enhancement)</li><li>\u2705 Checkout</li><li>Direct to Shopify checkout</li><li>Variant-specific URLs</li><li>Quantity handling</li><li>No server required (fully static)</li></ul><h3>Inventory Management</h3><ul><li>\u2705 Real-time stock status</li><li>\u2705 Out-of-stock detection</li><li>\u2705 Variant-level inventory</li><li>\u2705 Button disable when out of stock</li><li>\u2705 Visual indicators (\u2713 In Stock / \u2717 Out of Stock)</li></ul><h2>Email &amp; Newsletter Features</h2><h3>Email System (Multi-ESP)</h3><ul><li>\u2705 Supported ESPs:</li><li>Klaviyo (recommended for e-commerce)</li><li>Buttondown (simple newsletters)</li><li>ConvertKit</li><li>MailerLite</li><li>Postmark</li><li>SendGrid</li><li>\u2705 Email Templates</li><li>Minimal, accessible HTML</li><li>Single column, 600px max-width</li><li>Semantic structure</li><li>16px base font, system fonts</li><li>High contrast (WCAG AA)</li><li>Alt text on images</li><li>Plain text version included</li></ul><h3>Klaviyo Integration</h3><ul><li>\u2705 Campaign Management</li><li><code>gang email klaviyo-create</code> - Create from post</li><li><code>gang email klaviyo-lists</code> - View lists</li><li><code>gang email klaviyo-campaigns</code> - View campaigns</li><li>Native Shopify sync</li><li>Revenue attribution</li><li>Customer segmentation</li><li>\u2705 E-Commerce Flows (templates ready)</li><li>Abandoned cart recovery</li><li>Welcome series</li><li>Post-purchase</li><li>Browse abandonment</li><li>Win-back campaigns</li><li>Product launches</li></ul><h3>Newsletter Archive</h3><ul><li>\u2705 Public Newsletter Listing</li><li><code>/newsletters/</code> - Archive page</li><li>Individual newsletter pages with slugs</li><li>Automatic from Klaviyo campaigns</li><li>Chronological listing</li><li>Search indexing</li><li>RSS feed inclusion</li></ul><h3>Deliverability Tools</h3><ul><li>\u2705 DNS Checker (<code>gang email check-deliverability</code>)</li><li>SPF record validation</li><li>DKIM checking</li><li>DMARC verification</li><li>MX record lookup</li><li>Setup guide generation</li></ul><h2>SEO &amp; Discovery Features</h2><h3>Search Engine Optimization</h3><ul><li>\u2705 Meta Tags</li><li>Title, description on every page</li><li>Canonical URLs</li><li>Open Graph (Facebook, LinkedIn)</li><li>Twitter Cards</li><li>Language tags</li><li>\u2705 Structured Data (JSON-LD)</li><li>Article schema (posts)</li><li>Product schema (e-commerce)</li><li>Organization schema</li><li>Breadcrumb navigation</li><li>CollectionPage (listings)</li><li>WebSite schema</li><li>\u2705 Sitemaps</li><li>XML sitemap (<code>sitemap.xml</code>)</li><li>HTML sitemap (<code>/sitemap/</code>)</li><li>Automatic generation on build</li><li>All content types included</li><li>\u2705 RSS Feed</li><li>JSON Feed format (<code>/feed.json</code>)</li><li>Linked in footer</li><li>All posts included</li></ul><h3>AI Optimization</h3><ul><li>\u2705 AgentMap.json</li><li>Machine-readable site navigation</li><li>Canonical URLs</li><li>Content types</li><li>Relationships mapping</li><li>API endpoints</li><li>\u2705 Content API</li><li>JSON endpoints for all content</li><li><code>/api/content.json</code></li><li><code>/api/products.json</code></li><li>Programmatic access</li><li>\u2705 Auto-Generated Metadata</li><li>AI alt text for images</li><li>AI category suggestions</li><li>AI content optimization</li><li>AI link suggestions</li></ul><h3>Static Site Search</h3><ul><li>\u2705 Client-side search index</li><li>\u2705 Search page (<code>/search/</code>)</li><li>\u2705 Full-text indexing</li><li>\u2705 No server required</li></ul><h2>Accessibility Features</h2><h3>WCAG 2.2 Level AA Compliance</h3><ul><li>\u2705 Semantic HTML (proper landmarks)</li><li>\u2705 Single H1 per page</li><li>\u2705 No heading skips</li><li>\u2705 Color contrast (AA compliant)</li><li>Text: #1a1a1a on #ffffff</li><li>Links: #0052a3 (sufficient contrast)</li><li>Muted: #595959</li><li>\u2705 Link distinguishability (underlines)</li><li>\u2705 Keyboard navigation</li><li>\u2705 Focus indicators</li><li>\u2705 Alt text on images</li><li>\u2705 Form labels and descriptions</li><li>\u2705 ARIA attributes where needed</li></ul><h3>WCAG Conformance Statement</h3><ul><li>\u2705 Published at <code>/pages/wcag-conformance/</code></li><li>\u2705 Full conformance details</li><li>\u2705 Assessment approach</li><li>\u2705 Feedback mechanism</li><li>\u2705 Compatibility information</li></ul><h2>Performance Features</h2><h3>Performance Budgets</h3><ul><li>\u2705 Enforced Limits:</li><li>HTML: \u226430KB per page</li><li>CSS: \u226410KB (currently ~9KB minified)</li><li>JS: \u226410KB (currently ~6KB minified)</li><li>Lighthouse: Perf \u226595, A11y \u226598, BP 100, SEO 100</li></ul><h3>Optimization</h3><ul><li>\u2705 Resource Hints</li><li>Preload for CSS</li><li>Preconnect for CDNs</li><li>DNS-prefetch optimization</li><li>\u2705 Progressive Enhancement</li><li>Works without JavaScript</li><li>Deferred script loading</li><li>Non-blocking resources</li></ul><h3>Performance Monitoring</h3><ul><li>\u2705 Build performance profiling</li><li>\u2705 Page size tracking (shown in footer)</li><li>\u2705 Lighthouse score display (all 100s)</li><li>\u2705 Last updated timestamps</li></ul><h2>Media Management</h2><h3>Cloudflare R2 Integration</h3><ul><li>\u2705 Commands:</li><li><code>gang media upload</code> - Upload files</li><li><code>gang media list</code> - List objects</li><li><code>gang media sync</code> - Sync directory</li><li><code>gang media delete</code> - Remove objects</li><li>\u2705 Image Processing:</li><li>Resize images</li><li>Format conversion (AVIF, WebP)</li><li>Compression</li><li>Automatic optimization</li></ul><h2>Security &amp; Privacy</h2><h3>Security Headers</h3><ul><li>\u2705 Content Security Policy (CSP)</li><li>\u2705 Referrer Policy</li><li>\u2705 External link security (<code>rel=\"noopener noreferrer\"</code>)</li><li>\u2705 Automatic external link processing</li><li>\u2705 Form action validation</li></ul><h3>Privacy-First</h3><ul><li>\u2705 No tracking pixels in emails</li><li>\u2705 No third-party analytics scripts</li><li>\u2705 Server-side analytics ready (Cloudflare)</li><li>\u2705 GDPR-friendly email workflow</li></ul><h2>Design &amp; UI Features</h2><h3>Design System</h3><ul><li>\u2705 Layout:</li><li>800px max-width (centered)</li><li>Consistent spacing</li><li>Responsive grid</li><li>Mobile-first</li><li>\u2705 Typography:</li><li>System fonts (no web fonts)</li><li>16px base</li><li>1.6 line-height</li><li>Proper heading hierarchy</li><li>\u2705 Color System:</li><li>CSS custom properties</li><li>Light/dark mode toggle</li><li>High contrast</li><li>AA-compliant colors</li><li>\u2705 Components:</li><li>Minimal, clean aesthetic</li><li>Accessible forms</li><li>Semantic buttons</li></ul><h3>Dark Mode</h3><ul><li>\u2705 CSS-only toggle (<code>:has()</code> selector)</li><li>\u2705 Site-wide persistence</li><li>\u2705 Respects system preference</li><li>\u2705 Smooth transitions</li><li>\u2705 All pages supported</li></ul><h2>Comments &amp; Reviews</h2><h3>Comment System</h3><ul><li>\u2705 Database-free comments (static YAML files)</li><li>\u2705 Comment forms on posts and products</li><li>\u2705 Manual approval workflow</li><li>\u2705 n8n webhook integration</li><li>\u2705 GitHub issue-based approval queue</li><li>\u2705 Privacy-focused (email hashing)</li><li>\u2705 Spam protection (honeypot)</li><li>\u2705 Progressive enhancement</li><li>\u2705 CLI management (<code>gang comments</code>)</li></ul><h2>Build &amp; Deploy Features</h2><h3>Build Process</h3><ul><li>\u2705 Commands:</li><li><code>gang build</code> - Full build</li><li><code>gang build --profile</code> - With profiling</li><li><code>gang build --check-quality</code> - With quality gates</li><li><code>gang build --validate-links</code> - With link validation</li><li><code>gang serve</code> - Dev server with live reload</li><li>\u2705 Quality Gates:</li><li>Slug uniqueness checking</li><li>Content quality scoring (min: 85)</li><li>Link validation (optional)</li><li>Lighthouse assertions</li><li>\u2705 Outputs:</li><li>Static HTML files</li><li>Minified CSS/JS</li><li>Sitemap (XML + HTML)</li><li>RSS feed (JSON Feed)</li><li>AgentMap.json</li><li>robots.txt</li><li>Search index</li><li>Product pages</li><li>Newsletter archive</li></ul><h3>301 Redirects</h3><ul><li>\u2705 Redirect Management (<code>gang redirects</code>)</li><li>Add redirects</li><li>Remove redirects</li><li>List all redirects</li><li>Validate redirects</li><li>Platform-specific generation:<ul><li>Cloudflare (<code>_redirects</code>)</li><li>Nginx (<code>redirects.conf</code>)</li><li>Netlify (<code>_redirects</code>)</li></ul></li></ul><h2>CLI Commands</h2><h3>Content Management</h3><ul><li><code>gang serve</code> - Dev server with live reload</li><li><code>gang build</code> - Build static site</li><li><code>gang optimize</code> - AI content optimization</li><li><code>gang analyze</code> - Content quality analysis</li><li><code>gang validate</code> - Link validation</li><li><code>gang fix</code> - AI-powered link fixing</li></ul><h3>Content Scheduling &amp; Versioning</h3><ul><li><code>gang schedule</code> - View schedule</li><li><code>gang set-schedule</code> - Schedule post</li><li><code>gang history</code> - View version history</li><li><code>gang restore</code> - Restore to version</li><li><code>gang changes</code> - Recent changes</li></ul><h3>E-Commerce</h3><ul><li><code>gang products sync</code> - Sync products</li><li><code>gang products list</code> - List products</li></ul><h3>Email Marketing</h3><ul><li><code>gang email klaviyo-create</code> - Create from post</li><li><code>gang email klaviyo-lists</code> - View lists</li><li><code>gang email klaviyo-campaigns</code> - View campaigns</li></ul><h3>Media Management</h3><ul><li><code>gang media upload</code> - Upload files</li><li><code>gang media list</code> - List objects</li><li><code>gang media sync</code> - Sync directory</li><li><code>gang media delete</code> - Remove objects</li></ul><h3>Quality &amp; Performance</h3><ul><li><code>gang check</code> - Validate contracts</li><li><code>gang performance</code> - View build performance history</li><li><code>gang slugs</code> - Check slug uniqueness</li></ul><h3>Comments</h3><ul><li><code>gang comments list</code> - List comments</li><li><code>gang comments approve</code> - Approve comment</li><li><code>gang comments reject</code> - Reject comment</li><li><code>gang comments delete</code> - Delete comment</li><li><code>gang comments stats</code> - View statistics</li></ul><h2>Technical Specifications</h2><h3>Frontend Stack</h3><ul><li>\u2705 HTML: Semantic HTML5</li><li>\u2705 CSS: Single external file (9KB minified)</li><li>\u2705 JavaScript: Minimal vanilla JS (6KB minified)</li><li>\u2705 Images: AVIF/WebP with fallbacks</li><li>\u2705 Fonts: System fonts only</li></ul><h3>Backend Stack</h3><ul><li>\u2705 Language: Python 3.13</li><li>\u2705 CLI: Click framework</li><li>\u2705 Templates: Jinja2</li><li>\u2705 Markdown: Python-Markdown with extensions</li><li>\u2705 YAML: PyYAML for frontmatter</li><li>\u2705 HTTP: Requests for API calls</li><li>\u2705 File watching: Watchdog</li></ul><h3>External Integrations</h3><ul><li>\u2705 Shopify: Admin REST API</li><li>\u2705 Klaviyo: v2024-10-15 API</li><li>\u2705 Cloudflare R2: S3-compatible</li><li>\u2705 Anthropic API: Claude for AI features</li><li>\u2705 ESPs: 6 providers supported</li></ul><h2>Quality Metrics</h2><h3>Performance Achievements</h3><ul><li><strong>HTML:</strong> ~8KB average (30KB budget)</li><li><strong>CSS:</strong> 9KB minified (10KB budget)</li><li><strong>JavaScript:</strong> 6KB total (10KB budget)</li><li><strong>Total Page Weight:</strong> ~23KB (well under budget)</li><li><strong>Lighthouse Scores:</strong> 100/100/100/100</li><li><strong>Build Time:</strong> ~2-3 seconds</li><li><strong>Minification Savings:</strong> ~12KB (37.9%)</li></ul><h3>Content Scale</h3><ul><li><strong>Posts:</strong> Unlimited</li><li><strong>Pages:</strong> Unlimited</li><li><strong>Projects:</strong> Unlimited</li><li><strong>Newsletters:</strong> Unlimited</li><li><strong>Products:</strong> Unlimited (Shopify-synced)</li><li><strong>Images:</strong> Unlimited (R2 storage)</li></ul><h2>Platform Statistics</h2><ul><li><strong>Total Features:</strong> 60+</li><li><strong>CLI Commands:</strong> 50+</li><li><strong>Content Types:</strong> 5</li><li><strong>Templates:</strong> 9</li><li><strong>Core Modules:</strong> 20+</li><li><strong>ESP Integrations:</strong> 6</li><li><strong>Product Platforms:</strong> 3 (Shopify active)</li><li><strong>Lines of Code:</strong> ~15,000+</li><li><strong>Documentation Files:</strong> 20+</li></ul><hr /><p><strong>Status:</strong> \ud83d\ude80 Production Ready</p><p><em>GANG Platform v1.0 - AI-first static publishing with e-commerce, newsletters, and comments</em></p></div></article>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/pages/features/",
+          "vault": "https://gang-platform.dev/pages/features/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/pages/manifesto/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/pages/manifesto/",
+          "vault": "/pages/manifesto/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "pages/manifesto/index.html",
+          "vault": "pages/manifesto/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Manifesto",
+          "vault": "Manifesto"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article><div class=\"markdown-body\"><h1>Manifesto</h1><p><strong>Documents, not apps.</strong> The web was built on hyperlinked documents. We're bringing that back.</p><h2>Why We Exist</h2><p>Modern web publishing has lost its way. Websites that should be simple documents have become bloated JavaScript applications. Publishing platforms force creators into proprietary ecosystems. The fundamental simplicity and accessibility of HTML has been buried under layers of complexity.</p><p><strong>GANG is different.</strong> We believe in:</p><ul><li><strong>Static-first:</strong> Pre-rendered HTML, no server required</li><li><strong>Semantic HTML:</strong> Meaningful markup that machines and humans understand</li><li><strong>Zero JavaScript:</strong> For content pages. If it doesn't need interaction, it doesn't need JS</li><li><strong>AI-assisted:</strong> Let AI handle the boring parts (alt text, JSON-LD, SEO metadata)</li><li><strong>Standards-compliant:</strong> Follow W3C specs, not framework opinions</li><li><strong>Performance budgets:</strong> HTML \u226430KB, CSS \u226410KB per page</li><li><strong>Accessibility by default:</strong> WCAG 2.2 AA is the baseline, not a feature</li></ul><h2>Our Quality Bars</h2><p>Every page published with GANG meets these standards:</p><h3>1. HTML Semantics &amp; Robustness</h3><ul><li>Use native semantic elements (<code>&lt;header&gt;</code>, <code>&lt;main&gt;</code>, <code>&lt;footer&gt;</code>, <code>&lt;nav&gt;</code>, <code>&lt;article&gt;</code>, <code>&lt;section&gt;</code>)</li><li>Exactly one <code>&lt;h1&gt;</code> per page; no heading level skips</li><li>Real <code>&lt;a&gt;</code> links with clear purpose; <code>&lt;button&gt;</code> for actions (no <code>&lt;div&gt;</code> pretending)</li><li>Tables only for data with proper scope/headers</li><li>Valid, well-formed HTML (Nu HTML checker clean)</li></ul><h3>2. Accessibility (WCAG 2.2 AA + WAI-ARIA APG)</h3><ul><li>Text alternatives for all non-text content (meaningful <code>alt</code> or <code>alt=\"\"</code> for decorative)</li><li>Proper landmarks (<code>header</code>/<code>main</code>/<code>nav</code>/<code>footer</code>), skip link, logical reading order</li><li><strong>Keyboard:</strong> All interactive controls reachable and operable; no keyboard traps; visible focus</li><li><strong>Color/contrast:</strong> Meets AA standards; respects <code>prefers-reduced-motion</code></li><li><strong>Forms:</strong> Explicit <code>&lt;label&gt;</code>/<code>for</code>; helpful errors with <code>aria-describedby</code>; autocomplete tokens</li><li>Correct Name/Role/Value for interactive patterns (follow APG); don't over-ARIA native elements</li></ul><h3>3. Internationalization (i18n)</h3><ul><li><code>lang</code> attribute on <code>&lt;html&gt;</code> (and on snippets for mixed languages)</li><li>UTF-8 encoding; directional text support where needed</li><li>Avoid locale-ambiguous formats for dates, times, and units</li><li><code>hreflang</code> and canonical links for translated pages</li></ul><h3>4. Metadata &amp; Machine-Readability</h3><ul><li>Complete <code>&lt;title&gt;</code>, <code>&lt;meta name=\"description\"&gt;</code>, canonical, robots meta</li><li>Open Graph and Twitter Card tags</li><li><strong>JSON-LD 1.1</strong> for structured data (Article, Product, Organization, etc.)</li><li>Publish <code>sitemap.xml</code>, <code>robots.txt</code>, feeds (JSON Feed), and <strong>AgentMap</strong></li><li>Make your content discoverable by AI agents and search engines</li></ul><h3>5. Images &amp; Media</h3><ul><li>Responsive <code>&lt;picture&gt;</code> elements with AVIF/WebP sources</li><li>Correct <code>sizes</code> and <code>srcset</code> attributes</li><li>Real <code>width</code> and <code>height</code> attributes (prevents CLS)</li><li><code>loading=\"lazy\"</code> (except LCP image); <code>decoding=\"async\"</code></li><li>Captions and transcripts for audio/video</li></ul><h3>6. Performance &amp; Delivery</h3><ul><li><strong>Budgets enforced:</strong> HTML \u226430KB, CSS \u226410KB, JS=0 on content pages</li><li>Inline only critical CSS; one small CSS file, no blocking scripts</li><li>Preload only what measurably helps LCP (e.g., hero image, font subset)</li><li>Cache static assets with long <code>Cache-Control</code> and hashed filenames</li><li><strong>Lighthouse scores:</strong> Performance \u226595, Accessibility \u226598, Best Practices/SEO =100</li></ul><h3>7. Privacy &amp; Security</h3><ul><li>Serve over HTTPS; strong CSP, HSTS, Referrer-Policy headers</li><li><strong>No third-party scripts by default</strong>; explicit allow-list only</li><li>Respect Do Not Track and consent</li><li>Privacy-first analytics (or none at all)</li></ul><h3>8. Progressive Enhancement &amp; Resilience</h3><ul><li>Content and critical actions work <strong>without JavaScript</strong></li><li>No information hidden behind client rendering</li><li>Agents get the same facts from HTML and JSON-LD</li><li>Graceful degradation for slow networks and reduced-motion users</li></ul><h3>9. Quality Gates (Automated)</h3><p>We don't just recommend these standards\u2014we enforce them:</p><ul><li><strong>axe:</strong> 0 critical violations; all WCAG checks pass</li><li><strong>Lighthouse (mobile lab):</strong> Performance \u226595, Accessibility \u226598, Best-Practices/SEO =100</li><li>Link checker clean; HTML validator clean</li><li><strong>CI blocks merges</strong> on failures</li></ul><h2>The AI-First Difference</h2><p>Traditional CMSs make you fill out 50 form fields for every post. GANG is different:</p><ol><li><strong>Write your content</strong> in Markdown</li><li><strong>Run <code>gang optimize</code></strong> \u2014 AI fills in:<ul><li>SEO titles and descriptions</li><li>Image alt text</li><li>JSON-LD structured data</li><li>OpenGraph metadata</li></ul></li><li><strong>Run <code>gang build</code></strong> \u2014 Get a perfect, standards-compliant static site</li></ol><p>The AI is your assistant, not your master. It fills in the tedious metadata, but you maintain complete control over your content.</p><h2>Documents, Not Apps</h2><p>We're opinionated about what the web should be:</p><p><strong>For reading:</strong> Just HTML and CSS. No JavaScript. Fast, accessible, and works everywhere.</p><p><strong>For interaction:</strong> Progressive enhancement. Start with working HTML, enhance carefully with minimal JS.</p><p><strong>For publishing:</strong> Static generation. Pre-render everything. Deploy to a CDN. Sleep well knowing your site won't crash.</p><h2>Join Us</h2><p>GANG is open source. Use it, extend it, fork it. Our only demand: <strong>respect the quality bars.</strong></p><p>Build the web we deserve.</p><hr /><p><strong>Start building:</strong><code>pip install gang-cli &amp;&amp; gang init</code></p><p><strong>Read more:</strong><a href=\"/pages/about/\">Documentation</a> \u00b7 <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a></p></div></article>",
+          "vault": "<article><div class=\"markdown-body\"><h1>Manifesto</h1><p><strong>Documents, not apps.</strong> The web was built on hyperlinked documents. We're bringing that back.</p><h2>Why We Exist</h2><p>Modern web publishing has lost its way. Websites that should be simple documents have become bloated JavaScript applications. Publishing platforms force creators into proprietary ecosystems. The fundamental simplicity and accessibility of HTML has been buried under layers of complexity.</p><p><strong>GANG is different.</strong> We believe in:</p><ul><li><strong>Static-first:</strong> Pre-rendered HTML, no server required</li><li><strong>Semantic HTML:</strong> Meaningful markup that machines and humans understand</li><li><strong>Zero JavaScript:</strong> For content pages. If it doesn't need interaction, it doesn't need JS</li><li><strong>AI-assisted:</strong> Let AI handle the boring parts (alt text, JSON-LD, SEO metadata)</li><li><strong>Standards-compliant:</strong> Follow W3C specs, not framework opinions</li><li><strong>Performance budgets:</strong> HTML \u226430KB, CSS \u226410KB per page</li><li><strong>Accessibility by default:</strong> WCAG 2.2 AA is the baseline, not a feature</li></ul><h2>Our Quality Bars</h2><p>Every page published with GANG meets these standards:</p><h3>1. HTML Semantics &amp; Robustness</h3><ul><li>Use native semantic elements (<code>&lt;header&gt;</code>, <code>&lt;main&gt;</code>, <code>&lt;footer&gt;</code>, <code>&lt;nav&gt;</code>, <code>&lt;article&gt;</code>, <code>&lt;section&gt;</code>)</li><li>Exactly one <code>&lt;h1&gt;</code> per page; no heading level skips</li><li>Real <code>&lt;a&gt;</code> links with clear purpose; <code>&lt;button&gt;</code> for actions (no <code>&lt;div&gt;</code> pretending)</li><li>Tables only for data with proper scope/headers</li><li>Valid, well-formed HTML (Nu HTML checker clean)</li></ul><h3>2. Accessibility (WCAG 2.2 AA + WAI-ARIA APG)</h3><ul><li>Text alternatives for all non-text content (meaningful <code>alt</code> or <code>alt=\"\"</code> for decorative)</li><li>Proper landmarks (<code>header</code>/<code>main</code>/<code>nav</code>/<code>footer</code>), skip link, logical reading order</li><li><strong>Keyboard:</strong> All interactive controls reachable and operable; no keyboard traps; visible focus</li><li><strong>Color/contrast:</strong> Meets AA standards; respects <code>prefers-reduced-motion</code></li><li><strong>Forms:</strong> Explicit <code>&lt;label&gt;</code>/<code>for</code>; helpful errors with <code>aria-describedby</code>; autocomplete tokens</li><li>Correct Name/Role/Value for interactive patterns (follow APG); don't over-ARIA native elements</li></ul><h3>3. Internationalization (i18n)</h3><ul><li><code>lang</code> attribute on <code>&lt;html&gt;</code> (and on snippets for mixed languages)</li><li>UTF-8 encoding; directional text support where needed</li><li>Avoid locale-ambiguous formats for dates, times, and units</li><li><code>hreflang</code> and canonical links for translated pages</li></ul><h3>4. Metadata &amp; Machine-Readability</h3><ul><li>Complete <code>&lt;title&gt;</code>, <code>&lt;meta name=\"description\"&gt;</code>, canonical, robots meta</li><li>Open Graph and Twitter Card tags</li><li><strong>JSON-LD 1.1</strong> for structured data (Article, Product, Organization, etc.)</li><li>Publish <code>sitemap.xml</code>, <code>robots.txt</code>, feeds (JSON Feed), and <strong>AgentMap</strong></li><li>Make your content discoverable by AI agents and search engines</li></ul><h3>5. Images &amp; Media</h3><ul><li>Responsive <code>&lt;picture&gt;</code> elements with AVIF/WebP sources</li><li>Correct <code>sizes</code> and <code>srcset</code> attributes</li><li>Real <code>width</code> and <code>height</code> attributes (prevents CLS)</li><li><code>loading=\"lazy\"</code> (except LCP image); <code>decoding=\"async\"</code></li><li>Captions and transcripts for audio/video</li></ul><h3>6. Performance &amp; Delivery</h3><ul><li><strong>Budgets enforced:</strong> HTML \u226430KB, CSS \u226410KB, JS=0 on content pages</li><li>Inline only critical CSS; one small CSS file, no blocking scripts</li><li>Preload only what measurably helps LCP (e.g., hero image, font subset)</li><li>Cache static assets with long <code>Cache-Control</code> and hashed filenames</li><li><strong>Lighthouse scores:</strong> Performance \u226595, Accessibility \u226598, Best Practices/SEO =100</li></ul><h3>7. Privacy &amp; Security</h3><ul><li>Serve over HTTPS; strong CSP, HSTS, Referrer-Policy headers</li><li><strong>No third-party scripts by default</strong>; explicit allow-list only</li><li>Respect Do Not Track and consent</li><li>Privacy-first analytics (or none at all)</li></ul><h3>8. Progressive Enhancement &amp; Resilience</h3><ul><li>Content and critical actions work <strong>without JavaScript</strong></li><li>No information hidden behind client rendering</li><li>Agents get the same facts from HTML and JSON-LD</li><li>Graceful degradation for slow networks and reduced-motion users</li></ul><h3>9. Quality Gates (Automated)</h3><p>We don't just recommend these standards\u2014we enforce them:</p><ul><li><strong>axe:</strong> 0 critical violations; all WCAG checks pass</li><li><strong>Lighthouse (mobile lab):</strong> Performance \u226595, Accessibility \u226598, Best-Practices/SEO =100</li><li>Link checker clean; HTML validator clean</li><li><strong>CI blocks merges</strong> on failures</li></ul><h2>The AI-First Difference</h2><p>Traditional CMSs make you fill out 50 form fields for every post. GANG is different:</p><ol><li><strong>Write your content</strong> in Markdown</li><li><strong>Run <code>gang optimize</code></strong> \u2014 AI fills in:<ul><li>SEO titles and descriptions</li><li>Image alt text</li><li>JSON-LD structured data</li><li>OpenGraph metadata</li></ul></li><li><strong>Run <code>gang build</code></strong> \u2014 Get a perfect, standards-compliant static site</li></ol><p>The AI is your assistant, not your master. It fills in the tedious metadata, but you maintain complete control over your content.</p><h2>Documents, Not Apps</h2><p>We're opinionated about what the web should be:</p><p><strong>For reading:</strong> Just HTML and CSS. No JavaScript. Fast, accessible, and works everywhere.</p><p><strong>For interaction:</strong> Progressive enhancement. Start with working HTML, enhance carefully with minimal JS.</p><p><strong>For publishing:</strong> Static generation. Pre-render everything. Deploy to a CDN. Sleep well knowing your site won't crash.</p><h2>Join Us</h2><p>GANG is open source. Use it, extend it, fork it. Our only demand: <strong>respect the quality bars.</strong></p><p>Build the web we deserve.</p><hr /><p><strong>Start building:</strong><code>pip install gang-cli &amp;&amp; gang init</code></p><p><strong>Read more:</strong><a href=\"/pages/about/\">Documentation</a> \u00b7 <a href=\"https://github.com/www-gang-tech/platform\" rel=\"noopener noreferrer\">GitHub</a></p></div></article>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/pages/manifesto/",
+          "vault": "https://gang-platform.dev/pages/manifesto/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/pages/wcag-conformance/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/pages/wcag-conformance/",
+          "vault": "/pages/wcag-conformance/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "pages/wcag-conformance/index.html",
+          "vault": "pages/wcag-conformance/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "WCAG Conformance Statement",
+          "vault": "WCAG Conformance Statement"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article><div class=\"markdown-body\"><h1>WCAG Conformance Statement</h1><h2>Commitment to Accessibility</h2><p>GANG is committed to ensuring digital accessibility for people with disabilities. We are continually improving the user experience for everyone and applying the relevant accessibility standards.</p><h2>Conformance Status</h2><p>The Web Content Accessibility Guidelines (WCAG) defines requirements for designers and developers to improve accessibility for people with disabilities. It defines three levels of conformance: Level A, Level AA, and Level AAA.</p><p><strong>This website is fully conformant with WCAG 2.2 Level AA.</strong></p><p>\"Fully conformant\" means that the content fully conforms to the accessibility standard without any exceptions.</p><h2>Technical Specifications</h2><p>Accessibility of this website relies on the following technologies to work:</p><ul><li>HTML5</li><li>CSS3</li><li>JavaScript (progressive enhancement - site works without JS)</li><li>ARIA (Accessible Rich Internet Applications)</li></ul><h2>Assessment Approach</h2><p>GANG assessed the accessibility of this website by the following approaches:</p><ul><li>Self-evaluation using automated tools (axe DevTools, Lighthouse)</li><li>Manual testing with keyboard navigation</li><li>Screen reader testing (NVDA, VoiceOver)</li><li>Color contrast analysis</li><li>Semantic HTML validation</li></ul><h2>Feedback</h2><p>We welcome your feedback on the accessibility of this website. Please let us know if you encounter accessibility barriers:</p><ul><li><strong>Email:</strong> accessibility@gang.tech</li><li><strong>Organization:</strong> GANG Platform</li><li><strong>Address:</strong> [Your Address]</li></ul><p>We try to respond to feedback within 2 business days.</p><h2>Compatibility</h2><p>This website is designed to be compatible with:</p><ul><li>Recent versions of major browsers (Chrome, Firefox, Safari, Edge)</li><li>Screen readers (NVDA, JAWS, VoiceOver)</li><li>Browser text zoom up to 200%</li><li>Operating system accessibility features</li></ul><h2>Limitations and Alternatives</h2><p>Despite our best efforts to ensure accessibility, there may be some limitations. If you find an issue, please contact us.</p><h2>Date</h2><p>This statement was created on October 12, 2025 using the W3C WCAG-EM Report Tool.</p><p>Last reviewed: October 12, 2025</p><hr /><p><em>This conformance statement is based on the W3C WCAG 2.2 standard and follows the recommended format for accessibility statements.</em></p></div></article>",
+          "vault": "<article><div class=\"markdown-body\"><h1>WCAG Conformance Statement</h1><h2>Commitment to Accessibility</h2><p>GANG is committed to ensuring digital accessibility for people with disabilities. We are continually improving the user experience for everyone and applying the relevant accessibility standards.</p><h2>Conformance Status</h2><p>The Web Content Accessibility Guidelines (WCAG) defines requirements for designers and developers to improve accessibility for people with disabilities. It defines three levels of conformance: Level A, Level AA, and Level AAA.</p><p><strong>This website is fully conformant with WCAG 2.2 Level AA.</strong></p><p>\"Fully conformant\" means that the content fully conforms to the accessibility standard without any exceptions.</p><h2>Technical Specifications</h2><p>Accessibility of this website relies on the following technologies to work:</p><ul><li>HTML5</li><li>CSS3</li><li>JavaScript (progressive enhancement - site works without JS)</li><li>ARIA (Accessible Rich Internet Applications)</li></ul><h2>Assessment Approach</h2><p>GANG assessed the accessibility of this website by the following approaches:</p><ul><li>Self-evaluation using automated tools (axe DevTools, Lighthouse)</li><li>Manual testing with keyboard navigation</li><li>Screen reader testing (NVDA, VoiceOver)</li><li>Color contrast analysis</li><li>Semantic HTML validation</li></ul><h2>Feedback</h2><p>We welcome your feedback on the accessibility of this website. Please let us know if you encounter accessibility barriers:</p><ul><li><strong>Email:</strong> accessibility@gang.tech</li><li><strong>Organization:</strong> GANG Platform</li><li><strong>Address:</strong> [Your Address]</li></ul><p>We try to respond to feedback within 2 business days.</p><h2>Compatibility</h2><p>This website is designed to be compatible with:</p><ul><li>Recent versions of major browsers (Chrome, Firefox, Safari, Edge)</li><li>Screen readers (NVDA, JAWS, VoiceOver)</li><li>Browser text zoom up to 200%</li><li>Operating system accessibility features</li></ul><h2>Limitations and Alternatives</h2><p>Despite our best efforts to ensure accessibility, there may be some limitations. If you find an issue, please contact us.</p><h2>Date</h2><p>This statement was created on October 12, 2025 using the W3C WCAG-EM Report Tool.</p><p>Last reviewed: October 12, 2025</p><hr /><p><em>This conformance statement is based on the W3C WCAG 2.2 standard and follows the recommended format for accessibility statements.</em></p></div></article>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/pages/wcag-conformance/",
+          "vault": "https://gang-platform.dev/pages/wcag-conformance/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/posts/qi2-launch/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/posts/qi2-launch/",
+          "vault": "/posts/qi2-launch/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "posts/qi2-launch/index.html",
+          "vault": "posts/qi2-launch/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Qi2 Launch",
+          "vault": "Qi2 Launch"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article itemscope itemtype=\"https://schema.org/Article\"><header><h1 itemprop=\"headline\">Qi2 Launch</h1></header><div itemprop=\"articleBody\" class=\"markdown-body\"><h2>What's New in Qi2</h2><p>The key innovation is the <strong>Magnetic Power Profile</strong> - devices and chargers use magnets to snap into perfect alignment.</p><h3>Key Improvements</h3><ul><li><strong>15W guaranteed</strong> (vs inconsistent speeds in Qi v1)</li><li>Perfect alignment every time via magnets</li><li>Better energy efficiency (less heat waste)</li><li>Unified ecosystem (no more proprietary fast charging)</li></ul><h3>Who Benefits?</h3><p>Everyone, eventually. While iPhones 12+ already support magnetic charging, Android manufacturers are building Qi2 into new flagships.</p><hr /><p><em>Last updated: May 10, 2025</em></p></div></article><section id=\"comments\" aria-label=\"Comments\"><h2>Comments (0)</h2><form method=\"POST\" action=\"\" id=\"comment-form\" class=\"comment-form\" ><h3>Leave a Comment</h3><input type=\"hidden\" name=\"page_slug\" value=\"qi2-launch\"><input type=\"hidden\" name=\"page_type\" value=\"post\"><input type=\"hidden\" name=\"page_url\" value=\"https://gang-platform.dev/posts/qi2-launch/\"><label for=\"author-name\">Name <abbr title=\"required\">*</abbr></label><input type=\"text\" id=\"author-name\" name=\"author_name\" required autocomplete=\"name\" maxlength=\"100\" ><label for=\"author-email\">Email <abbr title=\"required\">*</abbr></label><input type=\"email\" id=\"author-email\" name=\"author_email\" required autocomplete=\"email\" aria-describedby=\"email-privacy\" ><small id=\"email-privacy\">Never published or shared. Used only for Gravatar.</small><label for=\"author-website\">Website <span>(optional)</span></label><input type=\"url\" id=\"author-website\" name=\"author_website\" autocomplete=\"url\" ><label for=\"comment-content\">Comment <abbr title=\"required\">*</abbr></label><textarea id=\"comment-content\" name=\"comment_content\" required rows=\"6\" maxlength=\"2000\" aria-describedby=\"comment-help\" ></textarea><small id=\"comment-help\">Markdown supported. Max 2000 characters.</small><input type=\"text\" name=\"website\" style=\"display:none\" tabindex=\"-1\" autocomplete=\"off\"><button type=\"submit\">Submit Comment</button><p class=\"form-status\" aria-live=\"polite\"></p></form></section>",
+          "vault": "<article itemscope itemtype=\"https://schema.org/Article\"><header><h1 itemprop=\"headline\">Qi2 Launch</h1></header><div itemprop=\"articleBody\" class=\"markdown-body\"><h2>What's New in Qi2</h2><p>The key innovation is the <strong>Magnetic Power Profile</strong> - devices and chargers use magnets to snap into perfect alignment.</p><h3>Key Improvements</h3><ul><li><strong>15W guaranteed</strong> (vs inconsistent speeds in Qi v1)</li><li>Perfect alignment every time via magnets</li><li>Better energy efficiency (less heat waste)</li><li>Unified ecosystem (no more proprietary fast charging)</li></ul><h3>Who Benefits?</h3><p>Everyone, eventually. While iPhones 12+ already support magnetic charging, Android manufacturers are building Qi2 into new flagships.</p><hr /><p><em>Last updated: May 10, 2025</em></p></div></article><section id=\"comments\" aria-label=\"Comments\"><h2>Comments (0)</h2><form method=\"POST\" action=\"\" id=\"comment-form\" class=\"comment-form\" ><h3>Leave a Comment</h3><input type=\"hidden\" name=\"page_slug\" value=\"qi2-launch\"><input type=\"hidden\" name=\"page_type\" value=\"post\"><input type=\"hidden\" name=\"page_url\" value=\"https://gang-platform.dev/posts/qi2-launch/\"><label for=\"author-name\">Name <abbr title=\"required\">*</abbr></label><input type=\"text\" id=\"author-name\" name=\"author_name\" required autocomplete=\"name\" maxlength=\"100\" ><label for=\"author-email\">Email <abbr title=\"required\">*</abbr></label><input type=\"email\" id=\"author-email\" name=\"author_email\" required autocomplete=\"email\" aria-describedby=\"email-privacy\" ><small id=\"email-privacy\">Never published or shared. Used only for Gravatar.</small><label for=\"author-website\">Website <span>(optional)</span></label><input type=\"url\" id=\"author-website\" name=\"author_website\" autocomplete=\"url\" ><label for=\"comment-content\">Comment <abbr title=\"required\">*</abbr></label><textarea id=\"comment-content\" name=\"comment_content\" required rows=\"6\" maxlength=\"2000\" aria-describedby=\"comment-help\" ></textarea><small id=\"comment-help\">Markdown supported. Max 2000 characters.</small><input type=\"text\" name=\"website\" style=\"display:none\" tabindex=\"-1\" autocomplete=\"off\"><button type=\"submit\">Submit Comment</button><p class=\"form-status\" aria-live=\"polite\"></p></form></section>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/posts/qi2-launch/",
+          "vault": "https://gang-platform.dev/posts/qi2-launch/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    },
+    {
+      "url": "/projects/design-system-rebuild/",
+      "status": "equivalent",
+      "checks": [
+        {
+          "name": "url",
+          "classification": "equivalent",
+          "legacy": "/projects/design-system-rebuild/",
+          "vault": "/projects/design-system-rebuild/"
+        },
+        {
+          "name": "output_path",
+          "classification": "equivalent",
+          "legacy": "projects/design-system-rebuild/index.html",
+          "vault": "projects/design-system-rebuild/index.html"
+        },
+        {
+          "name": "title",
+          "classification": "equivalent",
+          "legacy": "Design System Rebuild: Accessibility-First Foundations",
+          "vault": "Design System Rebuild: Accessibility-First Foundations"
+        },
+        {
+          "name": "publication_state",
+          "classification": "equivalent",
+          "legacy": {
+            "status": "published",
+            "visibility": "public"
+          },
+          "vault": {
+            "status": "published",
+            "visibility": "public"
+          }
+        },
+        {
+          "name": "authored_seo_overrides",
+          "classification": "equivalent",
+          "legacy": {
+            "description": null,
+            "title": null
+          },
+          "vault": {
+            "description": null,
+            "title": null
+          }
+        },
+        {
+          "name": "rendered_article_html",
+          "classification": "equivalent",
+          "legacy": "<article itemscope itemtype=\"https://schema.org/Article\"><header><h1 itemprop=\"headline\">Design System Rebuild: Accessibility-First Foundations</h1><p><time datetime=\"2025-04-15\" itemprop=\"datePublished\">2025-04-15</time><span aria-label=\"Tags\"><a href=\"/tags/design-systems/\" rel=\"tag\">#design-systems</a>, <a href=\"/tags/accessibility/\" rel=\"tag\">#accessibility</a>, <a href=\"/tags/performance/\" rel=\"tag\">#performance</a></span></p></header><div itemprop=\"articleBody\" class=\"markdown-body\"><p>In Q1 2025, we rebuilt our entire design system from scratch. The driver? An accessibility audit revealed 47 critical issues.</p><h2>The Problem</h2><p>Our previous component library: - No semantic HTML patterns - Inconsistent ARIA attributes<br /> - Failed color contrast (3.2:1 on buttons) - 23KB of JavaScript for basic interactions</p><h2>Results</h2><ul><li><strong>100% WCAG 2.2 AA</strong> compliance</li><li><strong>8.7KB total</strong> (CSS only, 0 JS for 80% of components)</li><li><strong>Zero violations</strong> in production for 3 months</li></ul><hr /><p><em>Project: Q1 2025 \u00b7 Team: 2 engineers, 1 designer</em></p></div></article><section id=\"comments\" aria-label=\"Comments\"><h2>Comments (0)</h2><form method=\"POST\" action=\"\" id=\"comment-form\" class=\"comment-form\" ><h3>Leave a Comment</h3><input type=\"hidden\" name=\"page_slug\" value=\"design-system-rebuild\"><input type=\"hidden\" name=\"page_type\" value=\"project\"><input type=\"hidden\" name=\"page_url\" value=\"https://gang-platform.dev/projects/design-system-rebuild/\"><label for=\"author-name\">Name <abbr title=\"required\">*</abbr></label><input type=\"text\" id=\"author-name\" name=\"author_name\" required autocomplete=\"name\" maxlength=\"100\" ><label for=\"author-email\">Email <abbr title=\"required\">*</abbr></label><input type=\"email\" id=\"author-email\" name=\"author_email\" required autocomplete=\"email\" aria-describedby=\"email-privacy\" ><small id=\"email-privacy\">Never published or shared. Used only for Gravatar.</small><label for=\"author-website\">Website <span>(optional)</span></label><input type=\"url\" id=\"author-website\" name=\"author_website\" autocomplete=\"url\" ><label for=\"comment-content\">Comment <abbr title=\"required\">*</abbr></label><textarea id=\"comment-content\" name=\"comment_content\" required rows=\"6\" maxlength=\"2000\" aria-describedby=\"comment-help\" ></textarea><small id=\"comment-help\">Markdown supported. Max 2000 characters.</small><input type=\"text\" name=\"website\" style=\"display:none\" tabindex=\"-1\" autocomplete=\"off\"><button type=\"submit\">Submit Comment</button><p class=\"form-status\" aria-live=\"polite\"></p></form></section>",
+          "vault": "<article itemscope itemtype=\"https://schema.org/Article\"><header><h1 itemprop=\"headline\">Design System Rebuild: Accessibility-First Foundations</h1><p><time datetime=\"2025-04-15\" itemprop=\"datePublished\">2025-04-15</time><span aria-label=\"Tags\"><a href=\"/tags/design-systems/\" rel=\"tag\">#design-systems</a>, <a href=\"/tags/accessibility/\" rel=\"tag\">#accessibility</a>, <a href=\"/tags/performance/\" rel=\"tag\">#performance</a></span></p></header><div itemprop=\"articleBody\" class=\"markdown-body\"><p>In Q1 2025, we rebuilt our entire design system from scratch. The driver? An accessibility audit revealed 47 critical issues.</p><h2>The Problem</h2><p>Our previous component library: - No semantic HTML patterns - Inconsistent ARIA attributes<br /> - Failed color contrast (3.2:1 on buttons) - 23KB of JavaScript for basic interactions</p><h2>Results</h2><ul><li><strong>100% WCAG 2.2 AA</strong> compliance</li><li><strong>8.7KB total</strong> (CSS only, 0 JS for 80% of components)</li><li><strong>Zero violations</strong> in production for 3 months</li></ul><hr /><p><em>Project: Q1 2025 \u00b7 Team: 2 engineers, 1 designer</em></p></div></article><section id=\"comments\" aria-label=\"Comments\"><h2>Comments (0)</h2><form method=\"POST\" action=\"\" id=\"comment-form\" class=\"comment-form\" ><h3>Leave a Comment</h3><input type=\"hidden\" name=\"page_slug\" value=\"design-system-rebuild\"><input type=\"hidden\" name=\"page_type\" value=\"project\"><input type=\"hidden\" name=\"page_url\" value=\"https://gang-platform.dev/projects/design-system-rebuild/\"><label for=\"author-name\">Name <abbr title=\"required\">*</abbr></label><input type=\"text\" id=\"author-name\" name=\"author_name\" required autocomplete=\"name\" maxlength=\"100\" ><label for=\"author-email\">Email <abbr title=\"required\">*</abbr></label><input type=\"email\" id=\"author-email\" name=\"author_email\" required autocomplete=\"email\" aria-describedby=\"email-privacy\" ><small id=\"email-privacy\">Never published or shared. Used only for Gravatar.</small><label for=\"author-website\">Website <span>(optional)</span></label><input type=\"url\" id=\"author-website\" name=\"author_website\" autocomplete=\"url\" ><label for=\"comment-content\">Comment <abbr title=\"required\">*</abbr></label><textarea id=\"comment-content\" name=\"comment_content\" required rows=\"6\" maxlength=\"2000\" aria-describedby=\"comment-help\" ></textarea><small id=\"comment-help\">Markdown supported. Max 2000 characters.</small><input type=\"text\" name=\"website\" style=\"display:none\" tabindex=\"-1\" autocomplete=\"off\"><button type=\"submit\">Submit Comment</button><p class=\"form-status\" aria-live=\"polite\"></p></form></section>"
+        },
+        {
+          "name": "canonical_url",
+          "classification": "equivalent",
+          "legacy": "https://gang-platform.dev/projects/design-system-rebuild/",
+          "vault": "https://gang-platform.dev/projects/design-system-rebuild/"
+        },
+        {
+          "name": "internal_links",
+          "classification": "equivalent",
+          "legacy": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/",
+            "/tags/accessibility/",
+            "/tags/design-systems/",
+            "/tags/performance/"
+          ],
+          "vault": [
+            "/",
+            "/agentmap.json",
+            "/assets/style.css",
+            "/cart/",
+            "/feed.json",
+            "/pages/about/",
+            "/pages/contact/",
+            "/pages/faq/",
+            "/pages/features/",
+            "/posts/",
+            "/products/",
+            "/projects/",
+            "/sitemap/",
+            "/tags/accessibility/",
+            "/tags/design-systems/",
+            "/tags/performance/"
+          ]
+        },
+        {
+          "name": "image_media_references",
+          "classification": "equivalent",
+          "legacy": [
+            "/assets/comments.js"
+          ],
+          "vault": [
+            "/assets/comments.js"
+          ]
+        },
+        {
+          "name": "structured_data_semantics",
+          "classification": "equivalent",
+          "legacy": [],
+          "vault": []
+        },
+        {
+          "name": "sitemap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "feed_presence",
+          "classification": "equivalent",
+          "legacy": false,
+          "vault": false
+        },
+        {
+          "name": "content_api_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        },
+        {
+          "name": "agentmap_presence",
+          "classification": "equivalent",
+          "legacy": true,
+          "vault": true
+        }
+      ]
+    }
+  ]
+}

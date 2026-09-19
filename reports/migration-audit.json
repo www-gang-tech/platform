@@ -1,0 +1,93 @@
+{
+  "plan": "migrations/legacy-content-v1.json",
+  "mode": "dry-run",
+  "records": 9,
+  "written": 0,
+  "unchanged": 9,
+  "would_write": 0,
+  "failed": 0,
+  "results": [
+    {
+      "source_path": "content/pages/about.md",
+      "destination_path": "brain/vault/public/pages/about.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0ac-7247-8f00-9d35d9c1da5d",
+      "current_url": "/pages/about/",
+      "expected_future_url": "/pages/about/"
+    },
+    {
+      "source_path": "content/pages/contact.md",
+      "destination_path": "brain/vault/public/pages/contact.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0ae-72b9-9963-f049a34b765d",
+      "current_url": "/pages/contact/",
+      "expected_future_url": "/pages/contact/"
+    },
+    {
+      "source_path": "content/pages/faq.md",
+      "destination_path": "brain/vault/public/pages/faq.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0af-7285-a93b-8501e0e1c0de",
+      "current_url": "/pages/faq/",
+      "expected_future_url": "/pages/faq/"
+    },
+    {
+      "source_path": "content/pages/features.md",
+      "destination_path": "brain/vault/public/pages/features.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0b0-7f45-9680-ea3b7e12e8fa",
+      "current_url": "/pages/features/",
+      "expected_future_url": "/pages/features/"
+    },
+    {
+      "source_path": "content/pages/manifesto.md",
+      "destination_path": "brain/vault/public/pages/manifesto.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0b1-73ab-84c7-e99e940db225",
+      "current_url": "/pages/manifesto/",
+      "expected_future_url": "/pages/manifesto/"
+    },
+    {
+      "source_path": "content/pages/wcag-conformance.md",
+      "destination_path": "brain/vault/public/pages/wcag-conformance.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0b2-7768-9ccc-027e45146fc2",
+      "current_url": "/pages/wcag-conformance/",
+      "expected_future_url": "/pages/wcag-conformance/"
+    },
+    {
+      "source_path": "content/projects/design-system-rebuild.md",
+      "destination_path": "brain/vault/public/projects/design-system-rebuild.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0b3-7d7c-a5e0-1d4ebdc893cf",
+      "current_url": "/projects/design-system-rebuild/",
+      "expected_future_url": "/projects/design-system-rebuild/"
+    },
+    {
+      "source_path": "content/newsletters/qi2-launch-newsletter.md",
+      "destination_path": "brain/vault/public/newsletters/qi2-launch-newsletter.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "01a0b9db-c0b4-7f89-837e-079b4a2a86c2",
+      "current_url": "/newsletters/qi2-launch-newsletter/",
+      "expected_future_url": "/newsletters/qi2-launch-newsletter/"
+    },
+    {
+      "source_path": "content/posts/qi2-launch.md",
+      "destination_path": "brain/vault/public/posts/qi2-launch.md",
+      "status": "unchanged",
+      "message": "destination already migrated",
+      "id": "0199da90-c200-7056-ac0b-6f1d82bd2f41",
+      "current_url": "/posts/qi2-launch/",
+      "expected_future_url": "/posts/qi2-launch/"
+    }
+  ],
+  "excluded_records": []
+}

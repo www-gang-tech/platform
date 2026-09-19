@@ -1,0 +1,86 @@
+{
+  "migration": "legacy-content-v1",
+  "records": [
+    {
+      "source_path": "content/pages/about.md",
+      "destination_path": "brain/vault/public/pages/about.md",
+      "id": "01a0b9db-c0ac-7247-8f00-9d35d9c1da5d",
+      "current_url": "/pages/about/",
+      "expected_future_url": "/pages/about/",
+      "source_hash": "19d7b5bca3151c875d12e52f2f8d9d841ce17e44011b5857439910a2b7b04efc",
+      "classification": "approved_public_page"
+    },
+    {
+      "source_path": "content/pages/contact.md",
+      "destination_path": "brain/vault/public/pages/contact.md",
+      "id": "01a0b9db-c0ae-72b9-9963-f049a34b765d",
+      "current_url": "/pages/contact/",
+      "expected_future_url": "/pages/contact/",
+      "source_hash": "102212653a80cc851df3915f841a4ea5c292c08691980ecf572952ef376609c4",
+      "classification": "approved_public_page"
+    },
+    {
+      "source_path": "content/pages/faq.md",
+      "destination_path": "brain/vault/public/pages/faq.md",
+      "id": "01a0b9db-c0af-7285-a93b-8501e0e1c0de",
+      "current_url": "/pages/faq/",
+      "expected_future_url": "/pages/faq/",
+      "source_hash": "a50aefdee0e74534205b9088b7fe7d40ec4f0bce904bc9251f0b8a1dde914323",
+      "classification": "approved_public_page"
+    },
+    {
+      "source_path": "content/pages/features.md",
+      "destination_path": "brain/vault/public/pages/features.md",
+      "id": "01a0b9db-c0b0-7f45-9680-ea3b7e12e8fa",
+      "current_url": "/pages/features/",
+      "expected_future_url": "/pages/features/",
+      "source_hash": "51643db482a798db09a8c75f2cf3468a24719df3a7accc650a1ca7ff6f21843e",
+      "classification": "approved_public_page"
+    },
+    {
+      "source_path": "content/pages/manifesto.md",
+      "destination_path": "brain/vault/public/pages/manifesto.md",
+      "id": "01a0b9db-c0b1-73ab-84c7-e99e940db225",
+      "current_url": "/pages/manifesto/",
+      "expected_future_url": "/pages/manifesto/",
+      "source_hash": "287bd12b0bd3c35fc4bb8d9cb5d749f012f67ec1f38486d4979dd87ddee11e1c",
+      "classification": "approved_public_page"
+    },
+    {
+      "source_path": "content/pages/wcag-conformance.md",
+      "destination_path": "brain/vault/public/pages/wcag-conformance.md",
+      "id": "01a0b9db-c0b2-7768-9ccc-027e45146fc2",
+      "current_url": "/pages/wcag-conformance/",
+      "expected_future_url": "/pages/wcag-conformance/",
+      "source_hash": "ce2ed5f87a25ec90cc149825398088ae6099944587d61c5ec46b350b4029bc46",
+      "classification": "approved_public_page"
+    },
+    {
+      "source_path": "content/projects/design-system-rebuild.md",
+      "destination_path": "brain/vault/public/projects/design-system-rebuild.md",
+      "id": "01a0b9db-c0b3-7d7c-a5e0-1d4ebdc893cf",
+      "current_url": "/projects/design-system-rebuild/",
+      "expected_future_url": "/projects/design-system-rebuild/",
+      "source_hash": "101e1e32d64104fa9f0d5feabaee1f8fa1f1e0b38b60c21a9c8d170d012ee8e9",
+      "classification": "approved_public_project"
+    },
+    {
+      "source_path": "content/newsletters/qi2-launch-newsletter.md",
+      "destination_path": "brain/vault/public/newsletters/qi2-launch-newsletter.md",
+      "id": "01a0b9db-c0b4-7f89-837e-079b4a2a86c2",
+      "current_url": "/newsletters/qi2-launch-newsletter/",
+      "expected_future_url": "/newsletters/qi2-launch-newsletter/",
+      "source_hash": "c989b4b941e133d674966dc21aaabd1ddd73db0778cb93daa742f12ec9b68e17",
+      "classification": "approved_public_newsletter"
+    },
+    {
+      "source_path": "content/posts/qi2-launch.md",
+      "destination_path": "brain/vault/public/posts/qi2-launch.md",
+      "id": "0199da90-c200-7056-ac0b-6f1d82bd2f41",
+      "current_url": "/posts/qi2-launch/",
+      "expected_future_url": "/posts/qi2-launch/",
+      "source_hash": "31682d0ef8a7af46de7dfa029d80424882ab2a407532e2ab8e995abe1c5a4d5a",
+      "classification": "approved_public_post"
+    }
+  ]
+}

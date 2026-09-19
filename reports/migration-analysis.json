@@ -1,0 +1,3516 @@
+{
+  "conflicts": [
+    {
+      "message": "Missing date",
+      "path": "content/posts/qi2-launch.md",
+      "type": "record_warning"
+    },
+    {
+      "message": "Missing title",
+      "path": "content/posts/qi2-launch.md",
+      "type": "record_warning"
+    }
+  ],
+  "documents": [
+    {
+      "author": null,
+      "current_content_type": "comment",
+      "current_date": null,
+      "current_path": "content/comments/README.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "README",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "jsonld",
+        "seo"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: documentation"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": null,
+        "existing_public_url": null,
+        "existing_slug": "README",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [],
+        "fields_transformed": [
+          "jsonld",
+          "seo"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {},
+        "source": {
+          "body_sha256": "e85a1e26bb2608efc2203294b2c8d4265e605fb372180dc9d949e790fbfb0795",
+          "content_sha256": "e03d690311a84378a64ee493a47fc64aec2ee4e07f2762500237959da7c7eebd",
+          "path": "content/comments/README.md"
+        },
+        "status": "draft",
+        "type": "comment",
+        "updated": null,
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "documentation",
+      "tags": [],
+      "title": null,
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing title",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "drop",
+      "current_date": "2025-10-13T10:00:00+00:00",
+      "current_path": "content/examples/drop-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "drop-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "cta",
+        "date",
+        "jsonld",
+        "seo",
+        "summary",
+        "syndicate",
+        "tags",
+        "title",
+        "type"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T10:00:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "drop-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "cta",
+          "summary",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "cta": {
+            "href": "/feed/",
+            "label": "Try it now"
+          },
+          "tags": [
+            "launch",
+            "features"
+          ]
+        },
+        "source": {
+          "body_sha256": "52d2e76118e0183a5b170879c3708e541980c3d9e11172a63fc105da6ad9759c",
+          "content_sha256": "4ebc77f5a36a54984b196080ea8306bba2f0d79ce6667b6d094a6fb1ab6cbb6b",
+          "path": "content/examples/drop-example.md"
+        },
+        "status": "draft",
+        "type": "drop",
+        "updated": "2025-10-13T10:00:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "launch",
+        "features"
+      ],
+      "title": "Announcing Feed System",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "link",
+      "current_date": "2025-10-13T07:00:00+00:00",
+      "current_path": "content/examples/link-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "link-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "href",
+        "jsonld",
+        "seo",
+        "syndicate",
+        "tags",
+        "title",
+        "type"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T07:00:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "link-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "href",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "tags": [
+            "links",
+            "webdesign",
+            "philosophy"
+          ]
+        },
+        "source": {
+          "body_sha256": "c568b1b85f69067673821da066478851e4868d63a555da72acdb24bf7a4d8093",
+          "content_sha256": "06bfafc2c23f8e57533a671e056363114d6c9836250cd4ccb0e89f418d3e9e9f",
+          "path": "content/examples/link-example.md"
+        },
+        "status": "draft",
+        "type": "link",
+        "updated": "2025-10-13T07:00:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "links",
+        "webdesign",
+        "philosophy"
+      ],
+      "title": "The Web's Grain",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "note",
+      "current_date": "2025-10-13T12:00:00+00:00",
+      "current_path": "content/examples/note-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "note-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "jsonld",
+        "seo",
+        "summary",
+        "syndicate",
+        "tags",
+        "type"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T12:00:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "note-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "summary",
+          "syndicate",
+          "tags"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "tags": [
+            "shipping",
+            "meta"
+          ]
+        },
+        "source": {
+          "body_sha256": "915d2f2a94bd5e041f638e0d7bf1d43154e52d9471f3adcb008a4d7c44b0dc20",
+          "content_sha256": "3ae0cd3dc938873c50e39b21616e99e596152284cc4fcea8d9c7d6029c704484",
+          "path": "content/examples/note-example.md"
+        },
+        "status": "draft",
+        "type": "note",
+        "updated": "2025-10-13T12:00:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "shipping",
+        "meta"
+      ],
+      "title": null,
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing title",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "product",
+      "current_date": "2025-10-13T09:00:00+00:00",
+      "current_path": "content/examples/product-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "product-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "assets",
+        "availability",
+        "cta",
+        "date",
+        "jsonld",
+        "price",
+        "seo",
+        "sku",
+        "syndicate",
+        "tags",
+        "title",
+        "type"
+      ],
+      "image_media_references": [
+        {
+          "field": "assets[0].src",
+          "kind": "frontmatter",
+          "target": "/images/qi2-charger.jpg"
+        }
+      ],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T09:00:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "product-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "assets",
+          "cta",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "fields_transformed": [
+          "availability",
+          "date",
+          "jsonld",
+          "price",
+          "seo",
+          "sku",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "cta": {
+            "href": "/products/qi2-charger/",
+            "label": "Buy now"
+          },
+          "tags": [
+            "products",
+            "qi2",
+            "charging"
+          ]
+        },
+        "source": {
+          "body_sha256": "84a05858b5748ed621e5fde5c0e00311278d7c7ab96f00fb2769e9efb10aa419",
+          "content_sha256": "3608116b8c34827a4965a0f88757204687a373725435d609457ab03e9bf8fca5",
+          "path": "content/examples/product-example.md"
+        },
+        "status": "draft",
+        "type": "product",
+        "updated": "2025-10-13T09:00:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {
+          "availability": "InStock",
+          "price": "39.99",
+          "sku": "QI2-CHAR-001"
+        },
+        "is_product_related": true
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "products",
+        "qi2",
+        "charging"
+      ],
+      "title": "Wireless Qi2 Charger",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing referenced media: /images/qi2-charger.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "sheet",
+      "current_date": "2025-10-13T06:00:00+00:00",
+      "current_path": "content/examples/sheet-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "sheet-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "csv",
+        "date",
+        "jsonld",
+        "seo",
+        "syndicate",
+        "tags",
+        "title",
+        "type"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T06:00:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "sheet-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "csv",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "tags": [
+            "data",
+            "performance",
+            "webvitals"
+          ]
+        },
+        "source": {
+          "body_sha256": "ef465fb33b004a482266aec70dfe3e19a7d64c316eef940b455b7685a96b86e6",
+          "content_sha256": "2b71c047d22c46f11bdc2b8c79cf593f1224185c8b5c0360dcb014f5ebe1f992",
+          "path": "content/examples/sheet-example.md"
+        },
+        "status": "draft",
+        "type": "sheet",
+        "updated": "2025-10-13T06:00:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "data",
+        "performance",
+        "webvitals"
+      ],
+      "title": "Core Web Vitals - Oct 2025",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "shot",
+      "current_date": "2025-10-13T12:30:00+00:00",
+      "current_path": "content/examples/shot-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "shot-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "assets",
+        "caption",
+        "date",
+        "jsonld",
+        "seo",
+        "syndicate",
+        "tags",
+        "title",
+        "type"
+      ],
+      "image_media_references": [
+        {
+          "field": "assets[0].src",
+          "kind": "frontmatter",
+          "target": "/images/desk-setup.jpg"
+        }
+      ],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T12:30:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "shot-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "assets",
+          "caption",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "tags": [
+            "workspace",
+            "ergonomics"
+          ]
+        },
+        "source": {
+          "body_sha256": "6a3cf5192354f71615ac51034b3e97c20eda99643fcaf5bbe6d41ad59bd12167",
+          "content_sha256": "1d878e82bff211a8346f4a5eb2b74ab93d3162e1cc2c81d172d34d0c2af04cd6",
+          "path": "content/examples/shot-example.md"
+        },
+        "status": "draft",
+        "type": "shot",
+        "updated": "2025-10-13T12:30:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "workspace",
+        "ergonomics"
+      ],
+      "title": "New office setup",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing referenced media: /images/desk-setup.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "update",
+      "current_date": "2025-10-13T08:00:00+00:00",
+      "current_path": "content/examples/update-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "update-example",
+      "current_status": null,
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "jsonld",
+        "seo",
+        "syndicate",
+        "tags",
+        "title",
+        "type",
+        "version"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-10-13T08:00:00+00:00",
+        "existing_public_url": null,
+        "existing_slug": "update-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "syndicate",
+          "tags",
+          "title",
+          "version"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "tags": [
+            "changelog",
+            "performance"
+          ]
+        },
+        "source": {
+          "body_sha256": "f4f52ceb593a4c70fc0683894e0f36cc0da08c87b86769183e935adaf703f8f3",
+          "content_sha256": "150314858dd9c1c4e4ca6fd7f061d3301bbc0bea7dc4401d5fe218e49bfcc250",
+          "path": "content/examples/update-example.md"
+        },
+        "status": "draft",
+        "type": "update",
+        "updated": "2025-10-13T08:00:00+00:00",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [
+        "changelog",
+        "performance"
+      ],
+      "title": "Performance improvements",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "newsletter",
+      "current_date": "2025-10-12",
+      "current_path": "content/newsletters/qi2-launch-newsletter.md",
+      "current_public_url": "/newsletters/qi2-launch-newsletter/",
+      "current_publish_date": null,
+      "current_slug": "qi2-launch-newsletter",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/newsletters/qi2-launch-newsletter/",
+      "excluded_from_migration": false,
+      "external_links": [],
+      "frontmatter_fields": [
+        "canonical_url",
+        "date",
+        "esp_provider",
+        "jsonld",
+        "newsletter_id",
+        "sent_date",
+        "seo",
+        "summary",
+        "tags",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [
+        {
+          "kind": "markdown",
+          "label": "View archive of all newsletters",
+          "target": "/newsletters/"
+        }
+      ],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/newsletters/qi2-launch-newsletter.md",
+        "created": "2025-10-12",
+        "existing_public_url": "/newsletters/qi2-launch-newsletter/",
+        "existing_slug": "qi2-launch-newsletter",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "canonical_url",
+          "newsletter_id",
+          "summary",
+          "tags",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "esp_provider",
+          "jsonld",
+          "sent_date",
+          "seo"
+        ],
+        "id": "01a0b77f-e414-7661-bcbc-4c96e6f3453d",
+        "public_url": "/newsletters/qi2-launch-newsletter/",
+        "relationship_fields": {
+          "canonical_url": "https://example.com/posts/qi2-launch/",
+          "newsletter_id": "qi2-launch",
+          "tags": []
+        },
+        "source": {
+          "body_sha256": "8456f22303f2383dafd543813433e2007344438d61dd80edaa479490b337818b",
+          "content_sha256": "c989b4b941e133d674966dc21aaabd1ddd73db0778cb93daa742f12ec9b68e17",
+          "path": "content/newsletters/qi2-launch-newsletter.md"
+        },
+        "status": "published",
+        "type": "newsletter",
+        "updated": "2025-10-12",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "Qi2 Launch",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": null,
+      "current_content_type": "page",
+      "current_date": "2025-01-11",
+      "current_path": "content/pages/about.md",
+      "current_public_url": "/pages/about/",
+      "current_publish_date": null,
+      "current_slug": "about",
+      "current_status": "published",
+      "currently_public": true,
+      "derived_public_url": "/pages/about/",
+      "excluded_from_migration": false,
+      "external_links": [
+        {
+          "kind": "markdown",
+          "label": "GitHub",
+          "target": "https://github.com/www-gang-tech/platform"
+        },
+        {
+          "kind": "markdown",
+          "label": "GitHub",
+          "target": "https://github.com/www-gang-tech/platform"
+        }
+      ],
+      "frontmatter_fields": [
+        "date",
+        "jsonld",
+        "seo",
+        "status",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [
+        {
+          "kind": "markdown",
+          "label": "Documentation",
+          "target": "/pages/about/"
+        },
+        {
+          "kind": "markdown",
+          "label": "Contact",
+          "target": "/pages/contact/"
+        }
+      ],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/pages/about.md",
+        "created": "2025-01-11",
+        "existing_public_url": "/pages/about/",
+        "existing_slug": "about",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ],
+        "id": "01a0b77f-e414-7c9a-8379-63d4fc9af42a",
+        "public_url": "/pages/about/",
+        "relationship_fields": {},
+        "source": {
+          "body_sha256": "8110ff68016f10eb75acda93a61edf9279435b62e7d2c906bb86fafe9d9d3dfc",
+          "content_sha256": "19d7b5bca3151c875d12e52f2f8d9d841ce17e44011b5857439910a2b7b04efc",
+          "path": "content/pages/about.md"
+        },
+        "status": "published",
+        "type": "page",
+        "updated": "2025-01-11",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": "Learn about GANG, the AI-first static publishing platform that builds semantic, accessible, and fast websites. Zero JavaScript, WCAG AA compliant.",
+        "title": "About - AI-First Static Publishing"
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "About GANG Platform - AI-First Static Publishing",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": "GANG Team",
+      "current_content_type": "page",
+      "current_date": "2025-10-12",
+      "current_path": "content/pages/contact.md",
+      "current_public_url": "/pages/contact/",
+      "current_publish_date": null,
+      "current_slug": "contact",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/pages/contact/",
+      "excluded_from_migration": false,
+      "external_links": [
+        {
+          "kind": "markdown",
+          "label": "info@gang.tech",
+          "target": "mailto:info@gang.tech"
+        },
+        {
+          "kind": "markdown",
+          "label": "support@gang.tech",
+          "target": "mailto:support@gang.tech"
+        },
+        {
+          "kind": "markdown",
+          "label": "press@gang.tech",
+          "target": "mailto:press@gang.tech"
+        },
+        {
+          "kind": "markdown",
+          "label": "@www-gang-tech",
+          "target": "https://github.com/www-gang-tech"
+        },
+        {
+          "kind": "markdown",
+          "label": "@gang__tech",
+          "target": "https://instagram.com/gang__tech"
+        },
+        {
+          "kind": "markdown",
+          "label": "@gang__tech",
+          "target": "https://twitter.com/gang__tech"
+        },
+        {
+          "kind": "markdown",
+          "label": "github.com/www-gang-tech/platform",
+          "target": "https://github.com/www-gang-tech/platform"
+        }
+      ],
+      "frontmatter_fields": [
+        "author",
+        "date",
+        "jsonld",
+        "seo",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/pages/contact.md",
+        "created": "2025-10-12",
+        "existing_public_url": "/pages/contact/",
+        "existing_slug": "contact",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "author",
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo"
+        ],
+        "id": "01a0b77f-e414-7884-93c8-82f380217ee2",
+        "public_url": "/pages/contact/",
+        "relationship_fields": {
+          "author": "GANG Team"
+        },
+        "source": {
+          "body_sha256": "d3255912f65ce8c7a24e8ab65c0a2c82d79c1682403c6f0d97a250d23bbfe304",
+          "content_sha256": "102212653a80cc851df3915f841a4ea5c292c08691980ecf572952ef376609c4",
+          "path": "content/pages/contact.md"
+        },
+        "status": "published",
+        "type": "page",
+        "updated": "2025-10-12",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "Contact",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": "GANG Team",
+      "current_content_type": "page",
+      "current_date": "2025-10-12",
+      "current_path": "content/pages/faq.md",
+      "current_public_url": "/pages/faq/",
+      "current_publish_date": null,
+      "current_slug": "faq",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/pages/faq/",
+      "excluded_from_migration": false,
+      "external_links": [
+        {
+          "kind": "markdown",
+          "label": "GitHub",
+          "target": "https://github.com/www-gang-tech/platform"
+        },
+        {
+          "kind": "markdown",
+          "label": "GitHub repository",
+          "target": "https://github.com/www-gang-tech/platform"
+        }
+      ],
+      "frontmatter_fields": [
+        "author",
+        "date",
+        "jsonld",
+        "seo",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [
+        {
+          "kind": "markdown",
+          "label": "Contact us",
+          "target": "/pages/contact/"
+        }
+      ],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/pages/faq.md",
+        "created": "2025-10-12",
+        "existing_public_url": "/pages/faq/",
+        "existing_slug": "faq",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "author",
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo"
+        ],
+        "id": "01a0b77f-e414-7314-964b-4b3fcc7175a2",
+        "public_url": "/pages/faq/",
+        "relationship_fields": {
+          "author": "GANG Team"
+        },
+        "source": {
+          "body_sha256": "bf7aeda13cbbf536bd564ba0c1d502240436b10feca847be571987c7ce3c6abb",
+          "content_sha256": "a50aefdee0e74534205b9088b7fe7d40ec4f0bce904bc9251f0b8a1dde914323",
+          "path": "content/pages/faq.md"
+        },
+        "status": "published",
+        "type": "page",
+        "updated": "2025-10-12",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "Frequently Asked Questions",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": null,
+      "current_content_type": "page",
+      "current_date": "2025-10-21",
+      "current_path": "content/pages/features.md",
+      "current_public_url": "/pages/features/",
+      "current_publish_date": null,
+      "current_slug": "features",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/pages/features/",
+      "excluded_from_migration": false,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": null,
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/pages/features.md",
+        "created": "2025-10-21",
+        "existing_public_url": "/pages/features/",
+        "existing_slug": "features",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date"
+        ],
+        "id": "01a0b77f-e414-756b-869b-e1ec878d81ff",
+        "public_url": "/pages/features/",
+        "relationship_fields": {},
+        "source": {
+          "body_sha256": "1a2e6c30651c7aefff0cdd720d4a380ed0c4482199bcc5edf597df75a6b909e4",
+          "content_sha256": "51643db482a798db09a8c75f2cf3468a24719df3a7accc650a1ca7ff6f21843e",
+          "path": "content/pages/features.md"
+        },
+        "status": "published",
+        "type": "page",
+        "updated": "2025-10-21",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": null,
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "Features",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": null,
+      "current_content_type": "page",
+      "current_date": "2025-01-11",
+      "current_path": "content/pages/manifesto.md",
+      "current_public_url": "/pages/manifesto/",
+      "current_publish_date": null,
+      "current_slug": "manifesto",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/pages/manifesto/",
+      "excluded_from_migration": false,
+      "external_links": [
+        {
+          "kind": "markdown",
+          "label": "GitHub",
+          "target": "https://github.com/www-gang-tech/platform"
+        }
+      ],
+      "frontmatter_fields": [
+        "date",
+        "jsonld",
+        "seo",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [
+        {
+          "kind": "markdown",
+          "label": "Documentation",
+          "target": "/pages/about/"
+        }
+      ],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/pages/manifesto.md",
+        "created": "2025-01-11",
+        "existing_public_url": "/pages/manifesto/",
+        "existing_slug": "manifesto",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo"
+        ],
+        "id": "01a0b77f-e414-7fe4-bbf2-389f7dd9681b",
+        "public_url": "/pages/manifesto/",
+        "relationship_fields": {},
+        "source": {
+          "body_sha256": "6ec6163544780c80617ca5e0abc5805252599b83090220f5b90ccb93d06b1c50",
+          "content_sha256": "287bd12b0bd3c35fc4bb8d9cb5d749f012f67ec1f38486d4979dd87ddee11e1c",
+          "path": "content/pages/manifesto.md"
+        },
+        "status": "published",
+        "type": "page",
+        "updated": "2025-01-11",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "Manifesto",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": "GANG Team",
+      "current_content_type": "page",
+      "current_date": "2025-10-12",
+      "current_path": "content/pages/wcag-conformance.md",
+      "current_public_url": "/pages/wcag-conformance/",
+      "current_publish_date": null,
+      "current_slug": "wcag-conformance",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/pages/wcag-conformance/",
+      "excluded_from_migration": false,
+      "external_links": [],
+      "frontmatter_fields": [
+        "author",
+        "date",
+        "jsonld",
+        "seo",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/pages/wcag-conformance.md",
+        "created": "2025-10-12",
+        "existing_public_url": "/pages/wcag-conformance/",
+        "existing_slug": "wcag-conformance",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "author",
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo"
+        ],
+        "id": "01a0b77f-e414-7efa-bc35-8542758bfb73",
+        "public_url": "/pages/wcag-conformance/",
+        "relationship_fields": {
+          "author": "GANG Team"
+        },
+        "source": {
+          "body_sha256": "ead78e4720f9db43758f8beb450af33549289f22982dd66234c0e9966a668a72",
+          "content_sha256": "ce2ed5f87a25ec90cc149825398088ae6099944587d61c5ec46b350b4029bc46",
+          "path": "content/pages/wcag-conformance.md"
+        },
+        "status": "published",
+        "type": "page",
+        "updated": "2025-10-12",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": "WCAG Conformance Statement",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    },
+    {
+      "author": null,
+      "current_content_type": "person",
+      "current_date": "2025-01-15",
+      "current_path": "content/people/contributor-example.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "contributor-example",
+      "current_status": "published",
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [
+        {
+          "kind": "markdown",
+          "label": "GitHub repository",
+          "target": "https://github.com/www-gang-tech/platform"
+        }
+      ],
+      "frontmatter_fields": [
+        "date",
+        "jsonld",
+        "role",
+        "section",
+        "seo",
+        "social_links",
+        "status",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "description": "Alex is an active contributor to GANG Platform's open source projects.",
+        "jobTitle": "Open Source Contributor",
+        "name": "Alex Contributor",
+        "url": "https://gang-platform.dev/people/contributor-example/"
+      },
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-01-15",
+        "existing_public_url": null,
+        "existing_slug": "contributor-example",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "role",
+          "section",
+          "social_links",
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "social_links": [
+            {
+              "platform": "GitHub",
+              "url": "https://github.com/alexcontributor"
+            }
+          ]
+        },
+        "source": {
+          "body_sha256": "e89118691931999d8f88642aba280751da4dac71bc8de420b4ad504f03f4e0b9",
+          "content_sha256": "3212c462a3606e9babcb1ed1dfeb0b7bd1f0ab472afea07720700f2b709794fa",
+          "path": "content/people/contributor-example.md"
+        },
+        "status": "published",
+        "type": "person",
+        "updated": "2025-01-15",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": "Alex Contributor is an active open source contributor to GANG Platform.",
+        "title": "Alex Contributor - Contributor | GANG Platform"
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [],
+      "title": "Alex Contributor",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "person",
+      "current_date": "2025-01-15",
+      "current_path": "content/people/jane-doe.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "jane-doe",
+      "current_status": "published",
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "image",
+        "jsonld",
+        "role",
+        "section",
+        "seo",
+        "social_links",
+        "status",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [
+        {
+          "field": "jsonld.image",
+          "kind": "frontmatter",
+          "target": "/assets/images/jane-doe.jpg"
+        },
+        {
+          "field": "image",
+          "kind": "frontmatter",
+          "target": "/assets/images/jane-doe.jpg"
+        }
+      ],
+      "internal_links": [],
+      "jsonld_metadata": {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "description": "Jane is a co-founder and CEO of GANG Platform, passionate about building accessible web experiences.",
+        "image": "/assets/images/jane-doe.jpg",
+        "jobTitle": "Co-Founder & CEO",
+        "name": "Jane Doe",
+        "sameAs": [
+          "https://twitter.com/janedoe",
+          "https://linkedin.com/in/janedoe"
+        ],
+        "url": "https://gang-platform.dev/people/jane-doe/"
+      },
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-01-15",
+        "existing_public_url": null,
+        "existing_slug": "jane-doe",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "image",
+          "role",
+          "section",
+          "social_links",
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "social_links": [
+            {
+              "platform": "Twitter",
+              "url": "https://twitter.com/janedoe"
+            },
+            {
+              "platform": "LinkedIn",
+              "url": "https://linkedin.com/in/janedoe"
+            },
+            {
+              "platform": "GitHub",
+              "url": "https://github.com/janedoe"
+            }
+          ]
+        },
+        "source": {
+          "body_sha256": "881d4317f4ff67ff20f40b6c75a3164bf36697e2f11a66c1b317edfce13ef71b",
+          "content_sha256": "3bd3019a95fe4c1f12d3d8ef6d22d6bc6dd0138b081df2bba7dc384bf7151a16",
+          "path": "content/people/jane-doe.md"
+        },
+        "status": "published",
+        "type": "person",
+        "updated": "2025-01-15",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": "Jane Doe is the Co-Founder & CEO of GANG Platform, building accessible web experiences.",
+        "title": "Jane Doe - Co-Founder & CEO | GANG Platform"
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [],
+      "title": "Jane Doe",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing referenced media: /assets/images/jane-doe.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "person",
+      "current_date": "2025-01-15",
+      "current_path": "content/people/john-smith.md",
+      "current_public_url": null,
+      "current_publish_date": null,
+      "current_slug": "john-smith",
+      "current_status": "published",
+      "currently_public": false,
+      "derived_public_url": null,
+      "excluded_from_migration": true,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "image",
+        "jsonld",
+        "role",
+        "section",
+        "seo",
+        "social_links",
+        "status",
+        "summary",
+        "title"
+      ],
+      "image_media_references": [
+        {
+          "field": "jsonld.image",
+          "kind": "frontmatter",
+          "target": "/assets/images/john-smith.jpg"
+        },
+        {
+          "field": "image",
+          "kind": "frontmatter",
+          "target": "/assets/images/john-smith.jpg"
+        }
+      ],
+      "internal_links": [],
+      "jsonld_metadata": {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "description": "John is a technical advisor to GANG Platform, bringing expertise in web performance and standards.",
+        "image": "/assets/images/john-smith.jpg",
+        "jobTitle": "Technical Advisor",
+        "name": "John Smith",
+        "sameAs": [
+          "https://twitter.com/johnsmith"
+        ],
+        "url": "https://gang-platform.dev/people/john-smith/"
+      },
+      "malformed_frontmatter": false,
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": null,
+        "created": "2025-01-15",
+        "existing_public_url": null,
+        "existing_slug": "john-smith",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "image",
+          "role",
+          "section",
+          "social_links",
+          "summary",
+          "title"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ],
+        "id": null,
+        "public_url": null,
+        "relationship_fields": {
+          "social_links": [
+            {
+              "platform": "Twitter",
+              "url": "https://twitter.com/johnsmith"
+            }
+          ]
+        },
+        "source": {
+          "body_sha256": "f52d937442b62bdec93078eb7ad2c525becd28d74320b387d105ce8c6a686c5b",
+          "content_sha256": "d1d4dc74a08f948e85da48f6ff4829e07192cbab577c17385c9448360f787d15",
+          "path": "content/people/john-smith.md"
+        },
+        "status": "published",
+        "type": "person",
+        "updated": "2025-01-15",
+        "visibility": "private"
+      },
+      "publication_state": "not_production_content",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": "John Smith is a Technical Advisor to GANG Platform, specializing in web performance and standards.",
+        "title": "John Smith - Technical Advisor | GANG Platform"
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "fixture/example",
+      "tags": [],
+      "title": "John Smith",
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing referenced media: /assets/images/john-smith.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "post",
+      "current_date": null,
+      "current_path": "content/posts/qi2-launch.md",
+      "current_public_url": "/posts/qi2-launch/",
+      "current_publish_date": null,
+      "current_slug": "qi2-launch",
+      "current_status": null,
+      "currently_public": true,
+      "derived_public_url": "/posts/qi2-launch/",
+      "excluded_from_migration": false,
+      "external_links": [],
+      "frontmatter_fields": [
+        "jsonld",
+        "seo"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "review_required",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/posts/qi2-launch.md",
+        "created": null,
+        "existing_public_url": "/posts/qi2-launch/",
+        "existing_slug": "qi2-launch",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [],
+        "fields_transformed": [
+          "jsonld",
+          "seo"
+        ],
+        "id": "01a0b77f-e414-7c87-a9c9-5604c425823c",
+        "public_url": "/posts/qi2-launch/",
+        "relationship_fields": {},
+        "source": {
+          "body_sha256": "f2d8e8a8718923f35ee4dcf2d7b10c41124d76ee025fe2a0abb81051e1fb5629",
+          "content_sha256": "31682d0ef8a7af46de7dfa029d80424882ab2a407532e2ab8e995abe1c5a4d5a",
+          "path": "content/posts/qi2-launch.md"
+        },
+        "status": "published",
+        "type": "post",
+        "updated": null,
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": false,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [],
+      "title": null,
+      "unknown_frontmatter_fields": [],
+      "warnings": [
+        "Missing date",
+        "Missing title"
+      ]
+    },
+    {
+      "author": null,
+      "current_content_type": "project",
+      "current_date": "2025-04-15",
+      "current_path": "content/projects/design-system-rebuild.md",
+      "current_public_url": "/projects/design-system-rebuild/",
+      "current_publish_date": null,
+      "current_slug": "design-system-rebuild",
+      "current_status": "published",
+      "currently_public": true,
+      "derived_public_url": "/projects/design-system-rebuild/",
+      "excluded_from_migration": false,
+      "external_links": [],
+      "frontmatter_fields": [
+        "date",
+        "featured",
+        "jsonld",
+        "seo",
+        "status",
+        "summary",
+        "tags",
+        "title",
+        "type",
+        "year"
+      ],
+      "image_media_references": [],
+      "internal_links": [],
+      "jsonld_metadata": {},
+      "malformed_frontmatter": false,
+      "migration_status": "migration_safe",
+      "notices": [],
+      "proposed_record": {
+        "canonical_vault_location": "brain/vault/public/projects/design-system-rebuild.md",
+        "created": "2025-04-15",
+        "existing_public_url": "/projects/design-system-rebuild/",
+        "existing_slug": "design-system-rebuild",
+        "fields_cannot_map_deterministically": [],
+        "fields_deprecated": [],
+        "fields_retained_unchanged": [
+          "featured",
+          "summary",
+          "tags",
+          "title",
+          "year"
+        ],
+        "fields_transformed": [
+          "date",
+          "jsonld",
+          "seo",
+          "status",
+          "type"
+        ],
+        "id": "01a0b77f-e414-7772-a2b8-b72621d2fa0d",
+        "public_url": "/projects/design-system-rebuild/",
+        "relationship_fields": {
+          "tags": [
+            "design-systems",
+            "accessibility",
+            "performance"
+          ]
+        },
+        "source": {
+          "body_sha256": "ff82f88758f2baeea9299cd4f28d0ce2aa8b2ad5fe5cf78fd63ef6b5bc086a4c",
+          "content_sha256": "101e1e32d64104fa9f0d5feabaee1f8fa1f1e0b38b60c21a9c8d170d012ee8e9",
+          "path": "content/projects/design-system-rebuild.md"
+        },
+        "status": "published",
+        "type": "project",
+        "updated": "2025-04-15",
+        "visibility": "public"
+      },
+      "publication_state": "published",
+      "redirects_affecting_page": [],
+      "safe_to_migrate": true,
+      "seo_metadata": {
+        "description": null,
+        "title": null
+      },
+      "shopify_product_relationship": {
+        "external_authority_fields": {},
+        "is_product_related": false
+      },
+      "source_classification": "canonical_content",
+      "tags": [
+        "design-systems",
+        "accessibility",
+        "performance"
+      ],
+      "title": "Design System Rebuild: Accessibility-First Foundations",
+      "unknown_frontmatter_fields": [],
+      "warnings": []
+    }
+  ],
+  "field_mapping": [
+    {
+      "classification": "preserve",
+      "current": "assets",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/product-example.md",
+        "content/examples/shot-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "author",
+      "future": "retain unchanged",
+      "paths": [
+        "content/pages/contact.md",
+        "content/pages/faq.md",
+        "content/pages/wcag-conformance.md"
+      ]
+    },
+    {
+      "classification": "external authority",
+      "current": "availability",
+      "future": "requires review",
+      "paths": [
+        "content/examples/product-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "canonical_url",
+      "future": "retain unchanged",
+      "paths": [
+        "content/newsletters/qi2-launch-newsletter.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "caption",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/shot-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "csv",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/sheet-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "cta",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/product-example.md"
+      ]
+    },
+    {
+      "classification": "rename",
+      "current": "date",
+      "future": "created",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/note-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md",
+        "content/newsletters/qi2-launch-newsletter.md",
+        "content/pages/about.md",
+        "content/pages/contact.md",
+        "content/pages/faq.md",
+        "content/pages/features.md",
+        "content/pages/manifesto.md",
+        "content/pages/wcag-conformance.md",
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "external authority",
+      "current": "esp_provider",
+      "future": "requires review",
+      "paths": [
+        "content/newsletters/qi2-launch-newsletter.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "featured",
+      "future": "retain unchanged",
+      "paths": [
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "href",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/link-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "image",
+      "future": "retain unchanged",
+      "paths": [
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md"
+      ]
+    },
+    {
+      "classification": "generated_legacy",
+      "current": "jsonld",
+      "future": "generated output from canonical fields",
+      "paths": [
+        "content/comments/README.md",
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/note-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md",
+        "content/newsletters/qi2-launch-newsletter.md",
+        "content/pages/about.md",
+        "content/pages/contact.md",
+        "content/pages/faq.md",
+        "content/pages/manifesto.md",
+        "content/pages/wcag-conformance.md",
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md",
+        "content/posts/qi2-launch.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "newsletter_id",
+      "future": "retain unchanged",
+      "paths": [
+        "content/newsletters/qi2-launch-newsletter.md"
+      ]
+    },
+    {
+      "classification": "external authority",
+      "current": "price",
+      "future": "requires review",
+      "paths": [
+        "content/examples/product-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "role",
+      "future": "retain unchanged",
+      "paths": [
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "section",
+      "future": "retain unchanged",
+      "paths": [
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md"
+      ]
+    },
+    {
+      "classification": "external authority",
+      "current": "sent_date",
+      "future": "requires review",
+      "paths": [
+        "content/newsletters/qi2-launch-newsletter.md"
+      ]
+    },
+    {
+      "classification": "normalize",
+      "current": "seo",
+      "future": "retain authored override / generate when absent",
+      "paths": [
+        "content/comments/README.md",
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/note-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md",
+        "content/newsletters/qi2-launch-newsletter.md",
+        "content/pages/about.md",
+        "content/pages/contact.md",
+        "content/pages/faq.md",
+        "content/pages/manifesto.md",
+        "content/pages/wcag-conformance.md",
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md",
+        "content/posts/qi2-launch.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "external authority",
+      "current": "sku",
+      "future": "requires review",
+      "paths": [
+        "content/examples/product-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "social_links",
+      "future": "retain unchanged",
+      "paths": [
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md"
+      ]
+    },
+    {
+      "classification": "normalize",
+      "current": "status",
+      "future": "status",
+      "paths": [
+        "content/pages/about.md",
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "summary",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/note-example.md",
+        "content/newsletters/qi2-launch-newsletter.md",
+        "content/pages/about.md",
+        "content/pages/contact.md",
+        "content/pages/faq.md",
+        "content/pages/features.md",
+        "content/pages/manifesto.md",
+        "content/pages/wcag-conformance.md",
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "syndicate",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/note-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "tags",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/note-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md",
+        "content/newsletters/qi2-launch-newsletter.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "title",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md",
+        "content/newsletters/qi2-launch-newsletter.md",
+        "content/pages/about.md",
+        "content/pages/contact.md",
+        "content/pages/faq.md",
+        "content/pages/features.md",
+        "content/pages/manifesto.md",
+        "content/pages/wcag-conformance.md",
+        "content/people/contributor-example.md",
+        "content/people/jane-doe.md",
+        "content/people/john-smith.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "normalize",
+      "current": "type",
+      "future": "type",
+      "paths": [
+        "content/examples/drop-example.md",
+        "content/examples/link-example.md",
+        "content/examples/note-example.md",
+        "content/examples/product-example.md",
+        "content/examples/sheet-example.md",
+        "content/examples/shot-example.md",
+        "content/examples/update-example.md",
+        "content/projects/design-system-rebuild.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "version",
+      "future": "retain unchanged",
+      "paths": [
+        "content/examples/update-example.md"
+      ]
+    },
+    {
+      "classification": "preserve",
+      "current": "year",
+      "future": "retain unchanged",
+      "paths": [
+        "content/projects/design-system-rebuild.md"
+      ]
+    }
+  ],
+  "internal_link_analysis": {
+    "agentmap_output": [
+      "AgentMap content type references remain config-driven during this epic."
+    ],
+    "api_output": [
+      "Future API output must expose preserved public_url values."
+    ],
+    "paths_requiring_compatibility_handling": [
+      {
+        "image_references": [
+          {
+            "field": "assets[0].src",
+            "kind": "frontmatter",
+            "target": "/images/qi2-charger.jpg"
+          }
+        ],
+        "markdown_links": [],
+        "path": "content/examples/product-example.md",
+        "requires_compatibility_handling": false
+      },
+      {
+        "image_references": [
+          {
+            "field": "assets[0].src",
+            "kind": "frontmatter",
+            "target": "/images/desk-setup.jpg"
+          }
+        ],
+        "markdown_links": [],
+        "path": "content/examples/shot-example.md",
+        "requires_compatibility_handling": false
+      },
+      {
+        "image_references": [],
+        "markdown_links": [
+          {
+            "kind": "markdown",
+            "label": "View archive of all newsletters",
+            "target": "/newsletters/"
+          }
+        ],
+        "path": "content/newsletters/qi2-launch-newsletter.md",
+        "requires_compatibility_handling": true
+      },
+      {
+        "image_references": [],
+        "markdown_links": [
+          {
+            "kind": "markdown",
+            "label": "Documentation",
+            "target": "/pages/about/"
+          },
+          {
+            "kind": "markdown",
+            "label": "Contact",
+            "target": "/pages/contact/"
+          }
+        ],
+        "path": "content/pages/about.md",
+        "requires_compatibility_handling": true
+      },
+      {
+        "image_references": [],
+        "markdown_links": [
+          {
+            "kind": "markdown",
+            "label": "Contact us",
+            "target": "/pages/contact/"
+          }
+        ],
+        "path": "content/pages/faq.md",
+        "requires_compatibility_handling": true
+      },
+      {
+        "image_references": [],
+        "markdown_links": [
+          {
+            "kind": "markdown",
+            "label": "Documentation",
+            "target": "/pages/about/"
+          }
+        ],
+        "path": "content/pages/manifesto.md",
+        "requires_compatibility_handling": true
+      },
+      {
+        "image_references": [
+          {
+            "field": "jsonld.image",
+            "kind": "frontmatter",
+            "target": "/assets/images/jane-doe.jpg"
+          },
+          {
+            "field": "image",
+            "kind": "frontmatter",
+            "target": "/assets/images/jane-doe.jpg"
+          }
+        ],
+        "markdown_links": [],
+        "path": "content/people/jane-doe.md",
+        "requires_compatibility_handling": false
+      },
+      {
+        "image_references": [
+          {
+            "field": "jsonld.image",
+            "kind": "frontmatter",
+            "target": "/assets/images/john-smith.jpg"
+          },
+          {
+            "field": "image",
+            "kind": "frontmatter",
+            "target": "/assets/images/john-smith.jpg"
+          }
+        ],
+        "markdown_links": [],
+        "path": "content/people/john-smith.md",
+        "requires_compatibility_handling": false
+      }
+    ],
+    "search_index_references": [
+      "Search and output generators should keep using public URLs, not vault paths."
+    ],
+    "template_assumptions": [
+      "Existing renderer reads content/ and derives URLs from parent directory + filename."
+    ]
+  },
+  "manifest": [
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [],
+        "transform": [
+          "jsonld",
+          "seo"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: documentation"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/comments/README.md",
+      "source_classification": "documentation",
+      "warnings": [
+        "Missing title",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "cta",
+          "summary",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/drop-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "href",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/link-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "summary",
+          "syndicate",
+          "tags"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/note-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Missing title",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "assets",
+          "cta",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "transform": [
+          "availability",
+          "date",
+          "jsonld",
+          "price",
+          "seo",
+          "sku",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/product-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Missing referenced media: /images/qi2-charger.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "csv",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/sheet-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "assets",
+          "caption",
+          "syndicate",
+          "tags",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/shot-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Missing referenced media: /images/desk-setup.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "syndicate",
+          "tags",
+          "title",
+          "version"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "type"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/examples/update-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": "/newsletters/qi2-launch-newsletter/",
+      "destination": "brain/vault/public/newsletters/qi2-launch-newsletter.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "canonical_url",
+          "newsletter_id",
+          "summary",
+          "tags",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "esp_provider",
+          "jsonld",
+          "sent_date",
+          "seo"
+        ]
+      },
+      "id": "01a0b77f-e414-7661-bcbc-4c96e6f3453d",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/newsletters/qi2-launch-newsletter/",
+      "safe_to_migrate": true,
+      "source": "content/newsletters/qi2-launch-newsletter.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": "/pages/about/",
+      "destination": "brain/vault/public/pages/about.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ]
+      },
+      "id": "01a0b77f-e414-7c9a-8379-63d4fc9af42a",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [],
+      "proposed_url": "/pages/about/",
+      "safe_to_migrate": true,
+      "source": "content/pages/about.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": "/pages/contact/",
+      "destination": "brain/vault/public/pages/contact.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "author",
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo"
+        ]
+      },
+      "id": "01a0b77f-e414-7884-93c8-82f380217ee2",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/pages/contact/",
+      "safe_to_migrate": true,
+      "source": "content/pages/contact.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": "/pages/faq/",
+      "destination": "brain/vault/public/pages/faq.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "author",
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo"
+        ]
+      },
+      "id": "01a0b77f-e414-7314-964b-4b3fcc7175a2",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/pages/faq/",
+      "safe_to_migrate": true,
+      "source": "content/pages/faq.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": "/pages/features/",
+      "destination": "brain/vault/public/pages/features.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date"
+        ]
+      },
+      "id": "01a0b77f-e414-756b-869b-e1ec878d81ff",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/pages/features/",
+      "safe_to_migrate": true,
+      "source": "content/pages/features.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": "/pages/manifesto/",
+      "destination": "brain/vault/public/pages/manifesto.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo"
+        ]
+      },
+      "id": "01a0b77f-e414-7fe4-bbf2-389f7dd9681b",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/pages/manifesto/",
+      "safe_to_migrate": true,
+      "source": "content/pages/manifesto.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": "/pages/wcag-conformance/",
+      "destination": "brain/vault/public/pages/wcag-conformance.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "author",
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo"
+        ]
+      },
+      "id": "01a0b77f-e414-7efa-bc35-8542758bfb73",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/pages/wcag-conformance/",
+      "safe_to_migrate": true,
+      "source": "content/pages/wcag-conformance.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "role",
+          "section",
+          "social_links",
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/people/contributor-example.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "image",
+          "role",
+          "section",
+          "social_links",
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/people/jane-doe.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Missing referenced media: /assets/images/jane-doe.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": null,
+      "destination": null,
+      "excluded_from_migration": true,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "image",
+          "role",
+          "section",
+          "social_links",
+          "summary",
+          "title"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "status"
+        ]
+      },
+      "id": null,
+      "id_allocation": {
+        "policy": null,
+        "stored_in": null
+      },
+      "migration_status": "excluded_from_migration",
+      "notices": [
+        "Excluded from canonical migration: fixture/example"
+      ],
+      "proposed_url": null,
+      "safe_to_migrate": false,
+      "source": "content/people/john-smith.md",
+      "source_classification": "fixture/example",
+      "warnings": [
+        "Missing referenced media: /assets/images/john-smith.jpg",
+        "Not part of current production build inputs"
+      ]
+    },
+    {
+      "current_url": "/posts/qi2-launch/",
+      "destination": "brain/vault/public/posts/qi2-launch.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [],
+        "transform": [
+          "jsonld",
+          "seo"
+        ]
+      },
+      "id": "01a0b77f-e414-7c87-a9c9-5604c425823c",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "review_required",
+      "notices": [
+        "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+      ],
+      "proposed_url": "/posts/qi2-launch/",
+      "safe_to_migrate": false,
+      "source": "content/posts/qi2-launch.md",
+      "source_classification": "canonical_content",
+      "warnings": [
+        "Missing date",
+        "Missing title"
+      ]
+    },
+    {
+      "current_url": "/projects/design-system-rebuild/",
+      "destination": "brain/vault/public/projects/design-system-rebuild.md",
+      "excluded_from_migration": false,
+      "frontmatter_changes": {
+        "cannot_map_deterministically": [],
+        "deprecated": [],
+        "retain": [
+          "featured",
+          "summary",
+          "tags",
+          "title",
+          "year"
+        ],
+        "transform": [
+          "date",
+          "jsonld",
+          "seo",
+          "status",
+          "type"
+        ]
+      },
+      "id": "01a0b77f-e414-7772-a2b8-b72621d2fa0d",
+      "id_allocation": {
+        "policy": "random_uuidv7_frozen",
+        "stored_in": "reports/migration-manifest.json"
+      },
+      "migration_status": "migration_safe",
+      "notices": [],
+      "proposed_url": "/projects/design-system-rebuild/",
+      "safe_to_migrate": true,
+      "source": "content/projects/design-system-rebuild.md",
+      "source_classification": "canonical_content",
+      "warnings": []
+    }
+  ],
+  "notes": {
+    "content_source": "content",
+    "dry_run_only": true,
+    "future_public_vault": "brain/vault/public",
+    "future_vault": "brain/vault",
+    "id_policy": "Canonical migration IDs are random UUIDv7 values allocated once and frozen in migration-manifest.json. Paths, titles, slugs, and mutable content are not permanent identity.",
+    "jsonld_policy": "Legacy jsonld frontmatter is generated_legacy compatibility data. Future JSON-LD is derived deterministically from canonical fields and contracts.",
+    "seo_policy": "Authored SEO metadata is preserved as a human override; absent SEO can be generated and is not required for every knowledge note."
+  },
+  "product_analysis": [
+    {
+      "editorial_knowledge_fields": [
+        "assets",
+        "cta",
+        "date",
+        "seo",
+        "syndicate",
+        "tags",
+        "title",
+        "type"
+      ],
+      "external_authority_fields": [
+        "availability",
+        "price",
+        "sku"
+      ],
+      "generated_legacy_fields": [
+        "jsonld"
+      ],
+      "path": "content/examples/product-example.md",
+      "unknown_fields": []
+    }
+  ],
+  "summary": {
+    "ambiguous": 0,
+    "canonical_migration_candidates": 9,
+    "current_public_records": 9,
+    "currently_public": 9,
+    "drafts": 0,
+    "excluded_from_migration": 11,
+    "invalid_records": 0,
+    "migration_safe": 8,
+    "product_records": 0,
+    "review_required": 1,
+    "scheduled": 0,
+    "total_files_analyzed": 20,
+    "url_conflicts": 0
+  },
+  "url_preservation": [
+    {
+      "current_url": "/newsletters/qi2-launch-newsletter/",
+      "path": "content/newsletters/qi2-launch-newsletter.md",
+      "proposed_url": "/newsletters/qi2-launch-newsletter/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/pages/about/",
+      "path": "content/pages/about.md",
+      "proposed_url": "/pages/about/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/pages/contact/",
+      "path": "content/pages/contact.md",
+      "proposed_url": "/pages/contact/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/pages/faq/",
+      "path": "content/pages/faq.md",
+      "proposed_url": "/pages/faq/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/pages/features/",
+      "path": "content/pages/features.md",
+      "proposed_url": "/pages/features/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/pages/manifesto/",
+      "path": "content/pages/manifesto.md",
+      "proposed_url": "/pages/manifesto/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/pages/wcag-conformance/",
+      "path": "content/pages/wcag-conformance.md",
+      "proposed_url": "/pages/wcag-conformance/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/posts/qi2-launch/",
+      "path": "content/posts/qi2-launch.md",
+      "proposed_url": "/posts/qi2-launch/",
+      "status": "unchanged"
+    },
+    {
+      "current_url": "/projects/design-system-rebuild/",
+      "path": "content/projects/design-system-rebuild.md",
+      "proposed_url": "/projects/design-system-rebuild/",
+      "status": "unchanged"
+    }
+  ],
+  "visibility_migration": {
+    "ambiguous": [
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/posts/qi2-launch.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": [
+          "Missing date",
+          "Missing title"
+        ]
+      }
+    ],
+    "currently_draft": [],
+    "currently_published": [
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/newsletters/qi2-launch-newsletter.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [],
+        "path": "content/pages/about.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/contact.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/faq.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/features.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/manifesto.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/wcag-conformance.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/posts/qi2-launch.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": [
+          "Missing date",
+          "Missing title"
+        ]
+      },
+      {
+        "notices": [],
+        "path": "content/projects/design-system-rebuild.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      }
+    ],
+    "excluded_from_migration": [
+      {
+        "notices": [
+          "Excluded from canonical migration: documentation"
+        ],
+        "path": "content/comments/README.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "documentation",
+        "warnings": [
+          "Missing title",
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/drop-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/link-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/note-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Missing title",
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/product-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Missing referenced media: /images/qi2-charger.jpg",
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/sheet-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/shot-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Missing referenced media: /images/desk-setup.jpg",
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/examples/update-example.md",
+        "proposed_status": "draft",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/people/contributor-example.md",
+        "proposed_status": "published",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/people/jane-doe.md",
+        "proposed_status": "published",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Missing referenced media: /assets/images/jane-doe.jpg",
+          "Not part of current production build inputs"
+        ]
+      },
+      {
+        "notices": [
+          "Excluded from canonical migration: fixture/example"
+        ],
+        "path": "content/people/john-smith.md",
+        "proposed_status": "published",
+        "proposed_visibility": "private",
+        "source_classification": "fixture/example",
+        "warnings": [
+          "Missing referenced media: /assets/images/john-smith.jpg",
+          "Not part of current production build inputs"
+        ]
+      }
+    ],
+    "missing_status": [
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/newsletters/qi2-launch-newsletter.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/contact.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/faq.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/features.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/manifesto.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/pages/wcag-conformance.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": []
+      },
+      {
+        "notices": [
+          "legacy_publication_inferred: missing status maps to public/published because this file is a current production input"
+        ],
+        "path": "content/posts/qi2-launch.md",
+        "proposed_status": "published",
+        "proposed_visibility": "public",
+        "source_classification": "canonical_content",
+        "warnings": [
+          "Missing date",
+          "Missing title"
+        ]
+      }
+    ],
+    "scheduled": []
+  }
+}

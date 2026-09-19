@@ -11,6 +11,7 @@ core/cache.py
 core/comments.py
 core/content_enhancer.py
 core/content_importer.py
+core/content_loader.py
 core/contract_validator.py
 core/email_templates.py
 core/generators.py
@@ -22,6 +23,7 @@ core/internal_linking.py
 core/klaviyo_integration.py
 core/link_fixer.py
 core/link_validator.py
+core/migration.py
 core/newsletters.py
 core/optimizer.py
 core/products.py

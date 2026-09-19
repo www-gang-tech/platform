@@ -7,6 +7,8 @@ GANG CLI - Single binary for all build operations
 import click
 import yaml
 import os
+import sys
+import re
 import hashlib
 import json
 import shutil
@@ -16,6 +18,8 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).parent))
 
 @click.group()
 @click.pass_context
@@ -90,6 +94,98 @@ def report(ctx, answerability, format):
             ctx.exit(1)
         else:
             click.echo(f"\n✅ Answerability check passed!")
+
+
+@cli.group()
+def migrate():
+    """Run reversible repository migrations"""
+    pass
+
+
+@migrate.command("analyze")
+@click.option("--content-dir", type=click.Path(exists=True, file_okay=False), help="Content directory to analyze")
+@click.option("--output-dir", type=click.Path(file_okay=False), default="reports", help="Directory for migration reports")
+@click.pass_context
+def migrate_analyze(ctx, content_dir, output_dir):
+    """Analyze future vault migration without changing content"""
+    try:
+        from core.migration_analysis import MigrationAnalyzer
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.migration_analysis import MigrationAnalyzer
+
+    config = ctx.obj
+    root_path = Path(".")
+    output_path = Path(output_dir)
+    analyzer = MigrationAnalyzer(
+        config,
+        root_path=root_path,
+        content_path=Path(content_dir) if content_dir else None,
+        id_map_path=output_path / "migration-manifest.json",
+    )
+    analysis = analyzer.analyze()
+    paths = analyzer.write_reports(output_path, analysis)
+    summary = analysis["summary"]
+
+    click.echo("Migration analysis complete (dry run only).")
+    click.echo(f"  Files analyzed: {summary['total_files_analyzed']}")
+    click.echo(f"  Canonical candidates: {summary['canonical_migration_candidates']}")
+    click.echo(f"  Excluded from migration: {summary['excluded_from_migration']}")
+    click.echo(f"  Currently public: {summary['currently_public']}")
+    click.echo(f"  Migration-safe: {summary['migration_safe']}")
+    click.echo(f"  Review required: {summary['review_required']}")
+    click.echo(f"  URL conflicts: {summary['url_conflicts']}")
+    click.echo(f"  JSON report: {paths['analysis_json']}")
+    click.echo(f"  Markdown report: {paths['analysis_md']}")
+    click.echo(f"  Manifest: {paths['manifest_json']}")
+
+
+@migrate.command('apply')
+@click.argument('plan_path', type=click.Path(exists=True))
+@click.option('--apply', 'apply_changes', is_flag=True, help='Write migrated files (default is dry-run)')
+@click.option('--format', type=click.Choice(['text', 'json']), default='text', help='Audit output format')
+def migrate_apply(plan_path, apply_changes, format):
+    """Apply a durable migration plan"""
+    try:
+        from core.migration import LegacyContentMigrator, MigrationError
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.migration import LegacyContentMigrator, MigrationError
+
+    migrator = LegacyContentMigrator(Path.cwd())
+
+    try:
+        audit = migrator.apply_plan(Path(plan_path), apply=apply_changes)
+    except MigrationError as e:
+        click.echo(f"❌ Migration failed: {e}", err=True)
+        ctx = click.get_current_context()
+        ctx.exit(1)
+
+    if format == 'json':
+        click.echo(json.dumps(audit, indent=2))
+        return
+
+    mode = "APPLY" if apply_changes else "DRY-RUN"
+    click.echo(f"🧭 Migration {mode}: {plan_path}")
+    click.echo(f"Records: {audit['records']}")
+    click.echo(f"Would write: {audit['would_write']}")
+    click.echo(f"Written: {audit['written']}")
+    click.echo(f"Unchanged: {audit['unchanged']}")
+    click.echo(f"Failed: {audit['failed']}")
+
+    for result in audit['results']:
+        click.echo(f"  {result['status']}: {result['source_path']} -> {result['destination_path']}")
+
+    if audit.get('excluded_records'):
+        click.echo("\nReview-required records excluded:")
+        for item in audit['excluded_records']:
+            click.echo(f"  {item.get('source_path')}: {item.get('reason')}")
+
+    click.echo("\nReports written:")
+    click.echo("  reports/migration-audit.json")
+    click.echo("  reports/migration-manifest.json")
 
 @cli.command()
 @click.option('--verbose', is_flag=True, help='Show detailed validation results')
@@ -2121,14 +2217,17 @@ def slugs(ctx, fix):
 @click.option('--check-slugs', is_flag=True, default=True, help='Check slug uniqueness (default: enabled)')
 @click.option('--optimize-images', is_flag=True, help='Auto-optimize images before building')
 @click.option('--profile', is_flag=True, help='Show build performance metrics')
+@click.option('--source', type=click.Choice(['vault', 'legacy']), default='vault', show_default=True, help='Public content source')
+@click.option('--output-dir', type=click.Path(file_okay=False), help='Override build output directory')
 @click.pass_context
-def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, optimize_images, profile):
+def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, optimize_images, profile, source, output_dir):
     """Build static site with semantic HTML"""
     try:
         from core.templates import TemplateEngine
         from core.generators import OutputGenerators
         from core.optimizer import AIOptimizer
         from core.build_profiler import BuildProfiler
+        from core.content_loader import PublicContentError, load_public_content
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
@@ -2136,6 +2235,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.generators import OutputGenerators
         from core.optimizer import AIOptimizer
         from core.build_profiler import BuildProfiler
+        from core.content_loader import PublicContentError, load_public_content
     
     # Initialize profiler
     profiler = BuildProfiler() if profile else None
@@ -2143,12 +2243,22 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         profiler.start()
     
     click.echo("🔨 Building site...")
-    config = ctx.obj
+    config = dict(ctx.obj)
+    config['build'] = dict(config.get('build', {}))
+    if output_dir:
+        config['build']['output'] = output_dir
+    content_path = (Path(config['build']['content']) if source == 'legacy' else Path('brain/vault/public')).resolve()
+    click.echo(f"📚 Public content source: {source} ({content_path})")
+
+    try:
+        public_documents = load_public_content(config, source=source, root_path=Path("."))
+    except PublicContentError as e:
+        click.echo(f"❌ Public content validation failed:\n{e}", err=True)
+        ctx.exit(1)
     
     # Slug uniqueness check (enabled by default)
     if check_slugs:
         from core.content_importer import SlugChecker
-        content_path = Path(config['build']['content'])
         checker = SlugChecker(content_path)
         results = checker.check_all_slugs()
         
@@ -2198,7 +2308,6 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     if validate_links:
         from core.link_validator import LinkValidator
         click.echo("🔗 Validating links...")
-        content_path = Path(config['build']['content'])
         dist_path = Path(config['build']['output'])
         validator = LinkValidator(config, content_path, dist_path)
         
@@ -2262,113 +2371,60 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
     
-    # Build content
-    content_path = Path(config['build']['content'])
+    # Build content from the validated public document collection.
     all_pages = []
     all_posts = []
     all_projects = []
     all_newsletters = []
-    
-    # Parse markdown files
+
     if profiler:
         profiler.stage('process_content').__enter__()
-    
-    # Filter content based on publish dates
-    try:
-        from core.scheduler import ContentScheduler
-    except ImportError:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        from core.scheduler import ContentScheduler
-    
-    scheduler = ContentScheduler(content_path)
-    
-    # Manually collect .md files to avoid Click recursion issue
-    all_md_files = []
-    for category_dir in ['posts', 'articles', 'pages', 'projects', 'newsletters']:
-        category_path = content_path / category_dir
-        if category_path.exists():
-            for md_file in category_path.glob('*.md'):
-                all_md_files.append(md_file)
-    
-    schedule_result = scheduler.get_publishable_content(all_md_files)
-    
-    publishable_files = [item['path'] for item in schedule_result['publishable']]
-    
-    # Show scheduling info if there are scheduled items
-    if schedule_result['scheduled']:
-        click.echo(f"🕐 {len(schedule_result['scheduled'])} post(s) scheduled for future")
-    if schedule_result['draft']:
-        click.echo(f"📝 {len(schedule_result['draft'])} draft post(s) excluded")
-    
-    click.echo(f"📝 Processing {len(publishable_files)} publishable content file(s)...")
-    for md_file in publishable_files:
-        content_type = md_file.parent.name
-        
-        # Parse markdown with frontmatter
-        content = md_file.read_text()
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1]) if len(parts) > 1 else {}
-            body = parts[2] if len(parts) > 2 else ''
-        else:
-            frontmatter = {}
-            body = content
-        
+
+    click.echo(f"📝 Processing {len(public_documents)} validated public document(s)...")
+    for document in public_documents:
+        content_type = document.collection
+        frontmatter = document.frontmatter
+        body = document.body
+
         # Convert markdown to HTML
         md = markdown.Markdown(extensions=['extra', 'meta'])
         content_html = md.convert(body)
-        
+
         # Process external links to open in new tabs
         content_html = process_external_links(content_html)
-        
+
         # Prepare context for template
         build_time = datetime.now()
-        slug = md_file.stem
-        
+        slug = document.slug
+
         # Check if editor mode is enabled (for in-place editing)
         user_authenticated = os.environ.get('EDITOR_MODE', '').lower() == 'true'
-        
+
         context = {
             'site_title': config['site']['title'],
             'lang': config['site']['language'],
-            'title': frontmatter.get('title', md_file.stem.replace('-', ' ').title()),
-            'description': frontmatter.get('summary', config['site']['description']),
+            'title': document.title,
+            'description': document.summary or config['site']['description'],
             'content': content_html,
             'year': datetime.now().year,
             'navigation': config.get('nav', {}).get('main', []),
-            'date': frontmatter.get('date'),
-            'date_formatted': str(frontmatter.get('date', '')),
-            'tags': frontmatter.get('tags', []),
+            'date': document.date,
+            'date_formatted': str(document.date or ''),
+            'tags': document.tags,
             'build_time': build_time.strftime('%B %d, %Y at %I:%M %p'),
             'build_time_iso': build_time.isoformat(),
             'jsonld': frontmatter.get('jsonld'),
             # In-place editor context
-            'page_type': content_type.rstrip('s'),  # 'posts' -> 'post', 'pages' -> 'page'
-            'category': content_type,  # 'posts', 'pages', 'projects', etc.
+            'page_type': document.type,
+            'category': content_type,
             'slug': slug,
             'user_authenticated': user_authenticated,
         }
-        
-        # Treat articles as posts
-        if content_type == 'articles':
-            content_type = 'posts'
-            # Update context to reflect the change
-            context['page_type'] = 'post'
-            context['category'] = 'posts'
-        
+
         # Add canonical URL
-        if content_type == 'posts':
-            url = f"/posts/{slug}/"
-        elif content_type == 'projects':
-            url = f"/projects/{slug}/"
-        elif content_type == 'pages':
-            url = f"/pages/{slug}/"
-        else:
-            url = f"/{content_type}/{slug}/"
-        
+        url = document.url
         context['canonical_url'] = f"{config['site']['url']}{url}"
-        
+
         # Select template
         if content_type == 'posts':
             template_name = 'post.html'
@@ -2383,26 +2439,18 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         try:
             html = template_engine.render(template_name, context)
         except Exception as e:
-            click.echo(f"⚠️  Template error in {md_file}: {e}")
-            html = process_markdown_fallback(md_file, content_type, config)
-        
+            click.echo(f"⚠️  Template error in {document.source_path}: {e}")
+            html = process_markdown_fallback(document.source_path, content_type, config)
+
         # Determine output path
-        output_file = dist_path / content_type / slug / 'index.html'
+        output_file = output_file_for_url(dist_path, document.url)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html)
-        click.echo(f"  Best Practices {md_file.relative_to(content_path)}")
-        
+        click.echo(f"  Best Practices {document.source_path.relative_to(content_path)}")
+
         # Collect metadata for sitemaps
-        page_data = {
-            'url': url,
-            'title': context['title'],
-            'summary': context['description'],
-            'date': context['date'],
-            'type': content_type,
-            'content_html': content_html,
-            'tags': context['tags'],
-        }
-        
+        page_data = document.to_page_data(content_html)
+
         # Add to appropriate collection (no duplicates)
         if content_type == 'posts':
             all_posts.append(page_data)
@@ -2463,9 +2511,11 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         all_pages.append({'url': '/posts/', 'title': 'Posts', 'type': 'list'})
     if all_projects:
         all_pages.append({'url': '/projects/', 'title': 'Projects', 'type': 'list'})
+    if all_newsletters:
+        all_pages.append({'url': '/newsletters/', 'title': 'Newsletters', 'type': 'list'})
     
     # Combine all content for sitemap generation
-    all_content = all_pages + all_posts + all_projects
+    all_content = all_pages + all_posts + all_projects + all_newsletters
     
     if profiler:
         with profiler.stage('generate_outputs'):
@@ -2683,16 +2733,9 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     # Generate search index
     try:
         from core.search import SearchIndexer
-        from core.scheduler import ContentScheduler
-        
-        scheduler = ContentScheduler(content_path)
-        all_md = list(content_path.rglob('*.md'))
-        schedule_result = scheduler.get_publishable_content(all_md)
-        publishable = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                      for item in schedule_result['publishable']]
-        
+
         indexer = SearchIndexer(content_path, config)
-        search_index = indexer.build_search_index(publishable)
+        search_index = build_search_index_from_documents(public_documents, indexer)
         
         # Write search index
         search_index_file = dist_path / 'search-index.json'
@@ -2709,37 +2752,27 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     
     # Generate AgentMap for AI agents
     try:
-        from core.agentmap import AgentMapGenerator, ContentAPIGenerator
         from core.products import ProductAggregator
-        
-        # Get publishable content (convert Path objects to list)
-        scheduler = ContentScheduler(content_path)
-        all_md_files = [f for f in content_path.rglob('*.md')]
-        schedule_result = scheduler.get_publishable_content(all_md_files)
-        publishable_paths = [Path(item['path']) if isinstance(item['path'], str) else item['path'] 
-                            for item in schedule_result['publishable']]
-        
+
         # Get products
         aggregator = ProductAggregator(config)
         products = aggregator.get_normalized_products(status_filter='active')
-        
+
         # Generate AgentMap
         site_url = config.get('site', {}).get('url', 'https://example.com')
-        generator = AgentMapGenerator(config, site_url)
-        agentmap = generator.generate(publishable_paths, products if products else None)
-        
+        agentmap = generate_agentmap_from_documents(config, site_url, public_documents, products if products else None)
+
         # Write AgentMap
         agentmap_file = dist_path / 'agentmap.json'
         agentmap_file.write_text(json.dumps(agentmap, indent=2))
-        
+
         # Generate Content API
-        api_generator = ContentAPIGenerator(site_url)
-        content_api = api_generator.generate_content_index(publishable_paths, content_path)
-        
+        content_api = generate_content_api_from_documents(site_url, public_documents)
+
         api_dir = dist_path / 'api'
         api_dir.mkdir(parents=True, exist_ok=True)
         (api_dir / 'content.json').write_text(json.dumps(content_api, indent=2))
-        
+
         # Generate products API
         if products:
             products_api = {
@@ -2749,7 +2782,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             }
             (api_dir / 'products.json').write_text(json.dumps(products_api, indent=2))
         
-        click.echo(f"🤖 Generated AgentMap with {len(publishable_paths)} content items")
+        click.echo(f"🤖 Generated AgentMap with {len(public_documents)} content items")
     except Exception as e:
         click.echo(f"⚠️  Could not generate AgentMap: {e}")
     
@@ -2846,6 +2879,341 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         click.echo("")
         report = profiler.format_report()
         click.echo(report)
+
+
+def output_file_for_url(dist_path: Path, url: str) -> Path:
+    clean = url.strip("/")
+    if not clean:
+        return dist_path / "index.html"
+    return dist_path / clean / "index.html"
+
+
+def build_search_index_from_documents(public_documents, indexer):
+    documents = []
+    for document in public_documents:
+        clean_text = indexer._clean_markdown(document.body)
+        description = document.summary
+        if not description:
+            paragraphs = [p.strip() for p in clean_text.split("\n\n") if p.strip()]
+            description = paragraphs[0][:200] + "..." if paragraphs else ""
+
+        searchable = f"{document.title} {document.title} {document.title} {description} {clean_text} {' '.join(document.tags)}"
+        documents.append({
+            "id": document.id or f"{document.collection}/{document.slug}",
+            "title": document.title,
+            "description": description,
+            "url": document.url,
+            "category": document.collection,
+            "tags": document.tags,
+            "content": clean_text[:500],
+            "searchable": searchable.lower(),
+            "date": document.date or "",
+        })
+
+    return {
+        "version": "1.0",
+        "generated": datetime.now().isoformat(),
+        "documents": documents,
+    }
+
+
+def generate_agentmap_from_documents(config, site_url, public_documents, products=None):
+    site_url = site_url.rstrip("/")
+    by_category = {}
+    for document in public_documents:
+        by_category.setdefault(document.collection, []).append({
+            "slug": document.slug,
+            "url": f"{site_url}{document.url}",
+            "apiEndpoint": f"{site_url}/api/{document.collection}/{document.slug}.json",
+        })
+
+    content_types = [
+        {
+            "type": category,
+            "url": f"{site_url}/{category}/",
+            "apiEndpoint": f"{site_url}/api/{category}.json",
+        }
+        for category in sorted(by_category)
+    ]
+
+    agentmap = {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "version": "1.0",
+        "generated": datetime.now().isoformat(),
+        "name": config.get("site", {}).get("title", "Site"),
+        "url": site_url,
+        "description": config.get("site", {}).get("description", ""),
+        "capabilities": ["read", "search"] + (["purchase"] if products else []),
+        "endpoints": {
+            "api": f"{site_url}/api/",
+            "content": f"{site_url}/api/content.json",
+            "search": f"{site_url}/api/search.json",
+            "sitemap": f"{site_url}/sitemap.xml",
+        },
+        "contentTypes": content_types,
+        "navigation": {
+            "main": [
+                {"label": item["type"].title(), "url": item["url"], "type": item["type"]}
+                for item in content_types
+            ],
+            "content": by_category,
+        },
+        "search": {
+            "endpoint": f"{site_url}/api/search.json",
+            "method": "GET",
+            "parameters": ["q", "category", "limit"],
+            "description": "Full-text search across all validated public content",
+        },
+    }
+
+    if products:
+        platforms = sorted({product.get("_meta", {}).get("source") for product in products if product.get("_meta", {}).get("source")})
+        agentmap["endpoints"]["products"] = f"{site_url}/api/products.json"
+        agentmap["commerce"] = {
+            "enabled": True,
+            "productsEndpoint": f"{site_url}/api/products.json",
+            "platforms": platforms,
+            "totalProducts": len(products),
+        }
+
+    return agentmap
+
+
+def generate_content_api_from_documents(site_url, public_documents):
+    site_url = site_url.rstrip("/")
+    return {
+        "version": "1.0",
+        "generated": datetime.now().isoformat(),
+        "totalItems": len(public_documents),
+        "items": [
+            {
+                "id": document.id,
+                "title": document.title,
+                "url": f"{site_url}{document.url}",
+                "apiEndpoint": f"{site_url}/api/{document.collection}/{document.slug}.json",
+                "category": document.collection,
+                "type": document.type,
+                "slug": document.slug,
+                "summary": document.summary,
+                "date": document.date or "",
+                "tags": document.tags,
+            }
+            for document in public_documents
+        ],
+    }
+
+
+@cli.command("compare-public-cutover")
+@click.option("--legacy-output", type=click.Path(file_okay=False), default=".context/public-cutover-legacy")
+@click.option("--vault-output", type=click.Path(file_okay=False), default=".context/public-cutover-vault")
+@click.pass_context
+def compare_public_cutover(ctx, legacy_output, vault_output):
+    """Build legacy and vault sources separately and compare public output."""
+    try:
+        from core.content_loader import load_public_content
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.content_loader import load_public_content
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+    legacy_dir = Path(legacy_output)
+    vault_dir = Path(vault_output)
+
+    click.echo("Building legacy comparison output...")
+    ctx.invoke(
+        build,
+        check_quality=False,
+        min_quality_score=85,
+        validate_links=False,
+        check_slugs=True,
+        optimize_images=False,
+        profile=False,
+        source="legacy",
+        output_dir=str(legacy_dir),
+    )
+
+    click.echo("Building vault comparison output...")
+    ctx.invoke(
+        build,
+        check_quality=False,
+        min_quality_score=85,
+        validate_links=False,
+        check_slugs=True,
+        optimize_images=False,
+        profile=False,
+        source="vault",
+        output_dir=str(vault_dir),
+    )
+
+    config = dict(ctx.obj)
+    legacy_docs = {doc.url: doc for doc in load_public_content(config, source="legacy", root_path=Path("."))}
+    vault_docs = {doc.url: doc for doc in load_public_content(config, source="vault", root_path=Path("."))}
+    all_urls = sorted(set(legacy_docs) | set(vault_docs))
+
+    records = []
+    for url in all_urls:
+        legacy_file = output_file_for_url(legacy_dir, url)
+        vault_file = output_file_for_url(vault_dir, url)
+        checks = []
+
+        checks.append(compare_value("url", url if url in legacy_docs else None, url if url in vault_docs else None))
+        checks.append(compare_value("output_path", legacy_file.relative_to(legacy_dir).as_posix(), vault_file.relative_to(vault_dir).as_posix()))
+        checks.append(compare_value("title", legacy_docs.get(url).title if url in legacy_docs else None, vault_docs.get(url).title if url in vault_docs else None))
+        checks.append(compare_value("publication_state", _state(legacy_docs.get(url)), _state(vault_docs.get(url))))
+        checks.append(compare_value("authored_seo_overrides", _seo(legacy_docs.get(url)), _seo(vault_docs.get(url)), acceptable=True))
+        checks.append(compare_value("rendered_article_html", normalize_html_fragment(read_main_html(legacy_file)), normalize_html_fragment(read_main_html(vault_file))))
+        checks.append(compare_value("canonical_url", extract_canonical(legacy_file), extract_canonical(vault_file), acceptable=True))
+        checks.append(compare_value("internal_links", extract_refs(legacy_file, "href", internal_only=True), extract_refs(vault_file, "href", internal_only=True)))
+        checks.append(compare_value("image_media_references", extract_refs(legacy_file, "src"), extract_refs(vault_file, "src")))
+        checks.append(compare_value("structured_data_semantics", extract_jsonld_types(legacy_file), extract_jsonld_types(vault_file), acceptable=True))
+        checks.append(compare_value("sitemap_presence", sitemap_contains(legacy_dir, url), sitemap_contains(vault_dir, url)))
+        checks.append(compare_value("feed_presence", feed_contains(legacy_dir, url), feed_contains(vault_dir, url), acceptable=True))
+        checks.append(compare_value("content_api_presence", content_api_contains(legacy_dir, url), content_api_contains(vault_dir, url)))
+        checks.append(compare_value("agentmap_presence", agentmap_contains(legacy_dir, url), agentmap_contains(vault_dir, url)))
+
+        status = "equivalent"
+        if any(check["classification"] == "blocking_difference" for check in checks):
+            status = "blocking_difference"
+        elif any(check["classification"] == "acceptable_expected_difference" for check in checks):
+            status = "acceptable_expected_difference"
+
+        records.append({"url": url, "status": status, "checks": checks})
+
+    summary = {
+        "legacy_output": str(legacy_dir),
+        "vault_output": str(vault_dir),
+        "records_compared": len(records),
+        "equivalent": len([record for record in records if record["status"] == "equivalent"]),
+        "acceptable_expected_difference": len([record for record in records if record["status"] == "acceptable_expected_difference"]),
+        "blocking_difference": len([record for record in records if record["status"] == "blocking_difference"]),
+    }
+    report = {"summary": summary, "records": records}
+
+    json_path = reports_dir / "public-cutover-equivalence.json"
+    md_path = reports_dir / "public-cutover-equivalence.md"
+    json_path.write_text(json.dumps(report, indent=2) + "\n")
+    md_path.write_text(format_cutover_report(report))
+
+    click.echo(f"Cutover comparison complete: {summary['blocking_difference']} blocking difference(s)")
+    click.echo(f"  JSON: {json_path}")
+    click.echo(f"  Markdown: {md_path}")
+    if summary["blocking_difference"]:
+        ctx.exit(1)
+
+
+def compare_value(name, legacy, vault, acceptable=False):
+    if legacy == vault:
+        classification = "equivalent"
+    elif acceptable:
+        classification = "acceptable_expected_difference"
+    else:
+        classification = "blocking_difference"
+    return {"name": name, "classification": classification, "legacy": legacy, "vault": vault}
+
+
+def _state(document):
+    if document is None:
+        return None
+    return {"status": document.status, "visibility": document.visibility}
+
+
+def _seo(document):
+    if document is None:
+        return None
+    return document.frontmatter.get("seo")
+
+
+def read_main_html(path):
+    if not path.exists():
+        return None
+    html = path.read_text()
+    match = re.search(r"<main[^>]*>(.*?)</main>", html, flags=re.IGNORECASE | re.DOTALL)
+    return match.group(1) if match else html
+
+
+def normalize_html_fragment(value):
+    if value is None:
+        return None
+    value = re.sub(r">\s+<", "><", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def extract_canonical(path):
+    if not path.exists():
+        return None
+    match = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', path.read_text(), re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def extract_refs(path, attr, internal_only=False):
+    if not path.exists():
+        return []
+    refs = re.findall(rf'{attr}=["\']([^"\']+)["\']', path.read_text(), flags=re.IGNORECASE)
+    if internal_only:
+        refs = [ref for ref in refs if ref.startswith("/") and not ref.startswith("//")]
+    return sorted(set(refs))
+
+
+def extract_jsonld_types(path):
+    if not path.exists():
+        return []
+    html = path.read_text()
+    blocks = re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, flags=re.IGNORECASE | re.DOTALL)
+    types = []
+    for block in blocks:
+        try:
+            data = json.loads(block)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            types.append(data.get("@type"))
+    return sorted(type_name for type_name in types if type_name)
+
+
+def sitemap_contains(dist_path, url):
+    path = dist_path / "sitemap.xml"
+    return path.exists() and f"{url}" in path.read_text()
+
+
+def feed_contains(dist_path, url):
+    path = dist_path / "feed.json"
+    return path.exists() and f"{url}" in path.read_text()
+
+
+def content_api_contains(dist_path, url):
+    path = dist_path / "api" / "content.json"
+    return path.exists() and f"{url}" in path.read_text()
+
+
+def agentmap_contains(dist_path, url):
+    path = dist_path / "agentmap.json"
+    return path.exists() and f"{url}" in path.read_text()
+
+
+def format_cutover_report(report):
+    summary = report["summary"]
+    lines = [
+        "# Public Cutover Equivalence",
+        "",
+        f"- Records compared: {summary['records_compared']}",
+        f"- Equivalent: {summary['equivalent']}",
+        f"- Acceptable expected differences: {summary['acceptable_expected_difference']}",
+        f"- Blocking differences: {summary['blocking_difference']}",
+        "",
+        "## Records",
+        "",
+    ]
+    for record in report["records"]:
+        lines.append(f"### {record['url']} - {record['status']}")
+        for check in record["checks"]:
+            if check["classification"] != "equivalent":
+                lines.append(f"- {check['name']}: {check['classification']}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def process_markdown_fallback(md_file: Path, content_type: str, config: Dict) -> str:
