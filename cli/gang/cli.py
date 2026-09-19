@@ -995,6 +995,115 @@ def ingest_inspect(source_id):
         raise click.Abort()
     click.echo(json.dumps(record, indent=2, sort_keys=True))
 
+
+@cli.group("index")
+def private_index():
+    """Build and inspect the local private knowledge index"""
+    pass
+
+
+@private_index.command("build")
+def private_index_build():
+    """Build the local private SQLite FTS index from brain/vault"""
+    try:
+        from core.private_index import PrivateKnowledgeIndex
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.private_index import PrivateKnowledgeIndex
+
+    try:
+        result = PrivateKnowledgeIndex().build()
+    except Exception as e:
+        click.echo(f"❌ Index build failed: {e}", err=True)
+        raise click.Abort()
+
+    click.echo("✅ Built private knowledge index")
+    click.echo(f"  Database: {PrivateKnowledgeIndex().relative_database_path()}")
+    click.echo(f"  Documents: {result.documents}")
+    click.echo(f"  Generated: {result.generated_at}")
+
+
+@private_index.command("status")
+def private_index_status():
+    """Show local private knowledge index status"""
+    try:
+        from core.private_index import PrivateKnowledgeIndex
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.private_index import PrivateKnowledgeIndex
+
+    status = PrivateKnowledgeIndex().status()
+    click.echo("Private knowledge index")
+    click.echo(f"  Database: {status['database']}")
+    click.echo(f"  Built: {'yes' if status['exists'] else 'no'}")
+    click.echo(f"  Documents: {status['documents']}")
+    if status["generated_at"]:
+        click.echo(f"  Generated: {status['generated_at']}")
+    if status["by_visibility"]:
+        click.echo("  Visibility:")
+        for visibility, count in status["by_visibility"].items():
+            click.echo(f"    {visibility}: {count}")
+    if status["by_type"]:
+        click.echo("  Types:")
+        for doc_type, count in status["by_type"].items():
+            click.echo(f"    {doc_type}: {count}")
+
+
+@cli.command("search")
+@click.argument("query", nargs=-1, required=True)
+@click.option("--type", "type_filter", help="Filter by document type")
+@click.option("--visibility", help="Filter by visibility")
+@click.option("--limit", default=10, show_default=True, type=int, help="Maximum results")
+@click.option("--tag", help="Filter by tag")
+@click.option("--project", help="Filter by project")
+@click.option("--person", help="Filter by person")
+@click.option("--source", help="Filter by source ID")
+def private_search(query, type_filter, visibility, limit, tag, project, person, source):
+    """Search the local private knowledge index"""
+    try:
+        from core.private_index import PrivateKnowledgeIndex
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.private_index import PrivateKnowledgeIndex
+
+    index = PrivateKnowledgeIndex()
+    try:
+        results = index.search(
+            " ".join(query),
+            limit=limit,
+            type=type_filter,
+            visibility=visibility,
+            tag=tag,
+            project=project,
+            person=person,
+            source=source,
+        )
+    except FileNotFoundError:
+        click.echo("Private knowledge index is missing. Run: gang index build", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"❌ Search failed: {e}", err=True)
+        raise click.Abort()
+
+    if not results:
+        click.echo("No results.")
+        return
+
+    for i, result in enumerate(results, 1):
+        source_ids = ", ".join(result["source_ids"]) if result["source_ids"] else ""
+        click.echo(f"{i}. {result['title']}")
+        click.echo(f"   id: {result['document_id']}")
+        click.echo(f"   type: {result['type']}")
+        click.echo(f"   visibility: {result['visibility']}")
+        click.echo(f"   updated: {result['updated']}")
+        if source_ids:
+            click.echo(f"   source_id: {source_ids}")
+        if result["excerpt"]:
+            click.echo(f"   excerpt: {result['excerpt']}")
+
 @cli.command()
 @click.argument('source', type=click.Path(exists=True), required=False)
 @click.option('--title', help='Article title (auto-detected if not provided)')

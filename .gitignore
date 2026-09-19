@@ -6,6 +6,8 @@ brain/raw/**
 !brain/raw/.gitkeep
 brain/vault/.ingestion/**
 !brain/vault/.ingestion/.gitkeep
+brain/generated/**
+!brain/generated/.gitkeep
 
 # Python
 __pycache__/
