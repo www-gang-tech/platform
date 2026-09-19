@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from .ids import normalize_file_identity, stable_source_id
 
 
 SUPPORTED_FILE_SUFFIXES = {".md", ".txt", ".json", ".jsonl"}
+MAX_SOURCE_BYTES = 10 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -73,13 +75,16 @@ class FileAdapter(SourceAdapter):
         self.source_namespace = source_namespace
 
     def discover(self) -> Iterable[Path]:
+        _reject_traversal(self.path)
         if self.path.is_dir():
             for child in sorted(self.path.rglob("*")):
+                if child.is_symlink():
+                    raise ValueError(f"Unsafe symlink rejected: {child}")
                 if child.is_file() and child.suffix.lower() in SUPPORTED_FILE_SUFFIXES:
+                    _validate_source_file(child)
                     yield child
         elif self.path.is_file():
-            if self.path.suffix.lower() not in SUPPORTED_FILE_SUFFIXES:
-                raise ValueError(f"Unsupported file type: {self.path.suffix}")
+            _validate_source_file(self.path)
             yield self.path
         else:
             raise FileNotFoundError(self.path)
@@ -90,22 +95,24 @@ class FileAdapter(SourceAdapter):
             source=str(source),
             source_type=self.source_type,
             source_id=stable_source_id(self.source_type, self.source_namespace, normalized),
-            source_url=source.expanduser().resolve().as_uri(),
+            source_url=f"local-source://{stable_source_id(self.source_type, self.source_namespace, normalized)}",
             title=source.stem.replace("-", " ").replace("_", " ").strip().title() or "Imported File",
             metadata={
                 "source_namespace": self.source_namespace,
-                "normalized_identity": normalized,
+                "source_identity_hash": stable_source_id("identity", self.source_namespace, normalized),
+                "source_name": source.name,
                 "extension": source.suffix.lower(),
             },
         )
 
     def fetch(self, identity: SourceIdentity) -> FetchedSource:
         path = Path(identity.source)
+        _validate_source_file(path)
         return FetchedSource(identity=identity, payload=path.read_bytes(), filename=path.name)
 
     def normalize(self, fetched: FetchedSource) -> NormalizedSource:
         suffix = Path(fetched.filename).suffix.lower()
-        text = fetched.payload.decode("utf-8-sig")
+        text = _decode_text_payload(fetched.payload)
 
         if suffix == ".md":
             title = _extract_markdown_title(text) or fetched.identity.title
@@ -139,7 +146,7 @@ class MeetingTranscriptAdapter(FileAdapter):
 
     def normalize(self, fetched: FetchedSource) -> NormalizedSource:
         suffix = Path(fetched.filename).suffix.lower()
-        text = fetched.payload.decode("utf-8-sig")
+        text = _decode_text_payload(fetched.payload)
 
         if suffix == ".json":
             parsed = json.loads(text)
@@ -261,3 +268,28 @@ def _format_transcript_item(item: Any) -> str:
         text = item.get("text") or item.get("body") or item.get("content") or ""
         return f"{speaker}: {text}" if speaker else str(text)
     return str(item)
+
+
+def _reject_traversal(path: Path) -> None:
+    if ".." in Path(os.fspath(path)).parts:
+        raise ValueError(f"Path traversal rejected: {path}")
+
+
+def _validate_source_file(path: Path) -> None:
+    _reject_traversal(path)
+    if path.is_symlink():
+        raise ValueError(f"Unsafe symlink rejected: {path}")
+    if path.suffix.lower() not in SUPPORTED_FILE_SUFFIXES:
+        raise ValueError(f"Unsupported file type: {path.suffix}")
+    size = path.stat().st_size
+    if size > MAX_SOURCE_BYTES:
+        raise ValueError(f"Oversized input rejected: {path} ({size} bytes)")
+
+
+def _decode_text_payload(payload: bytes) -> str:
+    if b"\x00" in payload:
+        raise ValueError("Unsupported binary payload rejected")
+    try:
+        return payload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Unsupported binary payload rejected") from exc

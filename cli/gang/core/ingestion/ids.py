@@ -1,9 +1,10 @@
 """Identifier helpers for ingestion."""
 
 import hashlib
-import random
+import secrets
 import re
 import time
+import uuid
 from pathlib import Path
 
 
@@ -30,9 +31,9 @@ def slugify(value: str, fallback: str = "untitled") -> str:
 
 
 def uuid7() -> str:
-    """Generate an RFC 9562 UUIDv7-shaped identifier without extra dependencies."""
+    """Generate an RFC 9562 UUIDv7 identifier without extra dependencies."""
     timestamp_ms = int(time.time() * 1000)
-    random_bits = random.getrandbits(74)
+    random_bits = secrets.randbits(74)
 
     value = (timestamp_ms & ((1 << 48) - 1)) << 80
     value |= 0x7 << 76
@@ -40,11 +41,4 @@ def uuid7() -> str:
     value |= 0b10 << 62
     value |= random_bits & ((1 << 62) - 1)
 
-    hex_value = f"{value:032x}"
-    return (
-        f"{hex_value[0:8]}-"
-        f"{hex_value[8:12]}-"
-        f"{hex_value[12:16]}-"
-        f"{hex_value[16:20]}-"
-        f"{hex_value[20:32]}"
-    )
+    return str(uuid.UUID(int=value))

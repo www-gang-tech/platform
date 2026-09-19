@@ -50,6 +50,10 @@ class RawStore(ABC):
     def metadata(self, raw_ref: str) -> Dict[str, Any]:
         """Read raw evidence metadata by reference."""
 
+    @abstractmethod
+    def record(self, raw_ref: str) -> RawRecord:
+        """Return a raw evidence record by reference."""
+
 
 class LocalRawStore(RawStore):
     """Filesystem-backed raw store rooted at brain/raw by default."""
@@ -67,7 +71,7 @@ class LocalRawStore(RawStore):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> RawRecord:
         self.root.mkdir(parents=True, exist_ok=True)
-        source_dir = self.root / slugify(source_type, "source") / source_id
+        source_dir = self._confined_path(slugify(source_type, "source"), source_id)
         source_dir.mkdir(parents=True, exist_ok=True)
 
         digest = content_sha256(payload)
@@ -77,11 +81,12 @@ class LocalRawStore(RawStore):
 
         version = self._next_version(source_dir)
         version_dir = source_dir / f"v{version:06d}"
-        version_dir.mkdir()
+        version_dir.mkdir(exist_ok=False)
 
         safe_name = slugify(Path(filename or "payload").stem, "payload") + Path(filename or ".bin").suffix
         payload_path = version_dir / safe_name
-        payload_path.write_bytes(payload)
+        with payload_path.open("xb") as payload_file:
+            payload_file.write(payload)
 
         now = datetime.now(timezone.utc).isoformat()
         record_metadata = {
@@ -102,7 +107,7 @@ class LocalRawStore(RawStore):
         return self._record_from_metadata(version_dir / "metadata.json")
 
     def exists(self, source_type: str, source_id: str, version: Optional[int] = None) -> bool:
-        source_dir = self.root / slugify(source_type, "source") / source_id
+        source_dir = self._confined_path(slugify(source_type, "source"), source_id)
         if version is None:
             return source_dir.exists()
         return (source_dir / f"v{version:06d}").exists()
@@ -115,6 +120,9 @@ class LocalRawStore(RawStore):
     def metadata(self, raw_ref: str) -> Dict[str, Any]:
         metadata_path = self._metadata_path_from_ref(raw_ref)
         return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    def record(self, raw_ref: str) -> RawRecord:
+        return self._record_from_metadata(self._metadata_path_from_ref(raw_ref))
 
     def _record_for_hash(self, source_dir: Path, digest: str) -> Optional[RawRecord]:
         for metadata_path in sorted(source_dir.glob("v*/metadata.json")):
@@ -148,13 +156,26 @@ class LocalRawStore(RawStore):
         )
 
     def _ref_for_payload(self, payload_path: Path) -> str:
-        return f"local://{payload_path.as_posix()}"
+        rel_path = payload_path.resolve().relative_to(self.root.resolve())
+        return f"local://{rel_path.as_posix()}"
 
     def _metadata_path_from_ref(self, raw_ref: str) -> Path:
         if not raw_ref.startswith("local://"):
             raise ValueError(f"Unsupported raw_ref: {raw_ref}")
         payload_path = Path(raw_ref.removeprefix("local://"))
+        if payload_path.is_absolute() or ".." in payload_path.parts:
+            raise ValueError(f"Unsafe raw_ref: {raw_ref}")
+        payload_path = self._confined_path(*payload_path.parts)
         metadata_path = payload_path.parent / "metadata.json"
         if not metadata_path.exists():
             raise FileNotFoundError(f"Missing raw metadata for {raw_ref}")
         return metadata_path
+
+    def _confined_path(self, *parts: str) -> Path:
+        root = self.root.resolve()
+        candidate = (self.root.joinpath(*parts)).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Path escapes raw store: {candidate}") from exc
+        return candidate

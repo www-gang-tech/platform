@@ -10,8 +10,9 @@ from typing import Any, Dict, List
 import yaml
 
 from .adapters import SourceAdapter
-from .ids import slugify, uuid7
+from .ids import content_sha256, slugify, uuid7
 from .raw_store import RawRecord, RawStore
+from .registry import IngestionRegistry
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class IngestionResult:
     source_id: str
     content_hash: str
     version: int
+    status: str
 
 
 class IngestionPipeline:
@@ -32,15 +34,38 @@ class IngestionPipeline:
         raw_store: RawStore,
         *,
         inbox_path: Path | str = Path("brain/vault/inbox"),
+        meetings_path: Path | str | None = None,
+        registry: IngestionRegistry | None = None,
     ):
         self.raw_store = raw_store
         self.inbox_path = Path(inbox_path)
+        self.meetings_path = Path(meetings_path) if meetings_path else self.inbox_path.parent / "meetings"
+        registry_path = self.inbox_path.parent / ".ingestion" / "registry.json"
+        self.registry = registry or IngestionRegistry(registry_path)
 
     def ingest(self, adapter: SourceAdapter) -> List[IngestionResult]:
         results = []
         for source in adapter.discover():
             identity = adapter.identify(source)
             fetched = adapter.fetch(identity)
+            digest = content_sha256(fetched.payload)
+            previous = self.registry.get(identity.source_id)
+
+            if previous and previous.get("content_hash") == digest:
+                raw_record = self.raw_store.record(previous["raw_ref"])
+                results.append(
+                    IngestionResult(
+                        document_id=previous["document_id"],
+                        document_path=self.registry.resolve_path(previous["document_path"]),
+                        raw_record=raw_record,
+                        source_id=identity.source_id,
+                        content_hash=digest,
+                        version=int(previous["version"]),
+                        status="unchanged",
+                    )
+                )
+                continue
+
             raw_record = self.raw_store.put(
                 identity.source_type,
                 identity.source_id,
@@ -49,14 +74,15 @@ class IngestionPipeline:
                 metadata=identity.metadata,
             )
             normalized = adapter.normalize(fetched)
-            document_id = uuid7()
+            document_id = previous["document_id"] if previous else uuid7()
             now = datetime.now(timezone.utc).isoformat()
+            created_at = previous.get("created_at", now) if previous else now
             envelope = {
-                "source": identity.source,
                 "source_type": identity.source_type,
                 "source_id": identity.source_id,
-                "source_url": identity.source_url,
-                "created_at": now,
+                "source_ref": identity.source_url,
+                "source_name": fetched.filename,
+                "created_at": created_at,
                 "updated_at": now,
                 "participants": normalized.participants,
                 "attachments": normalized.attachments,
@@ -65,6 +91,7 @@ class IngestionPipeline:
                 "version": raw_record.version,
                 "metadata": normalized.metadata,
             }
+            existing_document_path = self.registry.resolve_path(previous["document_path"]) if previous else None
             document_path = self._write_document(
                 document_id=document_id,
                 title=normalized.title,
@@ -72,8 +99,26 @@ class IngestionPipeline:
                 source_type=identity.source_type,
                 raw_record=raw_record,
                 envelope=envelope,
-                created_at=now,
+                created_at=created_at,
                 updated_at=now,
+                document_path=existing_document_path,
+            )
+            self.registry.upsert(
+                identity.source_id,
+                {
+                    "source_id": identity.source_id,
+                    "adapter": normalized.metadata.get("adapter", adapter.__class__.__name__),
+                    "source_type": identity.source_type,
+                    "source_name": fetched.filename,
+                    "content_hash": raw_record.content_hash,
+                    "version": raw_record.version,
+                    "document_id": document_id,
+                    "document_path": self.registry.relative_path(document_path),
+                    "raw_ref": raw_record.raw_ref,
+                    "ingested_at": now,
+                    "created_at": created_at,
+                    "updated_at": now,
+                },
             )
             results.append(
                 IngestionResult(
@@ -83,6 +128,7 @@ class IngestionPipeline:
                     source_id=identity.source_id,
                     content_hash=raw_record.content_hash,
                     version=raw_record.version,
+                    status="updated" if previous else "created",
                 )
             )
         return results
@@ -98,8 +144,10 @@ class IngestionPipeline:
         envelope: Dict[str, Any],
         created_at: str,
         updated_at: str,
+        document_path: Path | None = None,
     ) -> Path:
-        self.inbox_path.mkdir(parents=True, exist_ok=True)
+        destination_path = self.meetings_path if source_type == "meeting" else self.inbox_path
+        destination_path.mkdir(parents=True, exist_ok=True)
         frontmatter = {
             "id": document_id,
             "type": "knowledge",
@@ -107,16 +155,26 @@ class IngestionPipeline:
             "title": title,
             "visibility": "private",
             "status": "active",
+            "content_trust": "untrusted",
             "created_at": created_at,
             "updated_at": updated_at,
             "source_id": raw_record.source_id,
             "content_hash": raw_record.content_hash,
             "version": raw_record.version,
             "raw_ref": raw_record.raw_ref,
+            "provenance": {
+                "source_id": raw_record.source_id,
+                "source_type": source_type,
+                "raw_ref": raw_record.raw_ref,
+                "content_hash": raw_record.content_hash,
+                "version": raw_record.version,
+            },
             "ingestion_envelope": envelope,
         }
         frontmatter_text = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
-        filename = f"{document_id}-{slugify(title)}.md"
-        document_path = self.inbox_path / filename
+        if document_path is None:
+            filename = f"{document_id}-{slugify(title)}.md"
+            document_path = destination_path / filename
+        document_path.parent.mkdir(parents=True, exist_ok=True)
         document_path.write_text(f"---\n{frontmatter_text}---\n\n{body}", encoding="utf-8")
         return document_path

@@ -898,7 +898,7 @@ def _run_private_ingest(adapter):
         sys.path.insert(0, str(Path(__file__).parent))
         from core.ingestion import IngestionPipeline, LocalRawStore
 
-    pipeline = IngestionPipeline(LocalRawStore(Path("brain/raw")), inbox_path=Path("brain/vault/inbox"))
+    pipeline = IngestionPipeline(LocalRawStore(Path("brain/raw")))
     return pipeline.ingest(adapter)
 
 def _print_ingest_results(results):
@@ -908,9 +908,12 @@ def _print_ingest_results(results):
 
     click.echo(f"✅ Ingested {len(results)} source(s)")
     for result in results:
+        click.echo(f"  - Status: {result.status}")
         click.echo(f"  - Document: {result.document_path}")
+        click.echo(f"    Document ID: {result.document_id}")
         click.echo(f"    Source ID: {result.source_id}")
         click.echo(f"    Raw version: v{result.version:06d}")
+        click.echo(f"    Raw ref: {result.raw_record.raw_ref}")
 
 @ingest.command('file')
 @click.argument('path', type=click.Path(exists=True))
@@ -951,6 +954,46 @@ def ingest_meeting(path, namespace):
         raise click.Abort()
 
     _print_ingest_results(results)
+
+@ingest.command('status')
+def ingest_status():
+    """Show private ingestion registry status"""
+    try:
+        from core.ingestion import IngestionRegistry
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import IngestionRegistry
+
+    registry = IngestionRegistry()
+    sources = registry.all_sources()
+    click.echo("Private ingestion registry")
+    click.echo(f"  Registry: {registry.path}")
+    click.echo(f"  Sources: {len(sources)}")
+    for source_id, record in sorted(sources.items()):
+        click.echo(f"  - {source_id}")
+        click.echo(f"    adapter: {record.get('adapter')}")
+        click.echo(f"    document_id: {record.get('document_id')}")
+        click.echo(f"    version: {record.get('version')}")
+        click.echo(f"    document_path: {record.get('document_path')}")
+
+@ingest.command('inspect')
+@click.argument('source_id')
+def ingest_inspect(source_id):
+    """Inspect one private ingestion source record"""
+    try:
+        from core.ingestion import IngestionRegistry
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import IngestionRegistry
+
+    registry = IngestionRegistry()
+    record = registry.get(source_id)
+    if not record:
+        click.echo(f"Source not found: {source_id}", err=True)
+        raise click.Abort()
+    click.echo(json.dumps(record, indent=2, sort_keys=True))
 
 @cli.command()
 @click.argument('source', type=click.Path(exists=True), required=False)
