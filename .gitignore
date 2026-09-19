@@ -2,6 +2,8 @@
 .gang/
 dist/
 .env
+brain/raw/**
+!brain/raw/.gitkeep
 
 # Python
 __pycache__/

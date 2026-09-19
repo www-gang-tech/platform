@@ -885,6 +885,73 @@ def delete(ctx, remote_path):
     else:
         click.echo(f"✅ Deleted: {remote_path}")
 
+@cli.group()
+def ingest():
+    """Import private source material into the knowledge inbox"""
+    pass
+
+def _run_private_ingest(adapter):
+    try:
+        from core.ingestion import IngestionPipeline, LocalRawStore
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import IngestionPipeline, LocalRawStore
+
+    pipeline = IngestionPipeline(LocalRawStore(Path("brain/raw")), inbox_path=Path("brain/vault/inbox"))
+    return pipeline.ingest(adapter)
+
+def _print_ingest_results(results):
+    if not results:
+        click.echo("No supported sources found.")
+        return
+
+    click.echo(f"✅ Ingested {len(results)} source(s)")
+    for result in results:
+        click.echo(f"  - Document: {result.document_path}")
+        click.echo(f"    Source ID: {result.source_id}")
+        click.echo(f"    Raw version: v{result.version:06d}")
+
+@ingest.command('file')
+@click.argument('path', type=click.Path(exists=True))
+@click.option('--namespace', default='local-file', help='Stable source namespace for local file identity')
+def ingest_file(path, namespace):
+    """Import a local .md, .txt, .json, or .jsonl file as private knowledge"""
+    try:
+        from core.ingestion import FileAdapter
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import FileAdapter
+
+    try:
+        results = _run_private_ingest(FileAdapter(Path(path), source_namespace=namespace))
+    except Exception as e:
+        click.echo(f"❌ Ingest failed: {e}", err=True)
+        raise click.Abort()
+
+    _print_ingest_results(results)
+
+@ingest.command('meeting')
+@click.argument('path', type=click.Path(exists=True))
+@click.option('--namespace', default='local-meeting', help='Stable source namespace for meeting source identity')
+def ingest_meeting(path, namespace):
+    """Import a local meeting transcript as private knowledge"""
+    try:
+        from core.ingestion import MeetingTranscriptAdapter
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import MeetingTranscriptAdapter
+
+    try:
+        results = _run_private_ingest(MeetingTranscriptAdapter(Path(path), source_namespace=namespace))
+    except Exception as e:
+        click.echo(f"❌ Ingest failed: {e}", err=True)
+        raise click.Abort()
+
+    _print_ingest_results(results)
+
 @cli.command()
 @click.argument('source', type=click.Path(exists=True), required=False)
 @click.option('--title', help='Article title (auto-detected if not provided)')
