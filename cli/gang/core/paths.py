@@ -118,6 +118,19 @@ class GangPaths:
     def enrichment_path(self) -> Path:
         return self.home / "enrichment"
 
+    @property
+    def entities_generated_path(self) -> Path:
+        """Generated entity proposals and audit trail (never canonical)."""
+        return self.home / "entities"
+
+    @property
+    def entity_proposals_path(self) -> Path:
+        return self.entities_generated_path / "proposals"
+
+    def entity_vault_path(self, directory: str) -> Path:
+        """Canonical entity records live inside the private vault, one dir per type."""
+        return self.private_vault / directory
+
     def display_home(self) -> str:
         default = DEFAULT_GANG_HOME.expanduser()
         try:

@@ -177,6 +177,11 @@ def validate_public_documents(documents: List[PublicDocument], source: str = "va
                 errors.append(f"{doc.source_path}: id must be a UUIDv7")
             if "migration_source" in doc.frontmatter or "source_path" in doc.frontmatter:
                 errors.append(f"{doc.source_path}: migration provenance must not be public frontmatter")
+            for private_field in ("entity_refs", "entity_relationships"):
+                if private_field in doc.frontmatter:
+                    errors.append(
+                        f"{doc.source_path}: private entity references must not be public frontmatter"
+                    )
 
         haystack = "\n".join([doc.body, yaml.safe_dump(doc.frontmatter, sort_keys=False)])
         for pattern in PRIVATE_PATTERNS:

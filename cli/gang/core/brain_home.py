@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+from core.entities.model import is_entity_frontmatter, parse_markdown
 from core.paths import GangPaths
 
 
@@ -20,6 +21,7 @@ PRIVATE_VAULT_DIRS = {
     "people",
     "companies",
     "projects",
+    "products",
     "research",
     "documents",
 }
@@ -49,6 +51,7 @@ class BrainHome:
             "private_home": self.paths.display_home(),
             "private_home_path": self.paths.home,
             "private_documents": _count_markdown(self.paths.private_vault),
+            "private_entities": _count_entities(self.paths.private_vault),
             "raw_sources": _count_raw_sources(self.paths.raw_path),
             "gmail_threads": len(gmail_threads),
             "generated_index": self.paths.index_path,
@@ -166,9 +169,26 @@ def _load_registry(path: Path) -> Dict[str, Any]:
 
 
 def _count_markdown(root: Path) -> int:
+    return sum(1 for path in _vault_markdown(root) if not _is_entity_record(path))
+
+
+def _count_entities(root: Path) -> int:
+    return sum(1 for path in _vault_markdown(root) if _is_entity_record(path))
+
+
+def _vault_markdown(root: Path) -> Iterable[Path]:
     if not root.exists():
-        return 0
-    return sum(1 for path in root.rglob("*.md") if not any(part.startswith(".") for part in path.relative_to(root).parts))
+        return []
+    return [
+        path
+        for path in root.rglob("*.md")
+        if not any(part.startswith(".") for part in path.relative_to(root).parts)
+    ]
+
+
+def _is_entity_record(path: Path) -> bool:
+    frontmatter, _ = parse_markdown(path.read_text(encoding="utf-8"))
+    return is_entity_frontmatter(frontmatter)
 
 
 def _count_raw_sources(root: Path) -> int:

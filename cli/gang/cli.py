@@ -15,6 +15,7 @@ import shutil
 import markdown
 import time
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -1302,6 +1303,9 @@ def private_index_build():
     click.echo("✅ Built private knowledge index")
     click.echo(f"  Database: {PrivateKnowledgeIndex().relative_database_path()}")
     click.echo(f"  Documents: {result.documents}")
+    click.echo(f"  Entities: {result.entities}")
+    click.echo(f"  Entity mentions: {result.mentions}")
+    click.echo(f"  Relationships: {result.relationships}")
     click.echo(f"  Generated: {result.generated_at}")
 
 
@@ -1330,6 +1334,10 @@ def private_index_status():
         click.echo("  Types:")
         for doc_type, count in status["by_type"].items():
             click.echo(f"    {doc_type}: {count}")
+    click.echo("  Entity graph:")
+    click.echo(f"    entities: {status['entities']}")
+    click.echo(f"    mentions: {status['entity_mentions']}")
+    click.echo(f"    relationships: {status['relationships']}")
 
 
 @cli.command("search")
@@ -1500,6 +1508,473 @@ def _print_enrichment_proposal(proposal):
             click.echo(f"  - {document_id}")
     click.echo("Proposed enrichment:")
     click.echo(json.dumps(proposal["proposed_enrichment"], indent=2, sort_keys=True))
+
+
+@cli.group("entity")
+def entity():
+    """Create, resolve, and inspect stable private entities and relationships"""
+    pass
+
+
+def _entity_imports():
+    try:
+        from core.entities import (
+            AliasCollisionError,
+            DuplicateEntityError,
+            EntityError,
+            EntityService,
+            MergeConflictError,
+            PREDICATES,
+            ProposalValidationError,
+            StaleProposalError,
+        )
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.entities import (
+            AliasCollisionError,
+            DuplicateEntityError,
+            EntityError,
+            EntityService,
+            MergeConflictError,
+            PREDICATES,
+            ProposalValidationError,
+            StaleProposalError,
+        )
+    return {
+        "AliasCollisionError": AliasCollisionError,
+        "DuplicateEntityError": DuplicateEntityError,
+        "EntityError": EntityError,
+        "EntityService": EntityService,
+        "MergeConflictError": MergeConflictError,
+        "PREDICATES": PREDICATES,
+        "ProposalValidationError": ProposalValidationError,
+        "StaleProposalError": StaleProposalError,
+    }
+
+
+@contextmanager
+def _entity_errors():
+    names = _entity_imports()
+    try:
+        yield names
+    except names["EntityError"] as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+
+
+def _echo_entity(record):
+    click.echo(f"  ID: {record.id}")
+    click.echo(f"  Type: {record.type}")
+    click.echo(f"  Name: {record.name}")
+    if record.aliases:
+        click.echo(f"  Aliases: {', '.join(record.aliases)}")
+    if record.emails:
+        click.echo(f"  Emails: {', '.join(record.emails)}")
+    if record.domains:
+        click.echo(f"  Domains: {', '.join(record.domains)}")
+    click.echo(f"  Visibility: {record.visibility}")
+    click.echo(f"  Status: {record.status}")
+
+
+@entity.command("create")
+@click.argument("entity_type")
+@click.argument("name")
+@click.option("--alias", "aliases", multiple=True, help="Additional alias (repeatable)")
+@click.option("--email", "emails", multiple=True, help="Deterministic email identifier (repeatable)")
+@click.option("--domain", "domains", multiple=True, help="Deterministic domain identifier (repeatable)")
+@click.option("--allow-duplicate-name", is_flag=True, help="Create even if a same-named entity exists")
+def entity_create(entity_type, name, aliases, emails, domains, allow_duplicate_name):
+    """Create a canonical entity: person, company, project, or product"""
+    with _entity_errors() as names:
+        service = names["EntityService"]()
+        record = service.create(
+            entity_type,
+            name,
+            aliases=aliases,
+            emails=emails,
+            domains=domains,
+            allow_duplicate_name=allow_duplicate_name,
+        )
+        click.echo("✅ Created entity")
+        _echo_entity(record)
+        click.echo(f"  File: {record.path}")
+
+
+@entity.command("list")
+@click.option("--type", "entity_type", help="Filter by entity type")
+@click.option("--include-merged", is_flag=True, help="Include merged tombstones")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_list(entity_type, include_merged, output_format):
+    """List canonical entities"""
+    with _entity_errors() as names:
+        records = names["EntityService"]().store.list(
+            entity_type=entity_type, include_merged=include_merged
+        )
+        if output_format == "json":
+            click.echo(
+                json.dumps(
+                    [
+                        {
+                            "entity_id": record.id,
+                            "type": record.type,
+                            "name": record.name,
+                            "aliases": record.aliases,
+                            "status": record.status,
+                        }
+                        for record in records
+                    ],
+                    indent=2,
+                )
+            )
+            return
+        if not records:
+            click.echo("No entities yet. Create one: gang entity create person \"Name\"")
+            return
+        for record in records:
+            suffix = f" -> {record.merged_into}" if record.status == "merged" else ""
+            click.echo(f"{record.type:<8} {record.id}  {record.name}{suffix}")
+
+
+@entity.command("show")
+@click.argument("entity_id")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_show(entity_id, output_format):
+    """Show an entity with its mentions, relationships, and provenance"""
+    with _entity_errors() as names:
+        view = names["EntityService"]().show(entity_id)
+        if output_format == "json":
+            click.echo(json.dumps(view, indent=2, sort_keys=True))
+            return
+
+        click.echo(f"{view['name']}  ({view['type']})")
+        click.echo(f"  ID: {view['entity_id']}")
+        if view["status"] != "active":
+            click.echo(f"  Status: {view['status']} -> {view['merged_into']}")
+        aliases = [item["value"] for item in view["aliases"] if item["kind"] == "alias"]
+        emails = [item["value"] for item in view["aliases"] if item["kind"] == "email"]
+        domains = [item["value"] for item in view["aliases"] if item["kind"] == "domain"]
+        if aliases:
+            click.echo(f"  Aliases: {', '.join(aliases)}")
+        if emails:
+            click.echo(f"  Emails: {', '.join(emails)}")
+        if domains:
+            click.echo(f"  Domains: {', '.join(domains)}")
+
+        click.echo("\nMentioned in:")
+        if not view["documents"]:
+            click.echo("  (none)")
+        for document in view["documents"]:
+            sources = f" [{', '.join(document['source_ids'])}]" if document["source_ids"] else ""
+            click.echo(f"  - {document['title']} ({document['type']}){sources}")
+            click.echo(f"    document: {document['document_id']}  as: {document['label']}")
+
+        click.echo("\nRelationships:")
+        if not view["relationships"]:
+            click.echo("  (none)")
+        for relationship in view["relationships"]:
+            arrow = "->" if relationship["direction"] == "outbound" else "<-"
+            click.echo(
+                f"  {arrow} {relationship['predicate']} {relationship['other_entity_name']}"
+            )
+            click.echo(f"     evidence: {relationship['evidence_excerpt']}")
+            click.echo(f"     document: {relationship['document_id']}")
+
+        provenance = view["provenance"]
+        click.echo("\nProvenance:")
+        click.echo(f"  documents: {provenance['documents']}")
+        click.echo(f"  mentions: {provenance['mentions']}")
+        click.echo(f"  relationships: {provenance['relationships']}")
+        click.echo(f"  source ids: {provenance['source_ids']}")
+
+
+@entity.command("search")
+@click.argument("query", nargs=-1, required=True)
+@click.option("--type", "entity_type", help="Filter by entity type")
+@click.option("--limit", default=20, show_default=True, type=int)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_search(query, entity_type, limit, output_format):
+    """Search canonical entities by name, alias, email, or domain"""
+    with _entity_errors() as names:
+        results = names["EntityService"]().search(
+            " ".join(query), entity_type=entity_type, limit=limit
+        )
+        if output_format == "json":
+            click.echo(json.dumps(results, indent=2, sort_keys=True))
+            return
+        if not results:
+            click.echo("No entities matched.")
+            return
+        for result in results:
+            matched = ", ".join(result["matched"])
+            click.echo(f"{result['type']:<8} {result['entity_id']}  {result['name']}")
+            click.echo(f"         matched: {matched}  mentions: {result['mentions']}")
+
+
+@entity.command("resolve")
+@click.argument("text")
+@click.option("--type", "entity_type", help="Restrict resolution to one entity type")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_resolve(text, entity_type, output_format):
+    """Deterministically resolve a name, alias, email, or domain"""
+    with _entity_errors() as names:
+        resolution = names["EntityService"]().resolve(text, entity_type=entity_type)
+        if output_format == "json":
+            click.echo(json.dumps(resolution, indent=2, sort_keys=True))
+            return
+        click.echo(f"{text} -> {resolution['status']}")
+        if resolution["entity_id"]:
+            click.echo(f"  entity: {resolution['name']} ({resolution['entity_id']})")
+            click.echo(f"  method: {resolution['method']}")
+        click.echo(f"  reason: {resolution['reason']}")
+        if resolution["candidates"]:
+            click.echo("  candidates (require confirmation):")
+            for candidate in resolution["candidates"]:
+                click.echo(f"    - {candidate['name']} ({candidate['entity_id']}): {candidate['reason']}")
+
+
+@entity.command("rename")
+@click.argument("entity_id")
+@click.argument("name")
+def entity_rename(entity_id, name):
+    """Rename an entity without changing its identity"""
+    with _entity_errors() as names:
+        record = names["EntityService"]().rename(entity_id, name)
+        click.echo("✅ Renamed entity (identity unchanged)")
+        _echo_entity(record)
+
+
+@entity.group("alias")
+def entity_alias():
+    """Manage entity aliases"""
+    pass
+
+
+@entity_alias.command("add")
+@click.argument("entity_id")
+@click.argument("alias")
+@click.option("--allow-ambiguous", is_flag=True, help="Add even if it collides; lookups stay ambiguous")
+def entity_alias_add(entity_id, alias, allow_ambiguous):
+    """Add an alias to an entity"""
+    with _entity_errors() as names:
+        record = names["EntityService"]().add_alias(entity_id, alias, allow_ambiguous=allow_ambiguous)
+        click.echo("✅ Added alias")
+        _echo_entity(record)
+
+
+@entity_alias.command("remove")
+@click.argument("entity_id")
+@click.argument("alias")
+def entity_alias_remove(entity_id, alias):
+    """Remove an alias from an entity"""
+    with _entity_errors() as names:
+        record = names["EntityService"]().store.remove_alias(entity_id, alias)
+        click.echo("✅ Removed alias")
+        _echo_entity(record)
+
+
+@entity.command("identifier")
+@click.argument("entity_id")
+@click.option("--email", default="", help="Deterministic email identifier")
+@click.option("--domain", default="", help="Deterministic domain identifier")
+def entity_identifier(entity_id, email, domain):
+    """Add a strong deterministic identifier to an entity"""
+    if not email and not domain:
+        raise click.UsageError("Provide --email or --domain")
+    with _entity_errors() as names:
+        record = names["EntityService"]().add_identifier(entity_id, email=email, domain=domain)
+        click.echo("✅ Added identifier")
+        _echo_entity(record)
+
+
+@entity.command("merge")
+@click.argument("source_entity_id")
+@click.argument("target_entity_id")
+def entity_merge(source_entity_id, target_entity_id):
+    """Explicitly merge SOURCE into TARGET, preserving the source as a tombstone"""
+    with _entity_errors() as names:
+        audit = names["EntityService"]().merge(source_entity_id, target_entity_id)
+        click.echo("✅ Merged entity")
+        click.echo(f"  Source: {audit['source_name']} ({audit['source_entity_id']}) -> tombstone")
+        click.echo(f"  Target: {audit['target_name']} ({audit['target_entity_id']})")
+        if audit["absorbed_aliases"]:
+            click.echo(f"  Absorbed aliases: {', '.join(audit['absorbed_aliases'])}")
+        click.echo(f"  Rewritten documents: {len(audit['rewritten_documents'])}")
+
+
+@entity.command("mention")
+@click.argument("document_id")
+@click.argument("entity_id")
+@click.option("--label", help="Text as it appears in the document (defaults to the entity name)")
+@click.option("--excerpt", default="", help="Short supporting excerpt")
+def entity_mention(document_id, entity_id, label, excerpt):
+    """Record that a private document mentions an entity"""
+    with _entity_errors() as names:
+        result = names["EntityService"]().add_mention(
+            document_id, entity_id, label=label, excerpt=excerpt
+        )
+        if result["changed"]:
+            click.echo("✅ Added entity reference")
+        else:
+            click.echo("Already referenced; nothing changed.")
+        click.echo(f"  Document: {document_id}")
+
+
+@entity.command("relate")
+@click.argument("document_id")
+@click.option("--subject", required=True, help="Subject entity ID")
+@click.option("--predicate", required=True, help="Relationship predicate")
+@click.option("--object", "object_entity_id", required=True, help="Object entity ID")
+@click.option("--evidence", required=True, help="Verbatim excerpt from the document body")
+@click.option("--source-id", default="", help="Optional originating source ID")
+def entity_relate(document_id, subject, predicate, object_entity_id, evidence, source_id):
+    """Assert an evidence-backed relationship carried by one document"""
+    with _entity_errors() as names:
+        result = names["EntityService"]().assert_relationship(
+            document_id=document_id,
+            subject_entity_id=subject,
+            predicate=predicate,
+            object_entity_id=object_entity_id,
+            excerpt=evidence,
+            source_id=source_id,
+        )
+        if result["changed"]:
+            click.echo("✅ Recorded relationship assertion")
+            for relationship in result["added_relationships"]:
+                click.echo(f"  {relationship['relationship_id']}")
+        else:
+            click.echo("Identical assertion already recorded; nothing changed.")
+
+
+@entity.command("candidates")
+@click.option("--type", "entity_type", help="Filter by entity type")
+@click.option("--unresolved-only", is_flag=True, help="Hide strings that already resolve")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_candidates(entity_type, unresolved_only, output_format):
+    """Report entity-like strings across the corpus (read-only)"""
+    with _entity_errors() as names:
+        report = names["EntityService"]().candidates(
+            entity_type=entity_type, unresolved_only=unresolved_only
+        )
+        if output_format == "json":
+            click.echo(json.dumps(report, indent=2, sort_keys=True))
+            return
+        summary = report["summary"]
+        click.echo(
+            f"{summary['candidates']} candidate strings "
+            f"({summary['resolved']} resolved, {summary['ambiguous']} ambiguous, "
+            f"{summary['unresolved']} unresolved)"
+        )
+        for row in report["candidates"]:
+            marker = {"resolved": "✓", "ambiguous": "?"}.get(row["status"], " ")
+            click.echo(f"  {marker} {row['text']:<28} {row['documents']:>4} documents  [{row['entity_type']}]")
+            if row["status"] == "resolved":
+                click.echo(f"      -> {row['entity_name']} ({row['entity_id']})")
+            for candidate in row["candidates"]:
+                click.echo(f"      ? {candidate['name']} ({candidate['entity_id']}): {candidate['reason']}")
+        click.echo("\nThis command does not change anything.")
+
+
+@entity.command("propose")
+@click.argument("document_id")
+@click.option("--ai", "use_ai", is_flag=True, help="Ask the configured AI provider instead of deterministic metadata")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+@click.pass_context
+def entity_propose(ctx, document_id, use_ai, output_format):
+    """Generate an entity resolution proposal for a document (no mutation)"""
+    with _entity_errors() as names:
+        config = ctx.obj or {}
+        model = config.get("ai", {}).get("model")
+        proposal = names["EntityService"]().propose(document_id, use_ai=use_ai, model=model)
+        if output_format == "json":
+            click.echo(json.dumps(proposal, indent=2, sort_keys=True))
+            return
+        click.echo("✅ Created entity proposal (nothing has been applied)")
+        click.echo(f"  Proposal: {proposal['proposal_id']}")
+        click.echo(f"  Document: {proposal['document_id']}")
+        click.echo(f"  Provider/model: {proposal['provider']}/{proposal['model']}")
+        click.echo(f"  Proposed mentions: {len(proposal['proposed_mentions'])}")
+        click.echo(f"  Proposed relationships: {len(proposal['proposed_relationships'])}")
+        click.echo(f"  Unresolved strings: {len(proposal.get('unresolved', []))}")
+        click.echo(f"  Review: gang entity proposal {proposal['proposal_id']}")
+        click.echo(f"  Apply: gang entity apply {proposal['proposal_id']}")
+
+
+@entity.command("proposals")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_proposals(output_format):
+    """List entity proposals"""
+    with _entity_errors() as names:
+        proposals = names["EntityService"]().proposals.list_proposals()
+        if output_format == "json":
+            click.echo(json.dumps(proposals, indent=2, sort_keys=True))
+            return
+        if not proposals:
+            click.echo("No entity proposals yet.")
+            return
+        for proposal in proposals:
+            click.echo(
+                f"{proposal['proposal_id']}  {proposal.get('apply_status', 'pending'):<8} "
+                f"{proposal['document_id']}  {proposal['generated_at']}"
+            )
+
+
+@entity.command("proposal")
+@click.argument("proposal_id")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_proposal_show(proposal_id, output_format):
+    """Show one entity proposal"""
+    with _entity_errors() as names:
+        proposal = names["EntityService"]().show_proposal(proposal_id)
+        if output_format == "json":
+            click.echo(json.dumps(proposal, indent=2, sort_keys=True))
+            return
+        click.echo(f"Proposal: {proposal['proposal_id']}")
+        click.echo(f"Document: {proposal['document_id']}")
+        click.echo(f"Base hash: {proposal['base_document_hash']}")
+        click.echo(f"Provider/model: {proposal['provider']}/{proposal['model']}")
+        click.echo(f"Generated: {proposal['generated_at']}")
+        click.echo(f"Apply status: {proposal.get('apply_status', 'pending')}")
+        click.echo("Proposed mentions:")
+        click.echo(json.dumps(proposal["proposed_mentions"], indent=2, sort_keys=True))
+        click.echo("Proposed relationships:")
+        click.echo(json.dumps(proposal["proposed_relationships"], indent=2, sort_keys=True))
+        if proposal.get("unresolved"):
+            click.echo("Unresolved (require a human decision):")
+            click.echo(json.dumps(proposal["unresolved"], indent=2, sort_keys=True))
+
+
+@entity.command("apply")
+@click.argument("proposal_id")
+@click.option("--create-new", is_flag=True, help="Also create the reviewed new entities in the proposal")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_apply(proposal_id, create_new, output_format):
+    """Apply a reviewed entity proposal to canonical documents"""
+    with _entity_errors() as names:
+        try:
+            proposal = names["EntityService"]().apply_proposal(
+                proposal_id, create_new_entities=create_new
+            )
+        except names["StaleProposalError"] as e:
+            click.echo(f"❌ {e}", err=True)
+            click.echo("Regenerate the proposal: gang entity propose DOCUMENT_ID", err=True)
+            raise click.Abort()
+
+        if output_format == "json":
+            click.echo(json.dumps(proposal, indent=2, sort_keys=True))
+            return
+        summary = proposal.get("apply_summary", {})
+        click.echo("✅ Applied entity proposal")
+        click.echo(f"  Proposal: {proposal['proposal_id']}")
+        click.echo(f"  Document: {proposal['document_id']}")
+        click.echo(f"  Mentions added: {summary.get('applied_mentions', 0)}")
+        click.echo(f"  Relationships added: {summary.get('applied_relationships', 0)}")
+        for created in summary.get("created_entities", []):
+            click.echo(f"  Created {created['type']}: {created['name']} ({created['entity_id']})")
+        for skipped in summary.get("skipped", []):
+            click.echo(f"  Skipped {skipped['text']}: {skipped['reason']}")
+        click.echo("  Reindexed: GANG_HOME/generated/brain.sqlite")
+
 
 @cli.command()
 @click.argument('source', type=click.Path(exists=True), required=False)

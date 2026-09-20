@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 import yaml
 
+from core.entities.documents import preserved_entity_frontmatter
 from core.paths import GangPaths
 
 from .adapters import SourceAdapter
@@ -179,10 +180,11 @@ class IngestionPipeline:
             },
             "ingestion_envelope": envelope,
         }
-        frontmatter_text = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
         if document_path is None:
             filename = f"{document_id}-{slugify(title)}.md"
             document_path = destination_path / filename
+        frontmatter.update(preserved_entity_frontmatter(document_path))
+        frontmatter_text = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
         document_path.parent.mkdir(parents=True, exist_ok=True)
         document_path.write_text(f"---\n{frontmatter_text}---\n\n{body}", encoding="utf-8")
         return document_path

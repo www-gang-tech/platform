@@ -15,6 +15,8 @@ from typing import Any, Dict, Iterable, List, Optional
 import yaml
 
 from core.paths import GangPaths
+from core.entities.graph import ENTITY_SCHEMA_SQL, build_entity_tables
+from core.entities.model import EntityRecord, is_entity_frontmatter
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,8 @@ class IndexedDocument:
     related: List[str]
     source_ids: List[str]
     content_hash: str
+    entity_refs: List[Dict[str, Any]]
+    entity_relationships: List[Dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,9 @@ class IndexBuildResult:
     database_path: Path
     documents: int
     generated_at: str
+    entities: int = 0
+    mentions: int = 0
+    relationships: int = 0
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,7 @@ class PrivateKnowledgeIndex:
 
     def build(self) -> IndexBuildResult:
         documents = list(self.load_documents())
+        entities = list(self.load_entities())
         generated_at = datetime.now(timezone.utc).isoformat()
 
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,10 +108,23 @@ class PrivateKnowledgeIndex:
             )
             for document in documents:
                 self._insert_document(connection, document)
+            graph_counts = build_entity_tables(connection, entities, documents)
+            for key, value in sorted(graph_counts.items()):
+                connection.execute(
+                    "INSERT INTO metadata(key, value) VALUES (?, ?)",
+                    (f"{key}_count", str(value)),
+                )
             connection.commit()
 
         temp_path.replace(self.database_path)
-        return IndexBuildResult(self.database_path, len(documents), generated_at)
+        return IndexBuildResult(
+            self.database_path,
+            len(documents),
+            generated_at,
+            entities=graph_counts["entities"],
+            mentions=graph_counts["document_entity_mentions"],
+            relationships=graph_counts["relationships"],
+        )
 
     def status(self) -> Dict[str, Any]:
         if not self.database_path.exists():
@@ -114,6 +135,9 @@ class PrivateKnowledgeIndex:
                 "generated_at": None,
                 "by_type": {},
                 "by_visibility": {},
+                "entities": 0,
+                "entity_mentions": 0,
+                "relationships": 0,
             }
 
         with closing(sqlite3.connect(self.database_path)) as connection:
@@ -132,6 +156,10 @@ class PrivateKnowledgeIndex:
                 )
             }
             count = connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+            graph = {
+                table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in ("entities", "document_entity_mentions", "relationships")
+            }
         return {
             "exists": True,
             "database": self.relative_database_path(),
@@ -139,6 +167,9 @@ class PrivateKnowledgeIndex:
             "generated_at": metadata.get("generated_at"),
             "by_type": by_type,
             "by_visibility": by_visibility,
+            "entities": graph["entities"],
+            "entity_mentions": graph["document_entity_mentions"],
+            "relationships": graph["relationships"],
         }
 
     def search(
@@ -220,12 +251,28 @@ class PrivateKnowledgeIndex:
         for root, path in self._markdown_paths():
             text = path.read_text(encoding="utf-8")
             frontmatter, body = _parse_markdown(text)
+            if is_entity_frontmatter(frontmatter):
+                continue
             rel_path = path.resolve().relative_to(root.path.resolve()).as_posix()
             document = self._document_from_parts(frontmatter, body, rel_path)
             if document.document_id in seen_ids:
                 raise ValueError(f"Duplicate document id in vault: {document.document_id}")
             seen_ids.add(document.document_id)
             yield document
+
+    def load_entities(self) -> Iterable[EntityRecord]:
+        """Canonical entity records, which are identities rather than documents."""
+        seen_ids = set()
+        for _, path in self._markdown_paths():
+            text = path.read_text(encoding="utf-8")
+            frontmatter, body = _parse_markdown(text)
+            if not is_entity_frontmatter(frontmatter):
+                continue
+            record = EntityRecord.from_frontmatter(frontmatter, body, path)
+            if record.id in seen_ids:
+                raise ValueError(f"Duplicate entity id in vault: {record.id}")
+            seen_ids.add(record.id)
+            yield record
 
     def relative_database_path(self) -> str:
         try:
@@ -281,6 +328,8 @@ class PrivateKnowledgeIndex:
             related=_list_strings(frontmatter.get("related")),
             source_ids=source_ids,
             content_hash=hashlib.sha256((json.dumps(frontmatter, sort_keys=True, default=str) + body).encode("utf-8")).hexdigest(),
+            entity_refs=_dict_list(frontmatter.get("entity_refs")),
+            entity_relationships=_dict_list(frontmatter.get("entity_relationships")),
         )
 
     def _create_schema(self, connection: sqlite3.Connection) -> None:
@@ -323,6 +372,7 @@ class PrivateKnowledgeIndex:
                 tokenize='porter unicode61'
             );
             """
+            + ENTITY_SCHEMA_SQL
         )
 
     def _insert_document(self, connection: sqlite3.Connection, document: IndexedDocument) -> None:
@@ -434,6 +484,12 @@ def _semantic_enrichment_text(frontmatter: Dict[str, Any]) -> str:
 
     parts.extend(_human_readable_related(frontmatter.get("related")))
     return _compact(" ".join(parts))
+
+
+def _dict_list(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _dict_items(value: Any) -> Iterable[Dict[str, Any]]:

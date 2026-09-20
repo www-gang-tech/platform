@@ -18,6 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol
 
 import yaml
 
+from core.entities.documents import preserved_entity_frontmatter
 from core.paths import GangPaths
 
 from .ids import content_sha256, slugify, stable_source_id, uuid7
@@ -567,6 +568,7 @@ class GmailSyncService:
             },
             "ingestion_envelope": manifest,
         }
+        frontmatter.update(preserved_entity_frontmatter(document_path))
         frontmatter_text = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
         document_path.parent.mkdir(parents=True, exist_ok=True)
         document_path.write_text(f"---\n{frontmatter_text}---\n\n{body}", encoding="utf-8")

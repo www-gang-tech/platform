@@ -135,3 +135,38 @@ Private ingestion state, Gmail checkpoints, OAuth token state, raw evidence, enr
 
 ### Consequences
 Multiple Git worktrees that use the same `GANG_HOME` see the same private corpus. `gang brain status` reports counts and paths without printing private content. `gang brain migrate` dry-runs migration from the old repo-local layout, and `gang brain migrate --apply` copies private state into `GANG_HOME` without deleting source files.
+
+## 2026-09-20 - Stable entity identity and evidence-backed relationships
+
+**Status:** Accepted
+
+### Context
+The corpus could search documents from Gmail, Drive, meetings, and local files, but concepts such as `Frank`, `Eliro`, and `GANG` existed only as repeated strings. Nothing connected a Gmail thread and a Drive document that referred to the same person. Epic 05 enrichment already proposed `people`, `companies`, and `projects` string arrays, which look like identity but are not.
+
+### Decision
+Canonical entity identity is an opaque UUIDv7 stored in a Markdown/YAML record under `GANG_HOME/vault/{people,companies,projects,products}`, marked with `record: entity`. Names, aliases, slugs, paths, email addresses, and domains are lookup keys, never identity. The ontology is limited to `person`, `company`, `project`, and `product`; arbitrary nouns, tags, topics, and technologies stay tags.
+
+Mentions and relationships are modeled separately. A mention (`entity_refs`) records that a document refers to an entity and proves nothing else. A relationship assertion (`entity_relationships`) is typed against a small versioned predicate vocabulary, stored on the document that carries its evidence, and must include an evidence excerpt that literally appears in that document. Co-occurrence never produces an edge.
+
+Both fields are additive. Legacy `people`/`companies`/`projects` strings are preserved unchanged and treated only as resolution candidates. No destructive migration was performed.
+
+Resolution is deterministic and ordered: exact canonical name, exact normalized alias, strong deterministic identifier (email, domain), then unresolved. Normalization folds case, unicode form, and whitespace only, so `ELIRO` matches `Eliro` while `Eliro Inc.` stays distinct. Similar names are surfaced as candidates requiring confirmation and are never auto-merged. Shared lookup keys resolve to `ambiguous` with no winner.
+
+AI may propose mentions and relationships; only an explicit `gang entity apply` mutates canonical data. `gang entity propose` defaults to a deterministic proposer over existing metadata, and AI is opt-in via `--ai`. Proposals record the base document hash and reject as stale when the document changed, reusing Epic 05 enrichment semantics. New entities named in a proposal require `--create-new`.
+
+Merge is supported but always explicit: `gang entity merge SOURCE TARGET` tombstones the source rather than deleting it, absorbs its aliases and identifiers, deterministically rewrites stable references, supersedes self-collapsing edges, and writes an audit record.
+
+Generated entity, alias, mention, and relationship tables live inside the single existing `GANG_HOME/generated/brain.sqlite` database. No graph database, second database, embedding store, or vector index was introduced.
+
+### Why
+Separating identity from names is what lets Gmail and Drive documents converge on one entity without guessing. Requiring verifiable evidence for relationships keeps the graph grounded in immutable source evidence instead of model inference. Keeping canonical state in Markdown and SQLite disposable means the graph can always be rebuilt, and a schema change never risks knowledge loss. Keeping the ontology and predicate vocabulary small avoids an unbounded modeling project that the current use cases do not need.
+
+### Consequences
+Canonical documents gain optional additive `entity_refs` and `entity_relationships` frontmatter. Connectors carry these fields forward when regenerating a document from changed source evidence, so applied references survive normal Gmail and Drive syncing. Applied enrichment fields such as `summary` are still regenerated from source on re-ingestion, which predates this epic and remains open.
+
+Private entities never reach public output: they live only under `GANG_HOME`, writing entity references to a public document is refused, and public content validation rejects `entity_refs`/`entity_relationships` in public frontmatter. The public build is byte-identical apart from timestamps whether or not entities exist.
+
+`gang index build` now also rebuilds the entity graph, and `gang index status` reports entity, mention, and relationship counts.
+
+### Revisit when
+Additional entity types are genuinely needed, legacy `people`/`companies`/`projects` strings are ready for a deliberate migration onto stable references, or free-form question answering requires the graph to expose more than deterministic structural queries.

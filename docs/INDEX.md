@@ -24,6 +24,12 @@
 - [Email Workflow](guides/EMAIL_WORKFLOW.md) - Newsletter publishing
 - [In-Place Editor Quick Start](guides/IN_PLACE_EDITOR_QUICKSTART.md) - Edit pages in context (NEW)
 
+**Private Knowledge**:
+- [Private Brain Home](guides/PRIVATE_BRAIN_HOME.md) - Durable GANG_HOME layout
+- [Gmail Ingestion](guides/GMAIL_INGESTION.md) - Import private email threads
+- [Drive Ingestion](guides/DRIVE_INGESTION.md) - Import private Drive documents
+- [Entities and Relationships](guides/ENTITIES_AND_RELATIONSHIPS.md) - Stable identities, mentions vs relationships, evidence
+
 **Workflows**:
 - [Operations Guide](guides/OPERATE.md) - Day-to-day operations
 - [Collaborative Workflow](guides/COLLABORATIVE_WORKFLOW.md) - Team workflows
