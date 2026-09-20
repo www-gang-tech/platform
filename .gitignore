@@ -34,3 +34,6 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Private Gmail-derived canonical knowledge
+brain/vault/emails/

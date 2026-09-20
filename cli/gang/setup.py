@@ -1,10 +1,10 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
 setup(
     name='gang-cli',
     version='1.0.0',
     py_modules=['cli'],
-    packages=['core'],
+    packages=find_packages(),
     package_dir={'core': 'core'},
     install_requires=[
         'click>=8.0.0',
@@ -17,6 +17,8 @@ setup(
         'requests>=2.31.0',
         'watchdog>=3.0.0',
         'boto3>=1.28.0',
+        'google-auth-oauthlib>=1.2.0',
+        'google-api-python-client>=2.100.0',
     ],
     entry_points={
         'console_scripts': [

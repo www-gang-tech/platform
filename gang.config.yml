@@ -107,6 +107,33 @@ types:
       - name: unresolved_questions
         type: array
         required: false
+
+  email-thread:
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: source_id
+        type: string
+        required: true
+      - name: gmail
+        type: object
+        required: true
+      - name: sources
+        type: array
+        required: true
+      - name: people
+        type: array
+        required: false
+      - name: companies
+        type: array
+        required: false
+      - name: projects
+        type: array
+        required: false
+      - name: tags
+        type: array
+        required: false
         
   project:
     extends: page

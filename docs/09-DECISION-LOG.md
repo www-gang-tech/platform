@@ -64,3 +64,28 @@ New public documents must be created under `brain/vault/public/`. The legacy `co
 
 ### Revisit when
 Legacy rollback mode is no longer needed and `content/` can be archived or removed in a later deprecation epic.
+
+## 2026-09-20 - Gmail ingestion source boundary
+
+**Status:** Accepted
+
+### Context
+Private email should be searchable in the local knowledge vault, but Gmail remains the external source of record. Email contains untrusted HTML, remote resources, attachments, quoted history, and private secrets. Ingestion must also stay separate from AI enrichment.
+
+### Decision
+Gmail is implemented as a single production connector behind a narrow provider boundary. OAuth uses the local installed-app flow with the minimum practical read-only scope, `gmail.readonly`. OAuth client secrets and tokens are private generated state under `brain/vault/.ingestion/gmail/`, which is gitignored, and are never written to canonical Markdown.
+
+Canonical vault records are thread-level documents with `type: email-thread`; individual Gmail messages remain immutable raw evidence. Raw message MIME is stored in `brain/raw/gmail-message/...`; thread manifests are stored in `brain/raw/gmail-thread/...`; attachments are stored in `brain/raw/gmail-attachment/...` with filename, MIME type, parent message, content hash, and raw reference. Source identity uses Gmail thread IDs, Gmail message IDs, and Gmail attachment IDs, never subject, sender, or timestamp alone.
+
+The first sync must be explicitly bounded with a value such as `gang ingest gmail --since 30d`. Later `gang ingest gmail` runs use a private checkpoint based on the maximum successfully processed Gmail internal date. The checkpoint is only advanced after a failure-free sync, so a partial failure cannot skip undiscovered or unprocessed source evidence.
+
+Canonical email-thread documents default to `visibility: private` and `status: active`. They are written outside `brain/vault/public/`, are indexed only by the private SQLite FTS index, and must not enter the public renderer, sitemap, feeds, Content API, AgentMap, or public search. Gmail ingestion is deterministic and never invokes AI; optional enrichment remains an explicit later `gang enrich DOCUMENT_ID` workflow.
+
+### Why
+This preserves Gmail as authoritative source evidence while allowing local deterministic search and provenance. Thread-level canonical documents match how email conversations are understood by humans without duplicating one Markdown file per message.
+
+### Consequences
+Local setup requires creating a Google OAuth desktop client, saving the client secret JSON as `brain/vault/.ingestion/gmail/oauth_client_secret.json`, running `gang ingest gmail auth`, and then starting with a bounded sync. HTML email is normalized to safe text for canonical Markdown while the original MIME remains authoritative in raw storage. Attachments are preserved for provenance only; they are not OCRed, executed, summarized, or transformed.
+
+### Revisit when
+Additional connectors are approved or Gmail incremental history IDs are needed for high-volume mailbox synchronization.

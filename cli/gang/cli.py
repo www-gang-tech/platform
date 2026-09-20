@@ -996,6 +996,101 @@ def ingest_inspect(source_id):
     click.echo(json.dumps(record, indent=2, sort_keys=True))
 
 
+@ingest.group("gmail", invoke_without_command=True)
+@click.option("--since", help="Bounded first sync range, such as 30d or 2026-01-31")
+@click.pass_context
+def ingest_gmail(ctx, since):
+    """Authenticate and import Gmail threads as private knowledge"""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    try:
+        from core.ingestion import GmailIngestionError, GmailSyncService, GoogleGmailProvider
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import GmailIngestionError, GmailSyncService, GoogleGmailProvider
+
+    try:
+        result = GmailSyncService(GoogleGmailProvider()).sync(since=since)
+    except GmailIngestionError as e:
+        click.echo(f"❌ Gmail ingest failed: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"❌ Gmail ingest failed: {e}", err=True)
+        raise click.Abort()
+
+    _print_gmail_sync_result(result)
+
+
+@ingest_gmail.command("auth")
+def ingest_gmail_auth():
+    """Authorize Gmail read access for this local workspace"""
+    try:
+        from core.ingestion import GmailIngestionError, GoogleGmailProvider
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import GmailIngestionError, GoogleGmailProvider
+
+    provider = GoogleGmailProvider()
+    try:
+        token_path = provider.authenticate()
+    except GmailIngestionError as e:
+        click.echo(f"❌ Gmail auth failed: {e}", err=True)
+        raise click.Abort()
+    click.echo("✅ Gmail authorized")
+    click.echo(f"  Token: {token_path}")
+    click.echo("  Scope: gmail.readonly")
+
+
+@ingest_gmail.command("status")
+def ingest_gmail_status():
+    """Show private Gmail connector status"""
+    try:
+        from core.ingestion import GmailSyncService, GoogleGmailProvider
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import GmailSyncService, GoogleGmailProvider
+
+    status = GmailSyncService(GoogleGmailProvider()).status()
+    checkpoint = status["checkpoint"]
+    click.echo("Gmail ingestion")
+    click.echo(f"  Checkpoint: {status['checkpoint_path']}")
+    click.echo(f"  Threads: {status['threads']}")
+    click.echo(f"  Documents: {status['documents']}")
+    if checkpoint:
+        click.echo(f"  Last successful sync: {checkpoint.get('last_successful_sync_at')}")
+        click.echo(f"  Last checkpoint: {checkpoint.get('last_successful_internal_date_ms')}")
+        click.echo(f"  Last query: {checkpoint.get('last_query')}")
+    else:
+        click.echo("  Last successful sync: never")
+
+
+def _print_gmail_sync_result(result):
+    click.echo("Gmail ingestion complete")
+    click.echo(f"  Threads discovered: {result.threads_discovered}")
+    click.echo(f"  Messages discovered: {result.messages_discovered}")
+    click.echo(f"  Created: {result.created}")
+    click.echo(f"  Updated: {result.updated}")
+    click.echo(f"  Unchanged: {result.unchanged}")
+    click.echo(f"  Failed: {result.failed}")
+    checkpoint_value = result.checkpoint.get("last_successful_internal_date_ms") if result.checkpoint else None
+    click.echo(f"  Checkpoint: {checkpoint_value or 'not advanced'}")
+    for item in result.results:
+        click.echo(f"  - Thread: {item.thread_id}")
+        click.echo(f"    Status: {item.status}")
+        if item.document_id:
+            click.echo(f"    Document ID: {item.document_id}")
+        if item.document_path:
+            click.echo(f"    Document: {item.document_path}")
+        click.echo(f"    Source ID: {item.source_id}")
+        click.echo(f"    Messages: {item.messages}")
+        if item.error:
+            click.echo(f"    Error: {item.error}")
+
+
 @cli.group("index")
 def private_index():
     """Build and inspect the local private knowledge index"""
