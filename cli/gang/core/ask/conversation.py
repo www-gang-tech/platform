@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import affiliation as affiliation_module
 from . import authority as authority_module
+from . import deterministic as deterministic_module
 from . import followup as followup_module
 from . import intent as intent_module
 from . import synthesis
@@ -49,12 +50,12 @@ from .answer import (
 from .evidence import EvidenceBundle, build_bundle
 from .plan import DEFAULT_LIMIT
 from .planner import PlanOverrides
-from .research import AnthropicResearchDirector, ResearchLimits, ResearchLoop
+from .research import AnthropicResearchDirector, ResearchLimits, ResearchLoop, ResearchResult
 from .service import AskError, AskOptions, AskService
 from .session import Session, SessionStore
 from .synthesis import SynthesisError
 from .timeline import build_timeline, to_payload as timeline_payload
-from .tools import ResearchTools
+from .tools import ResearchTools, ToolError, ToolResult
 
 
 CONVERSATION_RESULT_VERSION = "1"
@@ -236,6 +237,11 @@ class ConversationService(AskService):
     # ------------------------------------------------------------- research
 
     def _research(self, question, planning, intent, session, options):
+        if not options.use_ai:
+            deterministic = self._deterministic_research(question, planning, intent)
+            if deterministic is not None:
+                return deterministic
+
         loop = ResearchLoop(
             self._tools(),
             limits=self.limits,
@@ -248,6 +254,73 @@ class ConversationService(AskService):
             resolved_entities=planning.resolved_entities,
             session_context=session.context_summary(),
         )
+
+    def _deterministic_research(self, question, planning, intent):
+        """Use typed deterministic capabilities before generic retrieval.
+
+        Returning ``None`` means no clean deterministic operation maps to the
+        question, so the normal retrieval-only fallback is still appropriate.
+        """
+        routes = deterministic_module.capability_routes(question, planning.plan, intent)
+        if routes is None:
+            return None
+
+        tools = self._tools()
+        result = ResearchResult(rounds=1, stopped_because="deterministic-capability")
+        seen = set()
+        for route in routes:
+            outcome = self._deterministic_call(tools, route, planning)
+            if outcome is None:
+                continue
+            added: List[str] = []
+            for row in outcome.documents:
+                document_id = str(row.get("document_id") or "")
+                if not document_id or document_id in seen:
+                    continue
+                if len(result.rows) >= self.limits.max_documents:
+                    result.stopped_because = "max-documents"
+                    break
+                seen.add(document_id)
+                result.rows.append(row)
+                added.append(document_id)
+            key = route.get("key") or ""
+            if key and outcome.records:
+                result.records.setdefault(key, []).extend(outcome.records)
+            entry = outcome.trace_entry(route.get("reason") or "")
+            entry["document_ids"] = added
+            result.trace.append(entry)
+        return result
+
+    def _deterministic_call(self, tools: ResearchTools, route, planning):
+        tool_name = route.get("tool")
+        try:
+            if tool_name == "canonical_entity_description":
+                entity_ids: List[str] = [
+                    str(entity.get("entity_id") or "")
+                    for entity in planning.resolved_entities
+                    if entity.get("entity_id")
+                ]
+                for value in planning.plan.entity_ids:
+                    if value not in entity_ids:
+                        entity_ids.append(value)
+                rows = self.retriever.foundational_documents(entity_ids)
+                return ToolResult(
+                    tool="get_entity",
+                    arguments={"entity_ids": entity_ids},
+                    documents=rows,
+                    note=(
+                        "Authored canonical identity."
+                        if rows
+                        else "No canonical entity description matched."
+                    ),
+                )
+            return tools.call(tool_name, route.get("arguments") or {})
+        except ToolError as exc:
+            return ToolResult(
+                tool=str(tool_name or ""),
+                arguments=route.get("arguments") or {},
+                note=str(exc),
+            )
 
     def _tools(self) -> ResearchTools:
         return ResearchTools(
@@ -312,6 +385,12 @@ class ConversationService(AskService):
                 {"mode": "deterministic", "reason": "listing-question", "cached": False},
             )
         if not options.use_ai:
+            deterministic = deterministic_module.capability_answer(context)
+            if deterministic is not None:
+                return (
+                    deterministic,
+                    {"mode": "deterministic", "reason": "deterministic-capability", "cached": False},
+                )
             return (
                 deterministic_conversation_answer(
                     bundle, reason="ai-disabled", intent=context.intent

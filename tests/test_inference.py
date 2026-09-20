@@ -657,6 +657,60 @@ class GroupQuestionTests(InferenceTestCase):
                 self.assertFalse(name.lower().startswith(("to:", "- to", "cc:", "sent")))
                 self.assertFalse(name[:1].isdigit())
 
+    def test_participant_normalization_rejects_service_org_and_title_fragments(self):
+        service = EntityService(root_path=self.root, private_home=self.home)
+        service.create(
+            "person",
+            "Daniel Hirunrusme",
+            aliases=["Daniel"],
+            emails=["daniel@gang.tech"],
+        )
+        write_markdown(
+            self.home / "vault/emails/noisy-participants.md",
+            {
+                "id": "01a0bee1-7f14-7b41-a4e3-f4dbd6a39205",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "title": "GANG — Eliro",
+                "visibility": "private",
+                "status": "active",
+                "source_id": "gmail_noisy_participants",
+                "created": "2026-09-15",
+                "updated": "2026-09-15",
+            },
+            "From: Daniel Hirunrusme & <daniel@gang.tech>\n"
+            "To: daniel@gang.te, Anthropic <news@anthropic.example>, "
+            "Automation for Tracker <automation@tracker.example>, "
+            "Farmstand <farmstand@skyhighfarmgoods.example>, "
+            "Riley Chen <riley.chen@example.org>, GANG — Eliro\n\n"
+            "Riley Chen joined the launch discussion.\n",
+        )
+
+        _, _, rows = self.participants()
+
+        self.assertIn("Daniel Hirunrusme", rows)
+        self.assertIn("Riley Chen", rows)
+        self.assertEqual(rows["Riley Chen"]["band"], affiliation_module.UNCLEAR)
+        self.assertNotIn(
+            "Riley Chen",
+            [
+                record.name
+                for record in EntityService(root_path=self.root, private_home=self.home)
+                .store.load_all()
+            ],
+        )
+        for noise in (
+            "Daniel Hirunrusme &",
+            "daniel@gang.te",
+            "Anthropic",
+            "Automation for Tracker",
+            "Farmstand",
+            "farmstand@skyhighfarmgoods.example",
+            "GANG — Eliro",
+        ):
+            with self.subTest(noise=noise):
+                self.assertNotIn(noise, rows)
+
     def test_a_passing_mention_of_a_factory_does_not_make_everyone_a_vendor(self):
         """A board thread that mentions manufacturing is not a supplier thread."""
         write_markdown(
@@ -713,6 +767,65 @@ class GroupQuestionTests(InferenceTestCase):
 
         self.assertFalse(payload["home_company_known"])
         self.assertIn("cannot be separated reliably", payload["rule"])
+
+
+class DeterministicNoAiInferenceTests(InferenceTestCase):
+    def no_ai(self, question, *, synthesizer=None):
+        service = self.service(synthesizer=synthesizer or StubSynthesizer())
+        result = service.converse(
+            question,
+            session=service.start(),
+            options=ConversationOptions(
+                use_ai=False, use_cache=False, persist=False, show_research=True
+            ),
+        )
+        return result, service
+
+    def test_team_query_uses_participants_not_generic_team_fts(self):
+        write_markdown(
+            self.home / "vault/emails/marketing-team-noise.md",
+            {
+                "id": "01a0bee1-7f14-7b41-a4e3-f4dbd6a39210",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "title": "Claude and Google Ads team update",
+                "visibility": "private",
+                "status": "active",
+                "source_id": "gmail_marketing_noise",
+                "created": "2026-09-19",
+                "updated": "2026-09-19",
+            },
+            "From: The Claude Team <newsletter@anthropic.com>\n\n"
+            "The Google Ads team recommends refreshing your campaign structure.\n",
+        )
+        self.build_index()
+
+        result, _ = self.no_ai("who is on the team?")
+        titles = {source["title"] for source in result["sources"]}
+        trace_tools = [entry["tool"] for entry in result["research"]["trace"]]
+
+        self.assertIn("find_participants", trace_tools)
+        self.assertIn("Likely core/internal", result["answer"])
+        self.assertIn("External/advisory", result["answer"])
+        self.assertIn("Unclear", result["answer"])
+        self.assertIn("Dana Okonkwo", result["answer"])
+        self.assertNotIn("Claude and Google Ads team update", titles)
+        self.assertNotIn("Claude", result["answer"])
+        self.assertNotIn("Google Ads", result["answer"])
+
+    def test_canonical_definition_works_without_ai(self):
+        synthesizer = StubSynthesizer()
+        self.build_index()
+
+        result, _ = self.no_ai("what is GANG?", synthesizer=synthesizer)
+
+        self.assertEqual(synthesizer.contexts, [])
+        self.assertEqual(result["synthesis"]["reason"], "deterministic-capability")
+        self.assertIn(
+            "GANG is a design and manufacturing company building intentional objects.",
+            result["answer"],
+        )
+        self.assertEqual([entry["tool"] for entry in result["research"]["trace"]], ["get_entity"])
 
 
 # ============================================ diagnostics stay out of the way

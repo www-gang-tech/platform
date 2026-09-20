@@ -1410,7 +1410,7 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
 @click.option("--show-sources", is_flag=True, help="Show source IDs, excerpts, and entity references per citation")
 @click.option("--json", "as_json", is_flag=True, help="Emit the structured result instead of terminal prose")
 @click.option("--plan", "plan_only", is_flag=True, help="Show the typed query plan without retrieving or answering")
-@click.option("--no-ai", is_flag=True, help="Answer deterministically from retrieval only")
+@click.option("--no-ai", is_flag=True, help="Use deterministic GANG capabilities only")
 @click.option("--no-cache", is_flag=True, help="Skip the disposable answer cache")
 @click.option("--show-research", is_flag=True, help="Show the research trace: tools called and why")
 @click.option("--mode", "mode_override", type=click.Choice(["evidence", "advisory", "ideation"]),
@@ -1848,7 +1848,7 @@ def _print_ask_answer(result, *, show_sources=False, show_diagnostics=True):
     meta = result.get("synthesis", {})
     if meta.get("mode") == "deterministic":
         click.echo("")
-        click.echo(f"(answered from retrieval only: {meta.get('reason', 'deterministic')})")
+        click.echo(f"(answered deterministically: {meta.get('reason', 'deterministic')})")
 
     if show_diagnostics:
         _print_ask_diagnostics(result)

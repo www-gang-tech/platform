@@ -108,9 +108,15 @@ _ADVISORY = re.compile(
 #: occasional header fragment.
 _NOT_A_PERSON = re.compile(
     r"^(?:undisclosed|recipients?|no-?reply|noreply|do-?not-?reply|team|all|everyone|"
-    r"info|hello|support|admin|contact|sales|billing|"
+    r"info|hello|support|admin|contact|sales|billing|press|marketing|news|"
     # Header labels the collapsed text drags in when one line runs into another.
     r"to|cc|bcc|from|sent|subject|date|participants|attendees|present)\b",
+    re.IGNORECASE,
+)
+
+_SERVICE_OR_ORG_WORD = re.compile(
+    r"\b(?:automation|automated|bot|service|system|workflow|notification|notifications|"
+    r"newsletter|digest|updates?|support|helpdesk)\b",
     re.IGNORECASE,
 )
 
@@ -126,7 +132,8 @@ _AUTOMATED_LOCAL = re.compile(
     # every bit as automated as `noreply@`.
     r"(?:^|[.\-_+])(?:no-?reply|do-?not-?reply|donotreply|notifications?|updates?|mailer|"
     r"bounce[sd]?|postmaster|daemon|forward|alerts?|digest|newsletter|"
-    r"support|help|billing|invoices?|receipts?)\b",
+    r"support|help|billing|invoices?|receipts?|info|hello|contact|sales|press|"
+    r"marketing|news)\b",
     re.IGNORECASE,
 )
 _AUTOMATED_DOMAIN = re.compile(
@@ -231,10 +238,16 @@ def gather(
     by_email, by_name = _person_lookup(people)
     org_domains = _org_domains(companies)
     home = {_domain(value) for value in home_domains if _domain(value)}
+    known_domains = set(home) | set(org_domains)
+    for record in people:
+        for email in getattr(record, "emails", []) or []:
+            domain = _domain(email)
+            if domain:
+                known_domains.add(domain)
 
     found: Dict[str, Participant] = {}
     for row in rows:
-        _absorb_document(row, found, by_email, by_name, known_people)
+        _absorb_document(row, found, by_email, by_name, known_people, known_domains)
 
     _merge_duplicates(found)
     for participant in found.values():
@@ -261,6 +274,7 @@ def _absorb_document(
     by_email: Dict[str, Any],
     by_name: Dict[str, Any],
     known_people: Dict[str, Any],
+    known_domains: Set[str],
 ) -> None:
     document_id = str(row.get("document_id") or "")
     body = str(row.get("body") or "")
@@ -294,10 +308,14 @@ def _absorb_document(
     # 2. People named in participant/attendee/From/To lines.
     for match in _PARTICIPANT_LINE.finditer(body):
         for name, email in _split_participants(match.group("value")):
-            record = by_email.get(email) or by_name.get(_fold(name))
-            if record is None and _is_automated(email):
+            email = _valid_email(email, known_domains)
+            name = _clean_person_name(name)
+            record = by_email.get(email) or by_name.get(_fold(name)) or _prefix_record(name, by_name)
+            if record is not None:
+                name = record.name
+            if record is None and email and _is_automated(email):
                 continue
-            if record is None and not email and not _looks_like_a_name(name):
+            if record is None and not _candidate_person(name, email):
                 continue
             key = record.id if record is not None else (email or _fold(name))
             if not key or _NOT_A_PERSON.match(name or email or ""):
@@ -723,10 +741,112 @@ def _split_participants(value: str) -> List[Tuple[str, str]]:
     return people
 
 
+def _valid_email(email: str, known_domains: Set[str]) -> str:
+    """Return a syntactically useful address, or empty for malformed fragments."""
+    text = _fold(email)
+    if not text or not _EMAIL.fullmatch(text):
+        return ""
+    local, _, domain = text.partition("@")
+    if not local or not domain or "." not in domain:
+        return ""
+    labels = domain.split(".")
+    if any(not label or label.startswith("-") or label.endswith("-") for label in labels):
+        return ""
+    if any(len(label) > 63 for label in labels):
+        return ""
+    # Collapsed/truncated mail often leaves `name@company.te` when the known
+    # domain is `company.tech`. Treat strict prefixes of known domains as
+    # broken fragments, while leaving unrelated two-letter ccTLDs alone.
+    if any(known.startswith(domain) and known != domain for known in known_domains):
+        return ""
+    return text
+
+
+def _clean_person_name(name: str) -> str:
+    text = _ENTITY_RESIDUE.sub(" ", str(name or ""))
+    text = text.replace("<", " ").replace(">", " ")
+    text = re.sub(
+        r"^[\s\-*>]*(?:to|cc|bcc|from|sent|subject|date)\s*:\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\s+", " ", text).strip(" \t\"'()-").strip()
+    # Ampersands and title separators at the edge are usually residue from a
+    # collapsed recipient/title line, not part of a person's name.
+    text = text.strip(" &|/")
+    return text
+
+
+def _candidate_person(name: str, email: str) -> bool:
+    """Whether an unresolved header chunk should become an unclear person."""
+    if name:
+        if email and _display_name_matches_domain(name, email):
+            return False
+        if email and _single_token_name_matches_nonhuman_mailbox(name, email):
+            return False
+        return _looks_like_a_name(name)
+    if not email or _is_automated(email):
+        return False
+    local, _, _ = email.partition("@")
+    return _bare_email_is_human_like(local)
+
+
+def _bare_email_is_human_like(local: str) -> bool:
+    """Keep likely human bare addresses, reject role or organization mailboxes."""
+    text = _fold(local)
+    if not text or _NOT_A_PERSON.match(text) or _SERVICE_OR_ORG_WORD.search(text):
+        return False
+    parts = [part for part in re.split(r"[._+-]+", text) if part]
+    if len(parts) >= 2 and all(part.isalpha() and len(part) >= 2 for part in parts[:2]):
+        return True
+    # First-initial plus surname is a common human mailbox. A single noun like
+    # `farmstand@` or `studio@` is too ambiguous to promote to a participant.
+    return bool(re.fullmatch(r"[a-z][a-z]{2,}", text) and re.search(r"[._+-]", local))
+
+
+def _display_name_matches_domain(name: str, email: str) -> bool:
+    domain = _domain(email)
+    if not domain:
+        return False
+    stem = domain.split(".")[0]
+    return _letters_only(name) == _letters_only(stem)
+
+
+def _single_token_name_matches_nonhuman_mailbox(name: str, email: str) -> bool:
+    tokens = str(name or "").split()
+    if len(tokens) != 1:
+        return False
+    local = _fold(email).partition("@")[0]
+    return _letters_only(tokens[0]) == _letters_only(local) and not _bare_email_is_human_like(local)
+
+
+def _letters_only(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", _fold(value))
+
+
+def _prefix_record(name: str, by_name: Dict[str, Any]) -> Any:
+    """Resolve a collapsed candidate when its leading tokens are canonical."""
+    tokens = str(name or "").split()
+    for size in range(min(len(tokens), MAX_NAME_TOKENS - 1), 0, -1):
+        record = by_name.get(_fold(" ".join(tokens[:size])))
+        if record is not None:
+            return record
+    return None
+
+
 def _looks_like_a_name(name: str) -> str:
     """Whether a chunk with no address attached reads as a person's name."""
     text = (name or "").strip()
     if not text or len(text) > MAX_NAME_CHARS:
+        return False
+    if any(separator in text for separator in ("—", "–", "|")):
+        return False
+    if " for " in f" {text.casefold()} ":
+        return False
+    if "&" in text or "@" in text:
+        return False
+    if _SERVICE_OR_ORG_WORD.search(text):
         return False
     tokens = text.split()
     if not 1 <= len(tokens) <= MAX_NAME_TOKENS:
@@ -736,6 +856,8 @@ def _looks_like_a_name(name: str) -> str:
         # phrases; a person's name does not start with a digit.
         return False
     if _fold(tokens[-1]) in ("team", "group", "list", "support", "notifications"):
+        return False
+    if any(token.isupper() and len(token) > 1 for token in tokens):
         return False
     if any(character in text for character in ".!?"):
         # Initials are fine; sentence punctuation is not.

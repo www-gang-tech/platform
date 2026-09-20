@@ -2922,6 +2922,74 @@ class DeterministicFirstTests(ConversationTestCase):
         self.assertTrue(any("Resolved date range" in note for note in result["notes"]))
 
 
+class DeterministicNoAiRoutingTests(ConversationTestCase):
+    def no_ai(self, question, *, service=None):
+        service = service or self.service()
+        result = service.converse(
+            question,
+            session=service.start(),
+            options=ConversationOptions(
+                use_ai=False, use_cache=False, persist=False, show_research=True
+            ),
+        )
+        return result, service
+
+    def test_timeline_questions_route_to_timeline_primitive_without_ai(self):
+        self.build_index()
+
+        result, _ = self.no_ai("What changed with certification?")
+
+        self.assertEqual(result["synthesis"]["reason"], "deterministic-capability")
+        self.assertIn("build_timeline", [entry["tool"] for entry in result["research"]["trace"]])
+        self.assertIn("Timeline", result["answer"])
+
+    def test_decision_questions_route_to_decision_primitive_without_ai(self):
+        self.build_index()
+
+        result, _ = self.no_ai("What decisions were recorded?")
+
+        self.assertIn("find_decisions", [entry["tool"] for entry in result["research"]["trace"]])
+        self.assertIn("Drop the outer sleeve from the packaging.", result["answer"])
+
+    def test_action_item_questions_route_to_action_primitive_without_ai(self):
+        self.build_index()
+
+        result, _ = self.no_ai("What action items are there?")
+
+        self.assertIn("find_action_items", [entry["tool"] for entry in result["research"]["trace"]])
+        self.assertIn("Confirm carton art sign-off", result["answer"])
+
+    def test_open_question_and_blocker_questions_route_to_open_question_primitive_without_ai(self):
+        self.build_index()
+
+        open_result, _ = self.no_ai("What open questions are there?")
+        blocker_result, _ = self.no_ai("What's blocking packaging?")
+
+        self.assertIn("find_open_questions", [entry["tool"] for entry in open_result["research"]["trace"]])
+        self.assertIn("Who signs off on the final carton art?", open_result["answer"])
+        self.assertIn("find_open_questions", [entry["tool"] for entry in blocker_result["research"]["trace"]])
+
+    def test_generic_fts_still_works_as_no_ai_fallback(self):
+        self.build_index()
+
+        result, _ = self.no_ai("Show documents about certification")
+
+        self.assertEqual(result["synthesis"]["reason"], "listing-question")
+        self.assertIn("search_documents", [entry["tool"] for entry in result["research"]["trace"]])
+        self.assertIn("Certification", result["answer"])
+
+    def test_no_ai_makes_zero_provider_calls(self):
+        self.build_index()
+        synthesizer = StubSynthesizer()
+        service = self.service(synthesizer=synthesizer)
+
+        self.no_ai("What action items are there?", service=service)
+        self.no_ai("Show documents about certification", service=service)
+
+        self.assertEqual(synthesizer.contexts, [])
+        self.assertEqual(synthesizer.requests, [])
+
+
 class WorkingEvidenceSetTests(ConversationTestCase):
     def test_later_rounds_add_evidence_and_never_remove_it(self):
         self.build_index()

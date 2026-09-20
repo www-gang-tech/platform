@@ -60,6 +60,16 @@ _PRONOUN = re.compile(
     r"\b(?:it|its|that|this|those|these|them|they|their|there)\b", re.IGNORECASE
 )
 
+#: "There" is often grammatical filler rather than a back-reference.
+_EXPLETIVE_THERE = re.compile(
+    r"\b(?:what|which)\s+"
+    r"(?:decisions?|action\s+items?|open\s+questions?|blockers?|issues?)\s+"
+    r"(?:are|were|remain|remained)\s+there\b"
+    r"|\bare\s+there\s+"
+    r"(?:any\s+)?(?:decisions?|action\s+items?|open\s+questions?|blockers?|issues?)\b",
+    re.IGNORECASE,
+)
+
 #: Definite phrases that point back at something already established.
 _DEFINITE_REFERENCE = re.compile(
     r"\bthe\s+(?:project|plan|latest\s+plan|work|certification\s+work|issues?|"
@@ -215,6 +225,9 @@ def _has_anaphora(text: str) -> bool:
         return True
     if not _PRONOUN.search(text):
         return False
+    if _EXPLETIVE_THERE.search(text):
+        without_there = re.sub(r"\bthere\b", "", text, flags=re.IGNORECASE)
+        return bool(_PRONOUN.search(without_there))
     # "What is our current BOM?" has no pronoun; "what's blocking it?" does.
     # "Is there a decision?" uses "there" expletively, so require the question
     # to be short enough that the pronoun is carrying real weight, or to have
