@@ -67,7 +67,13 @@ DECISIONS = (
 #: Which tools each decision may reach for. A decision that names a tool
 #: outside its own set is a contradiction, and is refused.
 DECISION_TOOLS = {
-    SEARCH_MORE: {"search_documents", "find_decisions", "find_action_items", "find_open_questions"},
+    SEARCH_MORE: {
+        "search_documents",
+        "find_decisions",
+        "find_action_items",
+        "find_open_questions",
+        "find_participants",
+    },
     READ_DOCUMENT: {"get_document", "get_document_excerpt", "compare_documents"},
     RESOLVE_ENTITY: {"get_entity", "get_entity_documents", "get_relationships"},
     BUILD_TIMELINE: {"build_timeline"},
@@ -302,6 +308,20 @@ class ResearchLoop:
                     "arguments": dict(arguments),
                     "reason": f"{intent.policy} questions are answered chronologically",
                     "key": "timeline",
+                }
+            )
+        if getattr(intent, "wants_people", False):
+            participants: Dict[str, Any] = {}
+            if plan.text_queries:
+                participants["topic"] = plan.text_queries[0]
+            if plan.entity_ids:
+                participants["entity_id"] = plan.entity_ids[0]
+            calls.append(
+                {
+                    "tool": "find_participants",
+                    "arguments": participants,
+                    "reason": "who-is-involved questions are assembled from participation signals",
+                    "key": "participants",
                 }
             )
         if getattr(intent, "wants_structured", False):
@@ -620,6 +640,7 @@ def _record_key(tool_name: str) -> str:
         "get_relationships": "relationships",
         "get_entity": "entities",
         "get_document_excerpt": "excerpts",
+        "find_participants": "participants",
     }.get(tool_name, "")
 
 

@@ -698,6 +698,12 @@ def _clean_markdown(text: str) -> str:
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"[*_]{1,3}([^*_]+)[*_]{1,3}", r"\1", text)
+    # `<name@example.com>` is the RFC form of an address, not markup. Unwrap
+    # it before tags are stripped, or every mail header loses the one piece
+    # of identity it reliably carries.
+    text = re.sub(
+        r"<\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\s*>", r"\1", text
+    )
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()

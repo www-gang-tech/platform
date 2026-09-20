@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core import enrichment_state
 
+from . import affiliation as affiliation_module
 from . import timeline as timeline_module
 from .plan import MAX_LIMIT, QueryPlanError, validate_plan
 from .retrieval import Retriever
@@ -255,6 +256,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
     ),
     ToolSpec(
+        "find_participants",
+        "Who is involved with a topic, assembled from participation signals rather than a roster.",
+        (
+            Parameter("topic", STRING, "Subject to scope participation to, such as certification."),
+            Parameter("entity_id", ID, "Scope to documents mentioning this entity."),
+            Parameter("since", DATE, "Earliest document date to consider (YYYY-MM-DD)."),
+            Parameter("until", DATE, "Latest document date to consider (YYYY-MM-DD)."),
+            Parameter("limit", INTEGER, "Maximum people to return.", maximum=MAX_TOOL_RESULTS),
+        ),
+    ),
+    ToolSpec(
         "compare_documents",
         "Put two documents side by side so their differences can be described.",
         (Parameter("document_ids", ID_LIST, "Exactly two document ids.", required=True),),
@@ -288,11 +300,15 @@ class ResearchTools:
         *,
         registry_path: Optional[Path] = None,
         resolver: Optional[Any] = None,
+        entities: Sequence[Any] = (),
         max_results: int = MAX_TOOL_RESULTS,
     ):
         self.retriever = retriever
         self.registry_path = Path(registry_path) if registry_path else None
         self.resolver = resolver
+        #: Canonical entity records, used as the vocabulary for recognizing
+        #: people and telling one organization from another.
+        self.entities = list(entities)
         self.max_results = max(1, min(int(max_results), MAX_LIMIT))
 
     # ------------------------------------------------------------ dispatch
@@ -578,6 +594,69 @@ class ResearchTools:
         )
         return ToolResult(
             tool="get_relationships", arguments=values, documents=rows, records=records
+        )
+
+    def _tool_find_participants(self, values: Dict[str, Any]) -> ToolResult:
+        """Assemble the people around a topic. Deterministic; bands, not titles.
+
+        Participation is a breadth question — three appearances across two
+        months is the signal — so this scans more documents than an answer
+        would ever cite, and returns people rather than documents.
+        """
+        topic = values.get("topic", "")
+        entity_id = values.get("entity_id", "")
+
+        plan_arguments: Dict[str, Any] = {"limit": MAX_LIMIT, "order": "recency"}
+        if topic:
+            plan_arguments["text_queries"] = [topic]
+        if entity_id:
+            plan_arguments["entity_ids"] = [entity_id]
+        for bound in ("since", "until"):
+            if values.get(bound):
+                plan_arguments[bound] = values[bound]
+
+        plan = self._plan(**plan_arguments)
+        rows = [] if plan.is_empty else self.retriever.retrieve(plan)
+        if not rows:
+            # No topic given, or nothing matched: fall back to the most recent
+            # operating record, which is where participation actually shows.
+            rows = self.retriever.recent_documents(limit=MAX_LIMIT)
+
+        people = [record for record in self.entities if record.type == "person"]
+        companies = [record for record in self.entities if record.type == "company"]
+        home = [
+            domain
+            for record in companies
+            if getattr(record, "foundational", False)
+            for domain in (getattr(record, "domains", []) or [])
+        ]
+
+        participants = affiliation_module.gather(
+            rows,
+            people=people,
+            companies=companies,
+            home_domains=home,
+            limit=int(values.get("limit") or self.max_results),
+        )
+
+        cited_ids: List[str] = []
+        for participant in participants:
+            for document_id in participant.document_ids:
+                if document_id not in cited_ids:
+                    cited_ids.append(document_id)
+
+        return ToolResult(
+            tool="find_participants",
+            arguments=values,
+            documents=self.retriever.documents(cited_ids[: self.max_results]),
+            records=[participant.to_dict() for participant in participants],
+            note=(
+                "Bands assembled from participation, email domain, ownership language, "
+                "recorded relationships, and time. Not a roster and not an org chart; "
+                "any statement about someone's relationship to the company is an inference."
+                if participants
+                else "No participants could be identified in the documents for this topic."
+            ),
         )
 
     # ---------------------------------------------------------- structured

@@ -2846,12 +2846,20 @@ class GroundingWarningRenderingTests(ConversationTestCase):
         import contextlib
         import io
 
-        stderr = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
-            gang_cli._print_conversation_answer(result)
+        def render(**kwargs):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                gang_cli._print_conversation_answer(result, **kwargs)
+            return stdout.getvalue(), stderr.getvalue()
 
-        self.assertIn("unverified numeric claim", stderr.getvalue())
-        self.assertIn("no citation supports it", stderr.getvalue())
+        # Debug output shows the warnings, and does not crash on either shape.
+        _, debug = render(show_research=True)
+        self.assertIn("unverified numeric claim", debug)
+        self.assertIn("no citation supports it", debug)
+
+        # A normal reply keeps them to itself.
+        normal_out, normal_err = render()
+        self.assertNotIn("unverified numeric claim", normal_err + normal_out)
 
     def test_warnings_survive_json_output(self):
         self.build_index()

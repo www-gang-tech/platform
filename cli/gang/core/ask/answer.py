@@ -220,14 +220,26 @@ _LEDGER = (
     "Alongside the prose, return every substantive statement as a typed claim. The prose may "
     "read naturally; the ledger is what makes each statement's status checkable.\n"
     "- type 'fact': directly stated by cited evidence. Requires citations.\n"
-    "- type 'synthesis': your conclusion across several supported facts. Requires citations, "
-    "or derived_from listing the ids of the claims it rests on.\n"
+    "- type 'synthesis': your conclusion across several supported facts, where the facts "
+    "add up to it directly. Requires citations, or derived_from listing the claim ids it "
+    "rests on.\n"
+    "- type 'inference': a reading of the evidence that goes beyond what any source states "
+    "outright — a pattern across several facts. REQUIRED: at least two grounded facts in "
+    "derived_from, AND wording that presents it as a reading rather than a record: "
+    "'appears to', 'seems to', 'based on the record', 'the evidence suggests'. Use this "
+    "type freely: declining to draw a supported conclusion is its own kind of inaccuracy. "
+    "Never use it for employment, job titles, or reporting lines — those are matters of "
+    "record and need a source that states them outright.\n"
     "- type 'recommendation': advice you are generating. The advice itself needs no citation. "
     "Any company fact it asserts does. List the claim ids it rests on in based_on.\n"
     "- type 'idea': genuinely novel creative output. Needs no citation. List in based_on the "
     "claim ids for any company facts that shaped it.\n"
     "Give each claim a short unique id such as c1, c2. derived_from and based_on may only "
     "reference ids of claims listed EARLIER in the array.\n"
+    "An inference is not a weaker fact. 'X attends every operating meeting and owns two "
+    "deliverables' is a fact if cited; 'X appears to be part of the core team' is an "
+    "inference built on it; 'X is a GANG employee' is neither, and needs a source saying "
+    "so outright.\n"
     "Never phrase a recommendation or an idea as something the company has already decided, "
     "adopted, agreed, or approved. 'I would make certification the first gate' is a "
     "recommendation. 'We made certification the first gate' is a claim about the company and "
@@ -235,10 +247,14 @@ _LEDGER = (
 )
 
 _EVIDENCE_MODE = (
-    "This question asks what the corpus says. Report only that.\n"
+    "This question asks what the corpus says. Report that — and where several supported "
+    "facts genuinely add up to something, say so as an 'inference'.\n"
     "- Do NOT produce recommendation or idea claims. They will be rejected.\n"
     "- Do not offer advice, next steps, or opinions unless the evidence states them as "
     "something the company recorded, in which case cite it.\n"
+    "- Reasoning across evidence is not advice and is wanted here. Refusing to connect "
+    "three cited facts that plainly point somewhere makes the answer less accurate, not "
+    "more careful. Draw the conclusion, type it 'inference', and hedge it.\n"
 )
 
 _ADVISORY_MODE = (
@@ -265,6 +281,22 @@ _IDEATION_MODE = (
     "reference it from the idea's based_on.\n"
 )
 
+_PEOPLE = (
+    "Questions about who is involved:\n"
+    "- 'structured_records.participants' holds people assembled from participation, email "
+    "domains, ownership language, recorded relationships, and time. It is NOT a roster and "
+    "NOT an org chart.\n"
+    "- Group people by band and say what each band means in plain words. Name the signals "
+    "that put someone in a band, and cite the documents behind them.\n"
+    "- Every statement about a person's relationship to the company is an 'inference'. "
+    "Hedge it and give it at least two grounded facts.\n"
+    "- Never state or imply employment, a job title, or a reporting line.\n"
+    "- People in the 'unclear' band are people the evidence does not place. List them as "
+    "unplaced rather than guessing; that is useful information, not a gap.\n"
+    "- If someone has no canonical entity record, they can still be named — they are in "
+    "the documents — but say the corpus has no record for them.\n"
+)
+
 _MODE_SECTIONS = {
     intent_module.EVIDENCE: _EVIDENCE_MODE,
     intent_module.ADVISORY_MODE: _ADVISORY_MODE,
@@ -286,17 +318,19 @@ def system_prompt(mode: str) -> str:
         + _GROUNDING
         + "\n"
         + _LEDGER
+        + "\n"
+        + _PEOPLE
         + "\nWrite the prose as you would speak it — natural, direct, no preamble. "
         "Return JSON only, matching output_schema."
     )
 
 
 def _output_schema(mode: str) -> Dict[str, Any]:
-    types = "fact | synthesis"
+    types = "fact | synthesis | inference"
     if mode == intent_module.ADVISORY_MODE:
-        types = "fact | synthesis | recommendation"
+        types = "fact | synthesis | inference | recommendation"
     elif mode == intent_module.IDEATION:
-        types = "fact | synthesis | recommendation | idea"
+        types = "fact | synthesis | inference | recommendation | idea"
     return {
         "answer": "natural prose, citing evidence inline as [citation_id]",
         "claims": [
@@ -305,7 +339,7 @@ def _output_schema(mode: str) -> Dict[str, Any]:
                 "type": types,
                 "text": "one substantive statement",
                 "citations": ["citation_id supporting it, omit for recommendation/idea"],
-                "derived_from": ["ids of earlier claims this synthesis rests on"],
+                "derived_from": ["ids of earlier claims this synthesis or inference rests on"],
                 "based_on": ["ids of earlier claims this recommendation or idea rests on"],
             }
         ],
@@ -377,10 +411,16 @@ def validate_conversation_answer(
 
     answer = _prepend_labels(answer, result, intent, assumptions, preference_note)
 
-    uncertainty = _text(payload.get("uncertainty"))
-    notes = ledger_module.uncertainty_summary(result)
-    if notes:
-        uncertainty = " ".join(filter(None, [uncertainty, *notes]))
+    # What the reader sees: the model's own account of what is unsettled,
+    # plus one plain sentence about anything code had to hold back. The
+    # validator's per-claim reasoning is diagnostics and stays out of it —
+    # printing "no citation supports this claim (…)" under a conversational
+    # answer is how the system came to read as a linter.
+    uncertainty = " ".join(
+        part
+        for part in (_text(payload.get("uncertainty")), ledger_module.natural_uncertainty(result))
+        if part
+    ).strip()
 
     return {
         "version": CONVERSATION_ANSWER_VERSION,
@@ -391,6 +431,19 @@ def validate_conversation_answer(
         "conflicts": conflicts,
         "uncertainty": uncertainty,
         "insufficient_evidence": insufficient,
+        "inference_count": len([claim for claim in result.claims if claim.inferred]),
+        # Everything below is for --show-research, --json, and debugging. It
+        # is deliberately grouped so a caller can show an answer without
+        # showing the machinery that produced it.
+        "diagnostics": {
+            "validator_notes": ledger_module.uncertainty_summary(result),
+            "dropped_citations": sorted(set(dropped)),
+            "rejected_fields": rejected_fields,
+            "rejected_claims": result.rejected,
+            "grounding_warnings": result.warnings,
+            "ungrounded_premises": ledger_module.ungrounded_premises(result),
+            "softened_negatives": softened,
+        },
         "dropped_citations": sorted(set(dropped)),
         "rejected_fields": rejected_fields,
         "rejected_claims": result.rejected,
@@ -469,6 +522,16 @@ def deterministic_conversation_answer(
         "conflicts": [],
         "uncertainty": base["uncertainty"],
         "insufficient_evidence": base["insufficient_evidence"],
+        "inference_count": 0,
+        "diagnostics": {
+            "validator_notes": [],
+            "dropped_citations": [],
+            "rejected_fields": [],
+            "rejected_claims": [],
+            "grounding_warnings": [],
+            "ungrounded_premises": [],
+            "softened_negatives": [],
+        },
         "dropped_citations": [],
         "rejected_fields": [],
         "rejected_claims": [],

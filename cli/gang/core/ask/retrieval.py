@@ -495,6 +495,20 @@ class Retriever:
             }
         return [rows[value] for value in wanted if value in rows]
 
+    def recent_documents(self, *, limit: int = 25) -> List[Dict[str, Any]]:
+        """The newest documents, for questions that scope by nothing else."""
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                f"""
+                {DOCUMENT_SELECT}
+                WHERE type != 'entity'
+                ORDER BY {_recency_expression()} DESC, document_id ASC
+                LIMIT ?
+                """,
+                (max(1, min(int(limit), PASS_LIMIT)),),
+            ).fetchall()
+            return [self._row(connection, row) for row in rows]
+
     def enriched_documents(self, *, limit: int = 50) -> List[Dict[str, Any]]:
         """Documents carrying derived decision/action/question structures.
 

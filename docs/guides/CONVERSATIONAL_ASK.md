@@ -109,9 +109,45 @@ first gate" are one word apart, and only one is a claim about the company.
 | Type | What it is | What it requires |
 | --- | --- | --- |
 | `fact` | Directly stated by cited evidence | Citations; figures and entity links must survive grounding checks |
-| `synthesis` | A conclusion across several supported facts | Its own citations, or `derived_from` premises that are themselves grounded |
+| `synthesis` | Several supported facts adding up directly | Its own citations, or `derived_from` premises that are themselves grounded |
+| `inference` | A reading of the evidence that no source states outright | **Two or more** grounded premises, **and** wording that presents it as a reading |
 | `recommendation` | Normative advice the model generated | Nothing for the advice itself; citations for any company fact it asserts |
 | `idea` | Novel creative output | Nothing; but company facts shaping it must be cited |
+
+### Inference
+
+Being unable to hallucinate is not the same as being useful. Three cited facts
+— someone attends every operating meeting, owns two deliverables, and uses a
+company email address — genuinely support *"X appears to be part of the core
+team"*, and refusing to say so is its own kind of inaccuracy.
+
+So reasoning has a type of its own, with three conditions:
+
+* **At least two grounded premises** in `derived_from`. One supported fact
+  restated with a hedge is not reasoning.
+* **Hedged wording** — "appears to", "seems to", "based on the record", "the
+  evidence suggests". An unhedged inference is just an assertion, and is
+  downgraded.
+* **No formal status.** Employment, job titles, and reporting lines are
+  matters of record. No pattern of participation establishes one, so a claim
+  asserting one is downgraded regardless of how it is hedged.
+
+```
+Facts        X attends every operating meeting        [cited]
+             X owns two GANG deliverables             [cited]
+             X uses a gang.tech address               [cited]
+
+Permitted    "X appears to be part of GANG's core team."      → inference
+Not          "X is a GANG employee."                          → downgraded
+```
+
+An inference is **never a premise for another claim** — reasoning may rest on
+facts, not on other reasoning, because that is how a chain of plausible steps
+becomes indistinguishable from a record. And it **never hardens with
+repetition**: the type travels with the text into session memory, so restating
+it across ten turns leaves it exactly as provisional as it was on turn one. If
+an authoritative record later exists, that record wins — canonical identity
+outranks a reading of the evidence.
 
 Two more types are assigned by code and never by a model:
 
@@ -141,6 +177,7 @@ injection from re-aiming the answer.
 | --- | --- |
 | `lookup` | "What is our current BOM?" |
 | `definition` | "What is GANG?" — answered from [authored identity](FOUNDATIONAL_KNOWLEDGE.md) first |
+| `affiliation` | "Who is on the team?" — assembled from participation signals |
 | `status` | "What's happening with certification?" |
 | `timeline` | "What changed with packaging this month?" |
 | `compare` | "Compare the September schedules." |
@@ -170,6 +207,43 @@ facts, not to imagination — timid ideation is a failure mode too.
 
 ---
 
+## Who is involved with what
+
+"Who is on the team?" has no answer in most corpora, because nobody writes a
+roster and keeps it current. What a corpus does hold is the residue of people
+working: the same names in the same weekly meetings, an email domain, a line
+saying who owns a deliverable, a relationship someone recorded once.
+
+`find_participants` assembles those signals deterministically and sorts people
+into four coarse bands:
+
+| Band | Meaning |
+| --- | --- |
+| `likely-core-internal` | Uses the company's email domain, or recurs across the record while owning deliverables |
+| `external-advisory` | Identifies with another organization the corpus knows |
+| `collaborator-vendor` | Appears through supply, quoting, or manufacturing language |
+| `unclear` | Present in the record, but the signals do not separate |
+
+Every band carries the signals and documents behind it, because the sentence
+built on top of it is an inference and has to show its work.
+
+Two properties are load-bearing:
+
+**Attribution is by sentence, not proximity.** A collapsed attendee line puts
+every name immediately before "Dana owns the certification deliverable". Only
+the name nearest the verb, with no other person between, is its subject —
+otherwise everyone who attended owns everything discussed.
+
+**`unclear` is an answer.** Someone who turns up in every meeting for three
+months while nothing ever states their role belongs in `unclear`, and saying
+so is more useful than guessing a band. Separating internal from external
+needs a [canonical company record](FOUNDATIONAL_KNOWLEDGE.md) with an email
+domain; without one, the answer says that rather than banding people anyway.
+
+No titles. No employment. No org chart.
+
+---
+
 ## Research tools
 
 Multi-step research means a model decides what to look at next. The safety of
@@ -179,8 +253,8 @@ that rests on the size of the vocabulary it chooses from.
 search_documents          get_document              get_document_excerpt
 get_document_history      get_entity                get_entity_documents
 get_relationships         find_decisions            find_action_items
-find_open_questions       build_timeline            compare_documents
-compare_document_versions
+find_open_questions       find_participants         build_timeline
+compare_documents         compare_document_versions
 ```
 
 Every tool is read-only, has a typed schema whose parameters are validated
@@ -390,6 +464,25 @@ Enforcement is structural, not persuasive:
 
 This is tested across multi-step research, from Gmail, Drive, meetings, and
 PDFs — not only in one-shot synthesis.
+
+---
+
+## Diagnostics
+
+An answer says what it is unsure about in its own words:
+
+> Uncertainty: I couldn't fully stand behind one statement, so I've left it out
+> of the confident parts of this answer; one reading above is drawn from the
+> pattern of the evidence rather than stated in it.
+
+What it does **not** print is the validator arguing with itself. Downgraded
+claims, dropped citations, rejected fields, softened denials, and per-claim
+grounding statuses are debug output. They live behind `--show-research`, in
+`--json` under `diagnostics`, and in the claim ledger under `--show-sources`.
+
+The distinction matters: a grounding warning is the system reporting on
+itself, and printing it under a conversational reply makes the tool read as a
+linter rather than a colleague.
 
 ---
 

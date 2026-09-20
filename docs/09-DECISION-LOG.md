@@ -331,3 +331,39 @@ GANG in the real corpus is still `type: project` with no description. The eviden
 
 ### Revisit when
 The ontology needs a distinct legal-entity type so `GANG Holdings` can be modelled separately from `GANG`, foundational knowledge needs structure beyond a paragraph and a body, or definitional questions need to compose identity across related entities rather than answering from one record.
+
+
+## 2026-09-20 - Inference as a claim class, and diagnostics as debug output
+
+**Status:** Accepted
+
+### Context
+Real-corpus acceptance found the opposite failure from the one the system was built to prevent. Nothing was hallucinated — and nothing much was concluded either. Three cited facts about someone attending every operating meeting, owning deliverables, and using a company address supported an obvious reading, and the validator downgraded it, because the only types available were `fact` (needs a source stating it outright) and `synthesis` (treated the same way). Being unable to hallucinate is not the same as being useful, and a system that refuses to connect evidence it has already verified is inaccurate in its own direction.
+
+Group questions failed for a related reason. "Who is on the team?" has no answer in a corpus with no roster, and the pipeline had no way to assemble one from participation.
+
+Separately, every answer was printing the validator's internal reasoning underneath itself — downgrade notices, grounding statuses, dropped citations — so a conversational reply read as a linter arguing with its own output.
+
+### Decision
+Reasoning became a type. An `inference` claim requires at least two grounded premises in `derived_from`, wording that presents it as a reading rather than a record, and no assertion of formal status. Employment, job titles, and reporting lines are downgraded however well hedged, because those are matters of record and no pattern of participation establishes one. "X appears to be part of the core team" is permitted; "X is a GANG employee" is not.
+
+Two properties keep the type honest. An inference is never a premise for another claim — reasoning may rest on facts, not on other reasoning — and it never hardens through repetition: the type travels with the text into session memory, so restating it across ten turns leaves it exactly as provisional as it was on turn one. Where an authored canonical record exists, it outranks the inference.
+
+`find_participants` assembles people from participation, email domain, ownership language, recorded relationships, and time, and sorts them into four bands: likely-core-internal, external-advisory, collaborator-vendor, and unclear. Every band carries the signals and documents behind it. Ownership is attributed by sentence with the nearest preceding name and no other person intervening, because a collapsed attendee line otherwise credits everyone present with whatever the first line of the minutes says. Separating internal from external requires a canonical company record with an email domain; without one the answer says so rather than banding people anyway.
+
+Diagnostics moved behind `--show-research`. What the reader gets instead is one plain sentence — "I couldn't fully stand behind one statement, so I've left it out" — and the per-claim validator detail stays in `--json` under `diagnostics` and in the ledger under `--show-sources`.
+
+### Why
+The claim ledger was always the right structure; it was missing a row. Adding `inference` lets the same grounding machinery apply at the right strength to a third kind of statement, rather than forcing every conclusion into a binary of "stated outright" or "not allowed". The two-premise floor is what stops it becoming a hedge bolted onto an unsupported claim, and the formal-status rule is what stops it becoming the employment inference nobody asked for.
+
+Banding people rather than titling them is the same reasoning one level up. The corpus genuinely supports "appears to work inside the company"; it does not support "Head of Certification", and the gap between those is exactly where an org chart would get invented. Keeping `unclear` as a real band matters for the same reason: someone present throughout with nothing stating their role is information, not a gap to fill.
+
+Hiding diagnostics is not hiding uncertainty. Uncertainty is now expressed in the answer's own voice; what was hidden is the machinery, which was never for the reader.
+
+### Consequences
+Two index-level fixes fell out of building this. `_clean_markdown` was stripping `<name@example.com>` as though it were an HTML tag, destroying the one identity signal a mail header reliably carries; angle-bracketed addresses are now unwrapped first. And participant extraction has to survive the index collapsing line structure, so a name is bounded by the address that follows it and by a four-token cap rather than by a line ending.
+
+New: `core/ask/affiliation.py`, the `affiliation` answer policy, the `find_participants` tool, `ledger.natural_uncertainty`, and a `diagnostics` block on every result. `_print_ask_answer` gained `show_diagnostics`, defaulting true so one-shot output is unchanged.
+
+### Revisit when
+The band vocabulary needs to be configurable per corpus, inference needs to compose across turns rather than being re-derived each time, or participant extraction needs the index to preserve document structure so unrecorded people can be identified reliably rather than dropped when a header collapses.

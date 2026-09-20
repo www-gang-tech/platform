@@ -59,20 +59,26 @@ LEDGER_VERSION = "1"
 
 FACT = "fact"
 SYNTHESIS = "synthesis"
+INFERENCE = "inference"
 RECOMMENDATION = "recommendation"
 IDEA = "idea"
 SCENARIO = "scenario"
 UNCERTAINTY = "uncertainty"
 
 #: What a model is allowed to declare.
-GENERATED_TYPES = (FACT, SYNTHESIS, RECOMMENDATION, IDEA)
+GENERATED_TYPES = (FACT, SYNTHESIS, INFERENCE, RECOMMENDATION, IDEA)
 #: What may end up in a validated ledger.
-CLAIM_TYPES = (FACT, SYNTHESIS, RECOMMENDATION, IDEA, SCENARIO, UNCERTAINTY)
+CLAIM_TYPES = (FACT, SYNTHESIS, INFERENCE, RECOMMENDATION, IDEA, SCENARIO, UNCERTAINTY)
 
-#: Types that assert something about the company and therefore need evidence.
+#: Types that state something as true of the company, and therefore need the
+#: evidence to say it directly.
 FACTUAL_TYPES = frozenset({FACT, SYNTHESIS})
 #: Types that may be novel.
 GENERATIVE_TYPES = frozenset({RECOMMENDATION, IDEA})
+
+#: An inference needs at least this many grounded premises. One supported fact
+#: restated with a hedge is not reasoning; it is a fact with a hedge on it.
+MIN_INFERENCE_PREMISES = 2
 
 ACCEPTED = "accepted"
 DOWNGRADED = "downgraded"
@@ -85,6 +91,35 @@ MAX_CLAIM_TEXT = 600
 
 _CITATION_MARKER = re.compile(r"\[(\d{1,3})\]")
 _CLAIM_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+
+#: Phrasing that presents a statement as reasoning rather than as record.
+#: An inference must carry one of these, because the difference between
+#: "X appears to be part of the core team" and "X is on the core team" is the
+#: entire distinction the type exists to hold.
+_INFERENCE_HEDGE = re.compile(
+    r"\b(?:appears?\s+to|appear\s+to|seems?\s+to|seem\s+to|looks?\s+like|"
+    r"suggests?|suggesting|indicates?|indicating|implies|implying|"
+    r"consistent\s+with|points?\s+to|reads?\s+as|"
+    r"likely|probably|apparently|presumably|evidently|"
+    r"on\s+the\s+record|based\s+on\s+the\s+record|from\s+the\s+record|"
+    r"the\s+(?:record|evidence|corpus)\s+(?:suggests?|indicates?|shows?|points)|"
+    r"may\s+be|might\s+be|could\s+be|would\s+appear)\b",
+    re.IGNORECASE,
+)
+
+#: Formal status the corpus has to state outright. Employment, titles, and
+#: reporting lines are legal and organizational facts; a pattern of meeting
+#: attendance is not evidence of any of them, however strong the pattern.
+_FORMAL_STATUS = re.compile(
+    r"\b(?:employee|employed|employment|staff\s+member|on\s+the\s+payroll|"
+    r"hired|works\s+for|contractor\s+for|"
+    r"(?:is|are|was|were|be|been|becomes?|became)\s+(?:the\s+|a\s+|an\s+)?"
+    r"(?:ceo|cto|coo|cfo|founder|co-?founder|president|director|"
+    r"vice\s+president|vp|head\s+of|chief\s+\w+|manager\s+of|"
+    r"owner\s+of\s+the\s+company|partner\s+at)\b"
+    r"|\breports?\s+to\b|\bdirect\s+report\b)",
+    re.IGNORECASE,
+)
 
 #: Phrasing that turns a suggestion into a report of a decision already taken.
 #: An idea may be anything except this.
@@ -129,10 +164,19 @@ class Claim:
 
     @property
     def grounded(self) -> bool:
-        """Whether this claim may be relied on as a premise by another claim."""
+        """Whether this claim may be relied on as a premise by another claim.
+
+        An inference is deliberately excluded. Reasoning may rest on facts; it
+        may not rest on other reasoning, because that is how a chain of
+        plausible steps ends up indistinguishable from a record.
+        """
         if self.type in FACTUAL_TYPES:
             return bool(self.citations) and self.status == ACCEPTED
         return False
+
+    @property
+    def inferred(self) -> bool:
+        return self.type == INFERENCE
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -322,6 +366,45 @@ def _apply_rules(
         notes.append("Rests on a figure the user supplied as an assumption, not on the corpus.")
         warn("scenario", "figure-from-session-assumption")
 
+    # --- an inference is reasoning across several supported facts ----------
+    #
+    # The failure this type exists to fix is over-suppression: three grounded
+    # facts about someone's attendance, ownership, and email domain genuinely
+    # do support "X appears to be part of the core team", and refusing to say
+    # so is its own kind of inaccuracy. The failure it must not introduce is
+    # "X is a GANG employee", which is a different claim entirely.
+    if claim_type == INFERENCE:
+        premises = [value for value in claim.derived_from if value in grounded_ids]
+        support = len(premises) + (len(claim.citations) if not premises else 0)
+
+        if _asserts_formal_status(claim.text):
+            # Employment, titles, and reporting lines are matters of record.
+            # No amount of circumstantial evidence establishes one.
+            claim_type = UNCERTAINTY
+            status = DOWNGRADED
+            notes.append(
+                "States a formal role or employment relationship, which needs a source that "
+                "says so outright rather than a pattern of participation."
+            )
+            warn("inference_overreach", "formal-status-requires-explicit-evidence")
+        elif support < MIN_INFERENCE_PREMISES:
+            claim_type = UNCERTAINTY
+            status = DOWNGRADED
+            notes.append(
+                "Presented as an inference but rests on fewer than two supported facts."
+            )
+            warn("inference_support", "insufficient-grounded-premises")
+        elif not _reads_as_inference(claim.text):
+            # An unhedged inference is simply an assertion. Code cannot
+            # rewrite prose into a hedge safely, so the claim loses its
+            # standing rather than quietly keeping an unearned one.
+            claim_type = UNCERTAINTY
+            status = DOWNGRADED
+            notes.append(
+                "Stated as established fact rather than as an inference drawn from the record."
+            )
+            warn("inference_framing", "inference-not-hedged")
+
     # --- a factual claim with nothing behind it is not a factual claim -----
     if claim_type in FACTUAL_TYPES:
         premises_grounded = bool(claim.derived_from) and all(
@@ -381,6 +464,16 @@ def _apply_rules(
     )
 
 
+def _reads_as_inference(text: str) -> bool:
+    """Whether the wording presents this as reasoning rather than as record."""
+    return bool(_INFERENCE_HEDGE.search(text or ""))
+
+
+def _asserts_formal_status(text: str) -> bool:
+    """Whether the claim asserts employment, a title, or a reporting line."""
+    return bool(_FORMAL_STATUS.search(text or ""))
+
+
 def _asserts_existing_decision(text: str) -> bool:
     """Does this read as a report of a decision rather than as a suggestion?"""
     if not _DECISION_ASSERTION.search(text or ""):
@@ -410,7 +503,12 @@ def ungrounded_premises(result: LedgerResult) -> List[Dict[str, Any]]:
 
 
 def uncertainty_summary(result: LedgerResult) -> List[str]:
-    """Human-readable notes for everything that did not survive as stated."""
+    """Validator detail. Diagnostics only — never shown in normal output.
+
+    Each line names a claim and why it did not survive as stated. Useful when
+    debugging a disappointing answer, and exactly the wrong thing to print
+    underneath a conversational reply.
+    """
     lines: List[str] = []
     for claim in result.claims:
         if claim.status == ACCEPTED:
@@ -420,6 +518,41 @@ def uncertainty_summary(result: LedgerResult) -> List[str]:
     for item in result.rejected:
         lines.append(f"Dropped a {item['type']} claim: {item['reason']}.")
     return lines
+
+
+def natural_uncertainty(result: LedgerResult) -> str:
+    """One plain sentence about what is not settled. For the reader.
+
+    Counts rather than catalogues. "Two statements are not fully supported" is
+    something a person can act on; a list of validator statuses with claim
+    text quoted back at them is not, and printing that under every answer is
+    what made the system read as a linter rather than a colleague.
+    """
+    downgraded = [claim for claim in result.claims if claim.status == DOWNGRADED]
+    inferences = [claim for claim in result.claims if claim.inferred]
+    parts: List[str] = []
+
+    if downgraded:
+        parts.append(
+            "I couldn't fully stand behind "
+            + (
+                "one statement"
+                if len(downgraded) == 1
+                else f"{len(downgraded)} statements"
+            )
+            + ", so I've left "
+            + ("it" if len(downgraded) == 1 else "them")
+            + " out of the confident parts of this answer"
+        )
+    if inferences:
+        parts.append(
+            ("one reading above is" if len(inferences) == 1 else f"{len(inferences)} readings above are")
+            + " drawn from the pattern of the evidence rather than stated in it"
+        )
+    if not parts:
+        return ""
+    sentence = "; ".join(parts)
+    return sentence[:1].upper() + sentence[1:] + "."
 
 
 # ----------------------------------------------------------------- helpers

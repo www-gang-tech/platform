@@ -323,17 +323,32 @@ class Session:
     ) -> None:
         """Keep grounded conclusions, with the documents that supported them.
 
-        Only claims that survived validation as factual are kept. Storing a
-        downgraded claim as a conclusion would let an unsupported statement
-        re-enter later turns as settled context, which is exactly the leak §23
-        warns about.
+        Only claims that survived validation are kept. Storing a downgraded
+        claim as a conclusion would let an unsupported statement re-enter
+        later turns as settled context.
+
+        Inferences are kept too, and kept *as inferences*. The type travels
+        with the text into every later turn, so "X appears to be on the core
+        team" cannot harden into "X is on the core team" through repetition —
+        which is the way a conversational system would otherwise manufacture
+        a fact out of its own earlier caution.
         """
+        by_id = {_text(claim.get("id")): claim for claim in claims}
         for claim in claims:
-            if claim.get("type") not in ("fact", "synthesis"):
+            if claim.get("type") not in ("fact", "synthesis", "inference"):
                 continue
             if claim.get("status") != "accepted":
                 continue
             citations = [_int(value) for value in claim.get("citations") or []]
+            if not citations:
+                # An inference carries no citations of its own; its evidence
+                # sits under the premises it was drawn from. Inheriting them
+                # is what lets a later turn re-open the reasoning instead of
+                # finding a conclusion with nothing behind it.
+                for reference in claim.get("derived_from") or []:
+                    premise = by_id.get(_text(reference)) or {}
+                    citations.extend(_int(value) for value in premise.get("citations") or [])
+                citations = sorted(set(citations))
             if not citations:
                 continue
             self.conclusions.append(
@@ -409,6 +424,12 @@ class Session:
                 for turn in self.recent_turns()
             ],
             "prior_conclusions": [item.to_dict() for item in self.conclusions],
+            "prior_conclusion_rule": (
+                "Each prior conclusion carries the type it was validated as. An entry "
+                "typed 'inference' was a reading of the evidence, not something the corpus "
+                "states. It stays an inference however many turns ago it was drawn and "
+                "however often it has been repeated; restating it as fact is not allowed."
+            ),
             "session_assumptions": [item.to_dict() for item in self.assumptions],
             "rule": (
                 "This block is CONVERSATION STATE, not evidence. It records what was asked and "

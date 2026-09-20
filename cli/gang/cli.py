@@ -1702,32 +1702,26 @@ def _print_conversation_answer(result, *, show_sources=False, show_research=Fals
         click.echo(result["answer"])
         return
 
-    _print_ask_answer(result, show_sources=show_sources)
+    # Diagnostics are debug output. A conversational reply says what it is
+    # unsure about in its own words — see the `uncertainty` line, which the
+    # validator contributes one plain sentence to — and leaves the machinery
+    # to --show-research.
+    _print_ask_answer(result, show_sources=show_sources, show_diagnostics=show_research)
 
     for assumption in result.get("scenario_assumptions", []):
         click.echo(f"(scenario assumption, not a company fact: {assumption['text']})")
-
-    for item in result.get("stale_evidence", []):
-        click.echo(
-            f"(evidence changed since an earlier turn: {item.get('title') or item['document_id']})",
-            err=True,
-        )
 
     if show_sources:
         _print_ask_ledger(result)
 
     if show_research:
         _print_ask_research(result)
-
-    for item in result.get("rejected_claims", []):
-        click.echo(f"(rejected {item['type']} claim: {item['reason']})", err=True)
-    for item in result.get("ungrounded_premises", []):
-        click.echo(
-            f"(claim {item['claim_id']} rests on premises that are not grounded: "
-            + ", ".join(item["ungrounded_premises"])
-            + ")",
-            err=True,
-        )
+        for item in result.get("stale_evidence", []):
+            click.echo(
+                "(evidence changed since an earlier turn: "
+                f"{item.get('title') or item['document_id']})",
+                err=True,
+            )
 
 
 #: How each claim type is introduced in the terminal. The distinction between
@@ -1736,6 +1730,7 @@ def _print_conversation_answer(result, *, show_sources=False, show_research=Fals
 CLAIM_LABELS = {
     "fact": "fact (from evidence)",
     "synthesis": "synthesis (derived from evidence)",
+    "inference": "inference (a reading of the evidence, not stated in it)",
     "recommendation": "recommendation (generated, not a company decision)",
     "idea": "idea (generated, not a company decision)",
     "scenario": "scenario (rests on your assumption)",
@@ -1804,7 +1799,7 @@ def _print_ask_plan(result):
         click.echo(f"  note: {note}")
 
 
-def _print_ask_answer(result, *, show_sources=False):
+def _print_ask_answer(result, *, show_sources=False, show_diagnostics=True):
     click.echo(result["answer"])
 
     if result.get("conflicts"):
@@ -1855,10 +1850,22 @@ def _print_ask_answer(result, *, show_sources=False):
         click.echo("")
         click.echo(f"(answered from retrieval only: {meta.get('reason', 'deterministic')})")
 
+    if show_diagnostics:
+        _print_ask_diagnostics(result)
+
+
+def _print_ask_diagnostics(result):
+    """Validator output, on stderr. Debug detail, not part of an answer.
+
+    Every line here is the system reporting on itself: a claim it downgraded,
+    a citation it dropped, a denial it removed. Useful when an answer
+    disappoints and you need to know why it held back. Printed under a normal
+    reply it reads as a linter arguing with its own output, so conversational
+    output keeps it behind --show-research.
+    """
     # Rendered through the diagnostics vocabulary, which knows every warning
-    # variant and cannot raise. A grounding warning reports that the system
-    # did not fully believe its own answer; it must never be the thing that
-    # takes the command down.
+    # variant and cannot raise. A grounding warning must never be the thing
+    # that takes the command down.
     for line in _ask_diagnostics().describe_all(result.get("grounding_warnings", [])):
         click.echo(line, err=True)
     for sentence in result.get("softened_negatives", []):
@@ -1867,6 +1874,17 @@ def _print_ask_answer(result, *, show_sources=False):
         click.echo(f"(dropped unsupported citation [{value}])", err=True)
     for field_name in result.get("rejected_fields", []):
         click.echo(f"(ignored unsupported answer field: {field_name})", err=True)
+    for item in result.get("rejected_claims", []):
+        click.echo(f"(rejected {item['type']} claim: {item['reason']})", err=True)
+    for item in result.get("ungrounded_premises", []):
+        click.echo(
+            f"(claim {item['claim_id']} rests on premises that are not grounded: "
+            + ", ".join(item["ungrounded_premises"])
+            + ")",
+            err=True,
+        )
+    for note in (result.get("diagnostics") or {}).get("validator_notes", []):
+        click.echo(f"(validator: {note})", err=True)
 
 
 def _ask_diagnostics():

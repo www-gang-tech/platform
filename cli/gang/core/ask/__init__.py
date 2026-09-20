@@ -23,6 +23,15 @@ access, and no autonomous agents. The substrate already built does the
 retrieving, and `ask` never writes to it.
 """
 
+from .affiliation import (
+    BANDS,
+    COLLABORATOR_VENDOR,
+    CORE_INTERNAL,
+    EXTERNAL_ADVISORY,
+    UNCLEAR,
+    Participant,
+    gather as gather_participants,
+)
 from .answer import (
     CONVERSATION_ANSWER_VERSION,
     AnswerContext,
@@ -58,6 +67,7 @@ from .followup import Resolution, extract_assumptions, resolve as resolve_follow
 from .intent import (
     ADVISORY,
     ADVISORY_MODE,
+    AFFILIATION,
     COMPARE,
     CORRECTION,
     DECISION,
@@ -80,6 +90,7 @@ from .intent import (
 from .ledger import (
     CLAIM_TYPES,
     FACT,
+    INFERENCE,
     IDEA,
     LEDGER_VERSION,
     RECOMMENDATION,
@@ -88,6 +99,7 @@ from .ledger import (
     UNCERTAINTY,
     Claim,
     LedgerResult,
+    natural_uncertainty,
     validate_ledger,
 )
 from .plan import (
@@ -160,6 +172,7 @@ from .tools import (
 __all__ = [
     "ADVISORY",
     "ADVISORY_MODE",
+    "AFFILIATION",
     "ALLOWED_TOOLS",
     "ANSWER_SCHEMA_VERSION",
     "AnswerContext",
@@ -170,12 +183,15 @@ __all__ = [
     "AskOptions",
     "AskService",
     "Assumption",
+    "BANDS",
     "CHECKS",
     "CLAIM_TYPES",
+    "COLLABORATOR_VENDOR",
     "COMPARE",
     "CONVERSATION_ANSWER_VERSION",
     "CONVERSATION_PROMPT_VERSION",
     "CONVERSATION_RESULT_VERSION",
+    "CORE_INTERNAL",
     "CORRECTION",
     "Claim",
     "ConversationOptions",
@@ -192,6 +208,7 @@ __all__ = [
     "ENOUGH_EVIDENCE",
     "EVIDENCE",
     "EXPLAIN",
+    "EXTERNAL_ADVISORY",
     "EvidenceBundle",
     "EvidenceItem",
     "EvidenceSnapshot",
@@ -200,6 +217,7 @@ __all__ = [
     "IDEA",
     "IDEATE",
     "IDEATION",
+    "INFERENCE",
     "INSUFFICIENT_EVIDENCE",
     "Intent",
     "LEDGER_VERSION",
@@ -211,6 +229,7 @@ __all__ = [
     "PLAN",
     "PLAN_VERSION",
     "POLICIES",
+    "Participant",
     "PlanOverrides",
     "PlanningResult",
     "QueryPlan",
@@ -245,6 +264,7 @@ __all__ = [
     "ToolResult",
     "Turn",
     "UNCERTAINTY",
+    "UNCLEAR",
     "ambiguity_notice",
     "assess_authority",
     "build_bundle",
@@ -259,10 +279,12 @@ __all__ = [
     "extract_assumptions",
     "extract_excerpts",
     "fts_match_expression",
+    "gather_participants",
     "grounding_warning",
     "infer_intent",
     "is_current_state_question",
     "merge_ai_plan",
+    "natural_uncertainty",
     "normalize_warning",
     "refine_plan",
     "resolve_bound",

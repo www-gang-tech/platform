@@ -34,6 +34,7 @@ TIMELINE = "timeline"
 COMPARE = "compare"
 EXPLAIN = "explain"
 DECISION = "decision"
+AFFILIATION = "affiliation"
 REPORT = "report"
 ADVISORY = "advisory"
 PLAN = "plan"
@@ -55,6 +56,7 @@ POLICIES = (
     COMPARE,
     EXPLAIN,
     DECISION,
+    AFFILIATION,
     REPORT,
     ADVISORY,
     PLAN,
@@ -84,6 +86,7 @@ POLICY_MODES = {
     COMPARE: EVIDENCE,
     EXPLAIN: EVIDENCE,
     DECISION: EVIDENCE,
+    AFFILIATION: EVIDENCE,
     REPORT: EVIDENCE,
     DISCOVER: EVIDENCE,
     RECEIPTS: EVIDENCE,
@@ -175,6 +178,22 @@ _PATTERNS: Tuple[Tuple[str, re.Pattern], ...] = (
             r"|\bblind\s+spots?\b"
             r"|\bgaps?\s+(?:in|we)\b"
             r"|\banything\s+(?:we|i)\s+(?:missed|are missing|should)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        AFFILIATION,
+        re.compile(
+            r"\bwho(?:'s| is| are| was| were)?\s+(?:all\s+)?(?:on|in)\s+the\s+"
+            r"(?:team|crew|group|project|company)\b"
+            r"|\bwho\s+(?:works?|worked|is working|are working|has worked|have worked)\s+"
+            r"(?:on|with|for)\b"
+            r"|\bwho(?:'s| is| has| have)?\s*(?:been\s+)?involved\b"
+            r"|\bwho\s+seems?\s+(?:to\s+be\s+)?(?:responsible|involved|to own)\b"
+            r"|\bwho\s+(?:else\s+)?(?:is|are)\s+(?:part\s+of|around|here)\b"
+            r"|\bwho\s+(?:are|is)\s+(?:the\s+)?(?:people|team|players|participants)\b"
+            r"|\bwho\s+(?:attends?|attended|shows?\s+up|turns?\s+up)\b"
+            r"|\bthe\s+team\b.{0,20}\bwho\b",
             re.IGNORECASE,
         ),
     ),
@@ -304,6 +323,10 @@ FOUNDATIONAL_POLICIES = frozenset({DEFINITION})
 #: rather than by generic text retrieval (§13).
 STRUCTURED_POLICIES = frozenset({DECISION, DISCOVER, PLAN})
 
+#: Policies answered by assembling who is involved, from participation
+#: signals rather than from a roster document.
+PEOPLE_POLICIES = frozenset({AFFILIATION})
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -322,6 +345,11 @@ class Intent:
     @property
     def allows_idea(self) -> bool:
         return self.mode == IDEATION
+
+    @property
+    def wants_people(self) -> bool:
+        """Whether this question is about who is involved with something."""
+        return self.policy in PEOPLE_POLICIES
 
     @property
     def wants_identity(self) -> bool:
@@ -390,6 +418,7 @@ POLICY_DESCRIPTIONS = {
     COMPARE: "Set two things side by side and describe the differences.",
     EXPLAIN: "Explain a cause, using evidence for each premise.",
     DECISION: "Retrieve decisions, action items, and open questions structurally.",
+    AFFILIATION: "Assemble who is involved, from participation signals rather than a roster.",
     REPORT: "Summarize a topic across the evidence found.",
     ADVISORY: "Recommend a course of action, grounded in cited facts.",
     PLAN: "Propose a concrete plan, grounded in cited facts.",

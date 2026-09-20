@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from . import affiliation as affiliation_module
 from . import authority as authority_module
 from . import followup as followup_module
 from . import intent as intent_module
@@ -253,13 +254,40 @@ class ConversationService(AskService):
             self.retriever,
             registry_path=self.paths.registry_path,
             resolver=self._resolver(),
+            entities=self._entity_records(),
         )
+
+    def _home_company_known(self) -> bool:
+        """Whether a canonical company record with an email domain exists.
+
+        Without one, internal and external cannot be separated reliably, and
+        the answer has to say so rather than band people anyway.
+        """
+        return any(
+            record.type == "company"
+            and getattr(record, "foundational", False)
+            and getattr(record, "domains", None)
+            for record in self._entity_records()
+        )
+
+    def _entity_records(self):
+        """Canonical entity records, or nothing if the layer is unavailable."""
+        try:
+            return self._store().load_all()
+        except Exception:  # noqa: BLE001 - a missing entity layer is not fatal
+            return []
 
     def _records(self, research, bundle: EvidenceBundle, intent) -> Dict[str, Any]:
         """Structured material for synthesis, beyond the excerpts themselves."""
         records: Dict[str, Any] = {
             key: value for key, value in research.records.items() if value
         }
+        if "participants" in records:
+            # Wrapped with its standing rule, so the bands travel with the
+            # warning that they are bands and not a roster.
+            records["participants"] = affiliation_module.payload_from_dicts(
+                records["participants"], home_known=self._home_company_known()
+            )
         if intent.wants_timeline and bundle.items:
             # Built over the bundle rather than over raw rows, so the timeline
             # carries the same citation ids the answer will use.
@@ -446,6 +474,8 @@ class ConversationService(AskService):
             "conflicts": answer["conflicts"],
             "uncertainties": uncertainties,
             "uncertainty": answer.get("uncertainty", ""),
+            "inference_count": answer.get("inference_count", 0),
+            "diagnostics": answer.get("diagnostics", {}),
             "insufficient_evidence": answer["insufficient_evidence"],
             "scenario_assumptions": kwargs["assumptions"],
             "sources": sources,
