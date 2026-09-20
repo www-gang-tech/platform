@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,9 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 
-
-DEFAULT_DATABASE_PATH = Path("brain/generated/brain.sqlite")
-DEFAULT_VAULT_PATH = Path("brain/vault")
+from core.paths import GangPaths
 
 
 @dataclass(frozen=True)
@@ -45,19 +44,39 @@ class IndexBuildResult:
     generated_at: str
 
 
+@dataclass(frozen=True)
+class DocumentRoot:
+    label: str
+    path: Path
+
+
 class PrivateKnowledgeIndex:
-    """Build and query a disposable private FTS5 index from brain/vault Markdown."""
+    """Build and query a disposable private FTS5 index from public+private Markdown."""
 
     def __init__(
         self,
         *,
         root_path: Path | str = Path("."),
-        vault_path: Path | str = DEFAULT_VAULT_PATH,
-        database_path: Path | str = DEFAULT_DATABASE_PATH,
+        vault_path: Path | str | None = None,
+        database_path: Path | str | None = None,
+        private_home: Path | str | None = None,
+        vault_paths: Optional[List[Path | str]] = None,
     ):
-        self.root_path = Path(root_path)
-        self.vault_path = self._resolve(vault_path)
-        self.database_path = self._resolve(database_path)
+        self.root_path = Path(root_path).resolve()
+        self.paths = GangPaths.from_env(repo_root=self.root_path, gang_home=private_home)
+        if vault_paths is not None:
+            self.document_roots = [
+                DocumentRoot(f"vault-{index}", self._resolve(path))
+                for index, path in enumerate(vault_paths)
+            ]
+        elif vault_path is not None:
+            self.document_roots = [DocumentRoot("vault", self._resolve(vault_path))]
+        else:
+            self.document_roots = [
+                DocumentRoot("repo-public", self.paths.repo_public_vault),
+                DocumentRoot("private", self.paths.private_vault),
+            ]
+        self.database_path = self._resolve(database_path) if database_path is not None else self.paths.index_path
 
     def build(self) -> IndexBuildResult:
         documents = list(self.load_documents())
@@ -68,7 +87,7 @@ class PrivateKnowledgeIndex:
         if temp_path.exists():
             temp_path.unlink()
 
-        with sqlite3.connect(temp_path) as connection:
+        with closing(sqlite3.connect(temp_path)) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             self._create_schema(connection)
             connection.execute(
@@ -97,7 +116,7 @@ class PrivateKnowledgeIndex:
                 "by_visibility": {},
             }
 
-        with sqlite3.connect(self.database_path) as connection:
+        with closing(sqlite3.connect(self.database_path)) as connection:
             connection.row_factory = sqlite3.Row
             metadata = dict(connection.execute("SELECT key, value FROM metadata").fetchall())
             by_type = {
@@ -175,7 +194,7 @@ class PrivateKnowledgeIndex:
             LIMIT ?
         """
 
-        with sqlite3.connect(self.database_path) as connection:
+        with closing(sqlite3.connect(self.database_path)) as connection:
             connection.row_factory = sqlite3.Row
             try:
                 rows = connection.execute(sql, params).fetchall()
@@ -198,10 +217,10 @@ class PrivateKnowledgeIndex:
 
     def load_documents(self) -> Iterable[IndexedDocument]:
         seen_ids = set()
-        for path in self._markdown_paths():
+        for root, path in self._markdown_paths():
             text = path.read_text(encoding="utf-8")
             frontmatter, body = _parse_markdown(text)
-            rel_path = path.resolve().relative_to(self.vault_path.resolve()).as_posix()
+            rel_path = path.resolve().relative_to(root.path.resolve()).as_posix()
             document = self._document_from_parts(frontmatter, body, rel_path)
             if document.document_id in seen_ids:
                 raise ValueError(f"Duplicate document id in vault: {document.document_id}")
@@ -212,7 +231,7 @@ class PrivateKnowledgeIndex:
         try:
             return self.database_path.resolve().relative_to(self.root_path.resolve()).as_posix()
         except ValueError:
-            return self.database_path.name
+            return self.database_path.as_posix()
 
     def _resolve(self, path: Path | str) -> Path:
         candidate = Path(path)
@@ -220,16 +239,24 @@ class PrivateKnowledgeIndex:
             return candidate
         return self.root_path / candidate
 
-    def _markdown_paths(self) -> List[Path]:
-        if not self.vault_path.exists():
-            return []
-        paths = []
-        for path in self.vault_path.rglob("*.md"):
-            rel_parts = path.resolve().relative_to(self.vault_path.resolve()).parts
-            if rel_parts and rel_parts[0] == ".ingestion":
+    def _markdown_paths(self) -> List[tuple[DocumentRoot, Path]]:
+        paths: List[tuple[DocumentRoot, Path]] = []
+        for root in self.document_roots:
+            if not root.path.exists():
                 continue
-            paths.append(path)
-        return sorted(paths, key=lambda item: item.resolve().relative_to(self.vault_path.resolve()).as_posix())
+            root_path = root.path.resolve()
+            for path in root.path.rglob("*.md"):
+                rel_parts = path.resolve().relative_to(root_path).parts
+                if rel_parts and rel_parts[0].startswith("."):
+                    continue
+                paths.append((root, path))
+        return sorted(
+            paths,
+            key=lambda item: (
+                item[0].label,
+                item[1].resolve().relative_to(item[0].path.resolve()).as_posix(),
+            ),
+        )
 
     def _document_from_parts(self, frontmatter: Dict[str, Any], body: str, rel_path: str) -> IndexedDocument:
         clean_body = _clean_markdown(body)

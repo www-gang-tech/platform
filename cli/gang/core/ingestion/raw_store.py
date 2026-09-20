@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core.paths import GangPaths
+
 from .ids import content_sha256, slugify
 
 
@@ -56,10 +58,10 @@ class RawStore(ABC):
 
 
 class LocalRawStore(RawStore):
-    """Filesystem-backed raw store rooted at brain/raw by default."""
+    """Filesystem-backed raw store rooted in GANG_HOME by default."""
 
-    def __init__(self, root: Path | str = Path("brain/raw")):
-        self.root = Path(root)
+    def __init__(self, root: Path | str | None = None):
+        self.root = Path(root) if root is not None else GangPaths.from_env().raw_path
 
     def put(
         self,

@@ -15,10 +15,10 @@ Gmail ingestion imports private email threads into the local knowledge vault. Gm
 3. Save the downloaded client secret JSON here:
 
    ```text
-   brain/vault/.ingestion/gmail/oauth_client_secret.json
+   ~/.gang/ingestion/gmail/oauth_client_secret.json
    ```
 
-   This directory is gitignored. Do not commit OAuth credentials or tokens.
+   Or set `GANG_HOME=/custom/path` and save it under `$GANG_HOME/ingestion/gmail/`. Do not commit OAuth credentials or tokens.
 
 4. Authorize the local workspace:
 
@@ -26,7 +26,7 @@ Gmail ingestion imports private email threads into the local knowledge vault. Gm
    python3 cli/gang/cli.py ingest gmail auth
    ```
 
-The connector requests `gmail.readonly` only. The generated token is stored at `brain/vault/.ingestion/gmail/token.json` and is never written to canonical Markdown.
+The connector requests `gmail.readonly` only. The generated token is stored at `GANG_HOME/ingestion/gmail/token.json` and is never written to canonical Markdown.
 
 ## Sync
 
@@ -52,10 +52,12 @@ Routine output reports counts, document IDs, source IDs, and checkpoint state. I
 
 ## Storage Model
 
-- Raw Gmail message MIME is stored immutably under `brain/raw/gmail-message/`.
-- Raw thread manifests are stored under `brain/raw/gmail-thread/`.
-- Attachments are stored under `brain/raw/gmail-attachment/` with provenance only.
+- Raw Gmail message MIME is stored immutably under `GANG_HOME/raw/gmail-message/`.
+- Raw thread manifests are stored under `GANG_HOME/raw/gmail-thread/`.
+- Attachments are stored under `GANG_HOME/raw/gmail-attachment/` with provenance only.
+- Connector registry and checkpoints are stored under `GANG_HOME/ingestion/`.
 - Canonical documents are thread-level Markdown files with `type: email-thread`.
+- Canonical email documents are stored under `GANG_HOME/vault/emails/`.
 - Email-derived canonical documents default to `visibility: private` and `status: active`.
 
 Run `python3 cli/gang/cli.py index build` after syncing to rebuild private FTS search.

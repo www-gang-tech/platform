@@ -3,6 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import yaml
 from click.testing import CliRunner
@@ -153,10 +154,23 @@ def frontmatter(path):
     return yaml.safe_load(path.read_text(encoding="utf-8").split("---", 2)[1])
 
 
+def gang_home(root):
+    return root / "gang-home"
+
+
+def gmail_service(provider, root):
+    return GmailSyncService(provider, root_path=root, private_home=gang_home(root))
+
+
+def private_index(root):
+    return PrivateKnowledgeIndex(root_path=root, private_home=gang_home(root))
+
+
 class GmailIngestionTests(unittest.TestCase):
     def test_initial_sync_requires_explicit_bound(self):
         with TemporaryDirectory() as tempdir:
-            service = GmailSyncService(MockGmailProvider({}), root_path=Path(tempdir))
+            root = Path(tempdir)
+            service = gmail_service(MockGmailProvider({}), root)
 
             with self.assertRaisesRegex(GmailIngestionError, "First Gmail sync must be bounded"):
                 service.sync()
@@ -175,7 +189,7 @@ class GmailIngestionTests(unittest.TestCase):
                 {"thread-1": GmailThread("thread-1", [message("msg-1", attachments=[attachment])])},
                 attachments={("msg-1", "att-1"): b"%PDF fixture"},
             )
-            service = GmailSyncService(provider, root_path=root)
+            service = gmail_service(provider, root)
 
             result = service.sync(since="30d")
 
@@ -208,7 +222,7 @@ class GmailIngestionTests(unittest.TestCase):
             self.assertEqual(attachment_record["parent_gmail_message_id"], "msg-1")
             self.assertTrue(attachment_record["raw_ref"].startswith("local://gmail-attachment/"))
 
-            registry = json.loads((root / "brain/vault/.ingestion/registry.json").read_text(encoding="utf-8"))
+            registry = json.loads((gang_home(root) / "ingestion/registry.json").read_text(encoding="utf-8"))
             records = list(registry["sources"].values())
             self.assertEqual(records[0]["adapter"], "GmailSyncService")
             self.assertEqual(records[0]["gmail_thread_id"], "thread-1")
@@ -218,7 +232,7 @@ class GmailIngestionTests(unittest.TestCase):
             root = Path(tempdir)
             first_message = message("msg-1", body="First thread content.")
             provider = MockGmailProvider({"thread-1": GmailThread("thread-1", [first_message])})
-            service = GmailSyncService(provider, root_path=root)
+            service = gmail_service(provider, root)
 
             first = service.sync(since="30d")
             second = service.sync()
@@ -247,11 +261,11 @@ class GmailIngestionTests(unittest.TestCase):
             self.assertEqual(fm["gmail"]["message_ids"], ["msg-1", "msg-2"])
             self.assertIn("Second message adds the certification closure.", doc_path.read_text(encoding="utf-8"))
 
-            registry = json.loads((root / "brain/vault/.ingestion/registry.json").read_text(encoding="utf-8"))
+            registry = json.loads((gang_home(root) / "ingestion/registry.json").read_text(encoding="utf-8"))
             record = registry["sources"][third.results[0].source_id]
             self.assertEqual(record["document_id"], doc_id)
             self.assertEqual([item["version"] for item in record["versions"]], [1, 2])
-            self.assertTrue((root / "brain/raw/gmail-message").exists())
+            self.assertTrue((gang_home(root) / "raw/gmail-message").exists())
 
     def test_html_is_sanitized_to_text_without_executable_markup_or_remote_resources(self):
         with TemporaryDirectory() as tempdir:
@@ -265,9 +279,9 @@ class GmailIngestionTests(unittest.TestCase):
                     "<iframe src='https://evil.example'></iframe>"
                 ),
             )
-            service = GmailSyncService(
+            service = gmail_service(
                 MockGmailProvider({"thread-1": GmailThread("thread-1", [html_message])}),
-                root_path=Path(tempdir),
+                Path(tempdir),
             )
 
             result = service.sync(since="30d")
@@ -285,13 +299,13 @@ class GmailIngestionTests(unittest.TestCase):
                 {"thread-1": GmailThread("thread-1", [message("msg-1")])},
                 fail_threads={"thread-1"},
             )
-            service = GmailSyncService(provider, root_path=root)
+            service = gmail_service(provider, root)
 
             result = service.sync(since="30d")
 
             self.assertEqual(result.failed, 1)
             self.assertFalse(result.checkpoint_advanced)
-            self.assertFalse((root / "brain/vault/.ingestion/gmail/checkpoint.json").exists())
+            self.assertFalse((gang_home(root) / "ingestion/gmail/checkpoint.json").exists())
 
     def test_attachment_failure_does_not_advance_checkpoint_or_write_thread_doc(self):
         with TemporaryDirectory() as tempdir:
@@ -301,26 +315,26 @@ class GmailIngestionTests(unittest.TestCase):
                 {"thread-1": GmailThread("thread-1", [message("msg-1", attachments=[attachment])])},
                 fail_attachments={"att-1"},
             )
-            service = GmailSyncService(provider, root_path=root)
+            service = gmail_service(provider, root)
 
             result = service.sync(since="30d")
 
             self.assertEqual(result.failed, 1)
             self.assertFalse(result.checkpoint_advanced)
-            self.assertFalse((root / "brain/vault/emails").exists())
+            self.assertFalse((gang_home(root) / "vault/emails").exists())
 
     def test_gmail_thread_enters_private_fts_and_provenance_resolves_to_raw(self):
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
-            service = GmailSyncService(
+            service = gmail_service(
                 MockGmailProvider(
                     {"thread-1": GmailThread("thread-1", [message("msg-1", body="Distinctive fluxgate phrase.")])}
                 ),
-                root_path=root,
+                root,
             )
             sync = service.sync(since="30d")
 
-            index = PrivateKnowledgeIndex(root_path=root)
+            index = private_index(root)
             index.build()
             results = index.search("distinctive fluxgate", visibility="private", type="email-thread")
 
@@ -348,11 +362,11 @@ class GmailIngestionTests(unittest.TestCase):
                 "---\n# Public\n",
                 encoding="utf-8",
             )
-            service = GmailSyncService(
+            service = gmail_service(
                 MockGmailProvider(
                     {"thread-1": GmailThread("thread-1", [message("msg-1", body="Secret Gmail phrase.")])}
                 ),
-                root_path=root,
+                root,
             )
             service.sync(since="30d")
 
@@ -362,18 +376,22 @@ class GmailIngestionTests(unittest.TestCase):
             self.assertNotIn("Secret Gmail phrase", json.dumps([doc.body for doc in docs]))
 
     def test_oauth_scope_and_private_token_defaults_do_not_expose_secrets(self):
-        provider = GoogleGmailProvider()
+        with TemporaryDirectory() as tempdir, patch.dict("os.environ", {"GANG_HOME": tempdir}):
+            provider = GoogleGmailProvider()
 
-        self.assertEqual(provider.scopes, [GMAIL_READONLY_SCOPE])
-        self.assertEqual(provider.token_path.as_posix(), "brain/vault/.ingestion/gmail/token.json")
-        self.assertEqual(provider.credentials_path.as_posix(), "brain/vault/.ingestion/gmail/oauth_client_secret.json")
+            self.assertEqual(provider.scopes, [GMAIL_READONLY_SCOPE])
+            home = Path(tempdir).resolve()
+            self.assertEqual(provider.token_path, home / "ingestion/gmail/token.json")
+            self.assertEqual(provider.credentials_path, home / "ingestion/gmail/oauth_client_secret.json")
 
     def test_existing_cli_surfaces_gmail_without_real_account(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
-            help_result = runner.invoke(gang_cli.cli, ["ingest", "gmail", "--help"])
-            status_result = runner.invoke(gang_cli.cli, ["ingest", "gmail", "status"])
+            home = Path("gang-home").resolve()
+            env = {"GANG_HOME": str(home)}
+            help_result = runner.invoke(gang_cli.cli, ["ingest", "gmail", "--help"], env=env)
+            status_result = runner.invoke(gang_cli.cli, ["ingest", "gmail", "status"], env=env)
 
         self.assertEqual(help_result.exit_code, 0)
         self.assertIn("--since", help_result.output)
@@ -456,14 +474,14 @@ class GmailIngestionTests(unittest.TestCase):
             root = Path(tempdir)
             provider = MockGmailProvider({"thread-1": GmailThread("thread-1", [message("msg-1")])})
             provider.fetch_thread = lambda thread_id: (_ for _ in ()).throw(FakeGoogleError(429, "Too Many Requests"))
-            service = GmailSyncService(provider, root_path=root)
+            service = gmail_service(provider, root)
 
             result = service.sync(since="30d")
 
             self.assertEqual(result.failed, 1)
             self.assertEqual(result.results[0].status, "failed")
             self.assertFalse(result.checkpoint_advanced)
-            self.assertFalse((root / "brain/vault/.ingestion/gmail/checkpoint.json").exists())
+            self.assertFalse((gang_home(root) / "ingestion/gmail/checkpoint.json").exists())
 
     def test_google_provider_does_not_retry_permanent_4xx(self):
         clock = FakeClock()
@@ -508,7 +526,7 @@ class GmailIngestionTests(unittest.TestCase):
                 }
             )
             provider.fail_once.remove("thread-stable")
-            service = GmailSyncService(provider, root_path=root)
+            service = gmail_service(provider, root)
 
             first = service.sync(since="30d")
             second = service.sync(since="30d")
@@ -521,12 +539,12 @@ class GmailIngestionTests(unittest.TestCase):
             self.assertEqual(second.failed, 0)
             self.assertTrue(second.checkpoint_advanced)
 
-            docs = sorted((root / "brain/vault/emails").glob("*.md"))
+            docs = sorted((gang_home(root) / "vault/emails").glob("*.md"))
             self.assertEqual(len(docs), 2)
-            registry = json.loads((root / "brain/vault/.ingestion/registry.json").read_text(encoding="utf-8"))
+            registry = json.loads((gang_home(root) / "ingestion/registry.json").read_text(encoding="utf-8"))
             document_ids = [record["document_id"] for record in registry["sources"].values()]
             self.assertEqual(len(document_ids), len(set(document_ids)))
-            self.assertEqual(len(list((root / "brain/raw/gmail-thread").rglob("metadata.json"))), 2)
+            self.assertEqual(len(list((gang_home(root) / "raw/gmail-thread").rglob("metadata.json"))), 2)
 
 
 if __name__ == "__main__":

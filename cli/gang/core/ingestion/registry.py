@@ -7,12 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core.paths import GangPaths
+
 
 class IngestionRegistry:
     """Durable map from source identity to canonical private knowledge docs."""
 
-    def __init__(self, path: Path | str = Path("brain/vault/.ingestion/registry.json"), *, root_path: Path | str | None = None):
-        self.path = Path(path)
+    def __init__(self, path: Path | str | None = None, *, root_path: Path | str | None = None):
+        paths = GangPaths.from_env()
+        self.path = Path(path) if path is not None else paths.registry_path
         self.root_path = Path(root_path) if root_path is not None else self._infer_root_path(self.path)
 
     def get(self, source_id: str) -> Optional[Dict[str, Any]]:
@@ -66,7 +69,10 @@ class IngestionRegistry:
 
     @staticmethod
     def _infer_root_path(path: Path) -> Path:
-        # Expected default: <root>/brain/vault/.ingestion/registry.json
+        # Current default: <GANG_HOME>/ingestion/registry.json
+        if path.name == "registry.json" and path.parent.name == "ingestion":
+            return path.parent.parent
+        # Legacy default: <root>/brain/vault/.ingestion/registry.json
         if len(path.parents) >= 4:
             return path.parents[3]
         return Path(".")

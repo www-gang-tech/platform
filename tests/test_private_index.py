@@ -2,6 +2,7 @@ import json
 import sqlite3
 import sys
 import unittest
+from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -41,6 +42,18 @@ def yaml_dump(value):
     return yaml.safe_dump(value, sort_keys=False)
 
 
+def gang_home(root):
+    return root / "gang-home"
+
+
+def private_vault(root):
+    return gang_home(root) / "vault"
+
+
+def private_index(root):
+    return PrivateKnowledgeIndex(root_path=root, private_home=gang_home(root))
+
+
 class PrivateIndexTests(unittest.TestCase):
     def test_build_indexes_public_and_private_vault_markdown_only(self):
         with TemporaryDirectory() as tempdir:
@@ -59,7 +72,7 @@ class PrivateIndexTests(unittest.TestCase):
                 "Public canonical knowledge about ceramic mounting hardware.",
             )
             write_markdown(
-                root / "brain/vault/meetings/private.md",
+                private_vault(root) / "meetings/private.md",
                 {
                     "id": "private-doc",
                     "type": "meeting",
@@ -73,7 +86,7 @@ class PrivateIndexTests(unittest.TestCase):
                 "The ceramic mounting plate thermal test passed.",
             )
             write_markdown(
-                root / "brain/vault/.ingestion/ignored.md",
+                private_vault(root) / ".ingestion/ignored.md",
                 {"id": "ignored", "title": "Ignored", "visibility": "private"},
                 "This generated ingestion state must not be indexed.",
             )
@@ -83,7 +96,7 @@ class PrivateIndexTests(unittest.TestCase):
                 "Legacy content must not be indexed.",
             )
 
-            index = PrivateKnowledgeIndex(root_path=root)
+            index = private_index(root)
             result = index.build()
             self.assertEqual(result.documents, 2)
 
@@ -101,7 +114,7 @@ class PrivateIndexTests(unittest.TestCase):
     def test_rebuild_updates_changed_documents_and_removes_deleted_documents(self):
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
-            doc_path = root / "brain/vault/meetings/private.md"
+            doc_path = private_vault(root) / "meetings/private.md"
             write_markdown(
                 doc_path,
                 {
@@ -116,7 +129,7 @@ class PrivateIndexTests(unittest.TestCase):
                 "The ceramic mounting plate thermal test passed.",
             )
 
-            index = PrivateKnowledgeIndex(root_path=root)
+            index = private_index(root)
             index.build()
             index.build()
             self.assertEqual(index.status()["documents"], 1)
@@ -150,7 +163,7 @@ class PrivateIndexTests(unittest.TestCase):
     def test_filters_support_tag_project_person_and_source(self):
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
-            doc = root / "brain/vault/inbox/private.md"
+            doc = private_vault(root) / "inbox/private.md"
             doc.parent.mkdir(parents=True, exist_ok=True)
             doc.write_text(
                 "---\n"
@@ -168,7 +181,7 @@ class PrivateIndexTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            index = PrivateKnowledgeIndex(root_path=root)
+            index = private_index(root)
             index.build()
 
             self.assertEqual(len(index.search("thermal", tag="thermal")), 1)
@@ -180,7 +193,7 @@ class PrivateIndexTests(unittest.TestCase):
     def test_enrichment_frontmatter_fields_are_curated_for_fts(self):
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
-            doc = root / "brain/vault/meetings/enriched.md"
+            doc = private_vault(root) / "meetings/enriched.md"
             write_yaml_markdown(
                 doc,
                 {
@@ -228,12 +241,12 @@ class PrivateIndexTests(unittest.TestCase):
                 "Bodyonlytoken appears only in the Markdown body.\n",
             )
 
-            index = PrivateKnowledgeIndex(root_path=root)
+            index = private_index(root)
             index.build()
             index.build()
 
             self.assertEqual(index.status()["documents"], 1)
-            with sqlite3.connect(root / "brain/generated/brain.sqlite") as connection:
+            with closing(sqlite3.connect(gang_home(root) / "generated/brain.sqlite")) as connection:
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0], 1)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM documents_fts").fetchone()[0], 1)
 
@@ -275,7 +288,8 @@ class PrivateIndexTests(unittest.TestCase):
         runner = CliRunner()
         with runner.isolated_filesystem():
             Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
-            doc = Path("brain/vault/meetings/private.md")
+            gang_home_path = Path("gang-home").resolve()
+            doc = gang_home_path / "vault/meetings/private.md"
             doc.parent.mkdir(parents=True, exist_ok=True)
             doc.write_text(
                 "---\n"
@@ -290,7 +304,7 @@ class PrivateIndexTests(unittest.TestCase):
                 "The ceramic mounting plate thermal test passed.\n",
                 encoding="utf-8",
             )
-            registry = Path("brain/vault/.ingestion/registry.json")
+            registry = gang_home_path / "ingestion/registry.json"
             registry.parent.mkdir(parents=True, exist_ok=True)
             registry.write_text(
                 json.dumps(
@@ -300,7 +314,7 @@ class PrivateIndexTests(unittest.TestCase):
                             "source_cli_1": {
                                 "source_id": "source_cli_1",
                                 "document_id": "private-doc",
-                                "document_path": "brain/vault/meetings/private.md",
+                                "document_path": "vault/meetings/private.md",
                                 "raw_ref": "local://meeting/source_cli_1/v000001/private.txt",
                             }
                         },
@@ -309,17 +323,18 @@ class PrivateIndexTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            build = runner.invoke(gang_cli.cli, ["index", "build"])
+            env = {"GANG_HOME": str(gang_home_path)}
+            build = runner.invoke(gang_cli.cli, ["index", "build"], env=env)
             self.assertEqual(build.exit_code, 0, build.output)
-            self.assertTrue(Path("brain/generated/brain.sqlite").exists())
+            self.assertTrue((gang_home_path / "generated/brain.sqlite").exists())
 
-            search = runner.invoke(gang_cli.cli, ["search", "ceramic mounting plate"])
+            search = runner.invoke(gang_cli.cli, ["search", "ceramic mounting plate"], env=env)
             self.assertEqual(search.exit_code, 0, search.output)
             self.assertIn("Ceramic Meeting", search.output)
             self.assertIn("type: meeting", search.output)
             self.assertIn("source_id: source_cli_1", search.output)
 
-            inspect = runner.invoke(gang_cli.cli, ["ingest", "inspect", "source_cli_1"])
+            inspect = runner.invoke(gang_cli.cli, ["ingest", "inspect", "source_cli_1"], env=env)
             self.assertEqual(inspect.exit_code, 0, inspect.output)
             self.assertIn('"raw_ref": "local://meeting/source_cli_1/v000001/private.txt"', inspect.output)
 
@@ -327,7 +342,7 @@ class PrivateIndexTests(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             write_markdown(
-                root / "brain/vault/inbox/private.md",
+                private_vault(root) / "inbox/private.md",
                 {
                     "id": "private-doc",
                     "type": "knowledge",
@@ -338,10 +353,10 @@ class PrivateIndexTests(unittest.TestCase):
                 "Absolute paths should never appear in generated private search data.",
             )
 
-            index = PrivateKnowledgeIndex(root_path=root)
+            index = private_index(root)
             index.build()
 
-            with sqlite3.connect(root / "brain/generated/brain.sqlite") as connection:
+            with closing(sqlite3.connect(gang_home(root) / "generated/brain.sqlite")) as connection:
                 dump = "\n".join(connection.iterdump())
             self.assertNotIn(str(root), dump)
 

@@ -9,6 +9,8 @@ from typing import Any, Dict, List
 
 import yaml
 
+from core.paths import GangPaths
+
 from .adapters import SourceAdapter
 from .ids import content_sha256, slugify, uuid7
 from .raw_store import RawRecord, RawStore
@@ -33,15 +35,21 @@ class IngestionPipeline:
         self,
         raw_store: RawStore,
         *,
-        inbox_path: Path | str = Path("brain/vault/inbox"),
+        inbox_path: Path | str | None = None,
         meetings_path: Path | str | None = None,
         registry: IngestionRegistry | None = None,
     ):
+        paths = GangPaths.from_env()
+        default_private_paths = inbox_path is None
         self.raw_store = raw_store
-        self.inbox_path = Path(inbox_path)
+        self.inbox_path = Path(inbox_path) if inbox_path is not None else paths.inbox_path
         self.meetings_path = Path(meetings_path) if meetings_path else self.inbox_path.parent / "meetings"
-        registry_path = self.inbox_path.parent / ".ingestion" / "registry.json"
-        self.registry = registry or IngestionRegistry(registry_path)
+        if registry is not None:
+            self.registry = registry
+        elif default_private_paths:
+            self.registry = IngestionRegistry(paths.registry_path, root_path=paths.home)
+        else:
+            self.registry = IngestionRegistry(self.inbox_path.parent / ".ingestion" / "registry.json")
 
     def ingest(self, adapter: SourceAdapter) -> List[IngestionResult]:
         results = []

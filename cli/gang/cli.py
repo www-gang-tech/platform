@@ -893,12 +893,22 @@ def ingest():
 def _run_private_ingest(adapter):
     try:
         from core.ingestion import IngestionPipeline, LocalRawStore
+        from core.ingestion.registry import IngestionRegistry
+        from core.paths import GangPaths
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from core.ingestion import IngestionPipeline, LocalRawStore
+        from core.ingestion.registry import IngestionRegistry
+        from core.paths import GangPaths
 
-    pipeline = IngestionPipeline(LocalRawStore(Path("brain/raw")))
+    paths = GangPaths.from_env()
+    pipeline = IngestionPipeline(
+        LocalRawStore(paths.raw_path),
+        inbox_path=paths.inbox_path,
+        meetings_path=paths.meetings_path,
+        registry=IngestionRegistry(paths.registry_path, root_path=paths.home),
+    )
     return pipeline.ingest(adapter)
 
 def _print_ingest_results(results):
@@ -994,6 +1004,83 @@ def ingest_inspect(source_id):
         click.echo(f"Source not found: {source_id}", err=True)
         raise click.Abort()
     click.echo(json.dumps(record, indent=2, sort_keys=True))
+
+
+@cli.group("brain")
+def brain():
+    """Manage the durable private brain home"""
+    pass
+
+
+@brain.command("status")
+def brain_status():
+    """Show private brain home status without printing private content"""
+    try:
+        from core.brain_home import BrainHome
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.brain_home import BrainHome
+
+    status = BrainHome(repo_root=Path.cwd()).status()
+    click.echo("Private brain home")
+    click.echo(f"  Private home: {status['private_home']}")
+    click.echo(f"  Private documents: {status['private_documents']}")
+    click.echo(f"  Raw sources: {status['raw_sources']}")
+    click.echo(f"  Gmail threads: {status['gmail_threads']}")
+    click.echo(f"  Generated index: {status['generated_index']}")
+    click.echo(f"  Index exists: {'yes' if status['generated_index_exists'] else 'no'}")
+    click.echo(f"  Repository public documents: {status['repository_public_documents']}")
+
+
+@brain.command("migrate")
+@click.option("--from", "from_path", type=click.Path(exists=True, file_okay=False), help="Source repo/workspace to migrate from")
+@click.option("--apply", "apply_changes", is_flag=True, help="Copy files into GANG_HOME (default is dry-run)")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text", help="Output format")
+def brain_migrate(from_path, apply_changes, output_format):
+    """Dry-run or apply migration from repo-local private brain state"""
+    try:
+        from core.brain_home import BrainHome
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.brain_home import BrainHome
+
+    result = BrainHome(repo_root=Path.cwd()).migrate(source_root=Path(from_path) if from_path else None, apply=apply_changes)
+    if output_format == "json":
+        serializable = {
+            key: [
+                {
+                    "kind": item.kind,
+                    "status": item.status,
+                    "source": item.source.as_posix(),
+                    "destination": item.destination.as_posix(),
+                }
+                for item in value
+            ]
+            if key in {"items", "conflicts", "will_copy", "unchanged"}
+            else (value.as_posix() if isinstance(value, Path) else value)
+            for key, value in result.items()
+        }
+        click.echo(json.dumps(serializable, indent=2, sort_keys=True))
+        return
+
+    mode = "APPLY" if apply_changes else "DRY-RUN"
+    click.echo(f"Brain migration {mode}")
+    click.echo(f"  Source: {result['source_root']}")
+    click.echo(f"  Private home: {result['private_home']}")
+    click.echo(f"  Would copy: {len(result['will_copy'])}")
+    click.echo(f"  Unchanged: {len(result['unchanged'])}")
+    click.echo(f"  Conflicts: {len(result['conflicts'])}")
+    for item in result["items"]:
+        click.echo(f"  - {item.status}: {item.kind}: {item.source} -> {item.destination}")
+    if result["conflicts"]:
+        click.echo("Conflicts detected; no files were copied.", err=True)
+        raise click.Abort()
+    if apply_changes:
+        click.echo("Migration copied files into GANG_HOME. Source files were left untouched.")
+    else:
+        click.echo("Dry run only. Re-run with --apply to copy files.")
 
 
 @ingest.group("gmail", invoke_without_command=True)
@@ -1268,7 +1355,7 @@ def enrich(ctx, args, context_limit, overwrite_existing, output_format):
                 click.echo(f"  Proposal: {proposal['proposal_id']}")
                 click.echo(f"  Document: {proposal['document_id']}")
                 click.echo(f"  Resulting hash: {proposal['resulting_hash']}")
-                click.echo("  Reindexed: brain/generated/brain.sqlite")
+                click.echo("  Reindexed: GANG_HOME/generated/brain.sqlite")
             return
 
         if len(args) != 1:

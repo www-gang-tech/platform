@@ -18,15 +18,14 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol
 
 import yaml
 
+from core.paths import GangPaths
+
 from .ids import content_sha256, slugify, stable_source_id, uuid7
 from .raw_store import LocalRawStore, RawRecord, RawStore
 from .registry import IngestionRegistry
 
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-DEFAULT_CHECKPOINT_PATH = Path("brain/vault/.ingestion/gmail/checkpoint.json")
-DEFAULT_TOKEN_PATH = Path("brain/vault/.ingestion/gmail/token.json")
-DEFAULT_CREDENTIALS_PATH = Path("brain/vault/.ingestion/gmail/oauth_client_secret.json")
 RETRYABLE_403_MARKERS = (
     "quota",
     "rate limit",
@@ -125,16 +124,18 @@ class GoogleGmailProvider:
     def __init__(
         self,
         *,
-        token_path: Path | str = DEFAULT_TOKEN_PATH,
-        credentials_path: Path | str = DEFAULT_CREDENTIALS_PATH,
+        token_path: Path | str | None = None,
+        credentials_path: Path | str | None = None,
+        private_home: Path | str | None = None,
         scopes: Optional[List[str]] = None,
         retry_policy: Optional[GmailRetryPolicy] = None,
         sleep_fn=time.sleep,
         monotonic_fn=time.monotonic,
         random_fn=random.random,
     ):
-        self.token_path = Path(token_path)
-        self.credentials_path = Path(credentials_path)
+        paths = GangPaths.from_env(gang_home=private_home)
+        self.token_path = Path(token_path) if token_path is not None else paths.gmail_token_path
+        self.credentials_path = Path(credentials_path) if credentials_path is not None else paths.gmail_credentials_path
         self.scopes = scopes or [GMAIL_READONLY_SCOPE]
         self.retry_policy = retry_policy or GmailRetryPolicy()
         self.sleep_fn = sleep_fn
@@ -268,17 +269,19 @@ class GmailSyncService:
         root_path: Path | str = Path("."),
         raw_store: Optional[RawStore] = None,
         registry: Optional[IngestionRegistry] = None,
-        vault_path: Path | str = Path("brain/vault"),
-        emails_path: Path | str = Path("brain/vault/emails"),
-        checkpoint_path: Path | str = DEFAULT_CHECKPOINT_PATH,
+        vault_path: Path | str | None = None,
+        emails_path: Path | str | None = None,
+        checkpoint_path: Path | str | None = None,
+        private_home: Path | str | None = None,
     ):
         self.provider = provider
-        self.root_path = Path(root_path)
-        self.raw_store = raw_store or LocalRawStore(self.root_path / "brain/raw")
-        self.vault_path = self._resolve(vault_path)
-        self.emails_path = self._resolve(emails_path)
-        self.checkpoint_path = self._resolve(checkpoint_path)
-        self.registry = registry or IngestionRegistry(self.vault_path / ".ingestion" / "registry.json")
+        self.root_path = Path(root_path).resolve()
+        self.paths = GangPaths.from_env(repo_root=self.root_path, gang_home=private_home)
+        self.raw_store = raw_store or LocalRawStore(self.paths.raw_path)
+        self.vault_path = self._resolve(vault_path) if vault_path is not None else self.paths.private_vault
+        self.emails_path = self._resolve(emails_path) if emails_path is not None else self.paths.emails_path
+        self.checkpoint_path = self._resolve(checkpoint_path) if checkpoint_path is not None else self.paths.gmail_checkpoint_path
+        self.registry = registry or IngestionRegistry(self.paths.registry_path, root_path=self.paths.home)
 
     def sync(self, *, since: Optional[str] = None) -> GmailSyncResult:
         checkpoint = self.load_checkpoint()

@@ -73,9 +73,9 @@ Legacy rollback mode is no longer needed and `content/` can be archived or remov
 Private email should be searchable in the local knowledge vault, but Gmail remains the external source of record. Email contains untrusted HTML, remote resources, attachments, quoted history, and private secrets. Ingestion must also stay separate from AI enrichment.
 
 ### Decision
-Gmail is implemented as a single production connector behind a narrow provider boundary. OAuth uses the local installed-app flow with the minimum practical read-only scope, `gmail.readonly`. OAuth client secrets and tokens are private generated state under `brain/vault/.ingestion/gmail/`, which is gitignored, and are never written to canonical Markdown.
+Gmail is implemented as a single production connector behind a narrow provider boundary. OAuth uses the local installed-app flow with the minimum practical read-only scope, `gmail.readonly`. OAuth client secrets and tokens are private generated state under `GANG_HOME/ingestion/gmail/`, and are never written to Git or canonical Markdown.
 
-Canonical vault records are thread-level documents with `type: email-thread`; individual Gmail messages remain immutable raw evidence. Raw message MIME is stored in `brain/raw/gmail-message/...`; thread manifests are stored in `brain/raw/gmail-thread/...`; attachments are stored in `brain/raw/gmail-attachment/...` with filename, MIME type, parent message, content hash, and raw reference. Source identity uses Gmail thread IDs, Gmail message IDs, and Gmail attachment IDs, never subject, sender, or timestamp alone.
+Canonical vault records are thread-level documents with `type: email-thread`; individual Gmail messages remain immutable raw evidence. Canonical email Markdown is stored in `GANG_HOME/vault/emails/...`; raw message MIME is stored in `GANG_HOME/raw/gmail-message/...`; thread manifests are stored in `GANG_HOME/raw/gmail-thread/...`; attachments are stored in `GANG_HOME/raw/gmail-attachment/...` with filename, MIME type, parent message, content hash, and raw reference. Source identity uses Gmail thread IDs, Gmail message IDs, and Gmail attachment IDs, never subject, sender, or timestamp alone.
 
 The first sync must be explicitly bounded with a value such as `gang ingest gmail --since 30d`. Later `gang ingest gmail` runs use a private checkpoint based on the maximum successfully processed Gmail internal date. The checkpoint is only advanced after a failure-free sync, so a partial failure cannot skip undiscovered or unprocessed source evidence.
 
@@ -85,7 +85,24 @@ Canonical email-thread documents default to `visibility: private` and `status: a
 This preserves Gmail as authoritative source evidence while allowing local deterministic search and provenance. Thread-level canonical documents match how email conversations are understood by humans without duplicating one Markdown file per message.
 
 ### Consequences
-Local setup requires creating a Google OAuth desktop client, saving the client secret JSON as `brain/vault/.ingestion/gmail/oauth_client_secret.json`, running `gang ingest gmail auth`, and then starting with a bounded sync. HTML email is normalized to safe text for canonical Markdown while the original MIME remains authoritative in raw storage. Attachments are preserved for provenance only; they are not OCRed, executed, summarized, or transformed.
+Local setup requires creating a Google OAuth desktop client, saving the client secret JSON as `GANG_HOME/ingestion/gmail/oauth_client_secret.json`, running `gang ingest gmail auth`, and then starting with a bounded sync. HTML email is normalized to safe text for canonical Markdown while the original MIME remains authoritative in raw storage. Attachments are preserved for provenance only; they are not OCRed, executed, summarized, or transformed.
 
 ### Revisit when
 Additional connectors are approved or Gmail incremental history IDs are needed for high-volume mailbox synchronization.
+
+## Durable Private Brain Home
+
+**Status:** Accepted
+
+### Context
+Private knowledge was previously written inside individual Git worktrees under ignored paths such as `brain/vault/emails/`, `brain/raw/`, and `brain/generated/`. That made private knowledge accidentally dependent on one checkout or Conductor workspace.
+
+### Decision
+Private GANG knowledge and runtime state now live under a centralized private home. The default is `~/.gang`, and `GANG_HOME=/custom/path` overrides it. Repository-owned public content remains under `brain/vault/public/`.
+
+The logical search corpus is `brain/vault/public/` plus `GANG_HOME/vault/`. The generated SQLite FTS database is stored under `GANG_HOME/generated/brain.sqlite`. Public builds continue to consume only `brain/vault/public/`.
+
+Private ingestion state, Gmail checkpoints, OAuth token state, raw evidence, enrichment proposals/audit, and connector runtime state are stored under `GANG_HOME`. Secrets are not searchable and are never copied into canonical Markdown.
+
+### Consequences
+Multiple Git worktrees that use the same `GANG_HOME` see the same private corpus. `gang brain status` reports counts and paths without printing private content. `gang brain migrate` dry-runs migration from the old repo-local layout, and `gang brain migrate --apply` copies private state into `GANG_HOME` without deleting source files.

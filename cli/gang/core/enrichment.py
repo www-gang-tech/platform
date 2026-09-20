@@ -14,11 +14,10 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol
 
 import yaml
 
+from core.paths import GangPaths
 from core.private_index import PrivateKnowledgeIndex
 
 
-DEFAULT_VAULT_PATH = Path("brain/vault")
-DEFAULT_GENERATED_PATH = Path("brain/generated/enrichment")
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 SCHEMA_VERSION = 1
 
@@ -186,13 +185,21 @@ class EnrichmentService:
         self,
         *,
         root_path: Path | str = Path("."),
-        vault_path: Path | str = DEFAULT_VAULT_PATH,
-        generated_path: Path | str = DEFAULT_GENERATED_PATH,
+        vault_path: Path | str | None = None,
+        generated_path: Path | str | None = None,
+        private_home: Path | str | None = None,
+        vault_paths: Optional[List[Path | str]] = None,
         provider: Optional[AIEnrichmentProvider] = None,
     ):
-        self.root_path = Path(root_path)
-        self.vault_path = self._resolve(vault_path)
-        self.generated_path = self._resolve(generated_path)
+        self.root_path = Path(root_path).resolve()
+        self.paths = GangPaths.from_env(repo_root=self.root_path, gang_home=private_home)
+        if vault_paths is not None:
+            self.vault_paths = [self._resolve(path) for path in vault_paths]
+        elif vault_path is not None:
+            self.vault_paths = [self._resolve(vault_path)]
+        else:
+            self.vault_paths = [self.paths.private_vault, self.paths.repo_public_vault]
+        self.generated_path = self._resolve(generated_path) if generated_path is not None else self.paths.enrichment_path
         self.proposals_path = self.generated_path / "proposals"
         self.audit_path = self.generated_path / "audit.jsonl"
         self.provider = provider
@@ -254,7 +261,7 @@ class EnrichmentService:
         document.path.write_text(new_text, encoding="utf-8")
         resulting_hash = _sha256_text(new_text)
         self._mark_apply_result(proposal, "applied", resulting_hash)
-        PrivateKnowledgeIndex(root_path=self.root_path, vault_path=self.vault_path).build()
+        PrivateKnowledgeIndex(root_path=self.root_path, private_home=self.paths.home).build()
         return self.load_proposal(proposal_id)
 
     def load_document(self, document_id: str) -> KnowledgeDocument:
@@ -285,7 +292,7 @@ class EnrichmentService:
         if limit == 0:
             return []
 
-        index = PrivateKnowledgeIndex(root_path=self.root_path)
+        index = PrivateKnowledgeIndex(root_path=self.root_path, private_home=self.paths.home)
         try:
             results = index.search(_context_query(document), limit=limit + 1, visibility="private")
         except FileNotFoundError:
@@ -343,15 +350,16 @@ class EnrichmentService:
             audit_file.write(json.dumps(record, sort_keys=True) + "\n")
 
     def _markdown_paths(self) -> List[Path]:
-        if not self.vault_path.exists():
-            return []
         paths = []
-        vault_root = self.vault_path.resolve()
-        for path in self.vault_path.rglob("*.md"):
-            rel_parts = path.resolve().relative_to(vault_root).parts
-            if rel_parts and rel_parts[0].startswith("."):
+        for vault_path in self.vault_paths:
+            if not vault_path.exists():
                 continue
-            paths.append(path)
+            vault_root = vault_path.resolve()
+            for path in vault_path.rglob("*.md"):
+                rel_parts = path.resolve().relative_to(vault_root).parts
+                if rel_parts and rel_parts[0].startswith("."):
+                    continue
+                paths.append(path)
         return sorted(paths)
 
     def _resolve(self, path: Path | str) -> Path:
