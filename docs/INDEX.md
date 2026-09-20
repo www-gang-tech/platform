@@ -29,6 +29,7 @@
 - [Gmail Ingestion](guides/GMAIL_INGESTION.md) - Import private email threads
 - [Drive Ingestion](guides/DRIVE_INGESTION.md) - Import private Drive documents
 - [Entities and Relationships](guides/ENTITIES_AND_RELATIONSHIPS.md) - Stable identities, mentions vs relationships, evidence
+- [Ask](guides/ASK.md) - Evidence-backed questions over the private corpus, with citations
 
 **Workflows**:
 - [Operations Guide](guides/OPERATE.md) - Day-to-day operations

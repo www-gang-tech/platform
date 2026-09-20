@@ -7,13 +7,14 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 
+from core import enrichment_state
 from core.paths import GangPaths
 from core.entities.graph import ENTITY_SCHEMA_SQL, build_entity_tables
 from core.entities.model import EntityRecord, is_entity_frontmatter
@@ -23,6 +24,7 @@ from core.entities.model import EntityRecord, is_entity_frontmatter
 class IndexedDocument:
     document_id: str
     type: str
+    source_type: str
     title: str
     body: str
     semantic_enrichment: str
@@ -39,6 +41,9 @@ class IndexedDocument:
     content_hash: str
     entity_refs: List[Dict[str, Any]]
     entity_relationships: List[Dict[str, Any]]
+    content_trust: str = "trusted"
+    enrichment_status: str = enrichment_state.NONE
+    enrichment: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -248,13 +253,16 @@ class PrivateKnowledgeIndex:
 
     def load_documents(self) -> Iterable[IndexedDocument]:
         seen_ids = set()
+        ledger = enrichment_state.EnrichmentLedger.from_audit_log(
+            self.paths.enrichment_path / "audit.jsonl"
+        )
         for root, path in self._markdown_paths():
             text = path.read_text(encoding="utf-8")
             frontmatter, body = _parse_markdown(text)
             if is_entity_frontmatter(frontmatter):
                 continue
             rel_path = path.resolve().relative_to(root.path.resolve()).as_posix()
-            document = self._document_from_parts(frontmatter, body, rel_path)
+            document = self._document_from_parts(frontmatter, body, rel_path, raw_text=text, ledger=ledger)
             if document.document_id in seen_ids:
                 raise ValueError(f"Duplicate document id in vault: {document.document_id}")
             seen_ids.add(document.document_id)
@@ -305,15 +313,25 @@ class PrivateKnowledgeIndex:
             ),
         )
 
-    def _document_from_parts(self, frontmatter: Dict[str, Any], body: str, rel_path: str) -> IndexedDocument:
+    def _document_from_parts(
+        self,
+        frontmatter: Dict[str, Any],
+        body: str,
+        rel_path: str,
+        *,
+        raw_text: str = "",
+        ledger: Optional["enrichment_state.EnrichmentLedger"] = None,
+    ) -> IndexedDocument:
         clean_body = _clean_markdown(body)
         title = _string(frontmatter.get("title")) or _first_heading(body) or Path(rel_path).stem.replace("-", " ").title()
         document_id = _string(frontmatter.get("id")) or f"vault_{hashlib.sha256(rel_path.encode('utf-8')).hexdigest()[:16]}"
         source_ids = _source_ids(frontmatter)
+        ledger = ledger or enrichment_state.EnrichmentLedger()
 
         return IndexedDocument(
             document_id=document_id,
             type=_string(frontmatter.get("type")) or "knowledge",
+            source_type=_string(frontmatter.get("source_type")),
             title=title,
             body=clean_body,
             semantic_enrichment=_semantic_enrichment_text(frontmatter),
@@ -330,6 +348,11 @@ class PrivateKnowledgeIndex:
             content_hash=hashlib.sha256((json.dumps(frontmatter, sort_keys=True, default=str) + body).encode("utf-8")).hexdigest(),
             entity_refs=_dict_list(frontmatter.get("entity_refs")),
             entity_relationships=_dict_list(frontmatter.get("entity_relationships")),
+            content_trust=_string(frontmatter.get("content_trust")) or "trusted",
+            enrichment_status=ledger.status_for(
+                document_id=document_id, frontmatter=frontmatter, raw_text=raw_text
+            ),
+            enrichment=enrichment_state.enrichment_payload(frontmatter),
         )
 
     def _create_schema(self, connection: sqlite3.Connection) -> None:
@@ -343,6 +366,7 @@ class PrivateKnowledgeIndex:
             CREATE TABLE documents (
                 document_id TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
+                source_type TEXT NOT NULL,
                 title TEXT NOT NULL,
                 body TEXT NOT NULL,
                 semantic_enrichment TEXT NOT NULL,
@@ -362,7 +386,10 @@ class PrivateKnowledgeIndex:
                 projects_index TEXT NOT NULL,
                 related_index TEXT NOT NULL,
                 source_ids_index TEXT NOT NULL,
-                content_hash TEXT NOT NULL
+                content_hash TEXT NOT NULL,
+                content_trust TEXT NOT NULL,
+                enrichment_status TEXT NOT NULL,
+                enrichment TEXT NOT NULL
             );
 
             CREATE VIRTUAL TABLE documents_fts USING fts5(
@@ -379,6 +406,7 @@ class PrivateKnowledgeIndex:
         values = {
             "document_id": document.document_id,
             "type": document.type,
+            "source_type": document.source_type,
             "title": document.title,
             "body": document.body,
             "semantic_enrichment": document.semantic_enrichment,
@@ -399,6 +427,9 @@ class PrivateKnowledgeIndex:
             "related_index": _membership_index(document.related),
             "source_ids_index": _membership_index(document.source_ids),
             "content_hash": document.content_hash,
+            "content_trust": document.content_trust,
+            "enrichment_status": document.enrichment_status,
+            "enrichment": json.dumps(document.enrichment, sort_keys=True, default=str),
         }
         columns = ", ".join(values)
         placeholders = ", ".join("?" for _ in values)
@@ -479,8 +510,8 @@ def _semantic_enrichment_text(frontmatter: Dict[str, Any]) -> str:
         if question:
             parts.append(question)
 
-    for field in ("tags", "people", "companies", "projects"):
-        parts.extend(_list_strings(frontmatter.get(field)))
+    for field_name in ("tags", "people", "companies", "projects"):
+        parts.extend(_list_strings(frontmatter.get(field_name)))
 
     parts.extend(_human_readable_related(frontmatter.get("related")))
     return _compact(" ".join(parts))

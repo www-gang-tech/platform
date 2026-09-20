@@ -9,12 +9,13 @@ explicit apply mutates canonical data.
 from __future__ import annotations
 
 import json
-import os
 import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
 
+from core.ai_provider import DEFAULT_MODEL as DEFAULT_ANTHROPIC_MODEL
+from core.ai_provider import AnthropicClient, ProviderError
 from core.paths import GangPaths
 
 from .documents import EntityDocument, EntityDocumentStore
@@ -35,7 +36,6 @@ from .store import EntityStore
 
 
 PROPOSAL_SCHEMA_VERSION = 1
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 DETERMINISTIC_PROVIDER = "deterministic"
 DETERMINISTIC_MODEL = "metadata-resolver-v1"
 CONFIDENCE_LEVELS = ("high", "medium", "low")
@@ -185,8 +185,11 @@ class AnthropicEntityProposer:
     provider_name = "anthropic"
 
     def __init__(self, *, model: Optional[str] = None, api_key: Optional[str] = None):
-        self.model = model or DEFAULT_ANTHROPIC_MODEL
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self._client = AnthropicClient(model=model, api_key=api_key)
+
+    @property
+    def model(self) -> str:
+        return self._client.model
 
     def build_request(self, document: EntityDocument, catalog: List[Dict[str, Any]]) -> Dict[str, Any]:
         data = {
@@ -244,27 +247,11 @@ class AnthropicEntityProposer:
         return {"system": system, "messages": [{"role": "user", "content": user}], "max_tokens": 2500}
 
     def generate(self, document: EntityDocument, catalog: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if not self.api_key:
-            raise AIProviderError("ANTHROPIC_API_KEY is required for AI entity proposals")
-        try:
-            import anthropic
-        except ImportError as exc:
-            raise AIProviderError("anthropic package is required for AI entity proposals") from exc
-
         request = self.build_request(document, catalog)
-        client = anthropic.Anthropic(api_key=self.api_key)
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=request["max_tokens"],
-                system=request["system"],
-                messages=request["messages"],
-            )
-        except Exception as exc:
-            raise AIProviderError(f"AI provider request failed: {exc}") from exc
-
-        text = response.content[0].text if response.content else "{}"
-        return _load_json_object(text)
+            return self._client.complete_json(request, purpose="AI entity proposals")
+        except ProviderError as exc:
+            raise AIProviderError(str(exc)) from exc
 
 
 class EntityProposalService:
@@ -744,19 +731,6 @@ def _document_evidence(document: EntityDocument, text: str) -> Dict[str, str]:
 
 def _searchable(value: str) -> str:
     return re.sub(r"\s+", " ", string_value(value)).casefold()
-
-
-def _load_json_object(text: str) -> Dict[str, Any]:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{[\s\S]*\}", text)
-        if not match:
-            raise AIProviderError("AI provider did not return JSON")
-        data = json.loads(match.group(0))
-    if not isinstance(data, dict):
-        raise AIProviderError("AI provider did not return a JSON object")
-    return data
 
 
 def _audit_base(proposal: Dict[str, Any]) -> Dict[str, Any]:

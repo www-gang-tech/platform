@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -14,11 +13,12 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol
 
 import yaml
 
+from core.ai_provider import DEFAULT_MODEL as DEFAULT_ANTHROPIC_MODEL
+from core.ai_provider import AnthropicClient, ProviderError
 from core.paths import GangPaths
 from core.private_index import PrivateKnowledgeIndex
 
 
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 SCHEMA_VERSION = 1
 
 LIST_FIELDS = {"people", "companies", "projects", "tags"}
@@ -109,8 +109,11 @@ class AnthropicEnrichmentProvider:
     provider_name = "anthropic"
 
     def __init__(self, *, model: Optional[str] = None, api_key: Optional[str] = None):
-        self.model = model or DEFAULT_ANTHROPIC_MODEL
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self._client = AnthropicClient(model=model, api_key=api_key)
+
+    @property
+    def model(self) -> str:
+        return self._client.model
 
     def build_request(self, document: KnowledgeDocument, context_documents: List[Dict[str, Any]]) -> Dict[str, Any]:
         schema = {
@@ -153,28 +156,11 @@ class AnthropicEnrichmentProvider:
         return {"system": system, "messages": [{"role": "user", "content": user}], "max_tokens": 2500}
 
     def generate_enrichment(self, document: KnowledgeDocument, context_documents: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if not self.api_key:
-            raise AIProviderError("ANTHROPIC_API_KEY is required for gang enrich")
-
-        try:
-            import anthropic
-        except ImportError as exc:
-            raise AIProviderError("anthropic package is required for gang enrich") from exc
-
         request = self.build_request(document, context_documents)
-        client = anthropic.Anthropic(api_key=self.api_key)
         try:
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=request["max_tokens"],
-                system=request["system"],
-                messages=request["messages"],
-            )
-        except Exception as exc:
-            raise AIProviderError(f"AI provider request failed: {exc}") from exc
-
-        text = response.content[0].text if response.content else "{}"
-        data = _load_json_object(text)
+            data = self._client.complete_json(request, purpose="gang enrich")
+        except ProviderError as exc:
+            raise AIProviderError(str(exc)) from exc
         if "proposed_enrichment" in data and isinstance(data["proposed_enrichment"], dict):
             return data["proposed_enrichment"]
         return data
@@ -594,19 +580,6 @@ def _context_query(document: KnowledgeDocument) -> str:
         if len(terms) >= 8:
             break
     return " OR ".join(f'"{term}"' for term in terms) or '""'
-
-
-def _load_json_object(text: str) -> Dict[str, Any]:
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{[\s\S]*\}", text)
-        if not match:
-            raise AIProviderError("AI provider did not return JSON")
-        data = json.loads(match.group(0))
-    if not isinstance(data, dict):
-        raise AIProviderError("AI provider did not return a JSON object")
-    return data
 
 
 def _first_heading(body: str) -> str:

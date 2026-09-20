@@ -1393,6 +1393,223 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
         if result["excerpt"]:
             click.echo(f"   excerpt: {result['excerpt']}")
 
+@cli.command("ask")
+@click.argument("question", nargs=-1, required=True)
+@click.option("--since", help="Only use evidence updated on/after this date (YYYY-MM-DD, 30d, or 'last week')")
+@click.option("--until", help="Only use evidence updated on/before this date")
+@click.option("--type", "document_types", multiple=True, help="Filter by document type (repeatable)")
+@click.option("--source-type", "source_types", multiple=True, help="Filter by source type, such as gmail-thread (repeatable)")
+@click.option("--entity", "entity_ids", multiple=True, help="Restrict retrieval to an entity ID (repeatable)")
+@click.option("--visibility", type=click.Choice(["private", "public"]), help="Restrict evidence to one visibility")
+@click.option("--limit", default=8, show_default=True, type=int, help="Maximum evidence documents (bounded)")
+@click.option("--order", type=click.Choice(["relevance", "recency"]), help="Ranking order")
+@click.option("--show-sources", is_flag=True, help="Show source IDs, excerpts, and entity references per citation")
+@click.option("--json", "as_json", is_flag=True, help="Emit the structured result instead of terminal prose")
+@click.option("--plan", "plan_only", is_flag=True, help="Show the typed query plan without retrieving or answering")
+@click.option("--no-ai", is_flag=True, help="Answer deterministically from retrieval only")
+@click.option("--no-cache", is_flag=True, help="Skip the disposable answer cache")
+@click.option("--model", help="Override the configured synthesis model")
+def ask(
+    question,
+    since,
+    until,
+    document_types,
+    source_types,
+    entity_ids,
+    visibility,
+    limit,
+    order,
+    show_sources,
+    as_json,
+    plan_only,
+    no_ai,
+    no_cache,
+    model,
+):
+    """Ask a question of the private knowledge corpus. Read-only."""
+    try:
+        from core.ask import (
+            AskError,
+            AskOptions,
+            AskService,
+            PlanOverrides,
+            QueryPlanError,
+            RetrievalError,
+        )
+        from core.ask.synthesis import AnthropicAnswerSynthesizer
+        from core.ask.temporal import TemporalError
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ask import (
+            AskError,
+            AskOptions,
+            AskService,
+            PlanOverrides,
+            QueryPlanError,
+            RetrievalError,
+        )
+        from core.ask.synthesis import AnthropicAnswerSynthesizer
+        from core.ask.temporal import TemporalError
+
+    text = " ".join(question).strip()
+    synthesizer = None
+    if model and not no_ai:
+        synthesizer = AnthropicAnswerSynthesizer(model=model)
+        if not synthesizer.has_credentials:
+            synthesizer = None
+
+    service = AskService(root_path=Path.cwd(), synthesizer=synthesizer)
+    overrides = PlanOverrides(
+        since=since or "",
+        until=until or "",
+        # Note: this module shadows the builtin `list` with a click command,
+        # so unpack rather than calling list().
+        document_types=[*document_types],
+        source_types=[*source_types],
+        entity_ids=[*entity_ids],
+        visibility=visibility,
+        order=order,
+        limit=limit,
+    )
+    options = AskOptions(use_ai=not no_ai, use_cache=not no_cache, plan_only=plan_only)
+
+    try:
+        result = service.ask(text, overrides=overrides, options=options)
+    except RetrievalError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+    except (QueryPlanError, TemporalError) as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+    except AskError as e:
+        click.echo(f"❌ Ask failed: {e}", err=True)
+        raise click.Abort()
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return
+
+    if plan_only:
+        _print_ask_plan(result)
+        return
+
+    _print_ask_answer(result, show_sources=show_sources)
+
+
+def _print_ask_plan(result):
+    plan = result["plan"]
+    click.echo(f"Query plan (v{plan['version']}) via {result['planner']}")
+    click.echo(f"  question: {result['question']}")
+    for label, key in (
+        ("text queries", "text_queries"),
+        ("entity ids", "entity_ids"),
+        ("document types", "document_types"),
+        ("source types", "source_types"),
+    ):
+        if plan.get(key):
+            click.echo(f"  {label}: {', '.join(plan[key])}")
+    if plan.get("date_range"):
+        window = plan["date_range"]
+        click.echo(f"  date range ({window['field']}): {window['start'] or 'any'} .. {window['end'] or 'any'}")
+    if plan.get("visibility"):
+        click.echo(f"  visibility: {plan['visibility']}")
+    click.echo(f"  order: {plan['order']}")
+    click.echo(f"  limit: {plan['limit']}")
+    for entity in result.get("resolved_entities", []):
+        click.echo(f"  resolved: {entity['text']} -> {entity['name']} ({entity['entity_id']})")
+    for item in result.get("ambiguities", []):
+        click.echo(f"  ambiguous: {item['text']} ({len(item.get('candidates', []))} candidates)")
+    for note in result.get("notes", []):
+        click.echo(f"  note: {note}")
+
+
+def _print_ask_answer(result, *, show_sources=False):
+    click.echo(result["answer"])
+
+    if result.get("conflicts"):
+        click.echo("")
+        click.echo("Conflicting evidence:")
+        for conflict in result["conflicts"]:
+            citations = "".join(f"[{value}]" for value in conflict.get("citations", []))
+            click.echo(f"  - {conflict['summary']} {citations}".rstrip())
+
+    if result.get("uncertainty"):
+        click.echo("")
+        click.echo(f"Uncertainty: {result['uncertainty']}")
+
+    sources = result.get("sources", [])
+    if sources:
+        from core.ask.service import citation_labels
+
+        labels = citation_labels(sources)
+        evidence = {item["citation_id"]: item for item in result.get("evidence", [])}
+        cited = [source for source in sources if source.get("cited")]
+        unused = [source for source in sources if not source.get("cited")]
+
+        # Separate headings, because a retrieved document that nothing cited
+        # did not support the answer.
+        for heading, group in (
+            ("Cited sources:", cited),
+            ("Also retrieved, not cited in the answer:", unused),
+        ):
+            if not group:
+                continue
+            click.echo("")
+            click.echo(heading)
+            for source in group:
+                _print_ask_source(source, labels, evidence, show_sources=show_sources)
+
+    excluded = result.get("excluded_sources", [])
+    if excluded:
+        click.echo("")
+        click.echo("Retrieved but unreadable (excluded from the answer):")
+        for item in excluded:
+            click.echo(f"  - {item['title']} ({item['reason']})")
+            if show_sources:
+                click.echo(f"      document_id: {item['document_id']}")
+                click.echo("      The canonical document and its raw source are unchanged.")
+
+    meta = result.get("synthesis", {})
+    if meta.get("mode") == "deterministic":
+        click.echo("")
+        click.echo(f"(answered from retrieval only: {meta.get('reason', 'deterministic')})")
+
+    for warning in result.get("grounding_warnings", []):
+        click.echo(
+            f"(unverified {warning['check']} claim [{warning['status']}]: {warning['claim']})",
+            err=True,
+        )
+    for sentence in result.get("softened_negatives", []):
+        click.echo(f"(removed unsupported denial: {sentence})", err=True)
+    for value in result.get("dropped_citations", []):
+        click.echo(f"(dropped unsupported citation [{value}])", err=True)
+    for field_name in result.get("rejected_fields", []):
+        click.echo(f"(ignored unsupported answer field: {field_name})", err=True)
+
+
+def _print_ask_source(source, labels, evidence, *, show_sources=False):
+    click.echo(f"  [{source['citation_id']}] {labels[source['citation_id']]}")
+    if not show_sources:
+        return
+    click.echo(f"      document_id: {source['document_id']}")
+    click.echo(f"      type: {source['type'] or 'knowledge'}"
+               + (f" / {source['source_type']}" if source["source_type"] else ""))
+    click.echo(f"      visibility: {source['visibility']}")
+    if source.get("updated"):
+        click.echo(f"      updated: {source['updated']}")
+    if source.get("source_ids"):
+        click.echo(f"      source_ids: {', '.join(source['source_ids'])}")
+    click.echo(f"      enrichment: {source['enrichment_status']}")
+    item = evidence.get(source["citation_id"], {})
+    for entity in item.get("entity_refs", []):
+        click.echo(f"      entity: {entity.get('name', '')} ({entity.get('entity_id', '')})")
+    for excerpt in item.get("excerpts", []):
+        click.echo(f"      excerpt: {excerpt}")
+    if item.get("stale_enrichment_warning"):
+        click.echo(f"      stale enrichment: {item['stale_enrichment_warning']}")
+
+
 @cli.command("enrich")
 @click.argument("args", nargs=-1)
 @click.option("--context-limit", default=3, show_default=True, type=int, help="Related private documents to supply as context")

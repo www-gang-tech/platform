@@ -170,3 +170,80 @@ Private entities never reach public output: they live only under `GANG_HOME`, wr
 
 ### Revisit when
 Additional entity types are genuinely needed, legacy `people`/`companies`/`projects` strings are ready for a deliberate migration onto stable references, or free-form question answering requires the graph to expose more than deterministic structural queries.
+
+## 2026-09-20 - Evidence-backed question answering over the private corpus
+
+**Status:** Accepted
+
+### Context
+The corpus could be searched by keyword, filtered by metadata, and traversed by entity and relationship, but every question still had to be decomposed by hand into `gang search`, `gang entity show`, and manual reading. Epic 09 closed by naming this as the thing to revisit: free-form question answering needs more than deterministic structural queries. The risk in answering questions with a model is not that retrieval is hard; it is that a fluent answer with no evidence behind it is worse than no answer.
+
+### Decision
+`gang ask` plans, retrieves, bounds, synthesizes, and cites, in that order. Deterministic code owns everything that can be decided exactly: quoted phrases are preserved verbatim, temporal language resolves to an explicit `YYYY-MM-DD` range before retrieval, and names are matched against canonical entity records and aliases by exact lookup. The model is consulted for planning only when ambiguity remains, so simple exact search never requires it.
+
+The model may propose a query plan but never executes one. A plan is inert, versioned, schema-validated JSON with a closed field vocabulary — no SQL, no filesystem path, no mutation — and an unsupported field rejects the whole plan rather than being ignored. Deterministic code compiles the plan into parameter-bound statements against a read-only SQLite connection, and re-validates any model-supplied plan against the entity IDs, document types, and source types the corpus actually contains.
+
+Retrieval is bounded to 5–10 canonical documents, capped at 25. Ranking is by how many *kinds* of signal a document satisfies — full text, entity mention, relationship, metadata filter — with term coverage, BM25, and recency breaking ties. Signals are reported as counts, never as invented relevance scores. Excerpts are bounded windows around the question's own terms, so an entire Gmail thread or Drive export never leaves the machine.
+
+Document-level enrichment status (`current` / `stale` / `none`) is derived at index build time from the existing enrichment audit trail, by comparing each document's hash against the resulting hash of the most recent applied proposal. Stale enrichment is carried in a separate field with an explicit warning; canonical source excerpts are always preferred.
+
+Answers are policed after the fact. Citations that do not name a real evidence item are stripped from claims and from prose and reported; an uncited substantive claim is downgraded to `uncertain`; answer fields outside the schema are dropped and reported. All retrieved content travels as DATA inside a JSON envelope in the user message and never reaches the system prompt.
+
+`gang ask` is read-only. The single Anthropic integration was consolidated into `core/ai_provider.py`, which enrichment proposals, entity proposals, and ask synthesis now share.
+
+### Why
+Planning deterministically first is what makes the system trustworthy and cheap at the same time: the common case costs nothing, dates cannot drift between planning and synthesis, and an ambiguous name is reported rather than silently resolved to whichever candidate sorted first. Constraining the model to a typed plan means prompt injection in an email can at worst produce a rejected plan, because there is no expressible operation that reads a file or writes a row.
+
+Validating citations after generation is the part that makes the answers checkable. A model asked to cite will usually cite, but "usually" is not a property worth building on, and a fabricated citation is precisely the failure that destroys trust in a knowledge system. Deriving enrichment staleness rather than storing it keeps SQLite disposable and adds no canonical state.
+
+### Consequences
+`gang index build` now records `source_type`, `content_trust`, `enrichment_status`, and the derived enrichment payload on each document. The additions are additive, but an index built before this epic is missing them; `gang ask` detects that and says to rebuild. Nothing in canonical Markdown changed.
+
+A document may declare `enrichment_state.status` in frontmatter to mark derived metadata stale explicitly; when present it wins over the derived value.
+
+Answers are cached under `GANG_HOME/generated/ask-cache/`, keyed by plan, evidence, and prompt version. The cache is disposable and never canonical. No question history is kept and no provider prompt is stored.
+
+The two duplicated Anthropic call sites became one. `AnthropicEnrichmentProvider` and `AnthropicEntityProposer` keep their public shape; both now delegate, which also fixed a latent crash when a response opens with a thinking block.
+
+Ask synthesis defaults to `claude-opus-5`. The proposal flows keep their existing pinned default.
+
+### Revisit when
+Retrieval quality stops improving through deterministic signals, questions need to span more than the bounded evidence set, answers need to be shared outside the machine that asked, or natural-language mutation is genuinely wanted — which needs a typed-command architecture, not this one.
+
+
+## 2026-09-20 - Grounding discipline for Ask GANG
+
+**Status:** Accepted
+
+### Context
+Live acceptance against the real private corpus exposed three grounding failures that the synthetic test corpus could not. Asked whether a decision had been made about something the corpus knew nothing about, the answer began "No." — converting a failed search into a factual denial. An answer about unit economics read as though it combined a per-unit packaging target with a separate production volume into a single cost claim the source never made. And a Drive PDF whose text extraction produced binary residue was being fed to synthesis as though it were prose.
+
+### Decision
+Three deterministic checks now sit between generation and output, alongside the existing citation policing.
+
+Absence of evidence may not become a categorical negative. When an answer is marked insufficient, or when no claim carries a citation, flat denials are removed sentence by sentence and replaced with an explicit statement of absence. Sentences already phrased about the corpus — "I found no evidence that", "the retrieved corpus does not establish" — are recognized and preserved, as is any other context the answer supplied. A categorical negative survives only when a cited excerpt supports it. Removed sentences are reported.
+
+Numeric claims are checked against the evidence they cite. Every figure in a claim must appear in a cited excerpt, and figures combined into one statement must co-occur within one passage of one source. Claims failing either test are downgraded to `uncertain` and reported, rather than being deleted or silently kept.
+
+Claims relating two entities require a cited excerpt mentioning both, or a relationship assertion, which the entity layer already backs with evidence. Entity type, entity reference, and document title are explicitly not linking evidence. Matching runs over every surface form an entity is known by, since documents write "Frank" where the canonical record says "Frank Godchaux".
+
+Extracted text is measured before it enters the bundle: control-character density, replacement characters, whitespace ratio, and mean token length. Corruption is usually partial, so the check runs per excerpt and falls back to the document's first readable region; only a document with no readable text anywhere is held back. Held-back documents receive no citation ID, are reported separately, and their canonical records and raw evidence are untouched.
+
+Finally, sources are now split into those the answer cited and those retrieval merely returned, cited first.
+
+### Why
+The three failures share a root: the model was being trusted to observe a discipline that could be checked mechanically. Fluent text that asserts a negative, joins two adjacent numbers, or narrates a relationship between two resolved names is indistinguishable from grounded text at a glance, which is exactly why a reader cannot be the safeguard. Each check is conservative — it downgrades and reports rather than deletes — so a false positive costs a marked claim, while a false negative costs the corpus's credibility.
+
+Measuring extraction quality rather than asking a model about it keeps the decision reproducible and cheap, and the thresholds were calibrated against the real corpus rather than guessed. That calibration also caught a bug in the first implementation: counting Unicode format characters as binary would have condemned five ordinary HTML emails, because soft hyphens and zero-width spaces are normal in mail.
+
+### Consequences
+Answers carry `grounding_warnings`, `softened_negatives`, `excluded_sources`, and `cited_source_count`. Each claim carries `numeric_check` and `entity_linkage`. Sources carry `cited` and `extraction_quality`. The terminal output separates cited sources, retrieved-but-uncited sources, and unreadable sources under distinct headings, and warnings go to stderr.
+
+Citation IDs are assigned over usable evidence only, so they stay contiguous and an unreadable document cannot be cited.
+
+Entity mentions now carry their entity's aliases into retrieval for matching. Those aliases are used by the grounding checks and are deliberately not sent to the model.
+
+No canonical document, raw record, or source system is touched by any of this. `gang ask` remains read-only.
+
+### Revisit when
+A grounding check is observed rejecting claims that are in fact supported often enough to be noise, extraction quality needs to distinguish more than readable from unreadable, or numeric verification needs to understand units and subjects rather than figures and proximity.
