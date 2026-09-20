@@ -24,21 +24,41 @@ class IngestionRegistry:
     def all_sources(self) -> Dict[str, Dict[str, Any]]:
         return dict(self._load()["sources"])
 
-    def upsert(self, source_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
+    def upsert(
+        self,
+        source_id: str,
+        record: Dict[str, Any],
+        *,
+        append_version: bool = True,
+        version_record: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         data = self._load()
         previous = data["sources"].get(source_id)
         versions = list(previous.get("versions", [])) if previous else []
-        versions.append(
-            {
+        if append_version:
+            entry = version_record or {
                 "version": record["version"],
                 "content_hash": record["content_hash"],
                 "raw_ref": record["raw_ref"],
                 "ingested_at": record["ingested_at"],
             }
-        )
+            if not _has_version_record(versions, entry):
+                versions.append(entry)
         data["sources"][source_id] = {**record, "versions": versions}
         self._save(data)
         return data["sources"][source_id]
+
+    def replace(self, source_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
+        data = self._load()
+        data["sources"][source_id] = record
+        self._save(data)
+        return data["sources"][source_id]
+
+    def remove(self, source_id: str) -> None:
+        data = self._load()
+        if source_id in data["sources"]:
+            del data["sources"][source_id]
+            self._save(data)
 
     def relative_path(self, path: Path) -> str:
         try:
@@ -76,3 +96,18 @@ class IngestionRegistry:
         if len(path.parents) >= 4:
             return path.parents[3]
         return Path(".")
+
+
+def _has_version_record(versions: list[Dict[str, Any]], entry: Dict[str, Any]) -> bool:
+    for previous in versions:
+        previous_version = previous.get("raw_version", previous.get("version"))
+        entry_version = entry.get("raw_version", entry.get("version"))
+        previous_hash = previous.get("payload_hash", previous.get("content_hash"))
+        entry_hash = entry.get("payload_hash", entry.get("content_hash"))
+        if (
+            previous.get("raw_ref") == entry.get("raw_ref")
+            and previous_version == entry_version
+            and previous_hash == entry_hash
+        ):
+            return True
+    return False
