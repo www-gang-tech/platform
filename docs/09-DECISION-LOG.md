@@ -90,6 +90,35 @@ Local setup requires creating a Google OAuth desktop client, saving the client s
 ### Revisit when
 Additional connectors are approved or Gmail incremental history IDs are needed for high-volume mailbox synchronization.
 
+## 2026-09-20 - Google Drive ingestion source boundary
+
+**Status:** Accepted
+
+### Context
+Private documents in Google Drive should become durable local knowledge without making Drive a second vault, search database, or AI workflow. Drive files are mutable external source records with stable file IDs, mutable names, folder locations, revision markers, and format-specific download/export behavior.
+
+### Decision
+Google Drive is implemented as one production connector behind a narrow provider boundary. OAuth uses a local installed-app flow with the read-only Drive scope, `drive.readonly`. OAuth client secrets and tokens are stored separately from Gmail under `GANG_HOME/ingestion/drive/`, and are never written to Git, canonical Markdown, or searchable output.
+
+Source identity is the Google Drive file ID mapped to one stable GANG source ID and one stable canonical document UUID. Filenames, titles, folder paths, and URLs are metadata only. Renames and folder moves do not create new canonical documents. Unchanged content is idempotent; modified content creates a new immutable raw version and updates the same canonical UUID.
+
+Supported v1 formats are Google Docs, PDFs, Markdown/plain text, and a replaceable DOCX extraction boundary. Google Sheets, Slides, Forms, drawings, audio/video, and arbitrary binaries are explicitly unsupported for semantic normalization. Unsupported files preserve source/raw evidence where practical but do not create misleading canonical knowledge.
+
+Canonical Drive documents are stored under `GANG_HOME/vault/documents/` with `type: document`, `visibility: private`, `status: active`, untrusted-content marking, Drive metadata, and provenance back to source ID, Drive file ID, source version/revision marker, content hash, and raw evidence. Private FTS indexes normalized Drive documents through the existing SQLite index. Drive ingestion never calls AI; enrichment remains an explicit later proposal workflow.
+
+Initial sync must be bounded by `--since` and/or `--folder`. Later unbounded `gang ingest drive` uses the Drive changes checkpoint. Checkpoints advance only after a failure-free sync, preserving retry safety across partial failures and rate limits.
+
+### Why
+This preserves Drive as the authoritative external source while making deterministic local private search possible. Keeping Drive state in the existing raw store, registry, vault, and FTS index avoids a parallel knowledge system and keeps the public/private boundary auditable.
+
+### Consequences
+Operators must create a Google OAuth desktop client, save it as `GANG_HOME/ingestion/drive/oauth_client_secret.json`, run `gang ingest drive auth`, and begin with a bounded sync such as `gang ingest drive --since 30d` or `gang ingest drive --folder DRIVE_FOLDER_ID`.
+
+Drive-derived content remains private by default and is excluded from public builds, feeds, public search, Content API, AgentMap, and generated public structured output. OCR, Sheets/Slides semantic modeling, comments ingestion, embeddings, background scheduling, and automatic AI enrichment remain out of scope.
+
+### Revisit when
+Additional Drive formats need deliberate semantic models, or a dedicated document conversion adapter is introduced for richer non-Google office formats.
+
 ## Durable Private Brain Home
 
 **Status:** Accepted

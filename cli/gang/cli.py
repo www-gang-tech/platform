@@ -1178,6 +1178,105 @@ def _print_gmail_sync_result(result):
             click.echo(f"    Error: {item.error}")
 
 
+@ingest.group("drive", invoke_without_command=True)
+@click.option("--since", help="Bounded first sync range, such as 30d or 2026-01-31")
+@click.option("--folder", "folder_id", help="Bounded initial sync to one Drive folder ID")
+@click.pass_context
+def ingest_drive(ctx, since, folder_id):
+    """Authenticate and import Google Drive files as private documents"""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    try:
+        from core.ingestion import DriveIngestionError, DriveSyncService, GoogleDriveProvider
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import DriveIngestionError, DriveSyncService, GoogleDriveProvider
+
+    try:
+        result = DriveSyncService(GoogleDriveProvider()).sync(since=since, folder_id=folder_id)
+    except DriveIngestionError as e:
+        click.echo(f"❌ Drive ingest failed: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"❌ Drive ingest failed: {e}", err=True)
+        raise click.Abort()
+
+    _print_drive_sync_result(result)
+
+
+@ingest_drive.command("auth")
+def ingest_drive_auth():
+    """Authorize Drive read access for this local workspace"""
+    try:
+        from core.ingestion import DriveIngestionError, GoogleDriveProvider
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import DriveIngestionError, GoogleDriveProvider
+
+    provider = GoogleDriveProvider()
+    try:
+        token_path = provider.authenticate()
+    except DriveIngestionError as e:
+        click.echo(f"❌ Drive auth failed: {e}", err=True)
+        raise click.Abort()
+    click.echo("✅ Drive authorized")
+    click.echo(f"  Token: {token_path}")
+    click.echo("  Scope: drive.readonly")
+
+
+@ingest_drive.command("status")
+def ingest_drive_status():
+    """Show private Drive connector status"""
+    try:
+        from core.ingestion import DriveSyncService, GoogleDriveProvider
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import DriveSyncService, GoogleDriveProvider
+
+    status = DriveSyncService(GoogleDriveProvider()).status()
+    checkpoint = status["checkpoint"]
+    click.echo("Drive ingestion")
+    click.echo(f"  Checkpoint: {status['checkpoint_path']}")
+    click.echo(f"  Files: {status['files']}")
+    click.echo(f"  Documents: {status['documents']}")
+    if checkpoint:
+        click.echo(f"  Last successful sync: {checkpoint.get('last_successful_sync_at')}")
+        click.echo(f"  Start page token: {checkpoint.get('start_page_token')}")
+        if checkpoint.get("last_since"):
+            click.echo(f"  Last since bound: {checkpoint.get('last_since')}")
+        if checkpoint.get("last_folder_id"):
+            click.echo(f"  Last folder bound: {checkpoint.get('last_folder_id')}")
+    else:
+        click.echo("  Last successful sync: never")
+
+
+def _print_drive_sync_result(result):
+    click.echo("Drive ingestion complete")
+    click.echo(f"  Files discovered: {result.files_discovered}")
+    click.echo(f"  Supported: {result.supported}")
+    click.echo(f"  Unsupported: {result.unsupported}")
+    click.echo(f"  Created: {result.created}")
+    click.echo(f"  Updated: {result.updated}")
+    click.echo(f"  Unchanged: {result.unchanged}")
+    click.echo(f"  Failed: {result.failed}")
+    checkpoint_value = result.checkpoint.get("start_page_token") if result.checkpoint else None
+    click.echo(f"  Checkpoint: {checkpoint_value or 'not advanced'}")
+    for item in result.results:
+        click.echo(f"  - Drive file: {item.drive_file_id}")
+        click.echo(f"    Status: {item.status}")
+        click.echo(f"    Source ID: {item.source_id}")
+        if item.document_id:
+            click.echo(f"    Document ID: {item.document_id}")
+        if item.document_path:
+            click.echo(f"    Document: {item.document_path}")
+        if item.error:
+            click.echo(f"    Error: {item.error}")
+
+
 @cli.group("index")
 def private_index():
     """Build and inspect the local private knowledge index"""

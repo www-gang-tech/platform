@@ -55,6 +55,10 @@ class GangPaths:
         return self.private_vault / "emails"
 
     @property
+    def documents_path(self) -> Path:
+        return self.private_vault / "documents"
+
+    @property
     def raw_path(self) -> Path:
         return self.home / "raw"
 
@@ -93,6 +97,22 @@ class GangPaths:
     @property
     def gmail_credentials_path(self) -> Path:
         return self.gmail_path / "oauth_client_secret.json"
+
+    @property
+    def drive_path(self) -> Path:
+        return self.ingestion_path / "drive"
+
+    @property
+    def drive_checkpoint_path(self) -> Path:
+        return self.drive_path / "checkpoint.json"
+
+    @property
+    def drive_token_path(self) -> Path:
+        return self.drive_path / "token.json"
+
+    @property
+    def drive_credentials_path(self) -> Path:
+        return self.drive_path / "oauth_client_secret.json"
 
     @property
     def enrichment_path(self) -> Path:
