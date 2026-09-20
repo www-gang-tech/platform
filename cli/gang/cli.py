@@ -1104,6 +1104,122 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
         if result["excerpt"]:
             click.echo(f"   excerpt: {result['excerpt']}")
 
+@cli.command("enrich")
+@click.argument("args", nargs=-1)
+@click.option("--context-limit", default=3, show_default=True, type=int, help="Related private documents to supply as context")
+@click.option("--overwrite-existing", is_flag=True, help="Allow apply to replace existing authored enrichment fields")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text", help="Output format")
+@click.pass_context
+def enrich(ctx, args, context_limit, overwrite_existing, output_format):
+    """Create, inspect, and explicitly apply AI enrichment proposals."""
+    try:
+        from core.enrichment import (
+            AIProviderError,
+            AnthropicEnrichmentProvider,
+            EnrichmentConflictError,
+            EnrichmentError,
+            EnrichmentService,
+            ProposalValidationError,
+            StaleProposalError,
+        )
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.enrichment import (
+            AIProviderError,
+            AnthropicEnrichmentProvider,
+            EnrichmentConflictError,
+            EnrichmentError,
+            EnrichmentService,
+            ProposalValidationError,
+            StaleProposalError,
+        )
+
+    def print_workflow():
+        click.echo("Usage:")
+        click.echo("  gang enrich DOCUMENT_ID")
+        click.echo("  gang enrich show PROPOSAL_ID")
+        click.echo("  gang enrich apply PROPOSAL_ID")
+
+    if not args:
+        print_workflow()
+        return
+
+    config = ctx.obj or {}
+    model = config.get("ai", {}).get("model")
+    service = EnrichmentService(provider=AnthropicEnrichmentProvider(model=model))
+
+    try:
+        if args[0] == "show":
+            if len(args) != 2:
+                print_workflow()
+                ctx.exit(1)
+            proposal = service.show_proposal(args[1])
+            if output_format == "json":
+                click.echo(json.dumps(proposal, indent=2, sort_keys=True))
+            else:
+                _print_enrichment_proposal(proposal)
+            return
+
+        if args[0] == "apply":
+            if len(args) != 2:
+                print_workflow()
+                ctx.exit(1)
+            proposal = service.apply_proposal(args[1], overwrite_existing=overwrite_existing)
+            if output_format == "json":
+                click.echo(json.dumps(proposal, indent=2, sort_keys=True))
+            else:
+                click.echo("✅ Applied enrichment proposal")
+                click.echo(f"  Proposal: {proposal['proposal_id']}")
+                click.echo(f"  Document: {proposal['document_id']}")
+                click.echo(f"  Resulting hash: {proposal['resulting_hash']}")
+                click.echo("  Reindexed: brain/generated/brain.sqlite")
+            return
+
+        if len(args) != 1:
+            print_workflow()
+            ctx.exit(1)
+
+        proposal = service.create_proposal(args[0], context_limit=context_limit)
+        if output_format == "json":
+            click.echo(json.dumps(proposal, indent=2, sort_keys=True))
+        else:
+            click.echo("✅ Created enrichment proposal")
+            click.echo(f"  Proposal: {proposal['proposal_id']}")
+            click.echo(f"  Document: {proposal['document_id']}")
+            click.echo(f"  Provider/model: {proposal['provider']}/{proposal['model']}")
+            click.echo(f"  Context documents: {len(proposal['context_document_ids'])}")
+            click.echo(f"  Show: gang enrich show {proposal['proposal_id']}")
+            click.echo(f"  Apply: gang enrich apply {proposal['proposal_id']}")
+    except EnrichmentConflictError as e:
+        click.echo("❌ Existing authored enrichment would be overwritten.", err=True)
+        click.echo("Conflicts:", err=True)
+        for field in e.conflicts:
+            click.echo(f"  - {field}", err=True)
+        click.echo("Use --overwrite-existing only after reviewing the proposal.", err=True)
+        raise click.Abort()
+    except StaleProposalError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+    except (AIProviderError, ProposalValidationError, EnrichmentError) as e:
+        click.echo(f"❌ Enrichment failed: {e}", err=True)
+        raise click.Abort()
+
+
+def _print_enrichment_proposal(proposal):
+    click.echo(f"Proposal: {proposal['proposal_id']}")
+    click.echo(f"Document: {proposal['document_id']}")
+    click.echo(f"Base hash: {proposal['base_document_hash']}")
+    click.echo(f"Provider/model: {proposal['provider']}/{proposal['model']}")
+    click.echo(f"Generated: {proposal['generated_at']}")
+    click.echo(f"Apply status: {proposal.get('apply_status', 'pending')}")
+    if proposal.get("context_document_ids"):
+        click.echo("Context:")
+        for document_id in proposal["context_document_ids"]:
+            click.echo(f"  - {document_id}")
+    click.echo("Proposed enrichment:")
+    click.echo(json.dumps(proposal["proposed_enrichment"], indent=2, sort_keys=True))
+
 @cli.command()
 @click.argument('source', type=click.Path(exists=True), required=False)
 @click.option('--title', help='Article title (auto-detected if not provided)')

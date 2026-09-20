@@ -86,6 +86,27 @@ types:
       - name: related
         type: array
         computed: true
+
+  meeting:
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: source_id
+        type: string
+        required: true
+      - name: summary
+        type: text
+        required: false
+      - name: decisions
+        type: array
+        required: false
+      - name: action_items
+        type: array
+        required: false
+      - name: unresolved_questions
+        type: array
+        required: false
         
   project:
     extends: page
@@ -138,7 +159,7 @@ images:
 # AI optimization settings
 ai:
   provider: "anthropic"  # or "openai"
-  model: "claude-sonnet-4.5"
+  model: "claude-sonnet-4-6"
   cache_by: "content_hash"
   fill_missing:
     - seo.title

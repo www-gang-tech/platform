@@ -1,6 +1,6 @@
 ---
 id: 01a0bbf1-7f14-7b41-a4e3-f4dbd6a37a89
-type: knowledge
+type: meeting
 source_type: meeting
 title: Epic 04 Private Search Acceptance
 visibility: private

@@ -24,6 +24,23 @@ def write_markdown(path, frontmatter, body):
     )
 
 
+def write_yaml_markdown(path, frontmatter, body):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\n"
+        + yaml_dump(frontmatter)
+        + "---\n\n"
+        + body,
+        encoding="utf-8",
+    )
+
+
+def yaml_dump(value):
+    import yaml
+
+    return yaml.safe_dump(value, sort_keys=False)
+
+
 class PrivateIndexTests(unittest.TestCase):
     def test_build_indexes_public_and_private_vault_markdown_only(self):
         with TemporaryDirectory() as tempdir:
@@ -45,7 +62,7 @@ class PrivateIndexTests(unittest.TestCase):
                 root / "brain/vault/meetings/private.md",
                 {
                     "id": "private-doc",
-                    "type": "knowledge",
+                    "type": "meeting",
                     "title": "Private Meeting",
                     "created_at": "'2026-01-03T00:00:00+00:00'",
                     "updated_at": "'2026-01-04T00:00:00+00:00'",
@@ -72,11 +89,13 @@ class PrivateIndexTests(unittest.TestCase):
 
             private_results = index.search("ceramic mounting plate", visibility="private")
             self.assertEqual([item["document_id"] for item in private_results], ["private-doc"])
+            self.assertEqual(private_results[0]["type"], "meeting")
             self.assertEqual(private_results[0]["source_ids"], ["meeting_source_1"])
             self.assertNotIn(str(root), json.dumps(private_results))
 
             public_results = index.search("Public canonical", visibility="public")
             self.assertEqual([item["document_id"] for item in public_results], ["public-doc"])
+            self.assertEqual(index.status()["by_type"], {"meeting": 1, "page": 1})
             self.assertEqual(index.status()["by_visibility"], {"private": 1, "public": 1})
 
     def test_rebuild_updates_changed_documents_and_removes_deleted_documents(self):
@@ -87,7 +106,7 @@ class PrivateIndexTests(unittest.TestCase):
                 doc_path,
                 {
                     "id": "private-doc",
-                    "type": "knowledge",
+                    "type": "meeting",
                     "title": "Private Meeting",
                     "updated_at": "'2026-01-04T00:00:00+00:00'",
                     "visibility": "private",
@@ -107,7 +126,7 @@ class PrivateIndexTests(unittest.TestCase):
                 doc_path,
                 {
                     "id": "private-doc",
-                    "type": "knowledge",
+                    "type": "meeting",
                     "title": "Private Meeting",
                     "updated_at": "'2026-01-05T00:00:00+00:00'",
                     "visibility": "private",
@@ -158,6 +177,100 @@ class PrivateIndexTests(unittest.TestCase):
             self.assertEqual(len(index.search("thermal", source="source_abc")), 1)
             self.assertEqual(index.search("thermal", source="missing"), [])
 
+    def test_enrichment_frontmatter_fields_are_curated_for_fts(self):
+        with TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            doc = root / "brain/vault/meetings/enriched.md"
+            write_yaml_markdown(
+                doc,
+                {
+                    "id": "enriched-doc",
+                    "type": "meeting",
+                    "title": "Enriched Meeting",
+                    "visibility": "private",
+                    "status": "active",
+                    "source_id": "sourceonlytoken",
+                    "content_hash": "hashonlytoken",
+                    "raw_ref": "local://meeting/sourceonlytoken/v000001/payload.txt",
+                    "provider": "provideronlytoken",
+                    "generated_at": "generatedonlytoken",
+                    "summary": "Summaryonlytoken appears only in summary.",
+                    "decisions": [
+                        {
+                            "decision": "Decisiononlytoken appears only in a decision.",
+                            "evidence": {
+                                "document_id": "evidencedoconlytoken",
+                                "source_id": "evidencesourceonlytoken",
+                                "excerpt": "evidenceexcerptonlytoken should not be indexed separately",
+                            },
+                        }
+                    ],
+                    "action_items": [
+                        {
+                            "task": "Actiononlytoken appears only in an action item task.",
+                            "owner": "Owneronlytoken",
+                        }
+                    ],
+                    "unresolved_questions": [
+                        {
+                            "question": "Questiononlytoken appears only in an unresolved question.",
+                        }
+                    ],
+                    "tags": ["tagonlytoken"],
+                    "people": ["Persononlytoken"],
+                    "companies": ["Companyonlytoken"],
+                    "projects": ["Projectonlytoken"],
+                    "related": [
+                        {"document_id": "relatedidonlytoken", "title": "Relatedtitleonlytoken"},
+                        "01a0bc28-9b26-78da-807e-789734ab0b2a",
+                    ],
+                },
+                "Bodyonlytoken appears only in the Markdown body.\n",
+            )
+
+            index = PrivateKnowledgeIndex(root_path=root)
+            index.build()
+            index.build()
+
+            self.assertEqual(index.status()["documents"], 1)
+            with sqlite3.connect(root / "brain/generated/brain.sqlite") as connection:
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0], 1)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM documents_fts").fetchone()[0], 1)
+
+            for term in (
+                "summaryonlytoken",
+                "decisiononlytoken",
+                "actiononlytoken",
+                "owneronlytoken",
+                "questiononlytoken",
+                "tagonlytoken",
+                "persononlytoken",
+                "companyonlytoken",
+                "projectonlytoken",
+                "relatedtitleonlytoken",
+                "bodyonlytoken",
+            ):
+                results = index.search(term)
+                self.assertEqual([item["document_id"] for item in results], ["enriched-doc"], term)
+
+            self.assertEqual(index.search("summaryonlytoken", visibility="public"), [])
+            self.assertEqual([item["document_id"] for item in index.search("bodyonlytoken", visibility="private")], ["enriched-doc"])
+            self.assertEqual([item["document_id"] for item in index.search("bodyonlytoken", source="sourceonlytoken")], ["enriched-doc"])
+
+            for operational_term in (
+                "sourceonlytoken",
+                "hashonlytoken",
+                "provideronlytoken",
+                "generatedonlytoken",
+                "evidencedoconlytoken",
+                "evidencesourceonlytoken",
+                "evidenceexcerptonlytoken",
+                "relatedidonlytoken",
+                "private",
+                "active",
+            ):
+                self.assertEqual(index.search(operational_term), [], operational_term)
+
     def test_cli_build_search_and_ingest_inspect_share_source_id(self):
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -167,7 +280,7 @@ class PrivateIndexTests(unittest.TestCase):
             doc.write_text(
                 "---\n"
                 "id: private-doc\n"
-                "type: knowledge\n"
+                "type: meeting\n"
                 "title: Ceramic Meeting\n"
                 "updated_at: '2026-01-05T00:00:00+00:00'\n"
                 "visibility: private\n"
@@ -203,6 +316,7 @@ class PrivateIndexTests(unittest.TestCase):
             search = runner.invoke(gang_cli.cli, ["search", "ceramic mounting plate"])
             self.assertEqual(search.exit_code, 0, search.output)
             self.assertIn("Ceramic Meeting", search.output)
+            self.assertIn("type: meeting", search.output)
             self.assertIn("source_id: source_cli_1", search.output)
 
             inspect = runner.invoke(gang_cli.cli, ["ingest", "inspect", "source_cli_1"])

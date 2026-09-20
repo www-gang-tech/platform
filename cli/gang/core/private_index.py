@@ -24,6 +24,7 @@ class IndexedDocument:
     type: str
     title: str
     body: str
+    semantic_enrichment: str
     created: str
     updated: str
     visibility: str
@@ -165,8 +166,8 @@ class PrivateKnowledgeIndex:
                 d.visibility,
                 d.updated,
                 d.source_ids,
-                snippet(documents_fts, 3, '', '', ' ... ', 18) AS excerpt,
-                bm25(documents_fts, 4.0, 1.0, 5.0, 1.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 2.0) AS rank
+                snippet(documents_fts, -1, '', '', ' ... ', 18) AS excerpt,
+                bm25(documents_fts, 4.0, 1.0, 2.0) AS rank
             FROM documents_fts
             JOIN documents d ON d.rowid = documents_fts.rowid
             WHERE {" AND ".join(where)}
@@ -241,6 +242,7 @@ class PrivateKnowledgeIndex:
             type=_string(frontmatter.get("type")) or "knowledge",
             title=title,
             body=clean_body,
+            semantic_enrichment=_semantic_enrichment_text(frontmatter),
             created=_date_value(frontmatter.get("created")) or _date_value(frontmatter.get("created_at")),
             updated=_date_value(frontmatter.get("updated")) or _date_value(frontmatter.get("updated_at")),
             visibility=_string(frontmatter.get("visibility")) or "private",
@@ -267,6 +269,7 @@ class PrivateKnowledgeIndex:
                 type TEXT NOT NULL,
                 title TEXT NOT NULL,
                 body TEXT NOT NULL,
+                semantic_enrichment TEXT NOT NULL,
                 created TEXT NOT NULL,
                 updated TEXT NOT NULL,
                 visibility TEXT NOT NULL,
@@ -287,18 +290,9 @@ class PrivateKnowledgeIndex:
             );
 
             CREATE VIRTUAL TABLE documents_fts USING fts5(
-                document_id UNINDEXED,
-                type,
                 title,
                 body,
-                visibility,
-                status,
-                tags,
-                people,
-                companies,
-                projects,
-                related,
-                source_ids,
+                semantic_enrichment,
                 tokenize='porter unicode61'
             );
             """
@@ -310,6 +304,7 @@ class PrivateKnowledgeIndex:
             "type": document.type,
             "title": document.title,
             "body": document.body,
+            "semantic_enrichment": document.semantic_enrichment,
             "created": document.created,
             "updated": document.updated,
             "visibility": document.visibility,
@@ -338,24 +333,14 @@ class PrivateKnowledgeIndex:
         connection.execute(
             """
             INSERT INTO documents_fts (
-                rowid, document_id, type, title, body, visibility, status,
-                tags, people, companies, projects, related, source_ids
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                rowid, title, body, semantic_enrichment
+            ) VALUES (?, ?, ?, ?)
             """,
             (
                 rowid,
-                document.document_id,
-                document.type,
                 document.title,
                 document.body,
-                document.visibility,
-                document.status,
-                " ".join(document.tags),
-                " ".join(document.people),
-                " ".join(document.companies),
-                " ".join(document.projects),
-                " ".join(document.related),
-                " ".join(document.source_ids),
+                document.semantic_enrichment,
             ),
         )
 
@@ -390,6 +375,81 @@ def _source_ids(frontmatter: Dict[str, Any]) -> List[str]:
     if isinstance(envelope, dict):
         values.extend([envelope.get("source_id"), envelope.get("source_ids")])
     return _list_strings(values)
+
+
+def _semantic_enrichment_text(frontmatter: Dict[str, Any]) -> str:
+    parts: List[str] = []
+
+    summary = _string(frontmatter.get("summary"))
+    if summary:
+        parts.append(summary)
+
+    for item in _dict_items(frontmatter.get("decisions")):
+        decision = _string(item.get("decision"))
+        if decision:
+            parts.append(decision)
+
+    for item in _dict_items(frontmatter.get("action_items")):
+        task = _string(item.get("task"))
+        owner = _string(item.get("owner"))
+        if task:
+            parts.append(task)
+        if owner:
+            parts.append(owner)
+
+    for item in _dict_items(frontmatter.get("unresolved_questions")):
+        question = _string(item.get("question"))
+        if question:
+            parts.append(question)
+
+    for field in ("tags", "people", "companies", "projects"):
+        parts.extend(_list_strings(frontmatter.get(field)))
+
+    parts.extend(_human_readable_related(frontmatter.get("related")))
+    return _compact(" ".join(parts))
+
+
+def _dict_items(value: Any) -> Iterable[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _human_readable_related(value: Any) -> List[str]:
+    result: List[str] = []
+
+    def collect(item: Any) -> None:
+        if item is None:
+            return
+        if isinstance(item, (list, tuple, set)):
+            for child in item:
+                collect(child)
+            return
+        if isinstance(item, dict):
+            for key in ("title", "name", "label"):
+                if key in item:
+                    collect(item[key])
+                    return
+            return
+        text = _string(item)
+        if text and not _looks_like_operational_identifier(text) and text not in result:
+            result.append(text)
+
+    collect(value)
+    return result
+
+
+def _looks_like_operational_identifier(value: str) -> bool:
+    text = value.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", text):
+        return True
+    if re.fullmatch(r"[0-9a-fA-F]{32,64}", text):
+        return True
+    if re.match(r"^(?:local://|source_|meeting_|file_|enrich_)", text):
+        return True
+    if "/" in text or "\\" in text:
+        return True
+    return False
 
 
 def _list_strings(value: Any) -> List[str]:

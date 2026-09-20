@@ -11,6 +11,8 @@ from typing import Dict, Any, Optional
 import anthropic
 from bs4 import BeautifulSoup
 
+from .enrichment import DEFAULT_ANTHROPIC_MODEL
+
 class AIOptimizer:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -50,7 +52,7 @@ class AIOptimizer:
         
         try:
             message = self.client.messages.create(
-                model=self.ai_config.get('model', 'claude-sonnet-4'),
+                model=self.ai_config.get('model', DEFAULT_ANTHROPIC_MODEL),
                 max_tokens=2000,
                 messages=[{
                     "role": "user",
@@ -235,4 +237,3 @@ Return valid JSON-LD for Schema.org {content_type.title()}. Include @context, @t
             'estimated_cost_usd': num_documents * cost_per_doc,
             'with_cache': num_documents * cost_per_doc * 0.1,  # 90% cache hit rate
         }
-

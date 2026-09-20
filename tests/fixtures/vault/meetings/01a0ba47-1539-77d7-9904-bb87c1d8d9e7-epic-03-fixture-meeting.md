@@ -1,6 +1,6 @@
 ---
 id: 01a0ba47-1539-77d7-9904-bb87c1d8d9e7
-type: knowledge
+type: meeting
 source_type: meeting
 title: Epic 03 Fixture Meeting
 visibility: private

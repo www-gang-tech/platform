@@ -266,7 +266,7 @@ budgets:
 # AI optimization
 ai:
   provider: "anthropic"
-  model: "claude-sonnet-4.5"
+  model: "claude-sonnet-4-6"
   cache_by: "content_hash"
   fill_missing:
     - seo.title

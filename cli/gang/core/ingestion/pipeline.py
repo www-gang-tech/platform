@@ -150,7 +150,7 @@ class IngestionPipeline:
         destination_path.mkdir(parents=True, exist_ok=True)
         frontmatter = {
             "id": document_id,
-            "type": "knowledge",
+            "type": _canonical_document_type(source_type),
             "source_type": source_type,
             "title": title,
             "visibility": "private",
@@ -178,3 +178,7 @@ class IngestionPipeline:
         document_path.parent.mkdir(parents=True, exist_ok=True)
         document_path.write_text(f"---\n{frontmatter_text}---\n\n{body}", encoding="utf-8")
         return document_path
+
+
+def _canonical_document_type(source_type: str) -> str:
+    return "meeting" if source_type == "meeting" else "knowledge"
