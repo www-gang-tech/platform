@@ -175,6 +175,134 @@ class EntityStore:
         self._audit({"event": "entity_created", "entity_id": record.id, "type": record.type, "name": record.name})
         return record
 
+    def describe(
+        self,
+        entity_id: str,
+        *,
+        description: Optional[str] = None,
+        body: Optional[str] = None,
+    ) -> EntityRecord:
+        """Author the record's account of what this entity is.
+
+        Foundational knowledge is written here and nowhere else. There is
+        deliberately no AI-assisted path into this method: a generated company
+        description is a generated company fact, which is the one thing the
+        system may not produce. The audit entry records that a human wrote it.
+        """
+        record = self.get(entity_id)
+        if description is not None:
+            record.description = string_value(description)
+        if body is not None:
+            text = string_value(body)
+            record.body = f"\n{text}\n" if text else ""
+        record.updated = now_iso()
+        validate_entity(record)
+        self._write(record)
+        self._audit(
+            {
+                "event": "entity_described",
+                "entity_id": record.id,
+                "type": record.type,
+                "name": record.name,
+                "authored_by": "human",
+                "description_chars": len(record.description),
+                "body_chars": len(record.authored_body),
+            }
+        )
+        return record
+
+    def reclassify(
+        self,
+        entity_id: str,
+        entity_type: str,
+        *,
+        documents: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Change an entity's type, preserving its identity and every reference.
+
+        The entity ID is identity and does not change, so mentions,
+        relationships, and provenance all survive. Three things do have to
+        move, and doing any of them by hand is how a corpus desynchronizes:
+
+        * the record's file, because the vault directory is chosen by type;
+        * the denormalized ``entity_type`` on every document that mentions it;
+        * the generated index, which is rebuilt by the caller.
+
+        Refuses rather than guesses when the new type would collide with an
+        existing name or alias, since a reclassification that silently merges
+        two identities is worse than one that does not happen.
+        """
+        record = self.get(entity_id)
+        target_type = validate_entity_type(entity_type)
+        if record.status != "active":
+            raise EntityValidationError(
+                f"Only an active entity can be reclassified; {record.id} is {record.status}."
+            )
+        if target_type == record.type:
+            return {
+                "entity_id": record.id,
+                "from_type": record.type,
+                "to_type": target_type,
+                "changed": False,
+                "documents_updated": [],
+            }
+
+        existing = self.load_all()
+        clashes = [
+            other.id
+            for other in existing
+            if other.id != record.id
+            and other.type == target_type
+            and other.status == "active"
+            and other.normalized_name == record.normalized_name
+        ]
+        if clashes:
+            raise DuplicateEntityError(
+                f"A {target_type} named {record.name!r} already exists: " + ", ".join(clashes)
+            )
+        for alias in record.aliases:
+            owners = _alias_owners(
+                [other for other in existing if other.id != record.id], target_type, alias
+            )
+            if owners:
+                raise AliasCollisionError(alias, owners)
+
+        previous_type = record.type
+        previous_path = record.path
+
+        record.type = target_type
+        record.updated = now_iso()
+        validate_entity(record)
+        record.path = self._path_for(record)
+        self._write(record)
+        if previous_path and previous_path.exists() and previous_path != record.path:
+            previous_path.unlink()
+
+        updated: List[Dict[str, Any]] = []
+        if documents is not None:
+            updated = documents.rewrite_entity_type(record.id, target_type)
+
+        self._audit(
+            {
+                "event": "entity_reclassified",
+                "entity_id": record.id,
+                "name": record.name,
+                "from_type": previous_type,
+                "to_type": target_type,
+                "from_path": previous_path.as_posix() if previous_path else "",
+                "to_path": record.path.as_posix() if record.path else "",
+                "documents_updated": [item["document_id"] for item in updated],
+            }
+        )
+        return {
+            "entity_id": record.id,
+            "from_type": previous_type,
+            "to_type": target_type,
+            "changed": True,
+            "path": record.path,
+            "documents_updated": updated,
+        }
+
     def rename(self, entity_id: str, name: str, *, keep_previous_alias: bool = True) -> EntityRecord:
         """Change the display name. The entity ID and all references are untouched."""
         record = self.get(entity_id)

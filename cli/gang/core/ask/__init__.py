@@ -45,6 +45,14 @@ from .conversation import (
     ConversationOptions,
     ConversationService,
 )
+from .diagnostics import (
+    CHECKS,
+    GroundingWarning,
+    describe as describe_warning,
+    describe_all as describe_warnings,
+    normalize as normalize_warning,
+    warning as grounding_warning,
+)
 from .evidence import EvidenceBundle, EvidenceItem, build_bundle, extract_excerpts
 from .followup import Resolution, extract_assumptions, resolve as resolve_followup
 from .intent import (
@@ -162,6 +170,7 @@ __all__ = [
     "AskOptions",
     "AskService",
     "Assumption",
+    "CHECKS",
     "CLAIM_TYPES",
     "COMPARE",
     "CONVERSATION_ANSWER_VERSION",
@@ -187,6 +196,7 @@ __all__ = [
     "EvidenceItem",
     "EvidenceSnapshot",
     "FACT",
+    "GroundingWarning",
     "IDEA",
     "IDEATE",
     "IDEATION",
@@ -241,15 +251,19 @@ __all__ = [
     "build_timeline",
     "citation_labels",
     "classify_source",
+    "describe_warning",
+    "describe_warnings",
     "deterministic_answer",
     "deterministic_conversation_answer",
     "entity_catalog",
     "extract_assumptions",
     "extract_excerpts",
     "fts_match_expression",
+    "grounding_warning",
     "infer_intent",
     "is_current_state_question",
     "merge_ai_plan",
+    "normalize_warning",
     "refine_plan",
     "resolve_bound",
     "resolve_followup",

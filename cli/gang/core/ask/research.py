@@ -163,6 +163,21 @@ class ResearchLoop:
         seen: Set[str] = set()
         expansions = 0
 
+        # --- authored identity first, for definitional questions ------------
+        #
+        # "What is GANG?" should be answered by the record someone wrote about
+        # GANG, not by whichever email happens to rank highest. Seeding the
+        # evidence set with the canonical record — before any search runs —
+        # is what stops a company's identity being reconstructed from
+        # incidental traffic.
+        if getattr(intent, "wants_identity", False):
+            self._absorb(
+                result,
+                self._foundational(resolved_entities, plan),
+                seen,
+                reason="authored canonical identity for a definitional question",
+            )
+
         # --- round zero: the deterministic plan, always ---------------------
         opening = self._retrieve(plan)
         self._absorb(result, opening, seen, reason="deterministic query plan")
@@ -233,6 +248,33 @@ class ResearchLoop:
         return result
 
     # -------------------------------------------------------------- helpers
+
+    def _foundational(
+        self, resolved_entities: Sequence[Dict[str, Any]], plan: QueryPlan
+    ) -> ToolResult:
+        """The authored identity records for whatever the question named."""
+        entity_ids: List[str] = [
+            str(entity.get("entity_id") or "")
+            for entity in resolved_entities or ()
+            if entity.get("entity_id")
+        ]
+        for value in plan.entity_ids:
+            if value not in entity_ids:
+                entity_ids.append(value)
+        if not entity_ids:
+            return ToolResult(tool="get_entity", note="No canonical entity named in the question.")
+
+        rows = self.tools.retriever.foundational_documents(entity_ids)
+        return ToolResult(
+            tool="get_entity",
+            arguments={"entity_ids": entity_ids},
+            documents=rows,
+            note=(
+                "Authored canonical identity. Prefer it for what this entity is."
+                if rows
+                else "No canonical record describes these entities yet."
+            ),
+        )
 
     def _retrieve(self, plan: QueryPlan) -> ToolResult:
         if plan.is_empty:

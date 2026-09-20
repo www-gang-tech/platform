@@ -30,6 +30,7 @@
 - [Drive Ingestion](guides/DRIVE_INGESTION.md) - Import private Drive documents
 - [Entities and Relationships](guides/ENTITIES_AND_RELATIONSHIPS.md) - Stable identities, mentions vs relationships, evidence
 - [Ask](guides/ASK.md) - Evidence-backed questions over the private corpus, with citations
+- [Foundational Knowledge](guides/FOUNDATIONAL_KNOWLEDGE.md) - Authored entity identity, definitional questions, reclassification
 - [Conversational Ask](guides/CONVERSATIONAL_ASK.md) - Multi-turn research, claim ledger, scenario assumptions, read-only invariant
 
 **Workflows**:

@@ -474,6 +474,27 @@ class Retriever:
                 )
             ]
 
+    def foundational_documents(self, entity_ids: Sequence[str]) -> List[Dict[str, Any]]:
+        """Authored identity records for these entities, if any exist.
+
+        A foundational document is stored under the entity's own id, so this
+        is an exact lookup rather than a search: either someone wrote down
+        what the entity is, or nobody did.
+        """
+        wanted = [value for value in entity_ids if value]
+        if not wanted:
+            return []
+        placeholders = ", ".join("?" for _ in wanted)
+        with closing(self.connect()) as connection:
+            rows = {
+                row["document_id"]: self._row(connection, row)
+                for row in connection.execute(
+                    f"{DOCUMENT_SELECT} WHERE document_id IN ({placeholders}) AND type = 'entity'",
+                    wanted,
+                )
+            }
+        return [rows[value] for value in wanted if value in rows]
+
     def enriched_documents(self, *, limit: int = 50) -> List[Dict[str, Any]]:
         """Documents carrying derived decision/action/question structures.
 

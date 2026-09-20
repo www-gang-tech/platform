@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from core import enrichment_state
 from core.ai_provider import DEFAULT_SYNTHESIS_MODEL, AnthropicClient, ProviderError
 
+from . import diagnostics
 from .evidence import EvidenceBundle
 from .grounding import (
     LINKAGE_NOT_APPLICABLE,
@@ -223,7 +224,7 @@ def validate_answer(payload: Any, bundle: EvidenceBundle) -> Dict[str, Any]:
             kind = "uncertain"
         for check, status in (("numeric", numeric), ("entity_linkage", linkage)):
             if status in (NUMERIC_NOT_IN_EVIDENCE, NUMERIC_NOT_CONNECTED, LINKAGE_UNSUPPORTED):
-                warnings.append({"check": check, "status": status, "claim": text})
+                warnings.append(diagnostics.warning(check, status, claim=text))
 
         claims.append(
             {

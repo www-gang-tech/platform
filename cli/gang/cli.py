@@ -1855,17 +1855,29 @@ def _print_ask_answer(result, *, show_sources=False):
         click.echo("")
         click.echo(f"(answered from retrieval only: {meta.get('reason', 'deterministic')})")
 
-    for warning in result.get("grounding_warnings", []):
-        click.echo(
-            f"(unverified {warning['check']} claim [{warning['status']}]: {warning['claim']})",
-            err=True,
-        )
+    # Rendered through the diagnostics vocabulary, which knows every warning
+    # variant and cannot raise. A grounding warning reports that the system
+    # did not fully believe its own answer; it must never be the thing that
+    # takes the command down.
+    for line in _ask_diagnostics().describe_all(result.get("grounding_warnings", [])):
+        click.echo(line, err=True)
     for sentence in result.get("softened_negatives", []):
         click.echo(f"(removed unsupported denial: {sentence})", err=True)
     for value in result.get("dropped_citations", []):
         click.echo(f"(dropped unsupported citation [{value}])", err=True)
     for field_name in result.get("rejected_fields", []):
         click.echo(f"(ignored unsupported answer field: {field_name})", err=True)
+
+
+def _ask_diagnostics():
+    """The grounding-warning vocabulary, imported the way this module does."""
+    try:
+        from core.ask import diagnostics
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ask import diagnostics
+    return diagnostics
 
 
 def _print_ask_source(source, labels, evidence, *, show_sources=False):
@@ -2239,6 +2251,85 @@ def entity_rename(entity_id, name):
         record = names["EntityService"]().rename(entity_id, name)
         click.echo("✅ Renamed entity (identity unchanged)")
         _echo_entity(record)
+
+
+@entity.command("describe")
+@click.argument("entity_id")
+@click.option("--description", help="One-paragraph authoritative definition of what this entity is")
+@click.option("--body", help="Longer authored account, stored as the record body")
+@click.option("--from-file", "from_file", type=click.Path(exists=True, dir_okay=False),
+              help="Read the longer account from a file instead of --body")
+@click.option("--clear", is_flag=True, help="Remove the description")
+def entity_describe(entity_id, description, body, from_file, clear):
+    """Author what this entity is. Human-authored canonical knowledge.
+
+    \b
+    This is foundational knowledge: the answer to "what is GANG?" comes from
+    here rather than from whatever email happens to mention it. There is no
+    AI-assisted variant of this command and there never will be, because a
+    generated company description is a generated company fact.
+    """
+    with _entity_errors() as names:
+        if from_file:
+            body = Path(from_file).read_text(encoding="utf-8")
+        if clear:
+            description = ""
+        if description is None and body is None:
+            click.echo("❌ Nothing to write. Pass --description, --body, --from-file, or --clear.", err=True)
+            raise click.Abort()
+
+        record = names["EntityService"]().describe(
+            entity_id, description=description, body=body
+        )
+        click.echo("✅ Authored canonical identity (human-authored, never generated)")
+        _echo_entity(record)
+        if record.description:
+            click.echo(f"  Description: {record.description}")
+        click.echo(f"  Foundational: {'yes' if record.foundational else 'no'}")
+
+
+@entity.command("reclassify")
+@click.argument("entity_id")
+@click.argument("entity_type", type=click.Choice(["person", "company", "project", "product"]))
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt")
+def entity_reclassify(entity_id, entity_type, yes):
+    """Change an entity's type, preserving its ID and every reference.
+
+    \b
+    The entity ID is identity and does not change, so mentions, relationships
+    and provenance survive. The record's file moves to the directory for the
+    new type, and the denormalized entity_type on every document that mentions
+    it is rewritten to match.
+    """
+    with _entity_errors() as names:
+        service = names["EntityService"]()
+        record = service.store.get(entity_id)
+        if record.type == entity_type:
+            click.echo(f"Already a {entity_type}. Nothing to do.")
+            return
+
+        click.echo(f"Reclassify {record.name} ({record.id})")
+        click.echo(f"  type:  {record.type} -> {entity_type}")
+        click.echo(f"  file:  moves to vault/{ENTITY_DIRECTORY_NAMES[entity_type]}/")
+        click.echo("  identity, mentions, relationships and provenance are preserved")
+        if not yes and not click.confirm("Proceed?", default=False):
+            click.echo("Aborted. Nothing was changed.")
+            return
+
+        audit = service.reclassify(entity_id, entity_type)
+        click.echo(f"✅ Reclassified {record.name}: {audit['from_type']} -> {audit['to_type']}")
+        for item in audit["documents_updated"]:
+            click.echo(f"  updated reference in {item['document_id']}")
+        click.echo(f"  ID unchanged: {audit['entity_id']}")
+
+
+#: Mirrors core.entities.model.ENTITY_DIRECTORIES, for display only.
+ENTITY_DIRECTORY_NAMES = {
+    "person": "people",
+    "company": "companies",
+    "project": "projects",
+    "product": "products",
+}
 
 
 @entity.group("alias")

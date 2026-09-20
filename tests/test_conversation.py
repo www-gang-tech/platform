@@ -43,6 +43,7 @@ from core.ask import (
     validate_ledger,
     validate_step,
 )
+from core.ask import diagnostics as diagnostics_module
 from core.ask import intent as intent_module
 from core.ask import ledger as ledger_module
 from core.ask.answer import ConversationSynthesizer, system_prompt
@@ -2715,6 +2716,153 @@ class ConversationCliTests(ConversationTestCase):
         )
         payload = json.loads(result.output)
         self.assertEqual(payload["intent"]["mode"], "ideation")
+
+
+# ============================================ grounding warnings render (§37)
+
+
+class GroundingWarningRenderingTests(ConversationTestCase):
+    """A warning reports that the system doubted its own answer.
+
+    It must never be the thing that takes the command down. The original bug
+    was exactly that: the claim ledger wrote the claim under `text`, one-shot
+    synthesis wrote it under `claim`, and the renderer knew only the second.
+    """
+
+    def render(self, warnings):
+        import contextlib
+        import io
+
+        result = {"answer": "An answer.", "sources": [], "grounding_warnings": warnings}
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+            gang_cli._print_ask_answer(result)
+        return stderr.getvalue()
+
+    def test_a_ledger_shaped_warning_renders_instead_of_crashing(self):
+        # The exact shape `validate_ledger` emitted when the KeyError was found.
+        stderr = self.render(
+            [
+                {
+                    "claim_id": "c1",
+                    "check": "numeric",
+                    "status": "number-not-in-evidence",
+                    "text": "The charger costs $99 per unit.",
+                }
+            ]
+        )
+
+        self.assertIn("unverified numeric claim", stderr)
+        self.assertIn("$99", stderr)
+
+    def test_the_one_shot_warning_shape_still_renders(self):
+        stderr = self.render(
+            [
+                {
+                    "check": "numeric",
+                    "status": "number-not-in-evidence",
+                    "claim": "Unit cost is $250.",
+                }
+            ]
+        )
+
+        self.assertIn("unverified numeric claim", stderr)
+        self.assertIn("$250", stderr)
+
+    def test_every_known_variant_has_its_own_rendering(self):
+        lines = {
+            check: diagnostics_module.describe(
+                diagnostics_module.warning(check, "some-status", claim="A claim.")
+            )
+            for check in diagnostics_module.CHECKS
+        }
+
+        self.assertEqual(len(set(lines.values())), len(diagnostics_module.CHECKS))
+        self.assertIn("numeric", lines[diagnostics_module.NUMERIC])
+        self.assertIn("no citation", lines[diagnostics_module.CITATION])
+        self.assertIn("assumption", lines[diagnostics_module.SCENARIO])
+        self.assertIn("existing company decision", lines[diagnostics_module.DECISION_FRAMING])
+        for line in lines.values():
+            self.assertIn("A claim.", line)
+
+    def test_an_unknown_check_renders_generically_rather_than_crashing(self):
+        stderr = self.render(
+            [{"check": "a_check_from_the_future", "status": "odd", "claim": "Something."}]
+        )
+        self.assertIn("a_check_from_the_future", stderr)
+        self.assertIn("Something.", stderr)
+
+    def test_a_malformed_warning_is_reported_not_swallowed(self):
+        for value in (None, "a string", 42, [], {"status": "no check at all"}):
+            with self.subTest(value=value):
+                stderr = self.render([value])
+                self.assertIn("malformed grounding warning", stderr)
+
+    def test_one_bad_warning_never_costs_the_others(self):
+        stderr = self.render(
+            [
+                "broken",
+                {"check": "numeric", "status": "number-not-in-evidence", "text": "A figure."},
+            ]
+        )
+        self.assertIn("malformed grounding warning", stderr)
+        self.assertIn("unverified numeric claim", stderr)
+
+    def test_both_emitters_produce_the_same_canonical_shape(self):
+        for value in (
+            diagnostics_module.warning("numeric", "number-not-in-evidence", claim="x", claim_id="c1"),
+            diagnostics_module.warning("numeric", "number-not-in-evidence", claim="x"),
+        ):
+            with self.subTest(value=value):
+                self.assertIn("check", value)
+                self.assertIn("status", value)
+                self.assertIn("claim", value)
+                self.assertNotIn("text", value)
+
+    def test_a_real_turn_that_warns_prints_without_crashing(self):
+        """End to end, through the CLI, which is where the crash surfaced."""
+        self.build_index()
+
+        def payload(context):
+            first = context.bundle.citation_ids()[0]
+            return {
+                "answer": f"The charger costs $99 per unit [{first}].",
+                "claims": [
+                    {
+                        "id": "c1",
+                        "type": "fact",
+                        "text": "The charger costs $99 per unit.",
+                        "citations": [first],
+                    },
+                    {"id": "c2", "type": "fact", "text": "An uncited assertion.", "citations": []},
+                ],
+            }
+
+        result, _, _ = self.converse(
+            "What is the charger unit cost?", synthesizer=StubSynthesizer(payload)
+        )
+        self.assertTrue(result["grounding_warnings"])
+
+        import contextlib
+        import io
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+            gang_cli._print_conversation_answer(result)
+
+        self.assertIn("unverified numeric claim", stderr.getvalue())
+        self.assertIn("no citation supports it", stderr.getvalue())
+
+    def test_warnings_survive_json_output(self):
+        self.build_index()
+        result = self.run_cli(
+            ["ask", "--json", "Show documents about certification"]
+        )
+        payload = json.loads(result.output)
+        self.assertIn("grounding_warnings", payload)
+        for item in payload["grounding_warnings"]:
+            self.assertIn("check", item)
+            self.assertIn("claim", item)
 
 
 # =================================== deterministic-first (§11) and §22, §34, §37

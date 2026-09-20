@@ -140,6 +140,7 @@ injection from re-aiming the answer.
 | Policy | Example |
 | --- | --- |
 | `lookup` | "What is our current BOM?" |
+| `definition` | "What is GANG?" — answered from [authored identity](FOUNDATIONAL_KNOWLEDGE.md) first |
 | `status` | "What's happening with certification?" |
 | `timeline` | "What changed with packaging this month?" |
 | `compare` | "Compare the September schedules." |
@@ -276,10 +277,14 @@ current source rather than a stale copy.
 A newer signed schedule is usually a better answer to "when do we ship?" than
 an older passing remark in an email. *Usually.*
 
-Default roles, highest first: signed/final document, current operating plan,
-executive meeting notes, meeting recap, working agenda, unclassified, ordinary
-email, derived enrichment. The ranks are data, not logic, and callers may pass
-their own map.
+Default roles, highest first: the canonical entity record, signed/final
+document, current operating plan, executive meeting notes, meeting recap,
+working agenda, unclassified, ordinary email, derived enrichment. The ranks
+are data, not logic, and callers may pass their own map.
+
+The canonical record sits above a signed document deliberately: asked what
+something *is*, an authored identity outranks a contract that happens to
+mention it. See [Foundational Knowledge](FOUNDATIONAL_KNOWLEDGE.md).
 
 Four properties hold:
 

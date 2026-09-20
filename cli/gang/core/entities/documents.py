@@ -219,6 +219,45 @@ class EntityDocumentStore:
             "resulting_hash": sha256_text(text),
         }
 
+    def rewrite_entity_type(self, entity_id: str, entity_type: str) -> List[Dict[str, Any]]:
+        """Update the denormalized ``entity_type`` on every mention of an entity.
+
+        A mention carries its entity's type so a reader of the document can see
+        what was referenced without loading the entity record. That copy has to
+        be kept honest: after a reclassification, a document still calling GANG
+        a project contradicts the canonical record, and nothing else in the
+        system would notice.
+        """
+        entity_id = string_value(entity_id)
+        entity_type = validate_entity_type(entity_type)
+        rewritten: List[Dict[str, Any]] = []
+
+        for document in list(self.iter_documents()):
+            mentions = [dict(item) for item in document.mentions]
+            stale = [
+                item
+                for item in mentions
+                if string_value(item.get("entity_id")) == entity_id
+                and string_value(item.get("entity_type")) != entity_type
+            ]
+            if not stale:
+                continue
+            for item in stale:
+                item["entity_type"] = entity_type
+
+            frontmatter = dict(document.frontmatter)
+            frontmatter[MENTION_FIELD] = sort_mentions(mentions)
+            assert_protected_fields_unchanged(document.frontmatter, frontmatter)
+            document.path.write_text(dump_markdown(frontmatter, document.body), encoding="utf-8")
+            rewritten.append(
+                {
+                    "document_id": document.document_id,
+                    "path": document.path,
+                    "mentions_updated": len(stale),
+                }
+            )
+        return rewritten
+
     def rewrite_entity_id(self, source_entity_id: str, target_entity_id: str) -> List[Dict[str, Any]]:
         """Point every stable reference at ``target_entity_id`` after a merge."""
         source_entity_id = string_value(source_entity_id)

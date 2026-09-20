@@ -165,7 +165,15 @@ class ConversationService(AskService):
 
         # --- context around the evidence -------------------------------------
         current_state = authority_module.is_current_state_question(text, intent.policy)
-        assessed = authority_module.assess(bundle.items, current_state_question=current_state)
+        assessed = authority_module.assess(
+            bundle.items,
+            current_state_question=current_state,
+            purpose=(
+                authority_module.DEFINITION
+                if intent.wants_identity
+                else authority_module.CURRENT_STATE
+            ),
+        )
         stale = session.stale_snapshots(self.retriever.content_hashes(session.active_document_ids))
         records = self._records(research, bundle, intent)
 

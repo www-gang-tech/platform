@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 # ------------------------------------------------------------------ policies
 
 LOOKUP = "lookup"
+DEFINITION = "definition"
 STATUS = "status"
 TIMELINE = "timeline"
 COMPARE = "compare"
@@ -48,6 +49,7 @@ CORRECTION = "correction"
 
 POLICIES = (
     LOOKUP,
+    DEFINITION,
     STATUS,
     TIMELINE,
     COMPARE,
@@ -76,6 +78,7 @@ MODES = (EVIDENCE, ADVISORY_MODE, IDEATION)
 #: are allowed out of it.
 POLICY_MODES = {
     LOOKUP: EVIDENCE,
+    DEFINITION: EVIDENCE,
     STATUS: EVIDENCE,
     TIMELINE: EVIDENCE,
     COMPARE: EVIDENCE,
@@ -253,6 +256,23 @@ _PATTERNS: Tuple[Tuple[str, re.Pattern], ...] = (
             re.IGNORECASE,
         ),
     ),
+    (
+        DEFINITION,
+        re.compile(
+            # Last in the table on purpose. A question that looks like status,
+            # discovery, or advice is that; only a bare "what is X" falls
+            # through to here. Excluding a leading determiner is what keeps
+            # "what is our current BOM?" a value lookup rather than a definition.
+            r"^\s*(?:so\s+)?(?:what|who)(?:'s|\s+is|\s+are|\s+was|\s+were)\s+"
+            r"(?!our\b|my\b|your\b|their\b|its\b|the\b|this\b|that\b|these\b|those\b)"
+            r"(?:a\s+|an\s+)?[\w&.'-]+(?:\s+[\w&.'-]+){0,3}\s*\??\s*$"
+            r"|\bwhat\s+does\s+[\w&.'-]+(?:\s+[\w&.'-]+){0,3}\s+do\b"
+            r"|^\s*tell\s+me\s+about\s+"
+            r"|^\s*describe\s+"
+            r"|\bwhat\s+kind\s+of\s+(?:company|business|product|project)\b",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 
@@ -276,6 +296,10 @@ _LISTING_PATTERN = re.compile(
 #: deterministic timeline primitive being run up front (§12).
 TEMPORAL_POLICIES = frozenset({TIMELINE, COMPARE, STATUS})
 
+#: Policies answered first from authored identity, before any email traffic
+#: is considered (§ foundational knowledge).
+FOUNDATIONAL_POLICIES = frozenset({DEFINITION})
+
 #: Policies served by the structured decision/action/open-question primitives
 #: rather than by generic text retrieval (§13).
 STRUCTURED_POLICIES = frozenset({DECISION, DISCOVER, PLAN})
@@ -298,6 +322,11 @@ class Intent:
     @property
     def allows_idea(self) -> bool:
         return self.mode == IDEATION
+
+    @property
+    def wants_identity(self) -> bool:
+        """Whether authored identity should answer this before evidence does."""
+        return self.policy in FOUNDATIONAL_POLICIES
 
     @property
     def wants_timeline(self) -> bool:
@@ -355,6 +384,7 @@ def _match_policy(text: str) -> Tuple[str, str]:
 #: Shown in diagnostics so an inferred policy is never a black box (§37).
 POLICY_DESCRIPTIONS = {
     LOOKUP: "Retrieve what the corpus states about a subject.",
+    DEFINITION: "Answer what something is, from authored canonical identity first.",
     STATUS: "Report the current state of something, newest evidence first.",
     TIMELINE: "Narrate how something changed, in chronological order.",
     COMPARE: "Set two things side by side and describe the differences.",

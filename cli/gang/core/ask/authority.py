@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 # ---------------------------------------------------------------- the roles
 
+FOUNDATIONAL = "foundational"
 SIGNED_FINAL = "signed-final"
 OPERATING_PLAN = "operating-plan"
 EXECUTIVE_NOTES = "executive-notes"
@@ -40,6 +41,7 @@ DERIVED_ENRICHMENT = "derived-enrichment"
 UNCLASSIFIED = "unclassified"
 
 ROLES = (
+    FOUNDATIONAL,
     SIGNED_FINAL,
     OPERATING_PLAN,
     EXECUTIVE_NOTES,
@@ -53,6 +55,10 @@ ROLES = (
 #: Higher means "more likely to be the deliberate, current record". The gaps
 #: are wide on purpose: these are coarse bands, not a score.
 DEFAULT_RANKS: Dict[str, int] = {
+    # Above a signed document on purpose. Asked what something *is*, the
+    # canonical record someone authored outranks a contract that happens to
+    # mention it.
+    FOUNDATIONAL: 120,
     SIGNED_FINAL: 100,
     OPERATING_PLAN: 90,
     EXECUTIVE_NOTES: 80,
@@ -64,6 +70,7 @@ DEFAULT_RANKS: Dict[str, int] = {
 }
 
 ROLE_DESCRIPTIONS = {
+    FOUNDATIONAL: "the canonical record for this entity",
     SIGNED_FINAL: "a signed or final document",
     OPERATING_PLAN: "the current operating plan",
     EXECUTIVE_NOTES: "executive meeting notes",
@@ -96,6 +103,8 @@ def classify(item: Any, *, ranks: Optional[Dict[str, int]] = None) -> str:
     title = _attr(item, "title")
     status = _lower(_attr(item, "status"))
 
+    if document_type == "entity" or source_type.startswith("entity-"):
+        return FOUNDATIONAL
     if _SIGNED_TITLE.search(title) or status in ("signed", "final", "executed"):
         return SIGNED_FINAL
     if document_type in ("plan", "schedule") or _PLAN_TITLE.search(title):
@@ -145,10 +154,18 @@ class SourceAuthority:
         }
 
 
+#: What the preference is being made *for*. Appears verbatim in the reason a
+#: reader sees, because "preferred for the current state" is the wrong thing
+#: to say about "what is GANG?".
+CURRENT_STATE = "the current state"
+DEFINITION = "the definition"
+
+
 def assess(
     items: Sequence[Any],
     *,
     current_state_question: bool = False,
+    purpose: str = CURRENT_STATE,
     ranks: Optional[Dict[str, int]] = None,
 ) -> List[SourceAuthority]:
     """Classify every evidence item, and for current-state questions mark one.
@@ -178,13 +195,18 @@ def assess(
     best = max(assessed, key=lambda entry: (entry.rank, entry.date, -entry.citation_id))
     rivals = [entry for entry in assessed if entry.citation_id != best.citation_id]
     return [
-        _with_preference(entry, best, rivals) if entry.citation_id == best.citation_id else entry
+        _with_preference(entry, best, rivals, purpose)
+        if entry.citation_id == best.citation_id
+        else entry
         for entry in assessed
     ]
 
 
 def _with_preference(
-    winner: SourceAuthority, best: SourceAuthority, rivals: Sequence[SourceAuthority]
+    winner: SourceAuthority,
+    best: SourceAuthority,
+    rivals: Sequence[SourceAuthority],
+    purpose: str = CURRENT_STATE,
 ) -> SourceAuthority:
     newer_than = [entry for entry in rivals if entry.date and entry.date < best.date]
     outranks = [entry for entry in rivals if entry.rank < best.rank]
@@ -209,7 +231,7 @@ def _with_preference(
         date=winner.date,
         preferred=True,
         reason=(
-            "Preferred for the current state because "
+            f"Preferred for {purpose} because "
             + " and ".join(reasons)
             + ". Older and less formal sources remain cited where they differ."
         ),
@@ -254,7 +276,12 @@ def is_current_state_question(question: str, policy: str = "") -> bool:
     """Whether "which source is current?" is a question worth asking here."""
     from . import intent as intent_module
 
-    if policy in (intent_module.STATUS, intent_module.PLAN, intent_module.ADVISORY):
+    if policy in (
+        intent_module.STATUS,
+        intent_module.PLAN,
+        intent_module.ADVISORY,
+        intent_module.DEFINITION,
+    ):
         return True
     return bool(_CURRENT_WORDS.search(question or ""))
 

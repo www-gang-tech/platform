@@ -42,6 +42,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Sequence, Set
 
+from . import diagnostics
 from .grounding import (
     LINKAGE_NOT_APPLICABLE,
     LINKAGE_UNSUPPORTED,
@@ -295,7 +296,9 @@ def _apply_rules(
     presented_as_decision = False
 
     def warn(check: str, detail: str) -> None:
-        warnings.append({"claim_id": claim.id, "check": check, "status": detail, "text": claim.text})
+        warnings.append(
+            diagnostics.warning(check, detail, claim=claim.text, claim_id=claim.id)
+        )
 
     # --- does this claim rest on something the user supposed? --------------
     #

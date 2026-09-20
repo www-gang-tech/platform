@@ -293,3 +293,41 @@ Expanded excerpts carry offsets into the document body but no section or heading
 
 ### Revisit when
 Intent inference misreads questions often enough to be worth a model, the research loop needs to span more than the bounded evidence set, the claim ledger needs to drive a UI rather than diagnostics, the index begins preserving document structure so excerpts can name their section, or structured financial and commerce facts arrive and scenario reasoning needs to compute over them rather than reason about them.
+
+
+## 2026-09-20 - Foundational canonical knowledge, and a typed diagnostics channel
+
+**Status:** Accepted
+
+### Context
+Real-corpus acceptance of the conversational agent surfaced two things the synthetic corpus could not.
+
+`gang ask` crashed with `KeyError: 'claim'`. Two layers emit grounding warnings — one-shot synthesis and the conversational claim ledger — and they had grown apart: one wrote the claim text under `claim`, the other under `text`. The renderer knew one shape. A warning exists to report that the system did not fully believe its own answer, and it was taking the command down instead.
+
+And "what is GANG?" could not be answered. Retrieval found a mounting review and a weekly schedule, because that is what mentions GANG. The entity layer had a canonical GANG record, but an entity record is deliberately not a document, the `entities` table stores no description, and there was nowhere to put one. A company's identity had to be reconstructed from whatever email happened to rank highest.
+
+### Decision
+Grounding warnings became a closed, validated vocabulary in `core/ask/diagnostics.py`. Five variants — numeric, entity linkage, citation, scenario, decision framing — each render as their own sentence, because "no citation supports this" and "these two numbers were never related by a source" are different things to tell a reader. Both emitters build warnings through one constructor. Normalization accepts the older shape so a warning that crosses a version boundary still renders. A well-formed warning with an unfamiliar check renders generically; a structurally broken one is reported as broken rather than dropped, because swallowing a diagnostic defeats the channel.
+
+Entity records gained an authored `description`, plus the record body, together forming the entity's identity text. A record carrying identity text is indexed as a citable document under the entity's own ID, with type `entity` and `content_trust: trusted` — unlike ingested mail, a person wrote it. A record nobody has described produces no document; a bare identity still anchors mentions and relationships, and nothing is invented to fill the gap.
+
+`intent.py` gained a `definition` policy, matched last so that a question resembling status, discovery, or advice is that instead; the leading possessive in "what is *our current* BOM?" is what keeps a value lookup from becoming a definition. For a definitional question the research loop seeds the evidence set with the resolved entity's authored record before any search runs. `foundational` is the highest source-authority role, above a signed document.
+
+The description is authored and never generated. `describe` takes no provider or model on either the service or the store, `create` cannot set it, the two AI-assisted flows have no code path to it, and every write is audited as `authored_by: human`. Four independent tests hold that line.
+
+Reclassifying an entity became one audited operation. The ID is identity and does not change, but the vault directory is derived from type and every mention denormalizes `entity_type`, so `gang entity reclassify` moves the file, rewrites the references, rebuilds the index, and refuses rather than guesses on a name or alias collision.
+
+### Why
+A diagnostic channel needs a schema as much as an answer does. The crash was not a careless dict access; it was two layers agreeing on a concept and not on a contract, which is what a shared vocabulary prevents.
+
+Making the description authored-only is the whole point rather than a restriction. A generated account of what the company is would be a generated company fact — precisely what the claim ledger, the grounding checks, and the mode system all exist to prevent — and it would arrive labelled as canonical knowledge, which is the worst possible place for it. Indexing that authored text as a document rather than inventing a parallel retrieval path means citations, excerpts, authority, and every grounding check apply to it unchanged, and a citation to it resolves to the canonical record because the document ID *is* the entity ID.
+
+### Consequences
+`gang ask` renders every warning variant and cannot crash on one. `core/entities/model.py` gains `description`, `foundational`, `identity_text`, and `PROTECTED_IDENTITY_FIELDS`. `private_index.py` exports `foundational_document`. New CLI: `gang entity describe` and `gang entity reclassify`.
+
+An index built before this epic has no `entity` documents; rebuilding produces them for any described record. Nothing in canonical Markdown changed for records without a description.
+
+GANG in the real corpus is still `type: project` with no description. The evidence that it is the company is strong — the corpus calls it "the company", and refers to GANG Holdings, GANG Systems, and a GANG commercial operating system — but concluding that from email is the failure this epic fixes, not a licence to act on it. The migration is rehearsed against a copy and written up in `docs/reviews/GANG_ENTITY_CLASSIFICATION.md`; it awaits approval, and the description text has to be authored by someone who can speak for the company.
+
+### Revisit when
+The ontology needs a distinct legal-entity type so `GANG Holdings` can be modelled separately from `GANG`, foundational knowledge needs structure beyond a paragraph and a body, or definitional questions need to compose identity across related entities rather than answering from one record.

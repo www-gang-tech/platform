@@ -46,6 +46,70 @@ class IndexedDocument:
     enrichment: Dict[str, Any] = field(default_factory=dict)
 
 
+#: Document type given to an entity record's authored identity. Distinct from
+#: every ingested type, so a definitional question can prefer it and an
+#: ordinary search can tell it apart from email traffic.
+FOUNDATIONAL_TYPE = "entity"
+
+#: Source type carries which kind of entity it is: `entity-company`,
+#: `entity-project`, and so on.
+FOUNDATIONAL_SOURCE_PREFIX = "entity-"
+
+
+def foundational_document(record: EntityRecord) -> Optional[IndexedDocument]:
+    """The citable document form of an entity's authored identity, if any.
+
+    Returns ``None`` for a record nobody has described. A bare identity still
+    anchors mentions and relationships through the entity tables; it simply
+    has nothing authoritative to say about what the thing is, and inventing
+    something for it to say is the failure this whole layer prevents.
+
+    ``content_trust`` is ``trusted`` here, unlike ingested mail and Drive
+    exports: this text was authored or approved by a person rather than
+    received from outside.
+    """
+    identity = record.identity_text()
+    if not identity.strip():
+        return None
+
+    aliases = ", ".join(record.aliases)
+    body = identity if not aliases else f"{identity}\n\nAlso known as: {aliases}."
+
+    return IndexedDocument(
+        # The entity's own ID. A citation to this document is a citation to
+        # the canonical record, which is exactly what it should be.
+        document_id=record.id,
+        type=FOUNDATIONAL_TYPE,
+        source_type=f"{FOUNDATIONAL_SOURCE_PREFIX}{record.type}",
+        title=record.name,
+        body=_clean_markdown(body),
+        semantic_enrichment=" ".join([record.name, *record.aliases]),
+        created=_date_value(record.created),
+        updated=_date_value(record.updated),
+        visibility="private",
+        status=record.status,
+        tags=[],
+        people=[],
+        companies=[],
+        projects=[],
+        related=list(record.related),
+        source_ids=[],
+        content_hash=hashlib.sha256(
+            (record.id + record.type + record.name + identity).encode("utf-8")
+        ).hexdigest(),
+        entity_refs=[
+            {
+                "entity_id": record.id,
+                "entity_type": record.type,
+                "label": record.name,
+                "added": record.updated,
+            }
+        ],
+        entity_relationships=[],
+        content_trust="trusted",
+    )
+
+
 @dataclass(frozen=True)
 class IndexBuildResult:
     database_path: Path
@@ -260,6 +324,19 @@ class PrivateKnowledgeIndex:
             text = path.read_text(encoding="utf-8")
             frontmatter, body = _parse_markdown(text)
             if is_entity_frontmatter(frontmatter):
+                # An entity record is an identity, not a document — except when
+                # someone has authored what the entity *is*. That authored
+                # account is canonical knowledge, and knowledge nobody can
+                # retrieve may as well not exist, so it is indexed as a
+                # citable document alongside its identity row.
+                record = EntityRecord.from_frontmatter(frontmatter, body, path)
+                document = foundational_document(record)
+                if document is None:
+                    continue
+                if document.document_id in seen_ids:
+                    raise ValueError(f"Duplicate document id in vault: {document.document_id}")
+                seen_ids.add(document.document_id)
+                yield document
                 continue
             rel_path = path.resolve().relative_to(root.path.resolve()).as_posix()
             document = self._document_from_parts(frontmatter, body, rel_path, raw_text=text, ledger=ledger)

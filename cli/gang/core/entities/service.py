@@ -64,6 +64,30 @@ class EntityService:
         self.rebuild_index()
         return record
 
+    def describe(
+        self,
+        entity_id: str,
+        *,
+        description: Optional[str] = None,
+        body: Optional[str] = None,
+    ) -> EntityRecord:
+        """Author foundational knowledge for an entity. Human-authored only.
+
+        Deliberately has no ``use_ai`` parameter and no provider. A company's
+        account of itself is canonical knowledge, and canonical knowledge is
+        not something a model is allowed to originate.
+        """
+        record = self.store.describe(entity_id, description=description, body=body)
+        self.rebuild_index()
+        return record
+
+    def reclassify(self, entity_id: str, entity_type: str) -> Dict[str, Any]:
+        """Change an entity's type, keeping its ID and rewriting every reference."""
+        audit = self.store.reclassify(entity_id, entity_type, documents=self.documents)
+        if audit["changed"]:
+            self.rebuild_index()
+        return audit
+
     def merge(self, source_id: str, target_id: str) -> Dict[str, Any]:
         """Explicit, audited merge: tombstone the source and rewrite references."""
         audit = self.store.merge(source_id, target_id)

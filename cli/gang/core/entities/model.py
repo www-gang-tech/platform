@@ -8,6 +8,20 @@ Identity rules enforced here:
   whitespace only. It never strips punctuation or corporate suffixes, so
   ``"Eliro"`` and ``"Eliro Inc."`` stay distinct while ``"ELIRO"`` and ``"Eliro"``
   match exactly.
+
+Foundational knowledge
+----------------------
+
+An entity record may also carry an authored ``description``: the company's or
+project's own account of what it is. This exists because the alternative is
+worse. Asked "what is GANG?", a system with no authored identity has to
+reconstruct the company from whatever email happens to mention it, which is
+how a scheduling thread becomes a definition.
+
+The ``description`` is authored or approved by a human and is never written by
+a model. Enrichment and entity proposals cannot set it — see
+``PROTECTED_IDENTITY_FIELDS`` — because a generated description is exactly the
+new company fact the whole system exists to prevent.
 """
 
 from __future__ import annotations
@@ -58,6 +72,14 @@ RELATIONSHIP_FIELD = "entity_relationships"
 
 MAX_EVIDENCE_EXCERPT = 500
 
+#: A definition, not an essay. Long enough for "what it is, and what it does",
+#: short enough to quote whole in an answer.
+MAX_DESCRIPTION = 1200
+
+#: Authored identity. No AI-assisted flow may write these: enrichment and
+#: entity proposals are checked against this set before they are applied.
+PROTECTED_IDENTITY_FIELDS = ("description",)
+
 
 class EntityError(Exception):
     """Base error for the entity and relationship layer."""
@@ -107,12 +129,40 @@ class EntityRecord:
     updated: str = ""
     sources: List[Dict[str, Any]] = field(default_factory=list)
     related: List[str] = field(default_factory=list)
+    #: Authored, human-approved account of what this entity is. Never generated.
+    description: str = ""
     body: str = ""
     path: Optional[Path] = None
 
     @property
     def normalized_name(self) -> str:
         return normalize_name(self.name)
+
+    @property
+    def foundational(self) -> bool:
+        """Whether this record says anything authoritative about what it is.
+
+        An identity with no authored content is still a valid identity — it
+        anchors mentions and relationships — but it has nothing to tell anyone
+        who asks what the thing *is*, so it is not offered as a definition.
+        """
+        return bool(self.description.strip() or self.authored_body.strip())
+
+    @property
+    def authored_body(self) -> str:
+        """Body prose, minus the bare ``# Name`` heading a new record gets."""
+        text = (self.body or "").strip()
+        if not text:
+            return ""
+        lines = [line for line in text.splitlines() if line.strip()]
+        if len(lines) == 1 and lines[0].lstrip("# ").strip().casefold() == self.name.casefold():
+            return ""
+        return text
+
+    def identity_text(self) -> str:
+        """The authored identity, as the prose an answer may quote and cite."""
+        parts = [self.description.strip(), self.authored_body.strip()]
+        return "\n\n".join(part for part in parts if part)
 
     @property
     def normalized_aliases(self) -> List[str]:
@@ -141,6 +191,8 @@ class EntityRecord:
             "sources": [dict(source) for source in self.sources],
             "related": list(self.related),
         }
+        if self.description:
+            frontmatter["description"] = self.description
         identifiers: Dict[str, Any] = {}
         if self.emails:
             identifiers["emails"] = list(self.emails)
@@ -174,6 +226,7 @@ class EntityRecord:
             updated=string_value(frontmatter.get("updated")),
             sources=[item for item in (frontmatter.get("sources") or []) if isinstance(item, dict)],
             related=string_list(frontmatter.get("related")),
+            description=string_value(frontmatter.get("description")),
             body=body,
             path=path,
         )
@@ -198,6 +251,11 @@ def validate_entity(record: EntityRecord) -> EntityRecord:
         )
     if record.status == "merged" and not record.merged_into:
         raise EntityValidationError("Merged entities must record merged_into")
+    if len(record.description) > MAX_DESCRIPTION:
+        raise EntityValidationError(
+            f"Entity description is limited to {MAX_DESCRIPTION} characters; "
+            "put the longer account in the record body."
+        )
     return record
 
 
