@@ -247,3 +247,49 @@ No canonical document, raw record, or source system is touched by any of this. `
 
 ### Revisit when
 A grounding check is observed rejecting claims that are in fact supported often enough to be noise, extraction quality needs to distinguish more than readable from unreadable, or numeric verification needs to understand units and subjects rather than figures and proximity.
+
+
+## 2026-09-20 - Conversational research over the private corpus
+
+**Status:** Accepted
+
+### Context
+`gang ask` answered one question from one retrieval. That is the wrong shape for how anyone actually interrogates a corpus: you ask what is happening with certification, then what is blocking it, then who owns that, then what you would do about it. Each of those needed the subject restated, and the last one had no home at all — the previous design could report what the corpus said and nothing else, so "what should we do?" either went unanswered or got answered by a model with no boundary between reporting and inventing.
+
+Opening that boundary is the risk. A system that may recommend and ideate is a system that can assert a plausible company fact that nobody ever wrote down, and prose gives a reader no way to tell the difference: "we should make certification the first gate" and "we made certification the first gate" are one word apart.
+
+### Decision
+Ask becomes conversational, and the epistemic boundary becomes a data structure rather than a matter of phrasing.
+
+Every answer carries a **claim ledger** in which each statement declares its type. `fact` and `synthesis` are claims about the company and require citations — synthesis may instead rest on `derived_from` premises that are themselves grounded. `recommendation` and `idea` may be novel and need no citation for themselves, but any company fact they assert does. Two further types are assigned only by code: `scenario`, for claims resting on an assumption the user supplied, and `uncertainty`, for what a factual claim becomes when its grounding fails. Claims are downgraded or rejected, never granted a fabricated citation to satisfy the schema.
+
+Which types are admissible is decided by an **epistemic mode** inferred deterministically from the user's own question. Evidence-mode answers reject generative claims outright, however the model labelled them. Advisory establishes cited facts and then recommends. Ideation retrieves the real constraints and then ideates freely inside them. Inference reads the question and nothing else, so retrieved content cannot re-aim the mode.
+
+**Conversation state is working memory, not evidence.** Sessions live under `GANG_HOME/sessions/`, store pointers rather than content — document id, content hash, retrieval timestamp — and are labelled as working memory everywhere they are serialized. A prior turn's prose is recorded as prose and can never be cited. Only claims that survived validation as grounded facts become prior conclusions, and each keeps the document ids behind it, so a later turn can re-ground instead of trusting a summary. When a document's hash moves, the session knows an earlier answer rested on text that no longer exists.
+
+Research became **bounded and multi-step**, over a closed vocabulary of thirteen typed read-only tools. Round zero is always the deterministic query plan plus the timeline or decision primitives the policy calls for; only then may a director model choose one further call. Limits — four rounds, twelve documents, three excerpts per document, four expansions, one refinement — are enforced by the loop rather than requested of the model. A malformed step stops research and answers from what is in hand.
+
+Source authority is a transparent, configurable tiebreak for current-state questions only. It never removes evidence, never overrides an explicit contradictory statement, and records a reason the reader can disagree with.
+
+`gang ask` with no question opens an interactive session; with a question it answers once and leaves nothing behind unless a session is named.
+
+### Why
+The claim ledger exists because the alternative is asking a model to be careful about a distinction that can be checked mechanically. Typing each claim lets the same deterministic grounding checks Epic 10 already had — numeric alignment, entity linkage, categorical negatives — apply at the right strength to each kind of statement, so advice stays useful while the facts under it stay checked. Rejecting generative claims in evidence mode rather than trusting the prompt is the same reasoning one layer up.
+
+Keeping session state strictly non-evidential is what stops a conversation from laundering an unsupported claim into an established premise over several turns. Storing pointers rather than text means receipts always show the current source, and staleness is exact rather than inferred from dates.
+
+Bounding research in the loop rather than the prompt is the difference between a limit and a request. The tool vocabulary is small and explicitly denies `run_sql`, `execute_shell`, `read_file`, `publish`, and mutation by name, so an injected instruction produces a recorded refusal rather than a quiet lookup miss — and that is now tested across multi-round research, not only one-shot synthesis.
+
+### Consequences
+Ten modules join `core/ask/`: intent, ledger, authority, session, followup, timeline, tools, research, answer, conversation. `ConversationService` subclasses `AskService` and adds no write path. `GangPaths` gains `sessions_path`. `Retriever` gains read-only lookups for documents, content hashes, entities, and enriched documents, and now projects `content_hash`.
+
+`gang ask` routes through the conversational engine by default. The Epic 10 result contract is a subset of the conversational one, so existing output, flags, and JSON keys are unchanged; `--plan` still short-circuits before retrieval. New flags: `--new`, `--resume`, `--session`, `--sessions`, `--show-research`, and `--mode` as a developer override.
+
+Ask remains read-only. Hashing `vault`, `raw`, and `ingestion` before and after a full multi-turn session — including injected documents, corrections, scenarios, and ideation — yields identical trees, and a test asserts it. Only `sessions/` and `generated/ask-cache/` are written.
+
+The answer cache is keyed on evidence hashes, mode, policy, question, assumptions, and a prompt version, so changed evidence misses rather than serving an answer about text that no longer exists.
+
+Expanded excerpts carry offsets into the document body but no section or heading identifier. The generated index stores document text with Markdown structure already flattened, so there is no heading left to name, and reading the canonical file to recover one would give a research tool filesystem access. The offset is real; the heading is absent rather than guessed.
+
+### Revisit when
+Intent inference misreads questions often enough to be worth a model, the research loop needs to span more than the bounded evidence set, the claim ledger needs to drive a UI rather than diagnostics, the index begins preserving document structure so excerpts can name their section, or structured financial and commerce facts arrive and scenario reasoning needs to compute over them rather than reason about them.

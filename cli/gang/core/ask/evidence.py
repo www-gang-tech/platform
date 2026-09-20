@@ -305,13 +305,16 @@ def build_bundle(
     plan: QueryPlan,
     *,
     ambiguities: Optional[Sequence[Dict[str, Any]]] = None,
+    max_excerpts: int = MAX_EXCERPTS,
 ) -> EvidenceBundle:
     terms = _highlight_terms(plan)
     items: List[EvidenceItem] = []
     excluded: List[ExcludedSource] = []
 
     for row in rows:
-        excerpts, quality = readable_excerpts(row.get("body") or "", terms)
+        excerpts, quality = readable_excerpts(
+            row.get("body") or "", terms, max_excerpts=max_excerpts
+        )
         if not quality.readable:
             excluded.append(
                 ExcludedSource(
@@ -360,7 +363,9 @@ def build_bundle(
     )
 
 
-def readable_excerpts(body: str, terms: Sequence[str]) -> tuple:
+def readable_excerpts(
+    body: str, terms: Sequence[str], *, max_excerpts: int = MAX_EXCERPTS
+) -> tuple:
     """Excerpts that are actually language, plus the verdict on this document.
 
     Corruption is usually partial — an email whose header survives and whose
@@ -369,7 +374,7 @@ def readable_excerpts(body: str, terms: Sequence[str]) -> tuple:
     dropped and a readable window is used instead. Only when nothing in the
     document reads as language is the document itself held back.
     """
-    candidates = extract_excerpts(body, terms)
+    candidates = extract_excerpts(body, terms, max_excerpts=max_excerpts)
     kept = [excerpt for excerpt in candidates if assess_text_quality(excerpt).readable]
     if kept:
         return kept, TextQuality(READABLE, "", {})
@@ -380,7 +385,9 @@ def readable_excerpts(body: str, terms: Sequence[str]) -> tuple:
     return [], assess_text_quality(body)
 
 
-def extract_excerpts(body: str, terms: Sequence[str]) -> List[str]:
+def extract_excerpts(
+    body: str, terms: Sequence[str], *, max_excerpts: int = MAX_EXCERPTS
+) -> List[str]:
     """Bounded windows of the canonical body around the question's own terms."""
     text = re.sub(r"\s+", " ", body or "").strip()
     if not text:
@@ -413,7 +420,7 @@ def extract_excerpts(body: str, terms: Sequence[str]) -> List[str]:
             excerpt = excerpt + " ..."
         if excerpt not in excerpts:
             excerpts.append(excerpt)
-        if len(excerpts) >= MAX_EXCERPTS:
+        if len(excerpts) >= max_excerpts:
             break
     return excerpts
 

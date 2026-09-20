@@ -246,7 +246,7 @@ def validate_answer(payload: Any, bundle: EvidenceBundle) -> Dict[str, Any]:
             {"summary": summary, "citations": _citations(item.get("citations"), valid_ids, dropped)}
         )
 
-    answer, prose_dropped = _scrub_prose(_text(payload.get("answer")), valid_ids)
+    answer, prose_dropped = scrub_prose_citations(_text(payload.get("answer")), valid_ids)
     dropped.extend(prose_dropped)
 
     insufficient = bool(payload.get("insufficient_evidence")) or bundle.empty
@@ -376,7 +376,7 @@ def ambiguity_notice(ambiguities: Sequence[Dict[str, Any]]) -> str:
     return " ".join(parts) + " I did not guess which one you meant."
 
 
-def _scrub_prose(answer: str, valid_ids: set) -> tuple[str, List[int]]:
+def scrub_prose_citations(answer: str, valid_ids: set) -> tuple[str, List[int]]:
     """Remove `[n]` markers in prose that do not name a real evidence item."""
     dropped: List[int] = []
 

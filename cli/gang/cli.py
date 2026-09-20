@@ -1394,7 +1394,11 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
             click.echo(f"   excerpt: {result['excerpt']}")
 
 @cli.command("ask")
-@click.argument("question", nargs=-1, required=True)
+@click.argument("question", nargs=-1, required=False)
+@click.option("--new", "new_session", is_flag=True, help="Start a fresh conversation, discarding prior context")
+@click.option("--resume", "resume_id", help="Resume an existing session by ID")
+@click.option("--session", "session_id", help="Use (and create if needed) a session by ID")
+@click.option("--sessions", "list_sessions", is_flag=True, help="List saved conversations and exit")
 @click.option("--since", help="Only use evidence updated on/after this date (YYYY-MM-DD, 30d, or 'last week')")
 @click.option("--until", help="Only use evidence updated on/before this date")
 @click.option("--type", "document_types", multiple=True, help="Filter by document type (repeatable)")
@@ -1408,9 +1412,16 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
 @click.option("--plan", "plan_only", is_flag=True, help="Show the typed query plan without retrieving or answering")
 @click.option("--no-ai", is_flag=True, help="Answer deterministically from retrieval only")
 @click.option("--no-cache", is_flag=True, help="Skip the disposable answer cache")
+@click.option("--show-research", is_flag=True, help="Show the research trace: tools called and why")
+@click.option("--mode", "mode_override", type=click.Choice(["evidence", "advisory", "ideation"]),
+              help="Developer override for the epistemic mode; intent inference is the default")
 @click.option("--model", help="Override the configured synthesis model")
 def ask(
     question,
+    new_session,
+    resume_id,
+    session_id,
+    list_sessions,
     since,
     until,
     document_types,
@@ -1424,42 +1435,63 @@ def ask(
     plan_only,
     no_ai,
     no_cache,
+    show_research,
+    mode_override,
     model,
 ):
-    """Ask a question of the private knowledge corpus. Read-only."""
+    """Ask the private knowledge corpus. Conversational, and strictly read-only.
+
+    With a QUESTION, answers it once. With no QUESTION, opens an interactive
+    session where follow-ups keep their context:
+
+    \b
+        gang ask
+        GANG > What's going on with certification?
+        GANG > What's blocking it?
+        GANG > What would you do?
+    """
     try:
         from core.ask import (
-            AskError,
             AskOptions,
             AskService,
+            ConversationOptions,
+            ConversationService,
             PlanOverrides,
             QueryPlanError,
             RetrievalError,
+            SessionError,
         )
-        from core.ask.synthesis import AnthropicAnswerSynthesizer
+        from core.ask.answer import ConversationSynthesizer
         from core.ask.temporal import TemporalError
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from core.ask import (
-            AskError,
             AskOptions,
             AskService,
+            ConversationOptions,
+            ConversationService,
             PlanOverrides,
             QueryPlanError,
             RetrievalError,
+            SessionError,
         )
-        from core.ask.synthesis import AnthropicAnswerSynthesizer
+        from core.ask.answer import ConversationSynthesizer
         from core.ask.temporal import TemporalError
 
-    text = " ".join(question).strip()
+    text = " ".join(question or ()).strip()
     synthesizer = None
     if model and not no_ai:
-        synthesizer = AnthropicAnswerSynthesizer(model=model)
+        synthesizer = ConversationSynthesizer(model=model)
         if not synthesizer.has_credentials:
             synthesizer = None
 
-    service = AskService(root_path=Path.cwd(), synthesizer=synthesizer)
+    service = ConversationService(root_path=Path.cwd(), synthesizer=synthesizer)
+
+    if list_sessions:
+        _print_ask_sessions(service)
+        return
+
     overrides = PlanOverrides(
         since=since or "",
         until=until or "",
@@ -1472,29 +1504,277 @@ def ask(
         order=order,
         limit=limit,
     )
-    options = AskOptions(use_ai=not no_ai, use_cache=not no_cache, plan_only=plan_only)
+
+    # `--plan` is a question about planning, not a turn of conversation: it
+    # shows the typed plan and retrieves nothing.
+    if plan_only:
+        try:
+            result = AskService(root_path=Path.cwd()).ask(
+                text,
+                overrides=overrides,
+                options=AskOptions(use_ai=not no_ai, use_cache=False, plan_only=True),
+            )
+        except (QueryPlanError, TemporalError, RetrievalError) as e:
+            click.echo(f"❌ {e}", err=True)
+            raise click.Abort()
+        if as_json:
+            click.echo(json.dumps(result, indent=2, sort_keys=True, default=str))
+        else:
+            _print_ask_plan(result)
+        return
 
     try:
-        result = service.ask(text, overrides=overrides, options=options)
-    except RetrievalError as e:
+        session = _resolve_ask_session(service, resume_id, session_id, new_session)
+    except SessionError as e:
         click.echo(f"❌ {e}", err=True)
         raise click.Abort()
-    except (QueryPlanError, TemporalError) as e:
-        click.echo(f"❌ {e}", err=True)
-        raise click.Abort()
-    except AskError as e:
-        click.echo(f"❌ Ask failed: {e}", err=True)
+
+    # A bare one-shot question leaves nothing behind. Naming a session, or
+    # opening an interactive one, is what opts into persistence.
+    persist = bool(resume_id or session_id or not text)
+    options = ConversationOptions(
+        use_ai=not no_ai,
+        use_cache=not no_cache,
+        persist=persist,
+        mode_override=mode_override,
+        show_research=show_research,
+    )
+
+    if not text:
+        _run_ask_session(service, session, overrides, options, show_sources=show_sources)
+        return
+
+    result = _ask_turn(service, text, session, overrides, options)
+    if result is None:
         raise click.Abort()
 
     if as_json:
         click.echo(json.dumps(result, indent=2, sort_keys=True, default=str))
         return
 
-    if plan_only:
-        _print_ask_plan(result)
+    _print_conversation_answer(result, show_sources=show_sources, show_research=show_research)
+
+
+def _resolve_ask_session(service, resume_id, session_id, new_session):
+    """Pick the session this invocation runs in.
+
+    `--new` alongside `--session` means "that name, starting over", which is
+    the only reading that makes both flags useful together.
+    """
+    if resume_id:
+        return service.resume(resume_id)
+    if session_id:
+        if new_session:
+            return service.sessions.create(session_id)
+        return service.sessions.load_or_create(session_id)
+    return service.start()
+
+
+def _ask_turn(service, text, session, overrides, options):
+    """Run one turn, reporting operational failures without a traceback."""
+    from core.ask import AskError, QueryPlanError, RetrievalError
+    from core.ask.temporal import TemporalError
+
+    try:
+        return service.converse(text, session=session, overrides=overrides, options=options)
+    except RetrievalError as e:
+        click.echo(f"❌ {e}", err=True)
+    except (QueryPlanError, TemporalError) as e:
+        click.echo(f"❌ {e}", err=True)
+    except AskError as e:
+        click.echo(f"❌ Ask failed: {e}", err=True)
+    return None
+
+
+SESSION_HELP = """Commands:
+  /new              start a fresh conversation
+  /context          show the active topics, entities, and assumptions
+  /sources          toggle full provenance on each answer
+  /research         toggle the research trace
+  /forget           clear scenario assumptions for this session
+  /exit, /quit      leave (the session is saved)"""
+
+
+def _run_ask_session(service, session, overrides, options, *, show_sources=False):
+    """The interactive loop. Every turn keeps the context of the one before."""
+    show_research = options.show_research
+    click.echo(f"GANG conversational ask — session {session.session_id}")
+    click.echo("Ask anything about the private corpus. /help for commands, /exit to leave.")
+
+    while True:
+        try:
+            line = click.prompt("\nGANG >", prompt_suffix=" ", default="", show_default=False)
+        except (EOFError, click.Abort):
+            click.echo("")
+            break
+
+        text = (line or "").strip()
+        if not text:
+            continue
+        if text in ("/exit", "/quit"):
+            break
+        if text == "/help":
+            click.echo(SESSION_HELP)
+            continue
+        if text == "/new":
+            service.sessions.save(session)
+            session = service.start()
+            click.echo(f"Started session {session.session_id}.")
+            continue
+        if text == "/context":
+            _print_ask_context(session)
+            continue
+        if text == "/sources":
+            show_sources = not show_sources
+            click.echo(f"Provenance {'on' if show_sources else 'off'}.")
+            continue
+        if text == "/research":
+            show_research = not show_research
+            click.echo(f"Research trace {'on' if show_research else 'off'}.")
+            continue
+        if text == "/forget":
+            session.clear_assumptions()
+            service.sessions.save(session)
+            click.echo("Cleared scenario assumptions. Canonical knowledge is unchanged.")
+            continue
+        if text.startswith("/"):
+            click.echo(f"Unknown command {text}. /help for the list.")
+            continue
+
+        turn_options = _with_research(options, show_research)
+        result = _ask_turn(service, text, session, overrides, turn_options)
+        if result is None:
+            continue
+        click.echo("")
+        _print_conversation_answer(
+            result, show_sources=show_sources, show_research=show_research
+        )
+
+    service.sessions.save(session)
+    click.echo(f"Saved session {session.session_id}.")
+
+
+def _with_research(options, show_research):
+    from core.ask import ConversationOptions
+
+    return ConversationOptions(
+        use_ai=options.use_ai,
+        use_cache=options.use_cache,
+        persist=options.persist,
+        mode_override=options.mode_override,
+        show_research=show_research,
+    )
+
+
+def _print_ask_sessions(service):
+    entries = service.sessions.list_sessions()
+    if not entries:
+        click.echo("No saved conversations.")
+        return
+    click.echo(f"Saved conversations in {service.paths.display_home()}/sessions:")
+    for entry in entries:
+        topics = ", ".join(entry["active_topics"][:3])
+        click.echo(
+            f"  {entry['session_id']}  {entry['updated'][:16]}  "
+            f"{entry['turn_count']} turn(s)" + (f"  — {topics}" if topics else "")
+        )
+
+
+def _print_ask_context(session):
+    summary = session.context_summary()
+    click.echo(f"Session {summary['session_id']} — {summary['turn_count']} turn(s)")
+    if summary["active_topics"]:
+        click.echo(f"  topics: {', '.join(summary['active_topics'])}")
+    for entity in summary["active_entities"]:
+        click.echo(f"  entity: {entity['name']} ({entity['entity_id']})")
+    if summary["active_time_range"]:
+        window = summary["active_time_range"]
+        click.echo(f"  time range: {window.get('start') or 'any'} .. {window.get('end') or 'any'}")
+    for assumption in summary["session_assumptions"]:
+        click.echo(f"  assumption (not a company fact): {assumption['text']}")
+    click.echo(f"  documents in working set: {len(summary['active_document_ids'])}")
+    click.echo("  This is working memory, not evidence.")
+
+
+def _print_conversation_answer(result, *, show_sources=False, show_research=False):
+    """Print one conversational turn, then everything qualifying it."""
+    if result.get("clarification"):
+        click.echo(result["answer"])
         return
 
     _print_ask_answer(result, show_sources=show_sources)
+
+    for assumption in result.get("scenario_assumptions", []):
+        click.echo(f"(scenario assumption, not a company fact: {assumption['text']})")
+
+    for item in result.get("stale_evidence", []):
+        click.echo(
+            f"(evidence changed since an earlier turn: {item.get('title') or item['document_id']})",
+            err=True,
+        )
+
+    if show_sources:
+        _print_ask_ledger(result)
+
+    if show_research:
+        _print_ask_research(result)
+
+    for item in result.get("rejected_claims", []):
+        click.echo(f"(rejected {item['type']} claim: {item['reason']})", err=True)
+    for item in result.get("ungrounded_premises", []):
+        click.echo(
+            f"(claim {item['claim_id']} rests on premises that are not grounded: "
+            + ", ".join(item["ungrounded_premises"])
+            + ")",
+            err=True,
+        )
+
+
+#: How each claim type is introduced in the terminal. The distinction between
+#: what the corpus says and what was generated is the whole point of the
+#: ledger, so it is spelled out rather than implied by a symbol.
+CLAIM_LABELS = {
+    "fact": "fact (from evidence)",
+    "synthesis": "synthesis (derived from evidence)",
+    "recommendation": "recommendation (generated, not a company decision)",
+    "idea": "idea (generated, not a company decision)",
+    "scenario": "scenario (rests on your assumption)",
+    "uncertainty": "uncertain (not fully supported)",
+}
+
+
+def _print_ask_ledger(result):
+    claims = result.get("claims", [])
+    if not claims:
+        return
+    click.echo("")
+    click.echo("Claim ledger:")
+    for claim in claims:
+        citations = "".join(f"[{value}]" for value in claim.get("citations", []))
+        label = CLAIM_LABELS.get(claim.get("type", ""), claim.get("type", ""))
+        click.echo(f"  {claim.get('id', '?')}  {label}")
+        click.echo(f"      {claim.get('text', '')} {citations}".rstrip())
+        for note in claim.get("notes", []):
+            click.echo(f"      note: {note}")
+        if claim.get("presented_as_decision"):
+            click.echo("      warning: phrased as an existing company decision")
+
+
+def _print_ask_research(result):
+    research = result.get("research", {})
+    click.echo("")
+    click.echo(
+        f"Research: {research.get('rounds', 0)} round(s), "
+        f"{research.get('document_count', 0)} document(s), "
+        f"stopped because {research.get('stopped_because', 'unknown')}"
+    )
+    for entry in research.get("trace", []):
+        detail = entry.get("reason") or entry.get("refused") or entry.get("error") or ""
+        click.echo(f"  {entry.get('decision', '')} {entry.get('tool', '')}: {detail}".strip())
+        if entry.get("document_ids"):
+            click.echo(f"      returned: {', '.join(entry['document_ids'])}")
+    for refusal in research.get("refusals", []):
+        click.echo(f"  refused {refusal.get('tool', '')}: {refusal.get('refused', '')}")
 
 
 def _print_ask_plan(result):

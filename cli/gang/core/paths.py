@@ -75,6 +75,11 @@ class GangPaths:
         return self.generated_path / "brain.sqlite"
 
     @property
+    def sessions_path(self) -> Path:
+        """Conversational working memory. Private, disposable, never in git."""
+        return self.home / "sessions"
+
+    @property
     def ask_cache_path(self) -> Path:
         """Disposable cache for `gang ask`. Private, generated, never canonical."""
         return self.generated_path / "ask-cache"
