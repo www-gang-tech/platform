@@ -60,18 +60,20 @@ _LABELLED = (
 
 _UUID = r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
 
+# Labels and version prefixes are case-insensitive ("SKU", "v1.2.3"). The
+# code patterns are not: a global IGNORECASE flag made ``[A-Z]`` match
+# ``pre-2026``, ``180mm``, and ``5000units``, hiding genuine quantities.
 _IDENTIFIER = re.compile(
     "|".join(
         (
             _UUID,
-            _LABELLED,
-            _VERSION,
+            f"(?i:{_LABELLED})",
+            f"(?i:{_VERSION})",
             _CODE_SEPARATED,
             _CODE_DIGITS_FIRST,
             _CODE_LETTERS_FIRST,
         )
     ),
-    re.IGNORECASE,
 )
 
 _CITATION_MARKER = re.compile(r"\[\d{1,3}\]")

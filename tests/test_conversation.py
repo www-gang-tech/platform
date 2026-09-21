@@ -67,7 +67,7 @@ from core.ask.evidence import build_bundle
 from core.ask import evidence_packet as evidence_packet_module
 from core.ask import schema as schema_module
 from core.ask.evidence_packet import estimate_tokens, select_for_local_synthesis
-from core.ask.planner import DeterministicPlanner, PlanOverrides
+from core.ask.planner import DeterministicPlanner, PlanOverrides, PlanningResult
 from core.ask.research import (
     BUILD_TIMELINE,
     ENOUGH_EVIDENCE,
@@ -1222,6 +1222,23 @@ class ClaimLedgerTests(ConversationTestCase):
         )
         self.assertEqual(result.claims[0].derived_from, [])
 
+    def test_a_claim_cannot_use_itself_as_a_premise(self):
+        result = validate_ledger(
+            [
+                {
+                    "id": "c1",
+                    "type": "synthesis",
+                    "text": "Risk.",
+                    "citations": [],
+                    "derived_from": ["c1"],
+                }
+            ],
+            self.bundle(),
+        )
+
+        self.assertEqual(result.claims[0].derived_from, [])
+        self.assertEqual(result.claims[0].type, ledger_module.UNCERTAINTY)
+
     def test_ungrounded_premises_of_a_recommendation_are_reported(self):
         result = validate_ledger(
             [
@@ -1387,6 +1404,106 @@ class LocalSynthesisPacketTests(ConversationTestCase):
             authority = source.get("authority") or {}
             if authority.get("preferred"):
                 self.assertIn(source["citation_id"], selected)
+
+    def test_local_validation_cannot_ground_against_a_document_the_packet_dropped(self):
+        question = "What should we do next about Qi certification?"
+        rows = [
+            {
+                "document_id": "wpc-thread",
+                "title": "QI-27832 GANG - 4-in-1 Magsafe Charger",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-18",
+                "updated": "2026-09-18",
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "body": (
+                    "WPC Certification Body restarted QI-27832 and returned the application "
+                    "to Applicant Initial Editing for the Qi certification resubmission."
+                ),
+                "signals": {},
+            },
+            {
+                "document_id": "bom-review",
+                "title": "BOM Review",
+                "type": "knowledge",
+                "source_type": "drive-file",
+                "visibility": "private",
+                "created": "2026-09-05",
+                "updated": "2026-09-05",
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "body": "Gross margin is 42%. The charger lands at $130 per unit today.",
+                "signals": {},
+            },
+        ]
+        plan = DeterministicPlanner().plan(question).plan
+        bundle = build_bundle(question, rows, plan)
+        selected, diagnostics = select_for_local_synthesis(
+            bundle, question, budget=SynthesisPacketBudget(max_documents=1)
+        )
+        self.assertEqual(selected.items[0].document_id, "wpc-thread")
+        self.assertIn(2, {item["citation_id"] for item in diagnostics["rejected"]})
+
+        service = ConversationService(
+            root_path=self.root,
+            private_home=self.home,
+            synthesizer=LocalStubSynthesizer(
+                payload={
+                    "answer": "Gross margin is 42% [2].",
+                    "claims": [
+                        {
+                            "id": "c1",
+                            "type": "fact",
+                            "text": "Gross margin is 42%.",
+                            "citations": [2],
+                        }
+                    ],
+                },
+                budget=SynthesisPacketBudget(max_documents=1),
+            ),
+        )
+        answer, _, _ = service._synthesize(
+            AnswerContext(question=question, bundle=bundle, intent=infer_intent(question)),
+            PlanningResult(plan=plan),
+            ConversationOptions(use_cache=False, persist=False),
+            assess_authority(bundle.items),
+        )
+
+        claim = answer["claims"][0]
+        self.assertNotIn(2, claim["citations"])
+        self.assertEqual(claim["type"], ledger_module.UNCERTAINTY)
+        self.assertEqual(claim["numeric_check"], "number-not-in-evidence")
+        self.assertNotIn("[2]", answer["answer"])
+
+    def test_a_fallback_document_is_not_also_listed_as_rejected(self):
+        question = "What should we do next about Qi certification?"
+        rows = [
+            {
+                "document_id": "unrelated",
+                "title": "Site publishing workflow",
+                "type": "meeting",
+                "source_type": "file",
+                "visibility": "private",
+                "created": "2026-09-01",
+                "updated": "2026-09-01",
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "body": "Acceptance criteria for site publishing and platform workflow.",
+                "signals": {},
+            }
+        ]
+        bundle = build_bundle(question, rows, DeterministicPlanner().plan(question).plan)
+        selected, diagnostics = select_for_local_synthesis(
+            bundle, question, budget=SynthesisPacketBudget(max_documents=1)
+        )
+
+        self.assertEqual([item.document_id for item in selected.items], ["unrelated"])
+        self.assertNotIn("unrelated", {item["document_id"] for item in diagnostics["rejected"]})
 
 
 # ======================================== scenario assumptions (§24, §25)
@@ -2812,6 +2929,37 @@ class NumericalSafetyTests(ConversationTestCase):
         # The advice survives — it is advice — but the figure is flagged.
         self.assertEqual(result.claims[0].type, ledger_module.RECOMMENDATION)
         self.assertTrue(any(item["check"] == "numeric" for item in result.warnings))
+
+
+class QuantityMaskingTests(unittest.TestCase):
+    def test_ordinary_hyphens_and_unit_suffixes_are_not_identifiers(self):
+        from core.ask import quantities as quantities_module
+
+        self.assertFalse(quantities_module.is_identifier("pre-2026"))
+        self.assertFalse(quantities_module.is_identifier("sub-299"))
+        self.assertFalse(quantities_module.is_identifier("180mm"))
+        self.assertFalse(quantities_module.is_identifier("5000units"))
+        self.assertEqual(
+            quantities_module.quantities("The carton measures 180mm by 95mm."),
+            ["180", "95"],
+        )
+        self.assertEqual(
+            quantities_module.quantities("The full build is 5000units."),
+            ["5000"],
+        )
+        self.assertIn(
+            "5000",
+            quantities_module.quantities("Inventory is pre-2026 and covers 5000 units."),
+        )
+
+    def test_certification_codes_and_labelled_skus_are_still_identifiers(self):
+        from core.ask import quantities as quantities_module
+
+        self.assertTrue(quantities_module.is_identifier("QI-27832"))
+        self.assertEqual(
+            quantities_module.quantities("Application QI-27832 restarted; SKU 12345 shipped."),
+            [],
+        )
 
 
 # ============================================== negative claims (§20, §38)
