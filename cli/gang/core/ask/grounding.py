@@ -6,8 +6,10 @@ actually retrieved, and none of them asks a model anything:
 
 * **Extraction quality** — is this text natural language at all, or is it the
   binary residue of a failed PDF extraction?
-* **Numeric alignment** — does every figure in a claim appear in the evidence
-  the claim cites, and did the source actually put those figures together?
+* **Numeric alignment** — does every *quantity* in a claim appear in the
+  evidence the claim cites, and did the source actually put those figures
+  together? Identifiers that merely contain digits are not quantities; see
+  ``quantities.py``.
 * **Entity linkage** — when a claim relates two entities, did any single cited
   source mention both, or is the relationship an artifact of both names having
   been resolved during retrieval?
@@ -27,6 +29,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Set, Tuple
+
+from . import quantities as quantities_module
 
 
 # --------------------------------------------------------------- extraction
@@ -146,13 +150,16 @@ NUMERIC_NONE = "not-numeric"
 #: the source says otherwise.
 NUMERIC_PROXIMITY_CHARS = 160
 
-_NUMBER_PATTERN = re.compile(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)")
 _CITATION_MARKER = re.compile(r"\[\d{1,3}\]")
 
 
 def extract_numbers(text: str) -> List[str]:
-    """Normalized figures in a piece of text, so `1,000` and `1000` compare equal."""
-    return [value for _, value in _number_positions(text)]
+    """Normalized quantities in a piece of text, so `1,000` and `1000` match.
+
+    Delegates to ``quantities``, which masks identifiers before parsing. A
+    certification number is not a figure the evidence has to corroborate.
+    """
+    return quantities_module.quantities(text)
 
 
 def check_numeric_grounding(
@@ -193,19 +200,7 @@ def _numbers_co_occur(text: str, wanted: Set[str], proximity: int) -> bool:
 
 
 def _number_positions(text: str) -> List[Tuple[int, str]]:
-    result: List[Tuple[int, str]] = []
-    for match in _NUMBER_PATTERN.finditer(text or ""):
-        normalized = _normalize_number(match.group(1))
-        if normalized:
-            result.append((match.start(), normalized))
-    return result
-
-
-def _normalize_number(raw: str) -> str:
-    try:
-        return f"{float(raw.replace(',', '')):g}"
-    except ValueError:
-        return ""
+    return quantities_module.quantity_positions(text)
 
 
 # ----------------------------------------------------------------- entities
@@ -313,6 +308,17 @@ _DEPENDENCY_EVIDENCE = re.compile(
     r"|\buntil\b|\bmust\b",
     re.IGNORECASE,
 )
+
+
+def states_requirement(text: str) -> bool:
+    """Whether a piece of evidence states an obligation outright.
+
+    The same vocabulary the dependency check reads, exposed so the synthesis
+    packet can prefer a source that imposes a requirement over one that only
+    mentions the topic. Reading, not judging: authority ranking is unchanged
+    and stays in ``authority.py``.
+    """
+    return bool(_DEPENDENCY_EVIDENCE.search(_text(text)))
 
 
 def asserts_dependency(claim_text: str) -> bool:

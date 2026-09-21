@@ -37,3 +37,6 @@ Thumbs.db
 
 # Private Gmail-derived canonical knowledge
 brain/vault/emails/
+
+# Hypothesis example database
+.hypothesis/

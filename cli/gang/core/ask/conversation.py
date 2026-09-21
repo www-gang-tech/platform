@@ -43,6 +43,7 @@ from . import deterministic as deterministic_module
 from . import followup as followup_module
 from . import intent as intent_module
 from . import ledger as ledger_module
+from . import schema as schema_module
 from . import synthesis
 from .answer import (
     AnswerContext,
@@ -555,6 +556,9 @@ class ConversationService(AskService):
                 "api_cost": "$0" if provider_name == "ollama" else "remote provider",
                 "cached": False,
                 "evidence_packet": packet_diagnostics,
+                "structured_output": getattr(
+                    synthesizer, "structured_output", schema_module.STRUCTURED_NOT_REQUESTED
+                ),
             },
             assessed,
         )

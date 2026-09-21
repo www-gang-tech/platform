@@ -311,6 +311,24 @@ _LISTING_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+#: "What is required?" is a question about obligations, and an obligation is
+#: the kind of thing a certification body states and an internal recap
+#: paraphrases. Recognizing the shape lets synthesis insist on the source that
+#: imposed the requirement rather than the one that mentioned it.
+_REQUIREMENT_QUESTION = re.compile(
+    r"\b(?:required|requirement|requirements|require|requires)\b"
+    r"|\bmust\b|\bmandatory\b|\bobligated\b|\bobligation\b"
+    r"|\bneed(?:ed|s)?\s+(?:to|for)\b|\bnecessary\b"
+    r"|\bprerequisites?\b|\bwhat\s+do\s+we\s+have\s+to\b",
+    re.IGNORECASE,
+)
+
+
+def asks_for_requirements(question: str) -> bool:
+    """Whether the question asks what is required rather than what happened."""
+    return bool(_REQUIREMENT_QUESTION.search(question or ""))
+
+
 #: Policies whose answer is mostly about *when*, and so benefit from the
 #: deterministic timeline primitive being run up front (§12).
 TEMPORAL_POLICIES = frozenset({TIMELINE, COMPARE, STATUS})

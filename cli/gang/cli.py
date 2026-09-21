@@ -1834,10 +1834,15 @@ def _print_ask_ledger(result):
     if origin == "deterministic-recovery":
         click.echo("  (read back from the answer's own sections; the model returned no claims)")
     for claim in claims:
+        body = claim.get("text", "")
         citations = "".join(f"[{value}]" for value in claim.get("citations", []))
+        # A recovered claim is a sentence of the prose and carries its own
+        # marker. Printing the citations after it would say [3] twice.
+        if citations and citations in body:
+            citations = ""
         label = CLAIM_LABELS.get(claim.get("type", ""), claim.get("type", ""))
         click.echo(f"  {claim.get('id', '?')}  {label}")
-        click.echo(f"      {claim.get('text', '')} {citations}".rstrip())
+        click.echo(f"      {body} {citations}".rstrip())
         for note in claim.get("notes", []):
             click.echo(f"      note: {note}")
         if claim.get("presented_as_decision"):
@@ -1859,7 +1864,13 @@ def _print_ask_research(result):
             click.echo(f"      returned: {', '.join(entry['document_ids'])}")
     for refusal in research.get("refusals", []):
         click.echo(f"  refused {refusal.get('tool', '')}: {refusal.get('refused', '')}")
-    _print_synthesis_evidence_packet(result.get("synthesis", {}).get("evidence_packet") or {})
+    synthesis = result.get("synthesis", {})
+    _print_synthesis_evidence_packet(synthesis.get("evidence_packet") or {})
+    if synthesis.get("structured_output"):
+        click.echo(f"  structured output: {synthesis['structured_output']}")
+    origin = result.get("claim_ledger_origin")
+    if origin and origin != "model":
+        click.echo(f"  claim ledger: {origin}")
     _print_provider_calls(result.get("provider_calls", []) or research.get("provider_calls", []))
 
 
@@ -1886,11 +1897,14 @@ def _print_synthesis_evidence_packet(packet):
             f"excerpts/doc <= {budget.get('max_excerpts_per_document')}, "
             f"output <= {budget.get('max_output_tokens')}"
         )
+    if packet.get("requirement_question"):
+        click.echo("      requirement question: primary evidence that states a requirement ranks first")
     for item in packet.get("selected", []):
+        states = ", states a requirement" if item.get("states_requirement") else ""
         click.echo(
             "      selected "
             f"[{item.get('citation_id')}] {item.get('title', '')} "
-            f"({item.get('source_kind', '')}; {item.get('excerpt_count', 0)} excerpt(s))"
+            f"({item.get('source_kind', '')}; {item.get('excerpt_count', 0)} excerpt(s){states})"
         )
     for item in packet.get("rejected", [])[:12]:
         click.echo(
@@ -1915,6 +1929,8 @@ def _print_provider_call(call):
     parts = [f"{prefix}{purpose}: {provider}" + (f"/{model}" if model else "")]
     if status:
         parts.append(f"status {status}")
+    if call.get("response"):
+        parts.append(f"response {call['response']}")
     if elapsed is not None:
         parts.append(f"elapsed {elapsed}s")
     if call.get("timeout_seconds") is not None:

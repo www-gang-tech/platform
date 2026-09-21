@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 #: Model used by the proposal flows (enrichment, entity resolution).
@@ -351,11 +351,17 @@ class OllamaClient:
     def complete_json(self, request: Dict[str, Any], *, purpose: str) -> Dict[str, Any]:
         messages = [{"role": "system", "content": request["system"]}]
         messages.extend(request.get("messages") or [])
+        # A caller that knows the shape it wants sends a JSON Schema, and
+        # Ollama constrains decoding to it. "json" alone only promises the
+        # response will parse, not that it will contain anything in particular.
+        response_format = request.get("format")
+        if not isinstance(response_format, dict) or not response_format:
+            response_format = "json"
         payload: Dict[str, Any] = {
             "model": self.model,
             "stream": False,
             "messages": messages,
-            "format": "json",
+            "format": response_format,
             "options": {
                 "num_ctx": self.budget.max_context_tokens,
                 "num_predict": _int(request.get("max_tokens"), 500, 128, 4000),
@@ -408,6 +414,22 @@ class OllamaClient:
         try:
             return load_json_object(content)
         except ProviderError as exc:
+            # Constrained decoding will happily spend the whole generation
+            # budget and stop mid-object. The text before the cut is real
+            # model output, so it is closed off and parsed rather than thrown
+            # away — a partial answer the ledger can still check beats no
+            # answer, and the repair is recorded either way.
+            if body.get("done_reason") == "length":
+                repaired = repair_truncated_json(content)
+                if repaired is not None:
+                    self.telemetry.update({"status": "ok", "response": "truncated-repaired"})
+                    return repaired
+                self.telemetry.update({"status": "failed", "response": "truncated", "error": str(exc)})
+                raise ProviderError(
+                    "The local model ran out of output budget mid-response and what it "
+                    "produced could not be repaired. Raise ai.local_synthesis.max_output_tokens "
+                    "or ask a narrower question."
+                ) from exc
             self.telemetry.update({"status": "failed", "error": str(exc)})
             raise
 
@@ -480,6 +502,112 @@ def load_json_object(text: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ProviderError("AI provider did not return a JSON object")
     return data
+
+
+def repair_truncated_json(text: str) -> Optional[Dict[str, Any]]:
+    """Close off a JSON object that was cut off mid-write, or return None.
+
+    Deterministic and additive only. The function never edits a character the
+    model wrote: it rewinds to the last point where a value had finished, drops
+    the unfinished fragment after it, and appends the closing delimiters the
+    surrounding structure already implies. If no rewind point yields valid
+    JSON it gives up rather than guessing at content.
+    """
+    value = (text or "").strip()
+    start = value.find("{")
+    if start < 0:
+        return None
+    value = value[start:]
+
+    points = _safe_points(value)
+    if points is None:
+        return None
+    for position, closers in reversed(points[-MAX_REPAIR_ATTEMPTS:]):
+        candidate = value[:position].rstrip().rstrip(",")
+        candidate = _drop_dangling_key(candidate) + closers
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+#: How far back to rewind looking for a parseable prefix. Well past the tail
+#: of any truncated claim, and short of rewriting the response.
+MAX_REPAIR_ATTEMPTS = 40
+
+
+def _safe_points(value: str) -> Optional[List[tuple]]:
+    """Positions where a value had just finished, with the closers still owed.
+
+    Returns ``None`` when the text is not a truncated object at all — either
+    the brackets are inconsistent, or the object closed and the parse failure
+    was something this function has no business repairing.
+    """
+    points: List[tuple] = []
+    stack: List[str] = []
+    in_string = False
+    escaped = False
+
+    def owed() -> str:
+        return "".join(reversed(stack))
+
+    for position, character in enumerate(value):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+                points.append((position + 1, owed()))
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "{[":
+            stack.append("}" if character == "{" else "]")
+        elif character in "}]":
+            if not stack or stack[-1] != character:
+                return None
+            stack.pop()
+            if not stack:
+                return None
+            points.append((position + 1, owed()))
+        elif character in ",:" or character.isspace():
+            continue
+        else:
+            end = _scalar_end(value, position)
+            if end:
+                points.append((end, owed()))
+    return points if stack else None
+
+
+def _scalar_end(value: str, position: int) -> int:
+    """Where the literal starting at ``position`` ends, if it is complete."""
+    match = _JSON_SCALAR.match(value, position)
+    if match is None:
+        return 0
+    end = match.end()
+    # A literal running to the very end may itself be truncated ("tru", "12").
+    return end if end < len(value) else 0
+
+
+_JSON_SCALAR = re.compile(r"true|false|null|-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
+
+
+def _drop_dangling_key(candidate: str) -> str:
+    """Remove a key whose value never arrived."""
+    stripped = candidate.rstrip()
+    if stripped.endswith(":"):
+        stripped = stripped[:-1].rstrip()
+    else:
+        return stripped
+    match = re.search(r'"(?:[^"\\\\]|\\\\.)*"$', stripped)
+    if match:
+        stripped = stripped[: match.start()].rstrip().rstrip(",")
+    return stripped
 
 
 def _redact(exc: Exception) -> str:

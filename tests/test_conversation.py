@@ -52,6 +52,7 @@ from core.ask import ledger as ledger_module
 from core.ask.answer import (
     AnswerContext,
     ConversationSynthesizer,
+    compact_system_prompt,
     system_prompt,
     validate_conversation_answer,
 )
@@ -63,6 +64,8 @@ from core.ask.authority import (
     classify as classify_source,
 )
 from core.ask.evidence import build_bundle
+from core.ask import evidence_packet as evidence_packet_module
+from core.ask import schema as schema_module
 from core.ask.evidence_packet import estimate_tokens, select_for_local_synthesis
 from core.ask.planner import DeterministicPlanner, PlanOverrides
 from core.ask.research import (
@@ -1387,6 +1390,348 @@ class LocalSynthesisPacketTests(ConversationTestCase):
 
 
 # ======================================== scenario assumptions (§24, §25)
+
+
+class StructuredLocalOutputTests(ConversationTestCase):
+    """The local call declares its response shape and checks what came back."""
+
+    QUESTION = "What should we do next about certification?"
+
+    def synthesizer(self):
+        return ConversationSynthesizer(
+            provider="ollama", model="stub-local-model", root_path=self.root
+        )
+
+    def context(self, question=None):
+        question = question or self.QUESTION
+        rows = [
+            {
+                "document_id": "doc-1",
+                "title": "QI-27832 certification restart",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-18",
+                "updated": "2026-09-18",
+                "body": "The certification body restarted the application.",
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "signals": {},
+            }
+        ]
+        plan = DeterministicPlanner().plan(question).plan
+        bundle = build_bundle(question, rows, plan)
+        return AnswerContext(question=question, bundle=bundle, intent=infer_intent(question))
+
+    def test_the_local_request_declares_its_response_shape(self):
+        request = self.synthesizer().build_request(self.context())
+
+        schema = request["format"]
+        self.assertEqual(schema["type"], "object")
+        self.assertIn("claims", schema["properties"])
+        # Self-contained: a structured-output backend gets no dangling $ref.
+        self.assertNotIn("$defs", schema)
+
+    def test_the_declared_claim_types_follow_the_epistemic_mode(self):
+        for question, mode in (
+            ("What does the corpus say about certification?", intent_module.EVIDENCE),
+            ("What should we do next about certification?", intent_module.ADVISORY_MODE),
+        ):
+            with self.subTest(mode=mode):
+                request = self.synthesizer().build_request(self.context(question))
+                types = request["format"]["properties"]["claims"]["items"]["properties"]["type"]
+                self.assertEqual(tuple(types["enum"]), schema_module.claim_types(mode))
+
+    def test_an_evidence_mode_schema_cannot_express_a_recommendation(self):
+        request = self.synthesizer().build_request(
+            self.context("What does the corpus say about certification?")
+        )
+        types = request["format"]["properties"]["claims"]["items"]["properties"]["type"]["enum"]
+        self.assertNotIn(ledger_module.RECOMMENDATION, types)
+
+    def test_a_valid_response_is_normalized_and_recorded_as_ok(self):
+        synthesizer = self.synthesizer()
+        context = self.context()
+        request = synthesizer.build_request(context)
+        with mock.patch.object(
+            synthesizer._client,
+            "complete_json",
+            return_value={
+                "answer": "Restarted [1].",
+                "claims": [
+                    {"id": "c1", "type": "fact", "text": "Restarted.", "citations": ["[1]"]}
+                ],
+            },
+        ):
+            payload = synthesizer.synthesize(context, request=request)
+
+        self.assertEqual(synthesizer.structured_output, schema_module.STRUCTURED_OK)
+        self.assertEqual(payload["claims"][0]["citations"], [1])
+        self.assertIn("conflicts", payload)
+
+    def test_a_response_the_schema_rejects_is_counted_not_discarded(self):
+        synthesizer = self.synthesizer()
+        context = self.context()
+        request = synthesizer.build_request(context)
+        with mock.patch.object(
+            synthesizer._client, "complete_json", return_value={"claims": "not a list of claims"}
+        ):
+            payload = synthesizer.synthesize(context, request=request)
+
+        self.assertEqual(synthesizer.structured_output, schema_module.STRUCTURED_INVALID)
+        # The lenient path still gets the model's own words.
+        self.assertEqual(payload, {"claims": "not a list of claims"})
+
+    def test_the_schema_reaches_ollama_as_the_response_format(self):
+        from core.ai_provider import ModelBudget, OllamaClient
+
+        client = OllamaClient(model="stub-local-model", budget=ModelBudget())
+        captured = {}
+
+        def fake_post(url, payload, *, timeout):
+            captured.update(payload)
+            return {"message": {"content": '{"answer": "ok", "claims": []}'}}
+
+        with mock.patch("core.ai_provider._post_json", side_effect=fake_post):
+            client.complete_json(
+                {
+                    "system": "s",
+                    "messages": [{"role": "user", "content": "u"}],
+                    "format": schema_module.answer_schema(intent_module.ADVISORY_MODE),
+                },
+                purpose="test",
+            )
+
+        self.assertIsInstance(captured["format"], dict)
+        self.assertIn("claims", captured["format"]["properties"])
+
+    def test_a_response_cut_off_by_the_output_budget_is_salvaged(self):
+        from core.ai_provider import ModelBudget, OllamaClient
+
+        client = OllamaClient(model="stub-local-model", budget=ModelBudget())
+        truncated = '{"answer": "Current evidence: restarted [1].", "claims": [{"id": "c1"'
+
+        with mock.patch(
+            "core.ai_provider._post_json",
+            return_value={"message": {"content": truncated}, "done_reason": "length"},
+        ):
+            payload = client.complete_json(
+                {"system": "s", "messages": [{"role": "user", "content": "u"}]}, purpose="test"
+            )
+
+        self.assertEqual(payload["answer"], "Current evidence: restarted [1].")
+        self.assertEqual(client.telemetry["response"], "truncated-repaired")
+        self.assertEqual(client.telemetry["status"], "ok")
+
+    def test_an_unsalvageable_truncation_says_what_to_change(self):
+        from core.ai_provider import ModelBudget, OllamaClient, ProviderError
+
+        client = OllamaClient(model="stub-local-model", budget=ModelBudget())
+        with mock.patch(
+            "core.ai_provider._post_json",
+            return_value={"message": {"content": '{"ans'}, "done_reason": "length"},
+        ):
+            with self.assertRaises(ProviderError) as raised:
+                client.complete_json(
+                    {"system": "s", "messages": [{"role": "user", "content": "u"}]},
+                    purpose="test",
+                )
+
+        self.assertIn("max_output_tokens", str(raised.exception))
+        self.assertEqual(client.telemetry["response"], "truncated")
+
+    def test_a_malformed_response_that_was_not_truncated_still_fails(self):
+        from core.ai_provider import ModelBudget, OllamaClient, ProviderError
+
+        client = OllamaClient(model="stub-local-model", budget=ModelBudget())
+        with mock.patch(
+            "core.ai_provider._post_json",
+            return_value={"message": {"content": "not json at all"}, "done_reason": "stop"},
+        ):
+            with self.assertRaises(ProviderError):
+                client.complete_json(
+                    {"system": "s", "messages": [{"role": "user", "content": "u"}]},
+                    purpose="test",
+                )
+
+    def test_a_caller_without_a_schema_still_gets_plain_json_mode(self):
+        from core.ai_provider import ModelBudget, OllamaClient
+
+        client = OllamaClient(model="stub-local-model", budget=ModelBudget())
+        captured = {}
+
+        def fake_post(url, payload, *, timeout):
+            captured.update(payload)
+            return {"message": {"content": "{}"}}
+
+        with mock.patch("core.ai_provider._post_json", side_effect=fake_post):
+            client.complete_json(
+                {"system": "s", "messages": [{"role": "user", "content": "u"}]}, purpose="test"
+            )
+
+        self.assertEqual(captured["format"], "json")
+
+
+class RequirementQuestionTests(ConversationTestCase):
+    """Asked what is required, primary evidence outranks a paraphrase of it."""
+
+    QUESTION = "What is definitely required for Qi certification?"
+
+    def requirement_bundle(self):
+        rows = [
+            {
+                "document_id": "wpc-thread",
+                "title": "QI-27832 GANG - 4-in-1 Magsafe Charger",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-18",
+                "updated": "2026-09-18",
+                "body": (
+                    "WPC CB commented on the Qi certification: the application requires "
+                    "Form03 to reference the QI-ID before it can be submitted. Applicant "
+                    "Initial Editing is open."
+                ),
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "signals": {},
+            },
+            {
+                "document_id": "operating-summary",
+                "title": "Your summary of GANG - Eliro Inc",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-19",
+                "updated": "2026-09-19",
+                "body": (
+                    "Certifications and testing: Qi certification has been resubmitted "
+                    "several times and Steven will intervene to accelerate it."
+                ),
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "signals": {},
+            },
+        ]
+        plan = DeterministicPlanner().plan(self.QUESTION).plan
+        return build_bundle(self.QUESTION, rows, plan)
+
+    def test_a_requirement_question_is_recognized(self):
+        self.assertTrue(intent_module.asks_for_requirements(self.QUESTION))
+        self.assertTrue(intent_module.asks_for_requirements("What must we do before resubmitting?"))
+        self.assertFalse(intent_module.asks_for_requirements("What happened last week?"))
+
+    def test_primary_evidence_stating_a_requirement_is_selected_first(self):
+        selected, diagnostics = select_for_local_synthesis(
+            self.requirement_bundle(),
+            self.QUESTION,
+            budget=SynthesisPacketBudget(max_documents=2),
+        )
+
+        self.assertTrue(diagnostics["requirement_question"])
+        self.assertEqual(selected.items[0].document_id, "wpc-thread")
+        first = diagnostics["selected"][0]
+        self.assertEqual(first["source_kind"], evidence_packet_module.PRIMARY)
+        self.assertTrue(first["states_requirement"])
+
+    def test_the_newer_summary_does_not_displace_the_primary_source(self):
+        # The summary is the more recent document. Recency is not authority
+        # over a requirement, and the ordering has to show that.
+        selected, _ = select_for_local_synthesis(
+            self.requirement_bundle(),
+            self.QUESTION,
+            budget=SynthesisPacketBudget(max_documents=1),
+        )
+
+        self.assertEqual([item.document_id for item in selected.items], ["wpc-thread"])
+
+    def test_an_agenda_is_kept_out_once_the_primary_source_is_in(self):
+        rows = [
+            {
+                "document_id": "wpc-thread",
+                "title": "QI-27832 GANG - 4-in-1 Magsafe Charger",
+                "type": "knowledge",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-18",
+                "updated": "2026-09-18",
+                "body": (
+                    "WPC CB commented: the Qi certification application requires Form03 to "
+                    "reference the QI-ID before Applicant Initial Editing can close."
+                ),
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "signals": {},
+            },
+            {
+                "document_id": "weekly-agenda",
+                "title": "GANG Weekly Executive Operating Agenda",
+                "type": "agenda",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-18",
+                "updated": "2026-09-18",
+                "body": (
+                    "Certification - WPC Qi certification/resubmission activity. "
+                    "- Certification prototype/test-lab requirements."
+                ),
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "signals": {},
+            },
+        ]
+        plan = DeterministicPlanner().plan(self.QUESTION).plan
+        bundle = build_bundle(self.QUESTION, rows, plan)
+
+        selected, diagnostics = select_for_local_synthesis(
+            bundle, self.QUESTION, budget=SynthesisPacketBudget(max_documents=4)
+        )
+
+        self.assertEqual([item.document_id for item in selected.items], ["wpc-thread"])
+        rejected = {item["document_id"]: item["reason"] for item in diagnostics["rejected"]}
+        self.assertEqual(rejected["weekly-agenda"], "agenda-is-not-a-requirement-source")
+
+    def test_an_agenda_survives_a_question_that_is_not_about_requirements(self):
+        rows = [
+            {
+                "document_id": "weekly-agenda",
+                "title": "GANG Weekly Executive Operating Agenda",
+                "type": "agenda",
+                "source_type": "gmail-thread",
+                "visibility": "private",
+                "created": "2026-09-18",
+                "updated": "2026-09-18",
+                "body": "Certification - WPC Qi certification/resubmission activity.",
+                "source_ids": [],
+                "entity_refs": [],
+                "relationships": [],
+                "signals": {},
+            }
+        ]
+        question = "What is happening with Qi certification?"
+        plan = DeterministicPlanner().plan(question).plan
+        selected, diagnostics = select_for_local_synthesis(
+            build_bundle(question, rows, plan),
+            question,
+            budget=SynthesisPacketBudget(max_documents=4),
+        )
+
+        self.assertFalse(diagnostics["requirement_question"])
+        self.assertEqual([item.document_id for item in selected.items], ["weekly-agenda"])
+
+    def test_an_ordinary_question_does_not_get_the_requirement_rule(self):
+        prompt = compact_system_prompt(intent_module.ADVISORY_MODE, requirement_question=False)
+        self.assertNotIn("Requirements:", prompt)
+
+    def test_a_requirement_question_tells_synthesis_to_prefer_the_primary_source(self):
+        prompt = compact_system_prompt(intent_module.ADVISORY_MODE, requirement_question=True)
+        self.assertIn("Requirements:", prompt)
+        self.assertIn("before any internal summary", prompt)
 
 
 class DeterministicLedgerRecoveryTests(ConversationTestCase):
