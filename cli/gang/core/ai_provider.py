@@ -1,14 +1,14 @@
-"""The single Anthropic boundary for GANG.
+"""The single AI provider boundary for GANG.
 
 Every AI-assisted feature — enrichment proposals, entity proposals, and ``gang
 ask`` synthesis — calls the provider through this module. Exactly one file
-imports ``anthropic``, constructs a client, and turns a response body into a
-JSON object, so there is one place to audit for credential handling, model
-selection, and response parsing.
+imports remote provider SDKs, talks to local Ollama, and turns a response body
+into a JSON object, so there is one place to audit for credential handling,
+model selection, endpoint selection, and response parsing.
 
 Two rules hold for every caller:
 
-* The API key is read from the environment and never travels in a prompt, a
+* Remote API keys are read from the environment and never travel in a prompt, a
   log line, an audit record, or an exception message.
 * Retrieved corpus content is always DATA in a user message. Callers build the
   system prompt from constants they own; nothing read out of the vault is ever
@@ -20,15 +20,33 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 #: Model used by the proposal flows (enrichment, entity resolution).
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
-#: Model used for evidence-grounded answer synthesis, which benefits from the
-#: strongest available reasoning. Override per call or via ``GANG_ASK_MODEL``.
-DEFAULT_SYNTHESIS_MODEL = "claude-opus-5"
+#: Local model used by ordinary Ask. GANG's bounded retrieval means the model
+#: sees small evidence sets rather than the whole private corpus.
+DEFAULT_LOCAL_MODEL = "mistral-small3.1"
+
+#: Premium remote model, used only after an explicit Ask escalation.
+DEFAULT_PREMIUM_MODEL = "claude-opus-5"
+
+#: Backwards-compatible name used by older Ask classes.
+DEFAULT_SYNTHESIS_MODEL = DEFAULT_PREMIUM_MODEL
+
+DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
+LOCAL_PROVIDERS = {"ollama"}
+REMOTE_PROVIDERS = {"anthropic"}
+ASK_ROLES = {"default", "planning", "research", "synthesis"}
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180.0
 
 API_KEY_ENV = "ANTHROPIC_API_KEY"
 
@@ -39,6 +57,209 @@ class ProviderError(Exception):
     Feature modules re-wrap this in their own error type so their public API is
     unchanged.
     """
+
+
+class ProviderTimeoutError(ProviderError):
+    """Raised when a provider call reaches its configured timeout."""
+
+
+@dataclass(frozen=True)
+class RoleConfig:
+    provider: str
+    model: str
+
+
+@dataclass(frozen=True)
+class ModelBudget:
+    max_context_tokens: int = 32768
+    max_prompt_chars: int = 120000
+
+
+@dataclass(frozen=True)
+class SynthesisPacketBudget:
+    """What local synthesis is allowed to spend on one answer.
+
+    ``think`` is off by default. A reasoning model spends its thinking inside
+    the same generation budget, and on the real corpus that meant hundreds of
+    tokens of deliberation before a four-sentence answer — the single largest
+    contributor to local latency. The evidence packet is already small and
+    ranked, so the deliberation is buying much less than it costs here.
+    """
+
+    max_prompt_tokens: int = 3500
+    max_evidence_tokens: int = 2500
+    max_documents: int = 4
+    max_excerpts_per_document: int = 2
+    max_output_tokens: int = 500
+    max_excerpt_chars: int = 260
+    think: bool = False
+
+
+@dataclass(frozen=True)
+class AIConfig:
+    """Centralized AI routing configuration.
+
+    The repository still has legacy flat ``ai.provider`` settings for content
+    optimization. Ask only reads the nested role settings below so adding local
+    Ask does not unexpectedly repoint older enrichment jobs.
+    """
+
+    roles: Dict[str, RoleConfig]
+    premium: RoleConfig
+    ollama_endpoint: str = DEFAULT_OLLAMA_ENDPOINT
+    ollama_timeout_seconds: float = DEFAULT_OLLAMA_TIMEOUT_SECONDS
+    local_only: bool = False
+    budgets: Dict[str, ModelBudget] | None = None
+    local_synthesis_budget: SynthesisPacketBudget = SynthesisPacketBudget()
+
+    @classmethod
+    def load(cls, root_path: Path | str | None = None) -> "AIConfig":
+        data: Dict[str, Any] = {}
+        config_path = Path(root_path or ".").resolve() / "gang.config.yml"
+        if config_path.exists():
+            try:
+                import yaml
+
+                loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+                data = loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                data = {}
+        return cls.from_mapping(data.get("ai") if isinstance(data.get("ai"), dict) else {})
+
+    @classmethod
+    def from_mapping(cls, ai: Dict[str, Any]) -> "AIConfig":
+        roles = {
+            role: _role_config(ai.get(role), fallback=RoleConfig("ollama", DEFAULT_LOCAL_MODEL))
+            for role in ASK_ROLES
+        }
+        default = roles["default"]
+        for role in ASK_ROLES - {"default"}:
+            if role not in ai:
+                roles[role] = default
+
+        premium = _role_config(
+            ai.get("premium"), fallback=RoleConfig("anthropic", DEFAULT_PREMIUM_MODEL)
+        )
+        ollama = ai.get("ollama") if isinstance(ai.get("ollama"), dict) else {}
+        endpoint = (
+            os.environ.get("GANG_OLLAMA_ENDPOINT")
+            or str(ollama.get("endpoint") or DEFAULT_OLLAMA_ENDPOINT)
+        )
+        timeout = _float(
+            os.environ.get("GANG_OLLAMA_TIMEOUT_SECONDS")
+            or ollama.get("timeout_seconds")
+            or ollama.get("timeout"),
+            DEFAULT_OLLAMA_TIMEOUT_SECONDS,
+            1.0,
+            1800.0,
+        )
+        budgets = {
+            role: _budget(ai.get("input_budget") or ai.get("budgets") or {}, role)
+            for role in ASK_ROLES
+        }
+        packet_budget = _synthesis_packet_budget(
+            ai.get("local_synthesis") or ai.get("synthesis_packet") or {}
+        )
+        return cls(
+            roles=roles,
+            premium=premium,
+            ollama_endpoint=endpoint.rstrip("/"),
+            ollama_timeout_seconds=timeout,
+            local_only=_truthy(os.environ.get("GANG_LOCAL_ONLY", ai.get("local_only", False))),
+            budgets=budgets,
+            local_synthesis_budget=packet_budget,
+        )
+
+    def select(
+        self,
+        role: str,
+        *,
+        premium: bool = False,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        local_only: Optional[bool] = None,
+    ) -> RoleConfig:
+        selected = self.premium if premium else self.roles.get(role, self.roles["default"])
+        env_provider = os.environ.get(f"GANG_{role.upper()}_PROVIDER") or os.environ.get(
+            "GANG_ASK_PROVIDER"
+        )
+        env_model = os.environ.get(f"GANG_{role.upper()}_MODEL") or os.environ.get("GANG_ASK_MODEL")
+        provider_override = provider or env_provider
+        provider_name = _provider(provider_override or selected.provider)
+        model_default = selected.model
+        if provider_override and provider_name != selected.provider and not (model or env_model):
+            model_default = DEFAULT_LOCAL_MODEL if provider_name == "ollama" else DEFAULT_PREMIUM_MODEL
+        model_name = str(model or env_model or model_default or "").strip()
+        if not model_name:
+            model_name = DEFAULT_LOCAL_MODEL if provider_name == "ollama" else DEFAULT_PREMIUM_MODEL
+
+        strict_local = self.local_only if local_only is None else bool(local_only)
+        if strict_local and provider_name in REMOTE_PROVIDERS:
+            raise ProviderError(
+                "local_only is enabled, so remote AI providers are disabled. "
+                "Use the local Ollama provider or disable local_only deliberately."
+            )
+        return RoleConfig(provider=provider_name, model=model_name)
+
+    def budget_for(self, role: str) -> ModelBudget:
+        return (self.budgets or {}).get(role, ModelBudget())
+
+
+class ConfiguredAIClient:
+    """Routes one model role to Ollama or Anthropic without fallback."""
+
+    def __init__(
+        self,
+        *,
+        role: str = "default",
+        root_path: Path | str | None = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        premium: bool = False,
+        api_key: Optional[str] = None,
+        local_only: Optional[bool] = None,
+        config: Optional[AIConfig] = None,
+    ):
+        self.config = config or AIConfig.load(root_path)
+        if api_key is not None and provider is None:
+            provider = "anthropic"
+        selected = self.config.select(
+            role, premium=premium, provider=provider, model=model, local_only=local_only
+        )
+        self.provider_name = selected.provider
+        self.model = selected.model
+        self.role = role
+        self._budget = self.config.budget_for(role)
+        if selected.provider == "anthropic":
+            self._client = AnthropicClient(model=selected.model, api_key=api_key)
+        elif selected.provider == "ollama":
+            self._client = OllamaClient(
+                model=selected.model,
+                endpoint=self.config.ollama_endpoint,
+                timeout=self.config.ollama_timeout_seconds,
+                budget=self._budget,
+            )
+        else:
+            raise ProviderError(f"Unsupported AI provider: {selected.provider}")
+
+    @property
+    def has_credentials(self) -> bool:
+        return self._client.has_credentials
+
+    @property
+    def endpoint(self) -> str:
+        return getattr(self._client, "endpoint", "")
+
+    @property
+    def telemetry(self) -> Dict[str, Any]:
+        return getattr(self._client, "telemetry", {})
+
+    @property
+    def local_synthesis_budget(self) -> SynthesisPacketBudget:
+        return self.config.local_synthesis_budget
+
+    def complete_json(self, request: Dict[str, Any], *, purpose: str) -> Dict[str, Any]:
+        return self._client.complete_json(request, purpose=purpose)
 
 
 class AnthropicClient:
@@ -55,6 +276,7 @@ class AnthropicClient:
     ):
         self.model = model or default_model
         self.api_key = api_key or os.environ.get(API_KEY_ENV)
+        self.telemetry: Dict[str, Any] = {}
 
     @property
     def has_credentials(self) -> bool:
@@ -75,6 +297,7 @@ class AnthropicClient:
             raise ProviderError(f"anthropic package is required for {purpose}") from exc
 
         client = anthropic.Anthropic(api_key=self.api_key)
+        started = time.monotonic()
         try:
             response = client.messages.create(
                 model=self.model,
@@ -83,9 +306,148 @@ class AnthropicClient:
                 messages=request["messages"],
             )
         except Exception as exc:
+            self.telemetry = {
+                "provider": self.provider_name,
+                "model": self.model,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "status": "failed",
+                "error": _redact(exc),
+            }
             raise ProviderError(f"AI provider request failed: {_redact(exc)}") from exc
+        else:
+            self.telemetry = {
+                "provider": self.provider_name,
+                "model": self.model,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "status": "ok",
+            }
 
         return load_json_object(response_text(response))
+
+
+class OllamaClient:
+    """Local Ollama HTTP client that returns JSON objects."""
+
+    provider_name = "ollama"
+
+    def __init__(
+        self,
+        *,
+        model: Optional[str] = None,
+        endpoint: str = DEFAULT_OLLAMA_ENDPOINT,
+        timeout: float = DEFAULT_OLLAMA_TIMEOUT_SECONDS,
+        budget: Optional[ModelBudget] = None,
+    ):
+        self.model = model or DEFAULT_LOCAL_MODEL
+        self.endpoint = endpoint.rstrip("/")
+        self.timeout = timeout
+        self.budget = budget or ModelBudget()
+        self.telemetry: Dict[str, Any] = {}
+
+    @property
+    def has_credentials(self) -> bool:
+        return True
+
+    def complete_json(self, request: Dict[str, Any], *, purpose: str) -> Dict[str, Any]:
+        messages = [{"role": "system", "content": request["system"]}]
+        messages.extend(request.get("messages") or [])
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "stream": False,
+            "messages": messages,
+            "format": "json",
+            "options": {
+                "num_ctx": self.budget.max_context_tokens,
+                "num_predict": _int(request.get("max_tokens"), 500, 128, 4000),
+            },
+        }
+        if "think" in request:
+            payload["think"] = bool(request["think"])
+        started = time.monotonic()
+        try:
+            try:
+                body = _post_json(f"{self.endpoint}/api/chat", payload, timeout=self.timeout)
+            except ProviderError as exc:
+                # An older Ollama, or a model with no thinking mode, rejects the
+                # field outright. Losing the whole answer over a latency knob
+                # would be the wrong trade, so retry once without it.
+                if "think" not in payload or not _rejects_thinking(exc):
+                    raise
+                payload.pop("think")
+                body = _post_json(f"{self.endpoint}/api/chat", payload, timeout=self.timeout)
+        except ProviderError as exc:
+            elapsed = round(time.monotonic() - started, 3)
+            self.telemetry = {
+                "provider": self.provider_name,
+                "model": self.model,
+                "endpoint": self.endpoint,
+                "timeout_seconds": self.timeout,
+                "elapsed_seconds": elapsed,
+                "status": "timeout" if isinstance(exc, ProviderTimeoutError) else "failed",
+                "error": str(exc),
+            }
+            raise
+        elapsed = round(time.monotonic() - started, 3)
+        self.telemetry = {
+            "provider": self.provider_name,
+            "model": self.model,
+            "endpoint": self.endpoint,
+            "timeout_seconds": self.timeout,
+            "elapsed_seconds": elapsed,
+            "status": "ok",
+        }
+        self.telemetry.update(_ollama_telemetry(body))
+        content = ""
+        if isinstance(body.get("message"), dict):
+            content = str(body["message"].get("content") or "")
+        if not content and isinstance(body.get("response"), str):
+            content = body["response"]
+        if not content:
+            self.telemetry.update({"status": "failed", "error": f"Ollama did not return text for {purpose}"})
+            raise ProviderError(f"Ollama did not return text for {purpose}")
+        try:
+            return load_json_object(content)
+        except ProviderError as exc:
+            self.telemetry.update({"status": "failed", "error": str(exc)})
+            raise
+
+    def model_available(self) -> Optional[bool]:
+        try:
+            body = _get_json(f"{self.endpoint}/api/tags", timeout=5)
+        except ProviderError:
+            return None
+        models = body.get("models") if isinstance(body, dict) else []
+        names = {str(item.get("name") or "").split(":")[0] for item in models if isinstance(item, dict)}
+        full_names = {str(item.get("name") or "") for item in models if isinstance(item, dict)}
+        return self.model in names or self.model in full_names
+
+
+def ai_status(root_path: Path | str | None = None) -> Dict[str, Any]:
+    """Report Ask provider status without sending private corpus content."""
+    config = AIConfig.load(root_path)
+    selected = config.select("default")
+    status: Dict[str, Any] = {
+        "default_provider": selected.provider,
+        "model": selected.model,
+        "remote_fallback": "disabled",
+        "local_only": config.local_only,
+        "api_cost": "$0" if selected.provider in LOCAL_PROVIDERS else "remote provider",
+    }
+    if selected.provider == "ollama":
+        client = OllamaClient(
+            model=selected.model,
+            endpoint=config.ollama_endpoint,
+            timeout=config.ollama_timeout_seconds,
+        )
+        status["endpoint"] = client.endpoint
+        status["timeout_seconds"] = client.timeout
+        available = client.model_available()
+        status["reachable"] = available is not None
+        status["model_available"] = bool(available)
+    else:
+        client = AnthropicClient(model=selected.model)
+        status["has_credentials"] = client.has_credentials
+    return status
 
 
 def response_text(response: Any) -> str:
@@ -123,3 +485,140 @@ def load_json_object(text: str) -> Dict[str, Any]:
 def _redact(exc: Exception) -> str:
     """Strip anything key-shaped out of provider error text before surfacing it."""
     return re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "sk-***", str(exc))
+
+
+def _post_json(url: str, payload: Dict[str, Any], *, timeout: float) -> Dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    return _open_json(request, timeout=timeout)
+
+
+def _get_json(url: str, *, timeout: float) -> Dict[str, Any]:
+    request = urllib.request.Request(url, method="GET")
+    return _open_json(request, timeout=timeout)
+
+
+def _open_json(request: urllib.request.Request, *, timeout: float) -> Dict[str, Any]:
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8") or "{}")
+    except (TimeoutError, socket.timeout) as exc:
+        raise ProviderTimeoutError(_ollama_help(str(exc))) from exc
+    except urllib.error.URLError as exc:
+        if _is_timeout_error(exc):
+            raise ProviderTimeoutError(_ollama_help(str(exc))) from exc
+        raise ProviderError(_ollama_help(str(exc))) from exc
+    except json.JSONDecodeError as exc:
+        raise ProviderError("Ollama returned malformed JSON") from exc
+    if not isinstance(data, dict):
+        raise ProviderError("Ollama returned a non-object response")
+    if data.get("error"):
+        raise ProviderError(_ollama_help(str(data["error"])))
+    return data
+
+
+def _ollama_help(detail: str) -> str:
+    return (
+        f"Ollama is unavailable or could not serve the configured model: {detail}. "
+        "Start Ollama locally and run `ollama pull mistral-small3.1`, or choose "
+        "another local model with `--provider ollama --model <name>`. No remote "
+        "fallback was used."
+    )
+
+
+def _rejects_thinking(exc: Exception) -> bool:
+    """Whether the server refused the request because of the ``think`` field."""
+    return "think" in str(exc).lower()
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return True
+    return "timed out" in str(exc).lower() or "timeout" in str(exc).lower()
+
+
+def _ollama_telemetry(body: Dict[str, Any]) -> Dict[str, Any]:
+    telemetry: Dict[str, Any] = {}
+    for source, target in (
+        ("prompt_eval_count", "prompt_token_count"),
+        ("eval_count", "generated_token_count"),
+    ):
+        value = body.get(source)
+        if isinstance(value, int):
+            telemetry[target] = value
+    for source, target in (
+        ("prompt_eval_duration", "prompt_eval_duration_seconds"),
+        ("eval_duration", "generation_duration_seconds"),
+        ("load_duration", "model_load_duration_seconds"),
+        ("total_duration", "total_duration_seconds"),
+    ):
+        value = body.get(source)
+        if isinstance(value, (int, float)):
+            telemetry[target] = round(float(value) / 1_000_000_000, 3)
+    return telemetry
+
+
+def _role_config(value: Any, *, fallback: RoleConfig) -> RoleConfig:
+    if not isinstance(value, dict):
+        return fallback
+    return RoleConfig(
+        provider=_provider(value.get("provider") or fallback.provider),
+        model=str(value.get("model") or fallback.model),
+    )
+
+
+def _budget(value: Any, role: str) -> ModelBudget:
+    if isinstance(value, dict) and isinstance(value.get(role), dict):
+        value = value[role]
+    if not isinstance(value, dict):
+        value = {}
+    return ModelBudget(
+        max_context_tokens=_int(value.get("max_context_tokens"), 32768, 4096, 65536),
+        max_prompt_chars=_int(value.get("max_prompt_chars"), 120000, 20000, 250000),
+    )
+
+
+def _synthesis_packet_budget(value: Any) -> SynthesisPacketBudget:
+    if not isinstance(value, dict):
+        value = {}
+    return SynthesisPacketBudget(
+        max_prompt_tokens=_int(value.get("max_prompt_tokens"), 3500, 1000, 20000),
+        max_evidence_tokens=_int(value.get("max_evidence_tokens"), 2500, 500, 15000),
+        max_documents=_int(value.get("max_documents"), 4, 1, 20),
+        max_excerpts_per_document=_int(value.get("max_excerpts_per_document"), 2, 1, 6),
+        max_output_tokens=_int(value.get("max_output_tokens"), 500, 128, 4000),
+        max_excerpt_chars=_int(value.get("max_excerpt_chars"), 260, 120, 1000),
+        think=_truthy(value.get("think", False)),
+    )
+
+
+def _provider(value: Any) -> str:
+    provider = str(value or "ollama").strip().lower()
+    return provider
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _int(value: Any, default: int, lower: int, upper: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lower, min(upper, parsed))
+
+
+def _float(value: Any, default: float, lower: float, upper: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lower, min(upper, parsed))

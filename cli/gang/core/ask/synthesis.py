@@ -30,7 +30,7 @@ import re
 from typing import Any, Dict, List, Optional, Sequence
 
 from core import enrichment_state
-from core.ai_provider import DEFAULT_SYNTHESIS_MODEL, AnthropicClient, ProviderError
+from core.ai_provider import ConfiguredAIClient, ProviderError
 
 from . import diagnostics
 from .evidence import EvidenceBundle
@@ -76,14 +76,35 @@ class SynthesisError(RuntimeError):
 
 
 class AnthropicAnswerSynthesizer:
-    """Evidence-grounded synthesis over the configured provider."""
+    """Evidence-grounded synthesis over the configured provider.
 
-    provider_name = "anthropic"
+    The class name is kept for compatibility with older tests/imports. It now
+    routes through ``core.ai_provider`` and is local Ollama by default for Ask.
+    """
 
-    def __init__(self, *, model: Optional[str] = None, api_key: Optional[str] = None):
-        self._client = AnthropicClient(
-            model=model, api_key=api_key, default_model=DEFAULT_SYNTHESIS_MODEL
+    def __init__(
+        self,
+        *,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        premium: bool = False,
+        local_only: Optional[bool] = None,
+        root_path: Optional[Any] = None,
+    ):
+        self._client = ConfiguredAIClient(
+            role="synthesis",
+            root_path=root_path,
+            provider=provider,
+            model=model,
+            premium=premium,
+            api_key=api_key,
+            local_only=local_only,
         )
+
+    @property
+    def provider_name(self) -> str:
+        return self._client.provider_name
 
     @property
     def model(self) -> str:
@@ -92,6 +113,10 @@ class AnthropicAnswerSynthesizer:
     @property
     def has_credentials(self) -> bool:
         return self._client.has_credentials
+
+    @property
+    def telemetry(self) -> Dict[str, Any]:
+        return self._client.telemetry
 
     def build_request(self, bundle: EvidenceBundle) -> Dict[str, Any]:
         data = {

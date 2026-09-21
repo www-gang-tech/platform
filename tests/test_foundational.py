@@ -55,6 +55,14 @@ class FoundationalTestCase(unittest.TestCase):
         credentials = mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False)
         credentials.start()
         self.addCleanup(credentials.stop)
+        network = mock.patch(
+            "urllib.request.urlopen",
+            side_effect=AssertionError(
+                "Unexpected provider network call in foundational tests; inject a fake provider."
+            ),
+        )
+        network.start()
+        self.addCleanup(network.stop)
 
         self._temp = TemporaryDirectory()
         self.addCleanup(self._temp.cleanup)
@@ -351,35 +359,29 @@ class DefinitionalQuestionTests(FoundationalTestCase):
 
         roles = [source["authority"]["role"] for source in result["sources"]]
         self.assertEqual(roles[0], authority_module.FOUNDATIONAL)
-        # The email is still retrieved and still cited — just not leading.
-        self.assertIn(authority_module.EMAIL, roles)
-        preferred = [item for item in result["sources"] if item["authority"]["preferred"]]
-        self.assertEqual(len(preferred), 1)
-        self.assertEqual(preferred[0]["authority"]["role"], authority_module.FOUNDATIONAL)
+        # Definition questions are now tier-0 deterministic: the authored
+        # identity record is enough, so incidental traffic is not sent onward.
+        self.assertNotIn(authority_module.EMAIL, roles)
+        self.assertEqual(result["synthesis"]["reason"], "deterministic-capability")
 
     def test_the_preference_reason_reads_as_a_definition_not_a_schedule(self):
         self.seed_company()
         self.build_index()
 
         result = self.ask("what is gang?")
-        reason = [
-            item["authority"]["reason"]
-            for item in result["sources"]
-            if item["authority"]["preferred"]
-        ][0]
 
-        self.assertIn("the definition", reason)
-        self.assertNotIn("the current state", reason)
+        self.assertEqual(result["synthesis"]["reason"], "deterministic-capability")
+        self.assertIn("design and manufacturing company", result["answer"])
 
     def test_the_identity_text_is_what_synthesis_sees_first(self):
         self.seed_company()
         self.build_index()
         stub = StubSynthesizer()
 
-        self.ask("what is gang?", synthesizer=stub)
+        result = self.ask("what is gang?", synthesizer=stub)
 
-        first = stub.contexts[-1].bundle.items[0]
-        self.assertIn("design and manufacturing company", first.excerpts[0])
+        self.assertEqual(stub.contexts, [])
+        self.assertIn("design and manufacturing company", result["answer"])
 
     def test_without_a_record_the_answer_does_not_invent_an_identity(self):
         self.seed_company(described=False)
@@ -407,7 +409,7 @@ class DefinitionalQuestionTests(FoundationalTestCase):
         )
 
         reasons = " ".join(entry.get("reason", "") for entry in result["research"]["trace"])
-        self.assertIn("authored canonical identity", reasons)
+        self.assertIn("definition question routed to canonical entity description", reasons)
 
     def test_a_person_can_be_defined_the_same_way(self):
         service = self.entities()

@@ -33,7 +33,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-from core.ai_provider import DEFAULT_SYNTHESIS_MODEL, AnthropicClient
+from core.ai_provider import ConfiguredAIClient, ProviderTimeoutError
 
 from .plan import MAX_TEXT_QUERIES, QueryPlan
 from .tools import (
@@ -123,6 +123,7 @@ class ResearchResult:
     rounds: int = 0
     stopped_because: str = ""
     refinements: List[Dict[str, Any]] = field(default_factory=list)
+    provider_calls: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def document_ids(self) -> List[str]:
@@ -136,6 +137,7 @@ class ResearchResult:
             "trace": list(self.trace),
             "refusals": list(self.refusals),
             "refinements": list(self.refinements),
+            "provider_calls": list(self.provider_calls),
             "records": {key: list(value) for key, value in self.records.items()},
         }
 
@@ -220,6 +222,16 @@ class ResearchLoop:
             step = self._next_step(question, intent, result, session_context)
             if step is None:
                 result.stopped_because = "director-unavailable"
+                return result
+            if step["decision"] == "PROVIDER_TIMEOUT":
+                result.stopped_because = "provider-timeout"
+                result.trace.append(
+                    {
+                        "decision": "PROVIDER_TIMEOUT",
+                        "tool": "model",
+                        "reason": step.get("reason", "provider timed out"),
+                    }
+                )
                 return result
             if step["decision"] == ENOUGH_EVIDENCE:
                 result.stopped_because = "enough-evidence"
@@ -449,7 +461,18 @@ class ResearchLoop:
                     "session_context": session_context or {},
                 }
             )
+            telemetry = getattr(self.director, "telemetry", {}) or {}
+            if isinstance(telemetry, dict) and telemetry:
+                result.provider_calls.append({"purpose": "research-step", **telemetry})
+        except ProviderTimeoutError as exc:
+            telemetry = getattr(self.director, "telemetry", {}) or {}
+            if isinstance(telemetry, dict) and telemetry:
+                result.provider_calls.append({"purpose": "research-step", **telemetry})
+            return {"decision": "PROVIDER_TIMEOUT", "reason": str(exc)}
         except Exception:  # noqa: BLE001 - a director failure ends research, not the turn
+            telemetry = getattr(self.director, "telemetry", {}) or {}
+            if isinstance(telemetry, dict) and telemetry:
+                result.provider_calls.append({"purpose": "research-step", **telemetry})
             return None
         return validate_step(proposed)
 
@@ -511,12 +534,29 @@ class AnthropicResearchDirector:
     anything else before `ResearchTools` ever sees it.
     """
 
-    provider_name = "anthropic"
-
-    def __init__(self, *, model: Optional[str] = None, api_key: Optional[str] = None):
-        self._client = AnthropicClient(
-            model=model, api_key=api_key, default_model=DEFAULT_SYNTHESIS_MODEL
+    def __init__(
+        self,
+        *,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        premium: bool = False,
+        local_only: Optional[bool] = None,
+        root_path: Optional[Any] = None,
+    ):
+        self._client = ConfiguredAIClient(
+            role="research",
+            root_path=root_path,
+            provider=provider,
+            model=model,
+            premium=premium,
+            api_key=api_key,
+            local_only=local_only,
         )
+
+    @property
+    def provider_name(self) -> str:
+        return self._client.provider_name
 
     @property
     def model(self) -> str:
@@ -525,6 +565,10 @@ class AnthropicResearchDirector:
     @property
     def has_credentials(self) -> bool:
         return self._client.has_credentials
+
+    @property
+    def telemetry(self) -> Dict[str, Any]:
+        return self._client.telemetry
 
     def build_request(self, context: Dict[str, Any]) -> Dict[str, Any]:
         import json

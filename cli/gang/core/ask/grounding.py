@@ -11,6 +11,9 @@ actually retrieved, and none of them asks a model anything:
 * **Entity linkage** — when a claim relates two entities, did any single cited
   source mention both, or is the relationship an artifact of both names having
   been resolved during retrieval?
+* **Dependency claims** — when a claim says one thing is required by, blocks,
+  or gates another, did a cited source say so, or were the two items merely
+  adjacent in a list?
 * **Categorical negatives** — is the answer converting "no evidence found" into
   "no", which is a different and much stronger statement?
 
@@ -271,6 +274,73 @@ def _named_entities(claim_text: str, entity_forms: Sequence[Any]) -> List[List[s
         if group not in result:
             result.append(group)
     return result
+
+
+# -------------------------------------------------------------- dependencies
+
+DEPENDENCY_NOT_APPLICABLE = "not-applicable"
+DEPENDENCY_GROUNDED = "grounded"
+DEPENDENCY_UNSUPPORTED = "unsupported"
+
+#: Claim wording that asserts one thing is required by, blocks, or gates
+#: another. These are the statements that change what somebody does next, so
+#: they need a source that says it rather than a source that happens to list
+#: the two items near each other.
+_DEPENDENCY_ASSERTION = re.compile(
+    r"\b(?:is|are|was|were|will\s+be|remains?)\s+(?:\w+\s+){0,2}required\b"
+    r"|\brequired\s+(?:for|to|before|by|prior\s+to|in\s+order)\b"
+    r"|\brequirement\s+(?:for|of|before)\b"
+    r"|\brequires?\b"
+    r"|\bdepends?\s+on\b|\bdependent\s+(?:on|upon)\b|\bdependency\b"
+    r"|\bprerequisite\b|\bpre-?condition\b"
+    r"|\bblock(?:s|ed|ing|er)\b"
+    r"|\bcontingent\s+(?:on|upon)\b|\bgated\s+(?:on|by)\b|\bgating\b"
+    r"|\bneeded\s+(?:for|to|before)\b|\bnecessary\s+(?:for|to|before)\b"
+    r"|\b(?:must|needs?\s+to|has\s+to|have\s+to)\b[^.]{0,60}?\bbefore\b"
+    r"|\b(?:cannot|can'?t|could\s+not)\b[^.]{0,60}?\b(?:until|without)\b",
+    re.IGNORECASE,
+)
+
+#: Evidence wording that states a dependency outright. Deliberately broader
+#: than the claim pattern: the question here is only "did any cited source
+#: talk about one thing needing another at all", and a near miss should cost
+#: the reader a warning rather than a true statement.
+_DEPENDENCY_EVIDENCE = re.compile(
+    r"\brequir\w*\b|\bdepend\w*\b|\bprerequisite\b|\bpre-?condition\b"
+    r"|\bblock(?:s|ed|ing|er)\b|\bcontingent\b|\bgat(?:ed|ing)\b"
+    r"|\bmandatory\b|\bnecessary\b|\bneeded\b|\bwaiting\s+on\b"
+    r"|\bbefore\s+(?:we|you|they|the|any|final|submission|resubmission)\b"
+    r"|\buntil\b|\bmust\b",
+    re.IGNORECASE,
+)
+
+
+def asserts_dependency(claim_text: str) -> bool:
+    """Whether the claim says one thing requires, blocks, or gates another."""
+    return bool(_DEPENDENCY_ASSERTION.search(claim_text or ""))
+
+
+def check_dependency_grounding(claim_text: str, cited_texts: Sequence[str]) -> str:
+    """Whether a stated requirement is actually stated by the cited evidence.
+
+    Task lists are the motivating case. ``tasks.txt`` puts "resubmit the Qi
+    certification" one line above "procure a permanent UPC code", and a model
+    reading the two together will happily report that the UPC blocks the
+    certification. Nothing in the source says that. Adjacency is layout, not
+    logic, so a dependency claim whose cited sources never use the vocabulary
+    of dependence is reported as unsupported.
+
+    The check is one-directional on purpose: it can tell that no cited source
+    talks about anything requiring anything, which is the failure seen in
+    practice. It does not try to verify that a real dependency statement is
+    about the same two items.
+    """
+    if not asserts_dependency(claim_text):
+        return DEPENDENCY_NOT_APPLICABLE
+    for text in cited_texts:
+        if _DEPENDENCY_EVIDENCE.search(_text(text)):
+            return DEPENDENCY_GROUNDED
+    return DEPENDENCY_UNSUPPORTED
 
 
 # ---------------------------------------------------------------- negatives

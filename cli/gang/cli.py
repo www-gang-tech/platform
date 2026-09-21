@@ -98,6 +98,39 @@ def report(ctx, answerability, format):
 
 
 @cli.group()
+def ai():
+    """Inspect AI provider routing and health"""
+    pass
+
+
+@ai.command("status")
+def ai_status():
+    """Show Ask provider status without sending corpus content"""
+    try:
+        from core.ai_provider import ai_status as provider_status
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ai_provider import ai_status as provider_status
+
+    status = provider_status(Path.cwd())
+    click.echo("GANG AI status")
+    click.echo(f"  Default provider: {status['default_provider']}")
+    if status.get("endpoint"):
+        click.echo(f"  Endpoint: {status['endpoint']}")
+        click.echo(f"  Timeout: {status.get('timeout_seconds')}s")
+        click.echo(f"  Reachable: {'yes' if status.get('reachable') else 'no'}")
+    click.echo(f"  Model: {status['model']}")
+    if "model_available" in status:
+        click.echo(f"  Model available: {'yes' if status.get('model_available') else 'no'}")
+    if "has_credentials" in status:
+        click.echo(f"  Credentials: {'present' if status.get('has_credentials') else 'missing'}")
+    click.echo(f"  Remote fallback: {status['remote_fallback']}")
+    click.echo(f"  Local only: {'yes' if status.get('local_only') else 'no'}")
+    click.echo(f"  API cost: {status['api_cost']}")
+
+
+@cli.group()
 def migrate():
     """Run reversible repository migrations"""
     pass
@@ -1415,7 +1448,10 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
 @click.option("--show-research", is_flag=True, help="Show the research trace: tools called and why")
 @click.option("--mode", "mode_override", type=click.Choice(["evidence", "advisory", "ideation"]),
               help="Developer override for the epistemic mode; intent inference is the default")
+@click.option("--premium", is_flag=True, help="Explicitly use the configured premium remote provider for this turn")
+@click.option("--provider", type=click.Choice(["ollama", "anthropic"]), help="Override the configured Ask provider")
 @click.option("--model", help="Override the configured synthesis model")
+@click.option("--local-only", is_flag=True, help="Block remote AI providers, including explicit premium requests")
 def ask(
     question,
     new_session,
@@ -1437,7 +1473,10 @@ def ask(
     no_cache,
     show_research,
     mode_override,
+    premium,
+    provider,
     model,
+    local_only,
 ):
     """Ask the private knowledge corpus. Conversational, and strictly read-only.
 
@@ -1480,13 +1519,7 @@ def ask(
         from core.ask.temporal import TemporalError
 
     text = " ".join(question or ()).strip()
-    synthesizer = None
-    if model and not no_ai:
-        synthesizer = ConversationSynthesizer(model=model)
-        if not synthesizer.has_credentials:
-            synthesizer = None
-
-    service = ConversationService(root_path=Path.cwd(), synthesizer=synthesizer)
+    service = ConversationService(root_path=Path.cwd())
 
     if list_sessions:
         _print_ask_sessions(service)
@@ -1512,7 +1545,15 @@ def ask(
             result = AskService(root_path=Path.cwd()).ask(
                 text,
                 overrides=overrides,
-                options=AskOptions(use_ai=not no_ai, use_cache=False, plan_only=True),
+                options=AskOptions(
+                    use_ai=not no_ai,
+                    use_cache=False,
+                    plan_only=True,
+                    provider=provider,
+                    model=model,
+                    premium=premium,
+                    local_only=local_only or None,
+                ),
             )
         except (QueryPlanError, TemporalError, RetrievalError) as e:
             click.echo(f"❌ {e}", err=True)
@@ -1538,6 +1579,10 @@ def ask(
         persist=persist,
         mode_override=mode_override,
         show_research=show_research,
+        provider=provider,
+        model=model,
+        premium=premium,
+        local_only=local_only or None,
     )
 
     if not text:
@@ -1583,6 +1628,8 @@ def _ask_turn(service, text, session, overrides, options):
         click.echo(f"❌ {e}", err=True)
     except AskError as e:
         click.echo(f"❌ Ask failed: {e}", err=True)
+        if getattr(options, "show_research", False):
+            _print_provider_calls(getattr(e, "provider_calls", []))
     return None
 
 
@@ -1591,6 +1638,7 @@ SESSION_HELP = """Commands:
   /context          show the active topics, entities, and assumptions
   /sources          toggle full provenance on each answer
   /research         toggle the research trace
+  /deep QUESTION    use the premium remote provider for this turn only
   /forget           clear scenario assumptions for this session
   /exit, /quit      leave (the session is saved)"""
 
@@ -1637,11 +1685,22 @@ def _run_ask_session(service, session, overrides, options, *, show_sources=False
             service.sessions.save(session)
             click.echo("Cleared scenario assumptions. Canonical knowledge is unchanged.")
             continue
-        if text.startswith("/"):
+        deep = False
+        if text == "/deep":
+            click.echo("Use /deep followed by a question for one premium remote turn.")
+            continue
+        if text.startswith("/deep "):
+            deep = True
+            text = text[len("/deep ") :].strip()
+            if not text:
+                continue
+        elif text.startswith("/"):
             click.echo(f"Unknown command {text}. /help for the list.")
             continue
 
         turn_options = _with_research(options, show_research)
+        if deep:
+            turn_options = _with_premium(turn_options)
         result = _ask_turn(service, text, session, overrides, turn_options)
         if result is None:
             continue
@@ -1663,6 +1722,26 @@ def _with_research(options, show_research):
         persist=options.persist,
         mode_override=options.mode_override,
         show_research=show_research,
+        provider=options.provider,
+        model=options.model,
+        premium=options.premium,
+        local_only=options.local_only,
+    )
+
+
+def _with_premium(options):
+    from core.ask import ConversationOptions
+
+    return ConversationOptions(
+        use_ai=options.use_ai,
+        use_cache=options.use_cache,
+        persist=options.persist,
+        mode_override=options.mode_override,
+        show_research=options.show_research,
+        provider="anthropic",
+        model=options.model,
+        premium=True,
+        local_only=options.local_only,
     )
 
 
@@ -1740,10 +1819,20 @@ CLAIM_LABELS = {
 
 def _print_ask_ledger(result):
     claims = result.get("claims", [])
+    origin = result.get("claim_ledger_origin", "model")
     if not claims:
+        if origin == "incomplete":
+            click.echo("")
+            click.echo("claim ledger: incomplete")
+            click.echo(
+                "  The answer above stands on its cited sources, but the model returned no "
+                "claims and none could be read back from it."
+            )
         return
     click.echo("")
     click.echo("Claim ledger:")
+    if origin == "deterministic-recovery":
+        click.echo("  (read back from the answer's own sections; the model returned no claims)")
     for claim in claims:
         citations = "".join(f"[{value}]" for value in claim.get("citations", []))
         label = CLAIM_LABELS.get(claim.get("type", ""), claim.get("type", ""))
@@ -1770,6 +1859,79 @@ def _print_ask_research(result):
             click.echo(f"      returned: {', '.join(entry['document_ids'])}")
     for refusal in research.get("refusals", []):
         click.echo(f"  refused {refusal.get('tool', '')}: {refusal.get('refused', '')}")
+    _print_synthesis_evidence_packet(result.get("synthesis", {}).get("evidence_packet") or {})
+    _print_provider_calls(result.get("provider_calls", []) or research.get("provider_calls", []))
+
+
+def _print_synthesis_evidence_packet(packet):
+    if not packet:
+        return
+    budget = packet.get("budget") or {}
+    click.echo(
+        "  synthesis packet: "
+        f"{packet.get('documents_selected', 0)}/{packet.get('documents_retrieved', 0)} documents, "
+        f"~{packet.get('evidence_token_estimate', 0)} evidence tokens"
+        + (
+            f", ~{packet.get('prompt_token_estimate')} prompt tokens"
+            if packet.get("prompt_token_estimate") is not None
+            else ""
+        )
+    )
+    if budget:
+        click.echo(
+            "      budget: "
+            f"prompt <= {budget.get('max_prompt_tokens')}, "
+            f"evidence <= {budget.get('max_evidence_tokens')}, "
+            f"docs <= {budget.get('max_documents')}, "
+            f"excerpts/doc <= {budget.get('max_excerpts_per_document')}, "
+            f"output <= {budget.get('max_output_tokens')}"
+        )
+    for item in packet.get("selected", []):
+        click.echo(
+            "      selected "
+            f"[{item.get('citation_id')}] {item.get('title', '')} "
+            f"({item.get('source_kind', '')}; {item.get('excerpt_count', 0)} excerpt(s))"
+        )
+    for item in packet.get("rejected", [])[:12]:
+        click.echo(
+            "      rejected "
+            f"[{item.get('citation_id')}] {item.get('title', '')}: {item.get('reason', '')}"
+        )
+
+
+def _print_provider_calls(calls):
+    for call in calls:
+        _print_provider_call(call)
+
+
+def _print_provider_call(call):
+    purpose = call.get("purpose", "model")
+    sequence = call.get("sequence")
+    provider = call.get("provider", "unknown")
+    model = call.get("model", "")
+    status = call.get("status")
+    elapsed = call.get("elapsed_seconds")
+    prefix = f"#{sequence} " if sequence is not None else ""
+    parts = [f"{prefix}{purpose}: {provider}" + (f"/{model}" if model else "")]
+    if status:
+        parts.append(f"status {status}")
+    if elapsed is not None:
+        parts.append(f"elapsed {elapsed}s")
+    if call.get("timeout_seconds") is not None:
+        parts.append(f"timeout {call['timeout_seconds']}s")
+    if call.get("prompt_token_count") is not None:
+        parts.append(f"prompt tokens {call['prompt_token_count']}")
+    if call.get("generated_token_count") is not None:
+        parts.append(f"generated tokens {call['generated_token_count']}")
+    if call.get("prompt_eval_duration_seconds") is not None:
+        parts.append(f"prompt eval {call['prompt_eval_duration_seconds']}s")
+    if call.get("generation_duration_seconds") is not None:
+        parts.append(f"generation {call['generation_duration_seconds']}s")
+    if call.get("model_load_duration_seconds") is not None:
+        parts.append(f"model load {call['model_load_duration_seconds']}s")
+    if call.get("error"):
+        parts.append(f"error {call['error']}")
+    click.echo("  model " + ", ".join(parts))
 
 
 def _print_ask_plan(result):
@@ -1800,6 +1962,14 @@ def _print_ask_plan(result):
 
 
 def _print_ask_answer(result, *, show_sources=False, show_diagnostics=True):
+    meta = result.get("synthesis", {})
+    if meta.get("provider") == "anthropic":
+        click.echo(
+            f"(premium remote AI: {meta.get('provider')} / {meta.get('model')}; "
+            "explicit opt-in)"
+        )
+        click.echo("")
+
     click.echo(result["answer"])
 
     if result.get("conflicts"):
@@ -1845,10 +2015,13 @@ def _print_ask_answer(result, *, show_sources=False, show_diagnostics=True):
                 click.echo(f"      document_id: {item['document_id']}")
                 click.echo("      The canonical document and its raw source are unchanged.")
 
-    meta = result.get("synthesis", {})
     if meta.get("mode") == "deterministic":
         click.echo("")
         click.echo(f"(answered deterministically: {meta.get('reason', 'deterministic')})")
+    elif meta.get("api_cost"):
+        if show_diagnostics or meta.get("provider") == "anthropic":
+            click.echo("")
+            click.echo(f"(API cost: {meta.get('api_cost')})")
 
     if show_diagnostics:
         _print_ask_diagnostics(result)

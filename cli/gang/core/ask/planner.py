@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.ai_provider import DEFAULT_SYNTHESIS_MODEL, AnthropicClient
+from core.ai_provider import ConfiguredAIClient
 from core.entities.model import PREDICATES
 from core.entities.resolver import AMBIGUOUS, RESOLVED, EntityResolver
 
@@ -234,12 +234,29 @@ class DeterministicPlanner:
 class AnthropicQueryPlanner:
     """Optional planning assist. Output is re-validated, never trusted."""
 
-    provider_name = "anthropic"
-
-    def __init__(self, *, model: Optional[str] = None, api_key: Optional[str] = None):
-        self._client = AnthropicClient(
-            model=model, api_key=api_key, default_model=DEFAULT_SYNTHESIS_MODEL
+    def __init__(
+        self,
+        *,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        provider: Optional[str] = None,
+        premium: bool = False,
+        local_only: Optional[bool] = None,
+        root_path: Optional[Any] = None,
+    ):
+        self._client = ConfiguredAIClient(
+            role="planning",
+            root_path=root_path,
+            provider=provider,
+            model=model,
+            premium=premium,
+            api_key=api_key,
+            local_only=local_only,
         )
+
+    @property
+    def provider_name(self) -> str:
+        return self._client.provider_name
 
     @property
     def model(self) -> str:
@@ -248,6 +265,10 @@ class AnthropicQueryPlanner:
     @property
     def has_credentials(self) -> bool:
         return self._client.has_credentials
+
+    @property
+    def telemetry(self) -> Dict[str, Any]:
+        return self._client.telemetry
 
     def build_request(self, question: str, catalog: Dict[str, Any]) -> Dict[str, Any]:
         data = {

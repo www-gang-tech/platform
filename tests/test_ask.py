@@ -140,15 +140,38 @@ class StubQueryPlanner:
         return self.payload
 
 
+class FakeProviderResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
+
+
 class AskTestCase(unittest.TestCase):
     maxDiff = None
 
     def setUp(self):
         # No test in this module may reach the network. Removing the credential
-        # makes a real provider call impossible rather than merely unlikely.
+        # blocks Anthropic, and the urlopen patch blocks credentialless local
+        # providers such as Ollama unless a test explicitly mocks them.
         credentials = mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False)
         credentials.start()
         self.addCleanup(credentials.stop)
+        network = mock.patch(
+            "urllib.request.urlopen",
+            side_effect=AssertionError(
+                "Unexpected provider network call in Ask tests; inject a fake provider."
+            ),
+        )
+        network.start()
+        self.addCleanup(network.stop)
 
         self._temp = TemporaryDirectory()
         self.addCleanup(self._temp.cleanup)
@@ -1290,12 +1313,33 @@ class OutputTests(AskTestCase):
     def test_without_credentials_ask_degrades_instead_of_failing(self):
         self.build_index()
         service = AskService(root_path=self.root, private_home=self.home)
+        payload = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "answer": "The target ship date appears in the evidence [1].",
+                        "claims": [
+                            {
+                                "text": "The target ship date appears in the evidence.",
+                                "citations": [1],
+                                "kind": "explicit",
+                            }
+                        ],
+                        "conflicts": [],
+                        "uncertainty": "",
+                        "insufficient_evidence": False,
+                    }
+                )
+            }
+        }
 
-        result = service.ask(
-            "What is the target ship date?", options=AskOptions(use_cache=False)
-        )
+        with mock.patch("urllib.request.urlopen", return_value=FakeProviderResponse(payload)):
+            result = service.ask(
+                "What is the target ship date?", options=AskOptions(use_cache=False)
+            )
 
-        self.assertEqual(result["synthesis"]["mode"], "deterministic")
+        self.assertEqual(result["synthesis"]["provider"], "ollama")
+        self.assertEqual(result["synthesis"]["api_cost"], "$0")
         self.assertTrue(result["sources"])
 
     def test_deterministic_answer_lists_evidence_with_citations(self):

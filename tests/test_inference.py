@@ -49,6 +49,14 @@ class InferenceTestCase(unittest.TestCase):
         credentials = mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False)
         credentials.start()
         self.addCleanup(credentials.stop)
+        network = mock.patch(
+            "urllib.request.urlopen",
+            side_effect=AssertionError(
+                "Unexpected provider network call in inference tests; inject a fake provider."
+            ),
+        )
+        network.start()
+        self.addCleanup(network.stop)
 
         self._temp = TemporaryDirectory()
         self.addCleanup(self._temp.cleanup)
@@ -373,7 +381,7 @@ class InferenceNeverHardensTests(InferenceTestCase):
         service = self.service(synthesizer=StubSynthesizer(self.inference_payload))
         session = service.start()
         service.converse(
-            "who works on certification?",
+            "explain certification ownership",
             session=session,
             options=ConversationOptions(use_cache=False, persist=False),
         )
@@ -392,7 +400,7 @@ class InferenceNeverHardensTests(InferenceTestCase):
 
         for _ in range(4):
             service.converse(
-                "who works on certification?",
+                "explain certification ownership",
                 session=session,
                 options=ConversationOptions(use_cache=False, persist=False),
             )
@@ -407,7 +415,7 @@ class InferenceNeverHardensTests(InferenceTestCase):
         service = self.service(synthesizer=stub)
         session = service.start()
         service.converse(
-            "who works on certification?",
+            "explain certification ownership",
             session=session,
             options=ConversationOptions(use_cache=False, persist=False),
         )
@@ -915,7 +923,7 @@ class DiagnosticVisibilityTests(InferenceTestCase):
                 ],
             }
 
-        result = self.ask("who works on certification?", synthesizer=StubSynthesizer(payload))
+        result = self.ask("explain certification ownership", synthesizer=StubSynthesizer(payload))
 
         self.assertEqual(result["inference_count"], 1)
         self.assertIn("drawn from the pattern of the evidence", result["uncertainty"])
@@ -937,13 +945,13 @@ class DiagnosticVisibilityTests(InferenceTestCase):
                 ],
             }
 
-        result = self.ask("who owns certification?", synthesizer=StubSynthesizer(payload))
+        result = self.ask("explain certification ownership", synthesizer=StubSynthesizer(payload))
 
         self.assertEqual(result["uncertainty"], "")
 
     def test_diagnostics_remain_in_the_json_contract(self):
         self.build_index()
-        result = self.run_cli(["ask", "--json", "What is the unit cost?"])
+        result = self.run_cli(["ask", "--json", "--no-ai", "What is the unit cost?"])
         payload = json.loads(result.output)
 
         self.assertIn("diagnostics", payload)

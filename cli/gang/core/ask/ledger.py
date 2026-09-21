@@ -11,8 +11,8 @@ Four types are generated:
 
 ``fact``
     Directly stated by cited canonical evidence. Needs citations, and its
-    figures and entity relationships must survive the deterministic grounding
-    checks.
+    figures, entity relationships, and any dependency it asserts must survive
+    the deterministic grounding checks.
 ``synthesis``
     A conclusion drawn across several supported facts. Needs either its own
     citations or ``derived_from`` premises that are themselves grounded.
@@ -44,11 +44,14 @@ from typing import Any, Dict, List, Sequence, Set
 
 from . import diagnostics
 from .grounding import (
+    DEPENDENCY_NOT_APPLICABLE,
+    DEPENDENCY_UNSUPPORTED,
     LINKAGE_NOT_APPLICABLE,
     LINKAGE_UNSUPPORTED,
     NUMERIC_NONE,
     NUMERIC_NOT_CONNECTED,
     NUMERIC_NOT_IN_EVIDENCE,
+    check_dependency_grounding,
     check_entity_linkage,
     check_numeric_grounding,
     extract_numbers,
@@ -84,12 +87,24 @@ ACCEPTED = "accepted"
 DOWNGRADED = "downgraded"
 FLAGGED = "flagged"
 
+#: Where a claim came from. A ledger the model wrote and a ledger transcribed
+#: from the model's own prose are both legitimate, and a reader auditing an
+#: answer is entitled to know which one they are looking at.
+MODEL = "model"
+DETERMINISTIC_RECOVERY = "deterministic-recovery"
+
 CLAIM_FIELDS = {"id", "type", "text", "citations", "derived_from", "based_on"}
 
 MAX_CLAIMS = 24
 MAX_CLAIM_TEXT = 600
 
 _CITATION_MARKER = re.compile(r"\[(\d{1,3})\]")
+
+#: A marker standing on its own, rather than one that is part of the text it
+#: was copied from. Retrieved mail is full of "[1]00Start Certification.pdf" —
+#: a numbered attachment list, not a citation — so a marker only reads as a
+#: citation when nothing is glued to its right.
+_STANDALONE_CITATION = re.compile(r"\[(\d{1,3})\](?![\w-])")
 _CLAIM_ID = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 #: Phrasing that presents a statement as reasoning rather than as record.
@@ -157,7 +172,9 @@ class Claim:
     based_on: List[str] = field(default_factory=list)
     numeric_check: str = NUMERIC_NONE
     entity_linkage: str = LINKAGE_NOT_APPLICABLE
+    dependency_check: str = DEPENDENCY_NOT_APPLICABLE
     status: str = ACCEPTED
+    origin: str = MODEL
     original_type: str = ""
     presented_as_decision: bool = False
     notes: List[str] = field(default_factory=list)
@@ -188,6 +205,10 @@ class Claim:
             "numeric_check": self.numeric_check,
             "entity_linkage": self.entity_linkage,
         }
+        if self.dependency_check != DEPENDENCY_NOT_APPLICABLE:
+            payload["dependency_check"] = self.dependency_check
+        if self.origin != MODEL:
+            payload["origin"] = self.origin
         if self.derived_from:
             payload["derived_from"] = list(self.derived_from)
         if self.based_on:
@@ -239,6 +260,8 @@ def validate_ledger(
     *,
     mode: str = "evidence",
     assumptions: Sequence[Dict[str, Any]] = (),
+    answer_text: str = "",
+    origin: str = MODEL,
 ) -> LedgerResult:
     """Sanitize an untrusted claim list against the evidence and the mode.
 
@@ -246,17 +269,29 @@ def validate_ledger(
     decides whether generative claims are admissible at all: a question asking
     what the corpus says does not get answered with recommendations, however
     the model chose to label them.
+
+    ``answer_text`` is the prose the same response carried, used only to
+    recover a citation the model wrote into the sentence but left out of the
+    claim's ``citations`` array — a routine shape failure in smaller local
+    models that would otherwise downgrade a properly sourced fact.
+
+    ``origin`` records who wrote this claim list. Claims transcribed from the
+    prose by ``recovery`` are validated on identical terms; the only thing the
+    origin changes is that such a list may declare ``uncertainty`` outright,
+    since the section it came from said so and a model is never trusted to.
     """
     raw_claims = [item for item in _list(payload) if isinstance(item, dict)][:MAX_CLAIMS]
     valid_ids = set(bundle.citation_ids())
     entity_forms = bundle.entity_forms()
     assumption_numbers = _assumption_numbers(assumptions)
+    prose_citations = _prose_citations(answer_text, valid_ids)
 
     claims: List[Claim] = []
     rejected: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
     grounded_ids: Set[str] = set()
     seen_ids: Set[str] = set()
+    prior_types: Dict[str, str] = {}
 
     for position, item in enumerate(raw_claims, start=1):
         text = _text(item.get("text"))
@@ -268,14 +303,31 @@ def validate_ledger(
         seen_ids.add(claim_id)
 
         declared = _text(item.get("type")).lower()
-        if declared not in GENERATED_TYPES:
+        if declared not in GENERATED_TYPES and not (
+            origin == DETERMINISTIC_RECOVERY and declared == UNCERTAINTY
+        ):
             # An unrecognized label is not a free pass. Citations decide:
             # something cited reads as a fact, something uncited does not.
             declared = FACT if item.get("citations") else UNCERTAINTY
 
         citations = _citations(item.get("citations"), valid_ids)
+        if not citations:
+            # Smaller local models routinely write "[3]" beside the sentence
+            # and leave the citations array empty, which would downgrade a
+            # perfectly sourced fact. The marker is the model's own citation
+            # and it still has to name evidence that was actually retrieved,
+            # so reading it back invents nothing. The claim's own text is
+            # checked first, then the sentence of the prose it restates.
+            citations = _citations(_STANDALONE_CITATION.findall(text), valid_ids)
+        if not citations:
+            citations = _prose_citations_for(text, prose_citations)
         derived_from = _references(item.get("derived_from"), seen_ids)
         based_on = _references(item.get("based_on"), seen_ids)
+        based_on = [
+            reference
+            for reference in based_on
+            if prior_types.get(reference) not in GENERATIVE_TYPES
+        ]
 
         # Generative claims in an evidence-mode answer are out of contract.
         # The question asked what the corpus says.
@@ -298,6 +350,7 @@ def validate_ledger(
         linkage = check_entity_linkage(
             text, entity_forms, supporting, bundle.linked_pairs(citations)
         )
+        dependency = check_dependency_grounding(text, supporting)
 
         claim = Claim(
             id=claim_id,
@@ -308,7 +361,9 @@ def validate_ledger(
             based_on=based_on,
             numeric_check=numeric,
             entity_linkage=linkage,
+            dependency_check=dependency,
             original_type=declared,
+            origin=origin,
         )
 
         claim, claim_warnings = _apply_rules(
@@ -321,6 +376,7 @@ def validate_ledger(
         if claim.grounded:
             grounded_ids.add(claim.id)
         claims.append(claim)
+        prior_types[claim.id] = claim.type
 
     return LedgerResult(claims=claims, rejected=rejected, warnings=warnings)
 
@@ -435,6 +491,21 @@ def _apply_rules(
             notes.append("No cited source mentions both entities, so the relationship is unproven.")
         warn("entity_linkage", LINKAGE_UNSUPPORTED)
 
+    # --- a stated requirement needs a source that states it ----------------
+    #
+    # Two tasks printed on consecutive lines are two tasks. Nothing about the
+    # layout says one gates the other, so a dependency the cited evidence
+    # never expresses loses its standing as fact.
+    if claim.dependency_check == DEPENDENCY_UNSUPPORTED:
+        if claim_type in FACTUAL_TYPES:
+            claim_type = UNCERTAINTY
+            status = DOWNGRADED
+            notes.append(
+                "No cited source states this requirement or dependency. Items listed near "
+                "each other are separate unless the evidence says one needs the other."
+            )
+        warn("dependency", DEPENDENCY_UNSUPPORTED)
+
     # --- a generated claim may not pose as an existing company decision ----
     if claim_type in GENERATIVE_TYPES and _asserts_existing_decision(claim.text):
         presented_as_decision = True
@@ -455,7 +526,9 @@ def _apply_rules(
             based_on=claim.based_on,
             numeric_check=claim.numeric_check,
             entity_linkage=claim.entity_linkage,
+            dependency_check=claim.dependency_check,
             status=status,
+            origin=claim.origin,
             original_type=claim.original_type,
             presented_as_decision=presented_as_decision,
             notes=notes,
@@ -576,6 +649,39 @@ def _claim_id(value: Any, position: int, seen: Set[str]) -> str:
         position += 1
         candidate = f"c{position}"
     return candidate
+
+
+#: How much of a claim has to line up with a sentence of the prose before its
+#: citation is borrowed. Short fragments match too many sentences to be safe.
+MIN_PROSE_MATCH_CHARS = 25
+
+_PROSE_SENTENCE = re.compile(r"[^.!?\n]+")
+
+
+def _prose_citations(answer_text: str, valid_ids: Set[int]) -> List[tuple]:
+    """Each sentence of the answer that carries markers, and the ids it named."""
+    rows: List[tuple] = []
+    for sentence in _PROSE_SENTENCE.findall(answer_text or ""):
+        ids = _citations(_STANDALONE_CITATION.findall(sentence), valid_ids)
+        if ids:
+            rows.append((_comparable(_STANDALONE_CITATION.sub(" ", sentence)), ids))
+    return rows
+
+
+def _prose_citations_for(claim_text: str, rows: Sequence[tuple]) -> List[int]:
+    """The citation the prose gave the sentence this claim restates."""
+    needle = _comparable(_STANDALONE_CITATION.sub(" ", claim_text))
+    if len(needle) < MIN_PROSE_MATCH_CHARS:
+        return []
+    for sentence, ids in rows:
+        if needle in sentence or (len(sentence) >= MIN_PROSE_MATCH_CHARS and sentence in needle):
+            return list(ids)
+    return []
+
+
+def _comparable(text: str) -> str:
+    """Letters and digits only, so punctuation drift does not break a match."""
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
 def _citations(value: Any, valid_ids: Set[int]) -> List[int]:

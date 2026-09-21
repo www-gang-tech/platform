@@ -293,7 +293,7 @@ class Session:
             resolved_question=resolved_question,
             policy=policy,
             mode=mode,
-            answer_summary=_summarize(answer),
+            answer_summary=_summarize(answer, claims),
             citations=sorted(set(citations)),
             document_ids=document_ids,
             created=timestamp,
@@ -636,8 +636,10 @@ def _snapshot_from_item(item: Any, timestamp: str) -> EvidenceSnapshot:
     )
 
 
-def _summarize(answer: str) -> str:
-    text = re.sub(r"\s+", " ", answer or "").strip()
+def _summarize(answer: str, claims: Sequence[Dict[str, Any]] = ()) -> str:
+    claim_texts = [_text(_get(item, "text")) for item in claims if _text(_get(item, "text"))]
+    text = "; ".join(claim_texts[:4]) if claim_texts else answer
+    text = re.sub(r"\s+", " ", text or "").strip()
     return text if len(text) <= MAX_SUMMARY_CHARS else text[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
 

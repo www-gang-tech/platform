@@ -15,6 +15,8 @@ closed table:
   never connected two figures the claim connects.
 * ``entity_linkage`` — a claim relates two entities that no cited source
   mentions together.
+* ``dependency`` — a claim said one thing requires or blocks another, and no
+  cited source said so.
 * ``citation`` — a factual claim had nothing behind it and was downgraded.
 * ``scenario`` — a claim rests on a figure the user supposed, not the corpus.
 * ``decision_framing`` — generated advice was phrased as a decision the
@@ -40,11 +42,12 @@ from typing import Any, Dict, List, Optional, Sequence
 #: The checks that can produce a warning. Anything else renders generically.
 NUMERIC = "numeric"
 ENTITY_LINKAGE = "entity_linkage"
+DEPENDENCY = "dependency"
 CITATION = "citation"
 SCENARIO = "scenario"
 DECISION_FRAMING = "decision_framing"
 
-CHECKS = (NUMERIC, ENTITY_LINKAGE, CITATION, SCENARIO, DECISION_FRAMING)
+CHECKS = (NUMERIC, ENTITY_LINKAGE, DEPENDENCY, CITATION, SCENARIO, DECISION_FRAMING)
 
 #: The canonical serialized shape. ``claim`` is the claim text the warning is
 #: about; it is named for what the reader sees, and kept from the original
@@ -118,6 +121,11 @@ def describe(value: Any) -> str:
         return f"(unverified numeric claim [{status}]{suffix})"
     if check == ENTITY_LINKAGE:
         return f"(unverified entity_linkage claim [{status}]{suffix})"
+    if check == DEPENDENCY:
+        return (
+            "(unverified dependency, no cited source says one of these requires the other"
+            f"{suffix})"
+        )
     if check == CITATION:
         return f"(downgraded to uncertain, no citation supports it{suffix})"
     if check == SCENARIO:

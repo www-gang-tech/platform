@@ -31,15 +31,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+from core.ai_provider import ProviderError
 
 from . import affiliation as affiliation_module
 from . import authority as authority_module
 from . import deterministic as deterministic_module
 from . import followup as followup_module
 from . import intent as intent_module
+from . import ledger as ledger_module
 from . import synthesis
 from .answer import (
     AnswerContext,
@@ -48,6 +51,7 @@ from .answer import (
     validate_conversation_answer,
 )
 from .evidence import EvidenceBundle, build_bundle
+from .evidence_packet import estimate_tokens, select_for_local_synthesis
 from .plan import DEFAULT_LIMIT
 from .planner import PlanOverrides
 from .research import AnthropicResearchDirector, ResearchLimits, ResearchLoop, ResearchResult
@@ -80,6 +84,26 @@ class ConversationOptions:
     persist: bool = True
     mode_override: Optional[str] = None
     show_research: bool = False
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    premium: bool = False
+    local_only: Optional[bool] = None
+
+
+def _preference_within_packet(assessed, packet_assessed):
+    """Move the source preference onto a document the answer actually read.
+
+    Roles and ranks are properties of a document and stay as they are for every
+    retrieved source. Only the "preferred" mark moves, because that mark is a
+    statement about the answer in front of the reader.
+    """
+    preferred = {entry.citation_id: entry for entry in packet_assessed if entry.preferred}
+    if not preferred:
+        return [replace(entry, preferred=False, reason="") for entry in assessed]
+    return [
+        preferred.get(entry.citation_id) or replace(entry, preferred=False, reason="")
+        for entry in assessed
+    ]
 
 
 class ConversationService(AskService):
@@ -127,6 +151,7 @@ class ConversationService(AskService):
     ) -> Dict[str, Any]:
         """Answer one turn and fold it into the session."""
         options = options or ConversationOptions()
+        self._provider_calls = []
         session = session if session is not None else self.start()
         text = (question or "").strip()
         if not text:
@@ -151,11 +176,24 @@ class ConversationService(AskService):
         planning = self._plan(
             resolution.retrieval_text or text,
             overrides,
-            AskOptions(use_ai=options.use_ai),
+            AskOptions(
+                use_ai=options.use_ai,
+                provider=options.provider,
+                model=options.model,
+                premium=options.premium,
+                local_only=options.local_only,
+            ),
         )
 
         # --- bounded research ------------------------------------------------
         research = self._research(text, planning, intent, session, options)
+        for call in research.provider_calls:
+            self._append_provider_call(call)
+        if research.stopped_because == "provider-timeout":
+            raise AskError(
+                "AI provider timed out during research. No additional model calls were made.",
+                provider_calls=self._provider_calls,
+            )
 
         bundle = build_bundle(
             text,
@@ -180,7 +218,7 @@ class ConversationService(AskService):
         records = self._records(research, bundle, intent)
 
         # --- synthesize and validate -----------------------------------------
-        answer, meta = self._synthesize(
+        answer, meta, assessed = self._synthesize(
             AnswerContext(
                 question=text,
                 bundle=bundle,
@@ -195,6 +233,7 @@ class ConversationService(AskService):
             planning,
             options,
             assessed,
+            current_state=current_state,
         )
 
         if intent.policy == intent_module.CORRECTION:
@@ -237,15 +276,14 @@ class ConversationService(AskService):
     # ------------------------------------------------------------- research
 
     def _research(self, question, planning, intent, session, options):
-        if not options.use_ai:
-            deterministic = self._deterministic_research(question, planning, intent)
-            if deterministic is not None:
-                return deterministic
+        deterministic = self._deterministic_research(question, planning, intent)
+        if deterministic is not None:
+            return deterministic
 
         loop = ResearchLoop(
             self._tools(),
             limits=self.limits,
-            director=self._director_provider() if options.use_ai else None,
+            director=self._director_provider(options) if options.use_ai else None,
         )
         return loop.run(
             question=question,
@@ -369,13 +407,18 @@ class ConversationService(AskService):
 
     # ------------------------------------------------------------ synthesis
 
-    def _synthesize(self, context: AnswerContext, planning, options, assessed):
+    def _synthesize(
+        self, context: AnswerContext, planning, options, assessed, *, current_state: bool = False
+    ):
+        """Answer one turn, returning the answer, how it was produced, and the
+        source-authority picture that actually applied to it."""
         bundle = context.bundle
         if bundle.empty:
             reason = "no-searchable-terms" if planning.plan.is_empty else "no-evidence"
             return (
                 deterministic_conversation_answer(bundle, reason=reason, intent=context.intent),
                 {"mode": "deterministic", "reason": reason, "cached": False},
+                assessed,
             )
         if context.intent.listing or planning.listing_question:
             return (
@@ -383,46 +426,113 @@ class ConversationService(AskService):
                     bundle, reason="listing-question", intent=context.intent
                 ),
                 {"mode": "deterministic", "reason": "listing-question", "cached": False},
+                assessed,
+            )
+        deterministic = deterministic_module.capability_answer(context)
+        if deterministic is not None:
+            return (
+                deterministic,
+                {"mode": "deterministic", "reason": "deterministic-capability", "cached": False},
+                assessed,
             )
         if not options.use_ai:
-            deterministic = deterministic_module.capability_answer(context)
-            if deterministic is not None:
-                return (
-                    deterministic,
-                    {"mode": "deterministic", "reason": "deterministic-capability", "cached": False},
-                )
             return (
                 deterministic_conversation_answer(
                     bundle, reason="ai-disabled", intent=context.intent
                 ),
                 {"mode": "deterministic", "reason": "ai-disabled", "cached": False},
+                assessed,
             )
 
-        synthesizer = self._conversation_synthesizer()
+        synthesizer = self._conversation_synthesizer(options)
         if synthesizer is None:
             return (
                 deterministic_conversation_answer(
                     bundle, reason="no-provider", intent=context.intent
                 ),
                 {"mode": "deterministic", "reason": "no-provider", "cached": False},
+                assessed,
+            )
+
+        packet_diagnostics: Dict[str, Any] = {}
+        if getattr(synthesizer, "uses_local_ollama", False):
+            selected_bundle, packet_diagnostics = select_for_local_synthesis(
+                bundle,
+                context.question,
+                budget=synthesizer.local_synthesis_budget,
+            )
+            # The source-preference sentence names a document to the reader as
+            # the one to lean on. It has to be a document the answer actually
+            # saw: naming a source the packet dropped points a reader at
+            # evidence that played no part in what they just read. Every
+            # retrieved source keeps its own role and rank; only the
+            # preference moves.
+            assessed = _preference_within_packet(
+                assessed,
+                authority_module.assess(
+                    selected_bundle.items,
+                    current_state_question=current_state,
+                    purpose=(
+                        authority_module.DEFINITION
+                        if context.intent.wants_identity
+                        else authority_module.CURRENT_STATE
+                    ),
+                ),
+            )
+            context = AnswerContext(
+                question=context.question,
+                bundle=selected_bundle,
+                intent=context.intent,
+                session_context=context.session_context,
+                authority=authority_module.guidance(assessed),
+                records=context.records,
+                assumptions=context.assumptions,
+                resolved_references=context.resolved_references,
+                stale_evidence=context.stale_evidence,
             )
 
         model = getattr(synthesizer, "model", "")
+        provider_name = getattr(synthesizer, "provider_name", "unknown")
         key = self._conversation_cache_key(context, model)
         if options.use_cache:
             cached = self._cache_read(key)
             if cached is not None:
-                return cached, {
-                    "mode": "ai",
-                    "provider": getattr(synthesizer, "provider_name", "unknown"),
-                    "model": model,
-                    "cached": True,
-                }
+                return (
+                    cached,
+                    {
+                        "mode": "ai",
+                        "provider": provider_name,
+                        "model": model,
+                        "api_cost": "$0" if provider_name == "ollama" else "remote provider",
+                        "cached": True,
+                        "evidence_packet": packet_diagnostics,
+                    },
+                    assessed,
+                )
+
+        request = None
+        if hasattr(synthesizer, "build_request"):
+            request = synthesizer.build_request(context)
+        if packet_diagnostics:
+            system_text = request.get("system", "") if request else ""
+            message_text = " ".join(
+                str(message.get("content") or "") for message in (request or {}).get("messages", [])
+            )
+            packet_diagnostics = {
+                **packet_diagnostics,
+                "prompt_token_estimate": estimate_tokens(f"{system_text}\n{message_text}"),
+            }
 
         try:
-            payload = synthesizer.synthesize(context)
+            if request is not None and isinstance(synthesizer, ConversationSynthesizer):
+                payload = synthesizer.synthesize(context, request=request)
+            else:
+                payload = synthesizer.synthesize(context)
         except SynthesisError as exc:
-            raise AskError(str(exc)) from exc
+            self._record_provider_call("synthesis", synthesizer)
+            raise AskError(str(exc), provider_calls=self._provider_calls) from exc
+        else:
+            self._record_provider_call("synthesis", synthesizer)
 
         answer = validate_conversation_answer(
             payload,
@@ -436,23 +546,61 @@ class ConversationService(AskService):
             answer = {**answer, "answer": f"{notice}\n\n{answer['answer']}"}
         if options.use_cache:
             self._cache_write(key, answer)
-        return answer, {
-            "mode": "ai",
-            "provider": getattr(synthesizer, "provider_name", "unknown"),
-            "model": model,
-            "cached": False,
-        }
+        return (
+            answer,
+            {
+                "mode": "ai",
+                "provider": provider_name,
+                "model": model,
+                "api_cost": "$0" if provider_name == "ollama" else "remote provider",
+                "cached": False,
+                "evidence_packet": packet_diagnostics,
+            },
+            assessed,
+        )
 
-    def _conversation_synthesizer(self):
+    def _conversation_synthesizer(self, options: Optional[ConversationOptions] = None):
         if self._synthesizer is not None:
             return self._synthesizer
-        provider = ConversationSynthesizer()
+        options = options or ConversationOptions()
+        try:
+            provider = ConversationSynthesizer(
+                root_path=self.root_path,
+                provider=options.provider,
+                model=options.model,
+                premium=options.premium,
+                local_only=options.local_only,
+            )
+        except ProviderError as exc:
+            raise AskError(str(exc)) from exc
+        if not provider.has_credentials and (options.premium or options.provider == "anthropic"):
+            raise AskError(
+                "ANTHROPIC_API_KEY is required for explicit premium/Anthropic Ask. "
+                "No remote fallback was used."
+            )
         return provider if provider.has_credentials else None
 
-    def _director_provider(self):
+    def _director_provider(self, options: Optional[ConversationOptions] = None):
         if self._director is not None:
             return self._director
-        provider = AnthropicResearchDirector()
+        options = options or ConversationOptions()
+        try:
+            provider = AnthropicResearchDirector(
+                root_path=self.root_path,
+                provider=options.provider,
+                model=options.model,
+                premium=options.premium,
+                local_only=options.local_only,
+            )
+        except ProviderError as exc:
+            raise AskError(str(exc)) from exc
+        if not provider.has_credentials and (options.premium or options.provider == "anthropic"):
+            raise AskError(
+                "ANTHROPIC_API_KEY is required for explicit premium/Anthropic Ask. "
+                "No remote fallback was used."
+            )
+        if provider.provider_name == "ollama" and not options.premium:
+            return None
         return provider if provider.has_credentials else None
 
     def _conversation_cache_key(self, context: AnswerContext, model: str) -> str:
@@ -550,6 +698,7 @@ class ConversationService(AskService):
             "answer": answer["answer"],
             "claims": answer["claims"],
             "claim_ledger": answer["claim_ledger"],
+            "claim_ledger_origin": answer.get("claim_ledger_origin", ledger_module.MODEL),
             "conflicts": answer["conflicts"],
             "uncertainties": uncertainties,
             "uncertainty": answer.get("uncertainty", ""),
@@ -571,6 +720,7 @@ class ConversationService(AskService):
             "resolved_entities": kwargs["planning"].resolved_entities,
             "ambiguities": kwargs["planning"].ambiguities,
             "synthesis": kwargs["meta"],
+            "provider_calls": list(self._provider_calls),
             "notes": kwargs["planning"].notes,
             "dropped_citations": answer.get("dropped_citations", []),
             "rejected_fields": answer.get("rejected_fields", []),
@@ -606,6 +756,7 @@ class ConversationService(AskService):
             "clarification": resolution.clarification,
             "claims": [],
             "claim_ledger": {"version": "1", "claims": [], "rejected_claims": [], "warnings": []},
+            "claim_ledger_origin": ledger_module.MODEL,
             "conflicts": [],
             "uncertainties": [],
             "uncertainty": "",
@@ -704,6 +855,7 @@ class ConversationService(AskService):
             "answer": "\n".join(lines),
             "claims": [],
             "claim_ledger": {"version": "1", "claims": [], "rejected_claims": [], "warnings": []},
+            "claim_ledger_origin": ledger_module.MODEL,
             "conflicts": [],
             "uncertainties": [],
             "uncertainty": "",

@@ -81,7 +81,6 @@ ROLE_DESCRIPTIONS = {
     UNCLASSIFIED: "an unclassified document",
 }
 
-_SIGNED_TITLE = re.compile(r"\b(signed|executed|final|countersigned|fully executed)\b", re.IGNORECASE)
 _PLAN_TITLE = re.compile(
     r"\b(operating plan|schedule|master plan|launch plan|production plan|roadmap|timeline)\b",
     re.IGNORECASE,
@@ -105,7 +104,7 @@ def classify(item: Any, *, ranks: Optional[Dict[str, int]] = None) -> str:
 
     if document_type == "entity" or source_type.startswith("entity-"):
         return FOUNDATIONAL
-    if _SIGNED_TITLE.search(title) or status in ("signed", "final", "executed"):
+    if status in ("signed", "final", "executed"):
         return SIGNED_FINAL
     if document_type in ("plan", "schedule") or _PLAN_TITLE.search(title):
         return OPERATING_PLAN

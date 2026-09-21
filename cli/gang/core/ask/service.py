@@ -21,6 +21,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from core.ai_provider import ProviderError, ProviderTimeoutError
 from core.entities.resolver import EntityResolver
 from core.entities.store import EntityStore
 from core.paths import GangPaths
@@ -56,12 +57,20 @@ PROMPT_VERSION = "ask-1"
 class AskError(RuntimeError):
     """Raised when a question cannot be answered for an operational reason."""
 
+    def __init__(self, message: str, *, provider_calls: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(message)
+        self.provider_calls = list(provider_calls or [])
+
 
 @dataclass(frozen=True)
 class AskOptions:
     use_ai: bool = True
     use_cache: bool = True
     plan_only: bool = False
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    premium: bool = False
+    local_only: Optional[bool] = None
 
 
 class AskService:
@@ -80,6 +89,7 @@ class AskService:
         self.clock = clock
         self._synthesizer = synthesizer
         self._query_planner = query_planner
+        self._provider_calls: List[Dict[str, Any]] = []
 
     # ---------------------------------------------------------------- ask
 
@@ -92,6 +102,7 @@ class AskService:
     ) -> Dict[str, Any]:
         options = options or AskOptions()
         overrides = overrides or PlanOverrides(limit=DEFAULT_LIMIT)
+        self._provider_calls = []
 
         planning = self._plan(question, overrides, options)
         if options.plan_only:
@@ -123,7 +134,7 @@ class AskService:
             # Exact search never needs the model. This is the common path.
             return planning
 
-        query_planner = self._planner_provider()
+        query_planner = self._planner_provider(options)
         if query_planner is None:
             return planning
 
@@ -131,6 +142,9 @@ class AskService:
             catalog = self._catalog()
             proposed = query_planner.propose(question, catalog)
         except Exception as exc:  # noqa: BLE001
+            self._record_provider_call("planning", query_planner)
+            if _caused_by_timeout(exc):
+                raise AskError(str(exc), provider_calls=self._provider_calls) from exc
             # Planning assist is optional. Any provider or catalog failure
             # degrades to the deterministic plan rather than failing the
             # question, so retrieval still runs on the user's own terms.
@@ -143,6 +157,8 @@ class AskService:
                 ai_recommended=planning.ai_recommended,
                 notes=planning.notes + [f"AI query planning unavailable: {exc}"],
             )
+        else:
+            self._record_provider_call("planning", query_planner)
         return merge_ai_plan(planning, proposed, catalog)
 
     def _catalog(self) -> Dict[str, Any]:
@@ -174,7 +190,7 @@ class AskService:
                 {"mode": "deterministic", "reason": "ai-disabled", "cached": False},
             )
 
-        synthesizer = self._synthesis_provider()
+        synthesizer = self._synthesis_provider(options)
         if synthesizer is None:
             return (
                 synthesis.deterministic_answer(bundle, reason="no-provider"),
@@ -182,28 +198,34 @@ class AskService:
             )
 
         model = getattr(synthesizer, "model", "")
+        provider_name = getattr(synthesizer, "provider_name", "unknown")
         cache_key = self._cache_key(bundle, model)
         if options.use_cache:
             cached = self._cache_read(cache_key)
             if cached is not None:
                 return cached, {
                     "mode": "ai",
-                    "provider": getattr(synthesizer, "provider_name", "unknown"),
+                    "provider": provider_name,
                     "model": model,
+                    "api_cost": "$0" if provider_name == "ollama" else "remote provider",
                     "cached": True,
                 }
 
         try:
             payload = synthesizer.synthesize(bundle)
         except SynthesisError as exc:
-            raise AskError(str(exc)) from exc
+            self._record_provider_call("synthesis", synthesizer)
+            raise AskError(str(exc), provider_calls=self._provider_calls) from exc
+        else:
+            self._record_provider_call("synthesis", synthesizer)
         answer = synthesis.validate_answer(payload, bundle)
         if options.use_cache:
             self._cache_write(cache_key, answer)
         return answer, {
             "mode": "ai",
-            "provider": getattr(synthesizer, "provider_name", "unknown"),
+            "provider": provider_name,
             "model": model,
+            "api_cost": "$0" if provider_name == "ollama" else "remote provider",
             "cached": False,
         }
 
@@ -248,6 +270,7 @@ class AskService:
             "planner": planning.planner,
             "resolved_entities": planning.resolved_entities,
             "synthesis": synthesis_meta,
+            "provider_calls": list(self._provider_calls),
             "notes": planning.notes,
             "dropped_citations": answer.get("dropped_citations", []),
             "rejected_fields": answer.get("rejected_fields", []),
@@ -266,17 +289,58 @@ class AskService:
         except Exception:  # noqa: BLE001 - a missing entity layer is not fatal
             return None
 
-    def _synthesis_provider(self):
+    def _synthesis_provider(self, options: Optional[AskOptions] = None):
         if self._synthesizer is not None:
             return self._synthesizer
-        provider = AnthropicAnswerSynthesizer()
+        options = options or AskOptions()
+        try:
+            provider = AnthropicAnswerSynthesizer(
+                root_path=self.root_path,
+                provider=options.provider,
+                model=options.model,
+                premium=options.premium,
+                local_only=options.local_only,
+            )
+        except ProviderError as exc:
+            raise AskError(str(exc)) from exc
+        if not provider.has_credentials and (options.premium or options.provider == "anthropic"):
+            raise AskError(
+                "ANTHROPIC_API_KEY is required for explicit premium/Anthropic Ask. "
+                "No remote fallback was used."
+            )
         return provider if provider.has_credentials else None
 
-    def _planner_provider(self):
+    def _planner_provider(self, options: Optional[AskOptions] = None):
         if self._query_planner is not None:
             return self._query_planner
-        provider = AnthropicQueryPlanner()
+        options = options or AskOptions()
+        try:
+            provider = AnthropicQueryPlanner(
+                root_path=self.root_path,
+                provider=options.provider,
+                model=options.model,
+                premium=options.premium,
+                local_only=options.local_only,
+            )
+        except ProviderError as exc:
+            raise AskError(str(exc)) from exc
+        if not provider.has_credentials and (options.premium or options.provider == "anthropic"):
+            raise AskError(
+                "ANTHROPIC_API_KEY is required for explicit premium/Anthropic Ask. "
+                "No remote fallback was used."
+            )
+        if provider.provider_name == "ollama" and not options.premium:
+            return None
         return provider if provider.has_credentials else None
+
+    def _record_provider_call(self, purpose: str, provider: Any) -> None:
+        telemetry = getattr(provider, "telemetry", {}) or {}
+        if not isinstance(telemetry, dict) or not telemetry:
+            return
+        self._append_provider_call({"purpose": purpose, **telemetry})
+
+    def _append_provider_call(self, call: Dict[str, Any]) -> None:
+        self._provider_calls.append({"sequence": len(self._provider_calls) + 1, **call})
 
     # ---------------------------------------------------------------- cache
 
@@ -306,6 +370,15 @@ class AskService:
             path.write_text(json.dumps(answer, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         except OSError:
             pass
+
+
+def _caused_by_timeout(exc: BaseException) -> bool:
+    current: Optional[BaseException] = exc
+    while current is not None:
+        if isinstance(current, ProviderTimeoutError):
+            return True
+        current = current.__cause__
+    return False
 
 
 def cited_citation_ids(answer: Dict[str, Any], answer_text: str) -> Set[int]:
@@ -356,4 +429,3 @@ def _shorten(text: str, limit: int) -> str:
 
 def _day(value: Any) -> str:
     return str(value or "")[:10]
-

@@ -185,6 +185,52 @@ images:
   
 # AI optimization settings
 ai:
+  default:
+    provider: "ollama"
+    model: "mistral-small3.1"
+  planning:
+    provider: "ollama"
+    model: "mistral-small3.1"
+  research:
+    provider: "ollama"
+    model: "mistral-small3.1"
+  synthesis:
+    provider: "ollama"
+    model: "mistral-small3.1"
+  premium:
+    provider: "anthropic"
+    model: "claude-opus-5"
+  ollama:
+    endpoint: "http://127.0.0.1:11434"
+    timeout_seconds: 180
+  local_synthesis:
+    max_prompt_tokens: 3500
+    max_evidence_tokens: 2500
+    max_documents: 4
+    max_excerpts_per_document: 2
+    max_output_tokens: 500
+    max_excerpt_chars: 260
+    # Reasoning models spend their thinking inside the generation budget. The
+    # packet above is already small and ranked, so the deliberation costs more
+    # latency than it buys. Set true to trade wall time for it.
+    think: false
+  local_only: false
+  input_budget:
+    default:
+      max_context_tokens: 32768
+      max_prompt_chars: 120000
+    planning:
+      max_context_tokens: 16384
+      max_prompt_chars: 60000
+    research:
+      max_context_tokens: 16384
+      max_prompt_chars: 60000
+    synthesis:
+      max_context_tokens: 32768
+      max_prompt_chars: 120000
+
+  # Legacy content optimization settings. Ask reads the role-based settings
+  # above; enrichment/proposal flows keep their explicit remote configuration.
   provider: "anthropic"  # or "openai"
   model: "claude-sonnet-4-6"
   cache_by: "content_hash"
