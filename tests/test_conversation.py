@@ -1450,6 +1450,42 @@ class StructuredLocalOutputTests(ConversationTestCase):
         types = request["format"]["properties"]["claims"]["items"]["properties"]["type"]["enum"]
         self.assertNotIn(ledger_module.RECOMMENDATION, types)
 
+    def test_every_array_in_the_schema_is_bounded(self):
+        # An unbounded array is a loop a small model can fall into. qwen3:8b
+        # emitted "c0", "c2" ... "c135" into based_on until it hit the token
+        # ceiling on nine runs out of ten; the grammar was permitting it.
+        schema = self.synthesizer().build_request(self.context())["format"]
+        claim = schema["properties"]["claims"]["items"]["properties"]
+
+        self.assertEqual(schema["properties"]["claims"]["maxItems"], schema_module.MAX_CLAIMS)
+        for field in ("citations", "derived_from", "based_on"):
+            with self.subTest(field=field):
+                self.assertIn("maxItems", claim[field])
+                self.assertLessEqual(claim[field]["maxItems"], 8)
+        self.assertEqual(claim["text"]["maxLength"], schema_module.MAX_CLAIM_TEXT)
+        self.assertIn("maxLength", schema["properties"]["answer"])
+
+    def test_an_over_long_array_is_trimmed_rather_than_rejected(self):
+        normalized, status = schema_module.parse_answer(
+            {
+                "answer": "x",
+                "claims": [
+                    {
+                        "id": "c1",
+                        "type": "fact",
+                        "text": "y",
+                        "based_on": [f"c{index}" for index in range(200)],
+                        "citations": list(range(50)),
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(status, schema_module.STRUCTURED_OK)
+        claim = normalized["claims"][0]
+        self.assertEqual(len(claim["based_on"]), schema_module.MAX_PREMISES_PER_CLAIM)
+        self.assertEqual(len(claim["citations"]), schema_module.MAX_CITATIONS_PER_CLAIM)
+
     def test_a_valid_response_is_normalized_and_recorded_as_ok(self):
         synthesizer = self.synthesizer()
         context = self.context()

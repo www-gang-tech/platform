@@ -42,6 +42,16 @@ STRUCTURED_NOT_REQUESTED = "not-requested"
 MAX_CLAIMS = ledger_module.MAX_CLAIMS
 MAX_CLAIM_TEXT = ledger_module.MAX_CLAIM_TEXT
 MAX_ANSWER_CHARS = 8000
+MAX_CONFLICTS = 6
+
+#: Every array in the schema is bounded, and the bound is load-bearing rather
+#: than tidy. An unbounded array in a decoding grammar is a loop a smaller
+#: model can fall into: qwen3:8b, asked for ``based_on``, emitted
+#: "c0", "c2", "c3" … "c135" until it hit the token ceiling, every run. The
+#: grammar was letting it. These limits make the loop unrepresentable, and
+#: they match what the ledger already enforces after the fact.
+MAX_CITATIONS_PER_CLAIM = 8
+MAX_PREMISES_PER_CLAIM = 8
 
 #: Which claim types a mode may generate. The ledger enforces the same rule on
 #: the way in; declaring it in the schema means a constrained decoder cannot
@@ -71,84 +81,112 @@ DEFAULT_CLAIM_TYPES: Tuple[str, ...] = (
 class Claim(BaseModel):
     """One ledger entry as the model is asked to write it."""
 
-    id: str = Field(description="short unique id such as c1")
+    id: str = Field(max_length=32, description="short unique id such as c1")
     type: str = Field(description="the epistemic type of this claim")
-    text: str = Field(description="one substantive statement")
+    text: str = Field(max_length=MAX_CLAIM_TEXT, description="one substantive statement")
     citations: List[int] = Field(
-        default_factory=list, description="citation ids supporting it; omit for generated advice"
+        default_factory=list,
+        max_length=MAX_CITATIONS_PER_CLAIM,
+        description="citation ids supporting it; omit for generated advice",
     )
     derived_from: List[str] = Field(
-        default_factory=list, description="ids of earlier claims this reasoning rests on"
+        default_factory=list,
+        max_length=MAX_PREMISES_PER_CLAIM,
+        description="ids of earlier claims this reasoning rests on",
     )
     based_on: List[str] = Field(
-        default_factory=list, description="ids of earlier factual claims this advice rests on"
+        default_factory=list,
+        max_length=MAX_PREMISES_PER_CLAIM,
+        description="ids of earlier factual claims this advice rests on",
     )
 
-    @field_validator("id", "type", "text", mode="before")
+    @field_validator("type", mode="before")
     @classmethod
     def _as_text(cls, value: Any) -> str:
-        return "" if value is None else str(value).strip()
+        return _text(value)
 
-    @field_validator("text")
+    @field_validator("id", mode="before")
     @classmethod
-    def _bounded(cls, value: str) -> str:
-        return value[:MAX_CLAIM_TEXT]
+    def _bounded_id(cls, value: Any) -> str:
+        return _text(value)[:32]
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _bounded_text(cls, value: Any) -> str:
+        return _text(value)[:MAX_CLAIM_TEXT]
 
     @field_validator("citations", mode="before")
     @classmethod
     def _citation_ids(cls, value: Any) -> List[int]:
-        return _ints(value)
+        return _ints(value)[:MAX_CITATIONS_PER_CLAIM]
 
     @field_validator("derived_from", "based_on", mode="before")
     @classmethod
     def _claim_ids(cls, value: Any) -> List[str]:
-        return [str(item).strip() for item in _sequence(value) if str(item).strip()]
+        ids = [_text(item) for item in _sequence(value) if _text(item)]
+        return ids[:MAX_PREMISES_PER_CLAIM]
 
 
 class Conflict(BaseModel):
     """Two cited sources disagreeing, as the answer reports it."""
 
-    summary: str = Field(description="how the cited evidence disagrees")
-    citations: List[int] = Field(default_factory=list, description="the citation ids that differ")
+    summary: str = Field(max_length=MAX_CLAIM_TEXT, description="how the cited evidence disagrees")
+    citations: List[int] = Field(
+        default_factory=list,
+        max_length=MAX_CITATIONS_PER_CLAIM,
+        description="the citation ids that differ",
+    )
 
     @field_validator("summary", mode="before")
     @classmethod
     def _as_text(cls, value: Any) -> str:
-        return "" if value is None else str(value).strip()
+        return _text(value)[:MAX_CLAIM_TEXT]
 
     @field_validator("citations", mode="before")
     @classmethod
     def _citation_ids(cls, value: Any) -> List[int]:
-        return _ints(value)
+        return _ints(value)[:MAX_CITATIONS_PER_CLAIM]
 
 
 class SynthesisAnswer(BaseModel):
     """A whole synthesis response."""
 
-    answer: str = Field(description="the answer prose, citing evidence inline as [citation_id]")
-    claims: List[Claim] = Field(
-        default_factory=list, description="one claim for every statement the answer makes"
+    answer: str = Field(
+        max_length=MAX_ANSWER_CHARS,
+        description="the answer prose, citing evidence inline as [citation_id]",
     )
-    conflicts: List[Conflict] = Field(default_factory=list)
-    uncertainty: str = Field(default="", description="what the evidence does not settle")
+    claims: List[Claim] = Field(
+        default_factory=list,
+        max_length=MAX_CLAIMS,
+        description="one claim for every statement the answer makes",
+    )
+    conflicts: List[Conflict] = Field(default_factory=list, max_length=MAX_CONFLICTS)
+    uncertainty: str = Field(
+        default="", max_length=MAX_CLAIM_TEXT, description="what the evidence does not settle"
+    )
     insufficient_evidence: bool = Field(
         default=False, description="true when the evidence cannot answer the question"
     )
 
-    @field_validator("answer", "uncertainty", mode="before")
+    @field_validator("answer", mode="before")
     @classmethod
-    def _as_text(cls, value: Any) -> str:
-        return "" if value is None else str(value).strip()
+    def _bounded_answer(cls, value: Any) -> str:
+        return _text(value)[:MAX_ANSWER_CHARS]
 
-    @field_validator("answer")
+    @field_validator("uncertainty", mode="before")
     @classmethod
-    def _bounded(cls, value: str) -> str:
-        return value[:MAX_ANSWER_CHARS]
+    def _bounded_uncertainty(cls, value: Any) -> str:
+        return _text(value)[:MAX_CLAIM_TEXT]
 
     @field_validator("claims", mode="before")
     @classmethod
     def _bounded_claims(cls, value: Any) -> Any:
         return _sequence(value)[:MAX_CLAIMS]
+
+    @field_validator("conflicts", mode="before")
+    @classmethod
+    def _bounded_conflicts(cls, value: Any) -> Any:
+        return _sequence(value)[:MAX_CONFLICTS]
 
     @field_validator("insufficient_evidence", mode="before")
     @classmethod
@@ -209,6 +247,10 @@ def _inline_defs(schema: Dict[str, Any]) -> Dict[str, Any]:
         return node
 
     return resolve(schema)
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
 
 
 def _sequence(value: Any) -> List[Any]:
