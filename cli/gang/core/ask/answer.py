@@ -473,11 +473,13 @@ def compact_system_prompt(
         f"{requirement_rule}"
         "Ledger: return JSON matching output_schema, with one claim for every statement you "
         "made; 'claims' is never empty. Facts/synthesis/inferences need citations or "
-        "grounded factual premises. Recommendations and ideas are generated now; their based_on "
-        "entries must point to earlier factual claims, not to other recommendations or ideas. "
-        "A recommendation should normally be uncited and phrased as 'I would...'; cite the factual "
-        "premise separately. Every fact, synthesis, and inference claim carries at least one id in "
-        "its own citations array; a citation marker in the prose does not count."
+        "grounded factual premises. Every fact, synthesis, and inference claim carries at least "
+        "one id in its own citations array; a citation marker in the prose does not count.\n"
+        "Premises: omit based_on entirely for fact and synthesis claims — a cited claim needs no "
+        "premises. An inference lists the facts it reasons from in derived_from. Only a "
+        "recommendation or idea uses based_on, for the earlier factual claims the advice rests "
+        "on, never for another recommendation or idea. A recommendation should normally be "
+        "uncited and phrased as 'I would...'; cite the factual premise separately."
     )
 
 
@@ -510,7 +512,10 @@ def _output_schema(mode: str) -> Dict[str, Any]:
                 "text": "one substantive statement",
                 "citations": ["citation_id supporting it, omit for recommendation/idea"],
                 "derived_from": ["ids of earlier claims this synthesis or inference rests on"],
-                "based_on": ["ids of earlier claims this recommendation or idea rests on"],
+                "based_on": [
+                    "recommendations and ideas only: ids of earlier factual claims the advice "
+                    "rests on; omit for fact, synthesis, and inference"
+                ],
             }
         ],
         "conflicts": [{"summary": "how the cited evidence disagrees", "citations": ["citation_id"]}],

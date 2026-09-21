@@ -51,7 +51,15 @@ MAX_CONFLICTS = 6
 #: grammar was letting it. These limits make the loop unrepresentable, and
 #: they match what the ledger already enforces after the fact.
 MAX_CITATIONS_PER_CLAIM = 8
+#: Premises of an inference. An inference that genuinely rests on more than a
+#: handful of facts is a summary wearing a hedge, but the type exists to carry
+#: real reasoning and the bound stays generous enough not to truncate it.
 MAX_PREMISES_PER_CLAIM = 8
+#: Premises of generated advice, held tighter. Only a recommendation or idea
+#: has ``based_on`` at all, and advice resting on more than a few facts is
+#: advice nobody can check. The tighter bound also costs a rambling model
+#: fewer tokens before the grammar cuts it off.
+MAX_BASED_ON_PER_CLAIM = 4
 
 #: Which claim types a mode may generate. The ledger enforces the same rule on
 #: the way in; declaring it in the schema means a constrained decoder cannot
@@ -96,8 +104,11 @@ class Claim(BaseModel):
     )
     based_on: List[str] = Field(
         default_factory=list,
-        max_length=MAX_PREMISES_PER_CLAIM,
-        description="ids of earlier factual claims this advice rests on",
+        max_length=MAX_BASED_ON_PER_CLAIM,
+        description=(
+            "recommendations and ideas only: ids of earlier factual claims the advice "
+            "rests on. Omit entirely for fact, synthesis, and inference claims."
+        ),
     )
 
     @field_validator("type", mode="before")
@@ -120,11 +131,15 @@ class Claim(BaseModel):
     def _citation_ids(cls, value: Any) -> List[int]:
         return _ints(value)[:MAX_CITATIONS_PER_CLAIM]
 
-    @field_validator("derived_from", "based_on", mode="before")
+    @field_validator("derived_from", mode="before")
     @classmethod
-    def _claim_ids(cls, value: Any) -> List[str]:
-        ids = [_text(item) for item in _sequence(value) if _text(item)]
-        return ids[:MAX_PREMISES_PER_CLAIM]
+    def _premise_ids(cls, value: Any) -> List[str]:
+        return _claim_ids(value)[:MAX_PREMISES_PER_CLAIM]
+
+    @field_validator("based_on", mode="before")
+    @classmethod
+    def _advice_premise_ids(cls, value: Any) -> List[str]:
+        return _claim_ids(value)[:MAX_BASED_ON_PER_CLAIM]
 
 
 class Conflict(BaseModel):
@@ -247,6 +262,10 @@ def _inline_defs(schema: Dict[str, Any]) -> Dict[str, Any]:
         return node
 
     return resolve(schema)
+
+
+def _claim_ids(value: Any) -> List[str]:
+    return [_text(item) for item in _sequence(value) if _text(item)]
 
 
 def _text(value: Any) -> str:

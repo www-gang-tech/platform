@@ -1458,10 +1458,13 @@ class StructuredLocalOutputTests(ConversationTestCase):
         claim = schema["properties"]["claims"]["items"]["properties"]
 
         self.assertEqual(schema["properties"]["claims"]["maxItems"], schema_module.MAX_CLAIMS)
-        for field in ("citations", "derived_from", "based_on"):
+        for field, limit in (
+            ("citations", schema_module.MAX_CITATIONS_PER_CLAIM),
+            ("derived_from", schema_module.MAX_PREMISES_PER_CLAIM),
+            ("based_on", schema_module.MAX_BASED_ON_PER_CLAIM),
+        ):
             with self.subTest(field=field):
-                self.assertIn("maxItems", claim[field])
-                self.assertLessEqual(claim[field]["maxItems"], 8)
+                self.assertEqual(claim[field]["maxItems"], limit)
         self.assertEqual(claim["text"]["maxLength"], schema_module.MAX_CLAIM_TEXT)
         self.assertIn("maxLength", schema["properties"]["answer"])
 
@@ -1483,8 +1486,38 @@ class StructuredLocalOutputTests(ConversationTestCase):
 
         self.assertEqual(status, schema_module.STRUCTURED_OK)
         claim = normalized["claims"][0]
-        self.assertEqual(len(claim["based_on"]), schema_module.MAX_PREMISES_PER_CLAIM)
+        self.assertEqual(len(claim["based_on"]), schema_module.MAX_BASED_ON_PER_CLAIM)
         self.assertEqual(len(claim["citations"]), schema_module.MAX_CITATIONS_PER_CLAIM)
+
+    def test_advice_premises_are_held_tighter_than_inference_premises(self):
+        # A recommendation resting on more than a few facts is advice nobody
+        # can check. An inference may genuinely reason across more.
+        self.assertLess(
+            schema_module.MAX_BASED_ON_PER_CLAIM, schema_module.MAX_PREMISES_PER_CLAIM
+        )
+        normalized, _ = schema_module.parse_answer(
+            {
+                "answer": "x",
+                "claims": [
+                    {
+                        "id": "c1",
+                        "type": "inference",
+                        "text": "y",
+                        "derived_from": [f"c{index}" for index in range(20)],
+                        "based_on": [f"c{index}" for index in range(20)],
+                    }
+                ],
+            }
+        )
+        claim = normalized["claims"][0]
+        self.assertEqual(len(claim["derived_from"]), schema_module.MAX_PREMISES_PER_CLAIM)
+        self.assertEqual(len(claim["based_on"]), schema_module.MAX_BASED_ON_PER_CLAIM)
+
+    def test_the_prompt_tells_the_model_who_may_use_based_on(self):
+        prompt = compact_system_prompt(intent_module.ADVISORY_MODE)
+        self.assertIn("omit based_on entirely for fact and synthesis claims", prompt)
+        self.assertIn("derived_from", prompt)
+        self.assertIn("Only a recommendation or idea uses based_on", prompt)
 
     def test_a_valid_response_is_normalized_and_recorded_as_ok(self):
         synthesizer = self.synthesizer()
