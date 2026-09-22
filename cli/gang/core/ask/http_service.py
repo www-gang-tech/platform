@@ -24,21 +24,25 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, g, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from core.ai_provider import AIConfig, ProviderTimeoutError
+from core.access import Principal, PrincipalDirectory, PrincipalError, is_valid_principal_id
+from core.paths import GangPaths
 
 from .conversation import ConversationOptions, ConversationService
 from .plan import DEFAULT_LIMIT, MAX_LIMIT, QueryPlanError, validate_plan
 from .planner import PlanOverrides
 from .retrieval import Retriever
 from .service import AskError
-from .session import SessionError
+from .session import SessionError, SessionStore
 
 
 HTTP_LOCAL_MODEL = "qwen3:8b"
-HTTP_PRINCIPAL = "Daniel"
+HTTP_PRINCIPAL_ID = "daniel"
+HTTP_DISPLAY_NAME = "Daniel"
+HTTP_PRINCIPAL = HTTP_DISPLAY_NAME
 DEFAULT_BIND_HOST = "127.0.0.1"
 DEFAULT_QUEUE_DEPTH = 8
 TOKEN_HASH_ENV = "GANG_HTTP_TOKEN_SHA256"
@@ -99,7 +103,8 @@ class QueueFullError(RuntimeError):
 class Job:
     job_id: str
     request_id: str
-    principal: str
+    principal_id: str
+    display_name: str
     payload: Dict[str, Any]
     status: str = "queued"
     created_at: str = field(default_factory=lambda: _now())
@@ -143,20 +148,23 @@ class AuditedRetriever(Retriever):
         database_path: Path | str,
         *,
         audit_path: Path | str,
-        principal: str = HTTP_PRINCIPAL,
+        principal: str = HTTP_PRINCIPAL_ID,
         clock: Optional[Any] = None,
     ):
         super().__init__(database_path)
         self.audit_path = Path(audit_path)
-        self.principal = principal
+        self.principal_id = principal
         self.clock = clock
         self._local = threading.local()
 
-    def bind_request(self, request_id: str):
-        return _RetrieverAuditContext(self, request_id)
+    def bind_request(self, request_id: str, principal_id: str = ""):
+        return _RetrieverAuditContext(self, request_id, principal_id)
 
     def _request_id(self) -> str:
         return str(getattr(self._local, "request_id", "") or "")
+
+    def _principal_id(self) -> str:
+        return str(getattr(self._local, "principal_id", "") or self.principal_id)
 
     def _write_audit(self, method: str, result: Any, arguments: Dict[str, Any]) -> None:
         record = {
@@ -164,7 +172,7 @@ class AuditedRetriever(Retriever):
             "kind": "retrieval",
             "timestamp": _now(self.clock),
             "request_id": self._request_id(),
-            "principal": self.principal,
+            "principal_id": self._principal_id(),
             "method": method,
             "arguments": _safe_arguments(arguments),
             "result": _result_summary(result),
@@ -223,18 +231,23 @@ class AuditedRetriever(Retriever):
 
 
 class _RetrieverAuditContext:
-    def __init__(self, retriever: AuditedRetriever, request_id: str):
+    def __init__(self, retriever: AuditedRetriever, request_id: str, principal_id: str = ""):
         self.retriever = retriever
         self.request_id = request_id
+        self.principal_id = principal_id
         self.previous = ""
+        self.previous_principal = ""
 
     def __enter__(self):
         self.previous = self.retriever._request_id()
+        self.previous_principal = self.retriever._principal_id()
         self.retriever._local.request_id = self.request_id
+        self.retriever._local.principal_id = self.principal_id
         return self.retriever
 
     def __exit__(self, *args):
         self.retriever._local.request_id = self.previous
+        self.retriever._local.principal_id = self.previous_principal
         return False
 
 
@@ -246,7 +259,7 @@ class AskHTTPServer:
         *,
         root_path: Path | str = Path("."),
         private_home: Path | str | None = None,
-        principal: str = HTTP_PRINCIPAL,
+        principal: str = HTTP_PRINCIPAL_ID,
         queue_depth: int = DEFAULT_QUEUE_DEPTH,
         service: Optional[ConversationService] = None,
         retriever: Optional[AuditedRetriever] = None,
@@ -267,11 +280,12 @@ class AskHTTPServer:
                 private_home=base.paths.home,
                 retriever=self.retriever,
             )
-        self.principal = principal
+        self.principal_id = principal
         self.audit_path = self.service.paths.home / "audit" / "http.jsonl"
         self.jobs: Dict[str, Job] = {}
         self._queue: "queue.Queue[str]" = queue.Queue(maxsize=max(1, int(queue_depth or 1)))
         self._condition = threading.Condition()
+        self._service_lock = threading.RLock()
         self._worker = threading.Thread(target=self._run, name="gang-ask-http-worker", daemon=True)
         self._worker.start()
 
@@ -279,12 +293,18 @@ class AskHTTPServer:
     def worker_count(self) -> int:
         return 1
 
-    def enqueue(self, payload: Dict[str, Any]) -> Job:
+    def session_store_for(self, principal_id: str) -> SessionStore:
+        if not is_valid_principal_id(principal_id):
+            raise SessionError("Invalid principal id")
+        return SessionStore(self.service.paths.sessions_path / principal_id)
+
+    def enqueue(self, payload: Dict[str, Any], *, principal: Principal) -> Job:
         request_id = uuid.uuid4().hex
         job = Job(
             job_id=uuid.uuid4().hex,
             request_id=request_id,
-            principal=self.principal,
+            principal_id=principal.principal_id,
+            display_name=principal.display_name,
             payload=payload,
         )
         with self._condition:
@@ -343,7 +363,7 @@ class AskHTTPServer:
                 "kind": "turn",
                 "timestamp": _now(),
                 "request_id": job.request_id,
-                "principal_id": self.principal,
+                "principal_id": job.principal_id,
                 "session_id": str(job.payload.get("session_id") or result.get("session_id") or ""),
                 "question": str(job.payload.get("question") or ""),
                 "question_sha256": sha256_text(str(job.payload.get("question") or "")),
@@ -428,23 +448,30 @@ class AskHTTPServer:
         payload = job.payload
         filters = payload.get("filters") or {}
         level = payload.get("level") or "normal"
-        session = self.service.sessions.load_or_create(payload.get("session_id"))
+        session_store = self.session_store_for(job.principal_id)
+        session = session_store.load_or_create(payload.get("session_id"))
         options = _options_for(level)
         overrides = _overrides(payload["question"], filters)
 
         retriever = self.retriever
         context = (
-            retriever.bind_request(job.request_id)
+            retriever.bind_request(job.request_id, job.principal_id)
             if isinstance(retriever, AuditedRetriever)
             else _NullContext()
         )
-        with context:
-            result = self.service.converse(
-                payload["question"],
-                session=session,
-                overrides=overrides,
-                options=options,
-            )
+        with self._service_lock:
+            previous_sessions = self.service.sessions
+            self.service.sessions = session_store
+            try:
+                with context:
+                    result = self.service.converse(
+                        payload["question"],
+                        session=session,
+                        overrides=overrides,
+                        options=options,
+                    )
+            finally:
+                self.service.sessions = previous_sessions
 
         return _http_projection(result, request_id=job.request_id)
 
@@ -474,14 +501,17 @@ def create_app(
     config = AIConfig.load(root_path)
     validate_local_ollama_endpoint(config.ollama_endpoint)
 
-    token_hash = token_sha256 or _token_hash_from_env_or_token(auth_token)
-    if not token_hash:
-        raise HTTPConfigError("HTTP bearer token hash is required")
+    principal_directory = _principal_directory_for(
+        root_path=root_path,
+        private_home=private_home,
+        auth_token=auth_token,
+        token_sha256=token_sha256,
+    )
 
     app = Flask(__name__)
     app.config["JSON_SORT_KEYS"] = True
     app.config["GANG_BIND_HOST"] = bind_host
-    app.config["GANG_TOKEN_SHA256"] = token_hash
+    app.config["GANG_PRINCIPAL_DIRECTORY"] = principal_directory
     app.config["GANG_SERVER"] = server or AskHTTPServer(
         root_path=root_path,
         private_home=private_home,
@@ -492,7 +522,11 @@ def create_app(
     def _authenticate():
         if request.path == "/healthz":
             return None
-        if not _authorized(request.headers.get("Authorization", ""), token_hash):
+        principal = _resolve_authorization(
+            request.headers.get("Authorization", ""),
+            app.config["GANG_PRINCIPAL_DIRECTORY"],
+        )
+        if principal is None:
             request_id = uuid.uuid4().hex
             _server().audit_auth_failure(
                 request_id=request_id,
@@ -506,6 +540,7 @@ def create_app(
                 status=401,
                 request_id=request_id,
             )
+        g.principal = principal
         return None
 
     @app.errorhandler(HTTPRequestError)
@@ -539,26 +574,35 @@ def create_app(
 
     @app.get("/v1/health")
     def health():
-        state = _server().service
+        principal = _current_principal()
+        session_store = _server().session_store_for(principal.principal_id)
         return jsonify(
             {
                 "status": "ok",
-                "principal": HTTP_PRINCIPAL,
+                "principal_id": principal.principal_id,
+                "display_name": principal.display_name,
                 "local_only": True,
                 "worker_count": _server().worker_count,
-                "session_count": len(state.sessions.list_sessions()),
+                "session_count": len(session_store.list_sessions()),
             }
         )
 
     @app.get("/v1/whoami")
     def whoami():
-        return jsonify({"principal": HTTP_PRINCIPAL, "scope": "full_corpus"})
+        principal = _current_principal()
+        return jsonify(
+            {
+                "principal_id": principal.principal_id,
+                "display_name": principal.display_name,
+                "scope": "full_corpus",
+            }
+        )
 
     @app.post("/v1/ask")
     def ask():
         payload = _parse_ask_request(request.get_json(silent=True))
         try:
-            job = _server().enqueue(payload)
+            job = _server().enqueue(payload, principal=_current_principal())
         except QueueFullError:
             return _error(
                 "queue_full",
@@ -570,8 +614,9 @@ def create_app(
 
     @app.get("/v1/jobs/<job_id>")
     def get_job(job_id: str):
+        principal = _current_principal()
         job = _server().job(job_id, block=_block_seconds(request.args.get("block")))
-        if job is None:
+        if job is None or job.principal_id != principal.principal_id:
             return _error("not_found", "No such job.", status=404)
         if job.status == "provider-timeout":
             return _error(
@@ -584,22 +629,85 @@ def create_app(
 
     @app.get("/v1/sessions")
     def sessions():
-        return jsonify({"sessions": _server().service.sessions.list_sessions()})
+        principal = _current_principal()
+        return jsonify(
+            {"sessions": _server().session_store_for(principal.principal_id).list_sessions()}
+        )
 
     @app.get("/v1/sessions/<session_id>")
     def get_session(session_id: str):
-        session = _server().service.sessions.load(session_id)
+        principal = _current_principal()
+        session_store = _server().session_store_for(principal.principal_id)
+        if not session_store.exists(session_id):
+            return _error("not_found", "No such session.", status=404)
+        session = session_store.load(session_id)
         return jsonify({"session": session.to_dict()})
 
     @app.delete("/v1/sessions/<session_id>")
     def delete_session(session_id: str):
-        deleted = _server().service.sessions.delete(session_id)
+        principal = _current_principal()
+        session_store = _server().session_store_for(principal.principal_id)
+        if not session_store.exists(session_id):
+            return _error("not_found", "No such session.", status=404)
+        deleted = session_store.delete(session_id)
         return jsonify({"deleted": deleted, "session_id": session_id})
 
     def _server() -> AskHTTPServer:
         return app.config["GANG_SERVER"]
 
+    def _current_principal() -> Principal:
+        return g.principal
+
     return app
+
+
+class _LegacyPrincipalDirectory:
+    """Compatibility adapter for existing tests/local callers with one token."""
+
+    def __init__(self, token_hash: str):
+        self.token_hash = token_hash
+        self.principal = Principal(
+            principal_id=HTTP_PRINCIPAL_ID,
+            display_name=HTTP_DISPLAY_NAME,
+            scope="full",
+            tokens=(),
+        )
+
+    def resolve_token(self, token: str) -> Optional[Principal]:
+        supplied = sha256_token(token)
+        if hmac.compare_digest(supplied, self.token_hash):
+            return self.principal
+        return None
+
+
+def _principal_directory_for(
+    *,
+    root_path: Path | str,
+    private_home: Path | str | None,
+    auth_token: Optional[str],
+    token_sha256: Optional[str],
+):
+    token_hash = token_sha256 or _token_hash_from_env_or_token(auth_token)
+    if token_hash:
+        return _LegacyPrincipalDirectory(token_hash)
+    directory = PrincipalDirectory(
+        GangPaths.from_env(repo_root=root_path, gang_home=private_home).principals_path
+    )
+    try:
+        directory.load()
+    except PrincipalError as exc:
+        raise HTTPConfigError("Valid principal directory is required") from exc
+    return directory
+
+
+def _resolve_authorization(header: str, directory: Any) -> Optional[Principal]:
+    token = _bearer_token(header)
+    if not token:
+        return None
+    try:
+        return directory.resolve_token(token)
+    except PrincipalError:
+        return None
 
 
 def issue_token(path: Path | str) -> str:
@@ -614,6 +722,13 @@ def issue_token(path: Path | str) -> str:
     except OSError:
         pass
     return token
+
+
+def _bearer_token(header: str) -> str:
+    prefix = "Bearer "
+    if not header.startswith(prefix):
+        return ""
+    return header[len(prefix) :]
 
 
 def sha256_token(token: str) -> str:

@@ -80,6 +80,15 @@ class GangPaths:
         return self.home / "sessions"
 
     @property
+    def access_path(self) -> Path:
+        """Local access configuration. Private, never in git."""
+        return self.home / "access"
+
+    @property
+    def principals_path(self) -> Path:
+        return self.access_path / "principals.yml"
+
+    @property
     def ask_cache_path(self) -> Path:
         """Disposable cache for `gang ask`. Private, generated, never canonical."""
         return self.generated_path / "ask-cache"

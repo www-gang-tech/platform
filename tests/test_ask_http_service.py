@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
 import cli as gang_cli
+from core.access import PrincipalDirectory, PrincipalError
 from core.ai_provider import ProviderTimeoutError
 from core.ask import ConversationOptions, ConversationService, validate_plan
 from core.ask.http_service import (
@@ -28,6 +29,7 @@ from core.ask.http_service import (
     validate_local_ollama_endpoint,
 )
 from core.ask.retrieval import Retriever
+from core.ask.session import Session, SessionStore
 from core.private_index import PrivateKnowledgeIndex
 
 
@@ -154,6 +156,14 @@ class AskHTTPServiceTests(unittest.TestCase):
 
     def auth(self, token=None):
         return {"Authorization": f"Bearer {token or self.token}"}
+
+    def create_stage2_principals(self):
+        directory = PrincipalDirectory(self.home / "access/principals.yml")
+        directory.add_principal("daniel", "Daniel")
+        directory.add_principal("frank", "Frank")
+        daniel_token = directory.issue_token("daniel", "iphone")
+        frank_token = directory.issue_token("frank", "iphone")
+        return directory, daniel_token, frank_token
 
     def post_ask(self, client, payload):
         return client.post("/v1/ask", json=payload, headers=self.auth())
@@ -657,6 +667,150 @@ class AskHTTPServiceTests(unittest.TestCase):
 
         self.assertEqual(len(digest), 64)
         self.assertNotIn(self.token, digest)
+
+    def test_principal_directory_round_trip_authentication_and_private_mode(self):
+        directory = PrincipalDirectory(self.home / "access/principals.yml")
+        daniel = directory.add_principal("daniel", "Daniel")
+        token = directory.issue_token("daniel", "iphone")
+
+        loaded = directory.load()
+        self.assertEqual(daniel.principal_id, "daniel")
+        self.assertEqual(loaded[0].principal_id, "daniel")
+        self.assertEqual(loaded[0].display_name, "Daniel")
+        self.assertEqual(loaded[0].scope, "full")
+        self.assertEqual(stat.S_IMODE(directory.path.stat().st_mode), 0o600)
+        self.assertEqual(directory.resolve_token(token).principal_id, "daniel")
+        self.assertIsNone(directory.resolve_token("unknown-token"))
+        self.assertNotIn(token, directory.path.read_text(encoding="utf-8"))
+        self.assertIn(sha256_token(token), directory.path.read_text(encoding="utf-8"))
+
+        with self.assertRaises(PrincipalError):
+            directory.add_principal("../bad", "Bad")
+
+    def test_principal_directory_uses_full_digest_compare_digest(self):
+        directory = PrincipalDirectory(self.home / "access/principals.yml")
+        directory.add_principal("daniel", "Daniel")
+        token = directory.issue_token("daniel", "iphone")
+        compared = []
+
+        def record_compare(left, right):
+            compared.append((left, right))
+            return hmac_compare_digest(left, right)
+
+        import hmac
+
+        hmac_compare_digest = hmac.compare_digest
+        with mock.patch("core.access.principals.hmac.compare_digest", side_effect=record_compare):
+            self.assertEqual(directory.resolve_token(token).principal_id, "daniel")
+
+        self.assertTrue(compared)
+        supplied, stored = compared[0]
+        self.assertEqual(supplied, sha256_token(token))
+        self.assertEqual(stored, sha256_token(token))
+        self.assertEqual(len(supplied), 64)
+        self.assertEqual(len(stored), 64)
+
+    def test_access_cli_adds_principals_and_issues_separate_device_tokens(self):
+        runner = CliRunner()
+        env = {"GANG_HOME": str(self.home)}
+
+        with runner.isolated_filesystem():
+            daniel = runner.invoke(gang_cli.cli, ["access", "add-principal", "--id", "daniel", "--name", "Daniel"], env=env)
+            frank = runner.invoke(gang_cli.cli, ["access", "add-principal", "--id", "frank", "--name", "Frank"], env=env)
+            self.assertEqual(daniel.exit_code, 0, daniel.output)
+            self.assertEqual(frank.exit_code, 0, frank.output)
+
+            daniel_token = runner.invoke(gang_cli.cli, ["access", "issue-token", "--id", "daniel", "--label", "iphone"], env=env)
+            frank_token = runner.invoke(gang_cli.cli, ["access", "issue-token", "--id", "frank", "--label", "iphone"], env=env)
+            self.assertEqual(daniel_token.exit_code, 0, daniel_token.output)
+            self.assertEqual(frank_token.exit_code, 0, frank_token.output)
+
+        daniel_plaintext = daniel_token.output.strip()
+        frank_plaintext = frank_token.output.strip()
+        directory = PrincipalDirectory(self.home / "access/principals.yml")
+        self.assertEqual(directory.resolve_token(daniel_plaintext).principal_id, "daniel")
+        self.assertEqual(directory.resolve_token(frank_plaintext).principal_id, "frank")
+        self.assertNotEqual(directory.resolve_token(daniel_plaintext).principal_id, "frank")
+        contents = directory.path.read_text(encoding="utf-8")
+        self.assertNotIn(daniel_plaintext, contents)
+        self.assertNotIn(frank_plaintext, contents)
+
+    def test_http_sessions_are_structurally_isolated_per_principal(self):
+        _, daniel_token, frank_token = self.create_stage2_principals()
+        app = create_app(root_path=self.root, private_home=self.home)
+        server = app.config["GANG_SERVER"]
+
+        def fake_converse(question, *, session=None, overrides=None, options=None):
+            session.record_turn(
+                question=question,
+                resolved_question=question,
+                policy="lookup",
+                mode="evidence",
+                answer="ok",
+                evidence=[],
+                claims=[],
+            )
+            server.service.sessions.save(session)
+            return {
+                "session_id": session.session_id,
+                "turn": session.turn_count,
+                "intent": {"mode": "evidence"},
+                "claims": [],
+                "claim_ledger": {"version": "1", "claims": []},
+                "claim_ledger_origin": "model",
+                "conflicts": [],
+                "uncertainties": [],
+                "uncertainty": "",
+                "insufficient_evidence": False,
+                "sources": [],
+                "synthesis": {"cached": False},
+                "research": {},
+            }
+
+        server.service.converse = fake_converse
+        client = app.test_client()
+        daniel_auth = self.auth(daniel_token)
+        frank_auth = self.auth(frank_token)
+
+        self.assertEqual(
+            client.get("/v1/whoami", headers=daniel_auth).json["principal_id"],
+            "daniel",
+        )
+        created = client.post(
+            "/v1/ask",
+            json={"question": "Daniel turn", "level": "fast", "session_id": "abcd1234"},
+            headers=daniel_auth,
+        )
+        self.assertEqual(created.status_code, 202)
+        self.await_job_with_auth(client, created.json["job_id"], daniel_auth)
+
+        self.assertEqual(client.get("/v1/sessions/abcd1234", headers=frank_auth).status_code, 404)
+        self.assertEqual(client.get("/v1/sessions", headers=frank_auth).json["sessions"], [])
+        self.assertEqual(client.delete("/v1/sessions/abcd1234", headers=frank_auth).status_code, 404)
+
+        frank_created = client.post(
+            "/v1/ask",
+            json={"question": "Frank turn", "level": "fast", "session_id": "wxyz5678"},
+            headers=frank_auth,
+        )
+        self.assertEqual(frank_created.status_code, 202)
+        self.await_job_with_auth(client, frank_created.json["job_id"], frank_auth)
+
+        self.assertEqual(client.get("/v1/sessions/wxyz5678", headers=daniel_auth).status_code, 404)
+        self.assertEqual(client.delete("/v1/sessions/wxyz5678", headers=daniel_auth).status_code, 404)
+        self.assertEqual(client.delete("/v1/sessions/wxyz5678", headers=frank_auth).status_code, 200)
+        self.assertEqual(client.get("/v1/sessions/abcd1234", headers=daniel_auth).status_code, 200)
+
+    def await_job_with_auth(self, client, job_id, headers, *, block=5):
+        return client.get(f"/v1/jobs/{job_id}?block={block}", headers=headers)
+
+    def test_legacy_cli_sessions_remain_outside_principal_http_session_stores(self):
+        legacy_store = SessionStore(self.home / "sessions")
+        legacy_store.save(Session.new("legacy1234"))
+
+        self.assertEqual(legacy_store.list_sessions()[0]["session_id"], "legacy1234")
+        self.assertEqual(SessionStore(self.home / "sessions/daniel").list_sessions(), [])
+        self.assertEqual(SessionStore(self.home / "sessions/frank").list_sessions(), [])
 
 
 if __name__ == "__main__":

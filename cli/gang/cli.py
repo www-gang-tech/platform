@@ -42,6 +42,9 @@ def cli(ctx):
     
     config_path = Path('gang.config.yml')
     if not config_path.exists():
+        if ctx.invoked_subcommand == "access":
+            ctx.obj = {}
+            return
         click.echo("Error: gang.config.yml not found", err=True)
         ctx.abort()
     
@@ -128,6 +131,58 @@ def ai_status():
     click.echo(f"  Remote fallback: {status['remote_fallback']}")
     click.echo(f"  Local only: {'yes' if status.get('local_only') else 'no'}")
     click.echo(f"  API cost: {status['api_cost']}")
+
+
+@cli.group()
+def access():
+    """Manage local trusted HTTP principals"""
+    pass
+
+
+@access.command("add-principal")
+@click.option("--id", "principal_id", required=True, help="Safe principal id, such as daniel")
+@click.option("--name", "display_name", required=True, help="Display name")
+def access_add_principal(principal_id, display_name):
+    """Add a full-corpus trusted principal."""
+    try:
+        from core.access import PrincipalDirectory, PrincipalError
+        from core.paths import GangPaths
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.access import PrincipalDirectory, PrincipalError
+        from core.paths import GangPaths
+
+    directory = PrincipalDirectory(GangPaths.from_env(repo_root=Path.cwd()).principals_path)
+    try:
+        principal = directory.add_principal(principal_id, display_name)
+    except PrincipalError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+    click.echo(f"Added principal {principal.principal_id}: {principal.display_name}")
+
+
+@access.command("issue-token")
+@click.option("--id", "principal_id", required=True, help="Principal id")
+@click.option("--label", required=True, help="Device label")
+def access_issue_token(principal_id, label):
+    """Issue one bearer token and print it exactly once."""
+    try:
+        from core.access import PrincipalDirectory, PrincipalError
+        from core.paths import GangPaths
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.access import PrincipalDirectory, PrincipalError
+        from core.paths import GangPaths
+
+    directory = PrincipalDirectory(GangPaths.from_env(repo_root=Path.cwd()).principals_path)
+    try:
+        token = directory.issue_token(principal_id, label)
+    except PrincipalError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+    click.echo(token)
 
 
 @cli.group()
