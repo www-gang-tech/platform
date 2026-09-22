@@ -1,7 +1,9 @@
 import json
 import os
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 from urllib.error import URLError
@@ -98,7 +100,7 @@ class AIProviderTests(unittest.TestCase):
                 }
             )
 
-        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        with mock.patch("core.ai_provider._urlopen", side_effect=fake_urlopen):
             result = OllamaClient(
                 model="mistral-small3.1", endpoint="http://127.0.0.1:11434"
             ).complete_json(
@@ -115,7 +117,7 @@ class AIProviderTests(unittest.TestCase):
 
     def test_ollama_records_call_telemetry_when_available(self):
         with mock.patch(
-            "urllib.request.urlopen",
+            "core.ai_provider._urlopen",
             return_value=FakeResponse(
                 {
                     "prompt_eval_count": 13,
@@ -142,7 +144,7 @@ class AIProviderTests(unittest.TestCase):
     def test_local_failure_never_falls_back_to_remote(self):
         client = ConfiguredAIClient(role="synthesis", config=AIConfig.from_mapping({}))
 
-        with mock.patch("urllib.request.urlopen", side_effect=URLError("offline")) as urlopen:
+        with mock.patch("core.ai_provider._urlopen", side_effect=URLError("offline")) as urlopen:
             with self.assertRaises(ProviderError) as raised:
                 client.complete_json(
                     {"system": "s", "messages": [{"role": "user", "content": "u"}], "max_tokens": 20},
@@ -156,7 +158,7 @@ class AIProviderTests(unittest.TestCase):
     def test_ollama_timeout_is_classified_and_recorded(self):
         client = ConfiguredAIClient(role="synthesis", config=AIConfig.from_mapping({}))
 
-        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+        with mock.patch("core.ai_provider._urlopen", side_effect=TimeoutError("timed out")):
             with self.assertRaises(ProviderTimeoutError):
                 client.complete_json(
                     {"system": "s", "messages": [{"role": "user", "content": "u"}], "max_tokens": 20},
@@ -169,7 +171,7 @@ class AIProviderTests(unittest.TestCase):
 
     def test_malformed_ollama_response_fails_cleanly(self):
         with mock.patch(
-            "urllib.request.urlopen",
+            "core.ai_provider._urlopen",
             return_value=FakeResponse({"message": {"content": "not json"}}),
         ):
             with self.assertRaises(ProviderError):
@@ -185,6 +187,82 @@ class AIProviderTests(unittest.TestCase):
             ConfiguredAIClient(role="synthesis", config=config, provider="anthropic")
 
         self.assertIn("local_only is enabled", str(raised.exception))
+
+    def test_ollama_redirect_is_not_followed(self):
+        seen = {"chat": 0, "stolen": 0}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                if self.path == "/stolen":
+                    seen["stolen"] += 1
+                    body = b'{"message":{"content":"{}"}}'
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                seen["chat"] += 1
+                target = f"http://127.0.0.1:{self.server.server_address[1]}/stolen"
+                self.send_response(307)
+                self.send_header("Location", target)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, format, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        port = server.server_address[1]
+
+        with self.assertRaises(ProviderError) as raised:
+            OllamaClient(endpoint=f"http://127.0.0.1:{port}", timeout=5).complete_json(
+                {"system": "s", "messages": [{"role": "user", "content": "private evidence"}], "max_tokens": 20},
+                purpose="test",
+            )
+
+        self.assertIn("redirect", str(raised.exception).lower())
+        self.assertEqual(seen["chat"], 1)
+        self.assertEqual(seen["stolen"], 0)
+        self.assertNotIn("private evidence", str(raised.exception))
+
+    def test_ollama_does_not_send_the_prompt_through_an_env_proxy(self):
+        seen = []
+
+        class Proxy(BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen.append(self.path)
+                self.send_response(500)
+                self.end_headers()
+
+            def do_CONNECT(self):
+                seen.append(self.path)
+                self.send_error(500)
+
+            def log_message(self, format, *args):
+                return
+
+        proxy = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+        thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(proxy.shutdown)
+        self.addCleanup(proxy.server_close)
+        proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
+
+        with mock.patch.dict(
+            os.environ,
+            {"HTTP_PROXY": proxy_url, "http_proxy": proxy_url, "NO_PROXY": "", "no_proxy": ""},
+        ):
+            with self.assertRaises(ProviderError):
+                OllamaClient(endpoint="http://127.0.0.1:9", timeout=2).complete_json(
+                    {"system": "s", "messages": [{"role": "user", "content": "private evidence"}], "max_tokens": 20},
+                    purpose="test",
+                )
+
+        self.assertEqual(seen, [])
 
 
 if __name__ == "__main__":

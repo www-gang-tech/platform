@@ -165,7 +165,7 @@ class AskTestCase(unittest.TestCase):
         credentials.start()
         self.addCleanup(credentials.stop)
         network = mock.patch(
-            "urllib.request.urlopen",
+            "core.ai_provider._urlopen",
             side_effect=AssertionError(
                 "Unexpected provider network call in Ask tests; inject a fake provider."
             ),
@@ -1333,7 +1333,7 @@ class OutputTests(AskTestCase):
             }
         }
 
-        with mock.patch("urllib.request.urlopen", return_value=FakeProviderResponse(payload)):
+        with mock.patch("core.ai_provider._urlopen", return_value=FakeProviderResponse(payload)):
             result = service.ask(
                 "What is the target ship date?", options=AskOptions(use_cache=False)
             )

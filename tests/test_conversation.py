@@ -239,7 +239,7 @@ class ConversationTestCase(unittest.TestCase):
         credentials.start()
         self.addCleanup(credentials.stop)
         network = mock.patch(
-            "urllib.request.urlopen",
+            "core.ai_provider._urlopen",
             side_effect=AssertionError(
                 "Unexpected provider network call in conversation tests; inject a fake provider."
             ),
@@ -1221,6 +1221,23 @@ class ClaimLedgerTests(ConversationTestCase):
             self.bundle(),
         )
         self.assertEqual(result.claims[0].derived_from, [])
+
+    def test_a_claim_cannot_use_itself_as_a_premise(self):
+        result = validate_ledger(
+            [
+                {
+                    "id": "c1",
+                    "type": "synthesis",
+                    "text": "Risk.",
+                    "citations": [1],
+                    "derived_from": ["c1"],
+                    "based_on": ["c1"],
+                }
+            ],
+            self.bundle(),
+        )
+        self.assertEqual(result.claims[0].derived_from, [])
+        self.assertEqual(result.claims[0].based_on, [])
 
     def test_ungrounded_premises_of_a_recommendation_are_reported(self):
         result = validate_ledger(
@@ -4013,7 +4030,7 @@ class ProviderBoundaryTests(ConversationTestCase):
         service = ConversationService(root_path=self.root, private_home=self.home)
         session = service.start()
 
-        with mock.patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")) as urlopen:
+        with mock.patch("core.ai_provider._urlopen", side_effect=socket.timeout("timed out")) as urlopen:
             with self.assertRaises(AskError) as raised:
                 service.converse(
                     "What is the target ship date?",
