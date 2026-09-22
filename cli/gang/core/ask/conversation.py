@@ -115,6 +115,7 @@ class ConversationService(AskService):
         *,
         root_path: Path | str = Path("."),
         private_home: Path | str | None = None,
+        retriever: Optional[Any] = None,
         synthesizer: Optional[Any] = None,
         query_planner: Optional[Any] = None,
         director: Optional[Any] = None,
@@ -124,6 +125,7 @@ class ConversationService(AskService):
         super().__init__(
             root_path=root_path,
             private_home=private_home,
+            retriever=retriever,
             synthesizer=synthesizer,
             query_planner=query_planner,
             clock=clock,

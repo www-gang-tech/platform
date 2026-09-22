@@ -79,13 +79,14 @@ class AskService:
         *,
         root_path: Path | str = Path("."),
         private_home: Path | str | None = None,
+        retriever: Optional[Retriever] = None,
         synthesizer: Optional[Any] = None,
         query_planner: Optional[Any] = None,
         clock: Optional[date] = None,
     ):
         self.root_path = Path(root_path).resolve()
         self.paths = GangPaths.from_env(repo_root=self.root_path, gang_home=private_home)
-        self.retriever = Retriever(self.paths.index_path)
+        self.retriever = retriever or Retriever(self.paths.index_path)
         self.clock = clock
         self._synthesizer = synthesizer
         self._query_planner = query_planner

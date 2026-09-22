@@ -8,6 +8,7 @@ setup(
     package_dir={'core': 'core'},
     install_requires=[
         'click>=8.0.0',
+        'flask>=3.0.0',
         'pyyaml>=6.0',
         'markdown>=3.4.0',
         'jinja2>=3.1.0',
