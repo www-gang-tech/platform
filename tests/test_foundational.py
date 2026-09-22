@@ -56,7 +56,7 @@ class FoundationalTestCase(unittest.TestCase):
         credentials.start()
         self.addCleanup(credentials.stop)
         network = mock.patch(
-            "urllib.request.urlopen",
+            "core.ai_provider._urlopen",
             side_effect=AssertionError(
                 "Unexpected provider network call in foundational tests; inject a fake provider."
             ),

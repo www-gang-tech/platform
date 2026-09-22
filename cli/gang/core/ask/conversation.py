@@ -35,7 +35,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.ai_provider import ProviderError
+from core.ai_provider import ProviderError, ProviderTimeoutError
 
 from . import affiliation as affiliation_module
 from . import authority as authority_module
@@ -193,10 +193,13 @@ class ConversationService(AskService):
         for call in research.provider_calls:
             self._append_provider_call(call)
         if research.stopped_because == "provider-timeout":
+            # The director already swallowed the provider exception. Re-chain a
+            # timeout so callers can tell a timed-out model from a failed one
+            # without reading the message text.
             raise AskError(
                 "AI provider timed out during research. No additional model calls were made.",
                 provider_calls=self._provider_calls,
-            )
+            ) from ProviderTimeoutError("The research provider timed out")
 
         bundle = build_bundle(
             text,
@@ -650,6 +653,7 @@ class ConversationService(AskService):
             visibility=base.visibility,
             order=base.order,
             limit=base.limit,
+            date_field=base.date_field,
         )
 
     def _snapshot_rows(self, bundle: EvidenceBundle, rows: Sequence[Dict[str, Any]]):

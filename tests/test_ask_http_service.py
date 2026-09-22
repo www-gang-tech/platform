@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "cli" / "gang"))
 import cli as gang_cli
 from core.ai_provider import ProviderTimeoutError
 from core.ask import ConversationOptions, ConversationService, validate_plan
+from core.ask.session import Session
 from core.ask.http_service import (
     DEFAULT_QUEUE_DEPTH,
     AuditedRetriever,
@@ -296,7 +297,7 @@ class AskHTTPServiceTests(unittest.TestCase):
             raise TimeoutError("raw timeout detail /tmp/secret")
 
         with mock.patch("core.ai_provider.AnthropicClient", side_effect=AssertionError) as anthropic, mock.patch(
-            "urllib.request.urlopen", side_effect=fake_urlopen
+            "core.ai_provider._urlopen", side_effect=fake_urlopen
         ):
             client = self.app().test_client()
             created = self.post_ask(
@@ -375,6 +376,9 @@ class AskHTTPServiceTests(unittest.TestCase):
         validate_bind_host("localhost")
         validate_bind_host("100.64.1.2", approved_tailnet_cidrs=["100.64.0.0/10"])
         validate_local_ollama_endpoint("http://localhost:11434")
+        validate_local_ollama_endpoint("http://[::1]:11434")
+        validate_local_ollama_endpoint("http://127.0.0.2:11434")
+        validate_local_ollama_endpoint("http://[::ffff:127.0.0.1]:11434")
 
         for host in ("0.0.0.0", "192.168.1.10", "8.8.8.8"):
             with self.subTest(host=host):
@@ -382,6 +386,10 @@ class AskHTTPServiceTests(unittest.TestCase):
                     validate_bind_host(host)
         with self.assertRaises(HTTPConfigError):
             validate_local_ollama_endpoint("http://192.168.1.10:11434")
+        with self.assertRaises(HTTPConfigError):
+            validate_local_ollama_endpoint("http://[::ffff:8.8.8.8]:11434")
+        with self.assertRaises(HTTPConfigError):
+            validate_local_ollama_endpoint("http://127.0.0.1:11434%2f%40evil.com")
 
     def test_http_request_does_not_mutate_corpus_or_write_cache(self):
         watched = ("vault", "raw", "blobs", "entities", "ingestion")
@@ -657,6 +665,113 @@ class AskHTTPServiceTests(unittest.TestCase):
 
         self.assertEqual(len(digest), 64)
         self.assertNotIn(self.token, digest)
+
+    def test_created_date_filter_is_not_rewritten_as_updated(self):
+        old_id = "01a0bcc1-7f14-7b41-a4e3-f4dbd6a37e02"
+        write_markdown(
+            self.home / "vault/documents/old-note.md",
+            {
+                "id": old_id,
+                "type": "knowledge",
+                "source_type": "drive-file",
+                "title": "Legacy Packaging Note",
+                "visibility": "private",
+                "status": "active",
+                "source_id": "drive-file_old",
+                "created": "2020-01-15",
+                "updated": "2026-09-10",
+            },
+            "The legacy packaging note was written in January.\n",
+        )
+        PrivateKnowledgeIndex(root_path=self.root, private_home=self.home).build()
+        client = self.app().test_client()
+
+        created = self.post_ask(
+            client,
+            {
+                "question": "legacy packaging",
+                "level": "fast",
+                "filters": {
+                    "date_range": {"field": "created", "start": "2020-01-01", "end": "2020-01-31"},
+                },
+            },
+        )
+        result = self.await_job(client, created.json["job_id"]).json["result"]
+
+        self.assertEqual(result["plan"]["date_range"]["field"], "created")
+        self.assertEqual(result["plan"]["date_range"]["start"], "2020-01-01")
+        self.assertIn(old_id, [item["document_id"] for item in result["evidence"]])
+
+    def test_delete_during_a_turn_does_not_restore_the_session(self):
+        app = self.app()
+        client = app.test_client()
+        session_path = self.home / "sessions" / "demo.json"
+        first = self.post_ask(
+            client,
+            {"question": "Summarize certification", "level": "fast", "session_id": "demo"},
+        )
+        self.assertEqual(self.await_job(client, first.json["job_id"]).json["status"], "succeeded")
+        self.assertTrue(session_path.exists())
+
+        started = threading.Event()
+        release = threading.Event()
+        original = Session.record_turn
+
+        def blocking(session, *args, **kwargs):
+            started.set()
+            release.wait(timeout=5)
+            return original(session, *args, **kwargs)
+
+        with mock.patch.object(Session, "record_turn", blocking):
+            second = self.post_ask(
+                client,
+                {"question": "Summarize certification status", "level": "fast", "session_id": "demo"},
+            )
+            self.assertEqual(second.status_code, 202)
+            self.assertTrue(started.wait(timeout=5))
+            deleted = client.delete("/v1/sessions/demo", headers=self.auth())
+            self.assertEqual(deleted.status_code, 200)
+            self.assertTrue(deleted.json["deleted"])
+            self.assertFalse(session_path.exists())
+            release.set()
+            finished = self.await_job(client, second.json["job_id"])
+
+        self.assertEqual(finished.json["status"], "succeeded")
+        self.assertFalse(session_path.exists())
+
+        third = self.post_ask(
+            client,
+            {"question": "Summarize certification", "level": "fast", "session_id": "demo"},
+        )
+        self.assertEqual(self.await_job(client, third.json["job_id"]).json["status"], "succeeded")
+        self.assertTrue(session_path.exists())
+
+    def test_research_provider_timeout_is_a_gateway_timeout(self):
+        class TimeoutDirector:
+            provider_name = "ollama"
+            model = "qwen3:8b"
+            has_credentials = True
+            telemetry = {}
+
+            def decide(self, context):
+                raise ProviderTimeoutError("secret timeout detail /tmp/research")
+
+        service = ConversationService(
+            root_path=self.root,
+            private_home=self.home,
+            director=TimeoutDirector(),
+        )
+        client = self.app(server=AskHTTPServer(service=service)).test_client()
+        created = self.post_ask(
+            client,
+            {"question": "What should we do about certification?", "level": "normal"},
+        )
+        job = self.await_job(client, created.json["job_id"])
+
+        self.assertEqual(job.status_code, 504)
+        self.assertEqual(job.json["error"]["code"], "provider_timeout")
+        self.assertNotIn("secret timeout detail", json.dumps(job.json))
+        self.assertNotIn("/tmp/research", json.dumps(job.json))
 
 
 if __name__ == "__main__":

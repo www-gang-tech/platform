@@ -18,10 +18,11 @@ import secrets
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 from urllib.parse import urlparse
 
 from flask import Flask, Response, jsonify, request
@@ -269,6 +270,7 @@ class AskHTTPServer:
             )
         self.principal = principal
         self.audit_path = self.service.paths.home / "audit" / "http.jsonl"
+        self.service.sessions = GuardedSessionStore(self.service.sessions)
         self.jobs: Dict[str, Job] = {}
         self._queue: "queue.Queue[str]" = queue.Queue(maxsize=max(1, int(queue_depth or 1)))
         self._condition = threading.Condition()
@@ -428,7 +430,7 @@ class AskHTTPServer:
         payload = job.payload
         filters = payload.get("filters") or {}
         level = payload.get("level") or "normal"
-        session = self.service.sessions.load_or_create(payload.get("session_id"))
+        sessions = self.service.sessions
         options = _options_for(level)
         overrides = _overrides(payload["question"], filters)
 
@@ -438,13 +440,16 @@ class AskHTTPServer:
             if isinstance(retriever, AuditedRetriever)
             else _NullContext()
         )
-        with context:
-            result = self.service.converse(
-                payload["question"],
-                session=session,
-                overrides=overrides,
-                options=options,
-            )
+        pin = sessions.pin(payload.get("session_id")) if isinstance(sessions, GuardedSessionStore) else _NullContext()
+        with pin:
+            session = sessions.load_or_create(payload.get("session_id"))
+            with context:
+                result = self.service.converse(
+                    payload["question"],
+                    session=session,
+                    overrides=overrides,
+                    options=options,
+                )
 
         return _http_projection(result, request_id=job.request_id)
 
@@ -455,6 +460,57 @@ class _NullContext:
 
     def __exit__(self, *args):
         return False
+
+
+class GuardedSessionStore:
+    """Session store that lets an in-flight turn lose to a concurrent delete.
+
+    ``converse`` loads a session, works, then saves it. A delete that lands in
+    that gap has to stick: the turn may still answer, but it must not write the
+    deleted conversation back to disk. A later turn can start a new session
+    with the same id, because the pin records the epoch it began with.
+    """
+
+    def __init__(self, store: Any):
+        self._store = store
+        self._lock = threading.Lock()
+        self._epoch: Dict[str, int] = {}
+        self._local = threading.local()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    @contextmanager
+    def pin(self, session_id: Optional[str]) -> Iterator[None]:
+        if not session_id:
+            yield
+            return
+        with self._lock:
+            epoch = self._epoch.get(session_id, 0)
+        previous = getattr(self._local, "pin", None)
+        self._local.pin = (session_id, epoch)
+        try:
+            yield
+        finally:
+            if previous is None:
+                if hasattr(self._local, "pin"):
+                    del self._local.pin
+            else:
+                self._local.pin = previous
+
+    def delete(self, session_id: str) -> bool:
+        with self._lock:
+            self._store.path_for(session_id)
+            self._epoch[session_id] = self._epoch.get(session_id, 0) + 1
+            return self._store.delete(session_id)
+
+    def save(self, session: Any) -> Optional[Path]:
+        with self._lock:
+            pin = getattr(self._local, "pin", None)
+            session_id = getattr(session, "session_id", "")
+            if pin is not None and pin[0] == session_id and self._epoch.get(session_id, 0) != pin[1]:
+                return None
+            return self._store.save(session)
 
 
 def create_app(
@@ -650,14 +706,32 @@ def validate_bind_host(
 
 
 def validate_local_ollama_endpoint(endpoint: str) -> None:
-    parsed = urlparse(str(endpoint or ""))
+    try:
+        parsed = urlparse(str(endpoint or ""))
+        # A malformed port raises ValueError. That is a configuration error,
+        # not an unexpected crash while the service is starting.
+        parsed.port
+    except ValueError as exc:
+        raise HTTPConfigError("Ollama endpoint must be an http(s) loopback URL") from exc
     if parsed.scheme not in {"http", "https"}:
         raise HTTPConfigError("Ollama endpoint must be http(s)")
     if parsed.username or parsed.password:
         raise HTTPConfigError("Ollama endpoint credentials are not allowed")
     host = parsed.hostname or ""
-    if host not in {"127.0.0.1", "localhost"}:
-        raise HTTPConfigError("HTTP service may use only a local loopback Ollama endpoint")
+    if host == "localhost" or _loopback_host(host):
+        return
+    raise HTTPConfigError("HTTP service may use only a local loopback Ollama endpoint")
+
+
+def _loopback_host(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if address.is_loopback:
+        return True
+    mapped = getattr(address, "ipv4_mapped", None)
+    return bool(mapped is not None and mapped.is_loopback)
 
 
 def _parse_ask_request(value: Any) -> Dict[str, Any]:
@@ -724,6 +798,7 @@ def _overrides(question: str, filters: Dict[str, Any]) -> PlanOverrides:
         visibility=filters.get("visibility"),
         order=filters.get("order"),
         limit=max(1, min(parsed_limit, MAX_LIMIT)),
+        date_field=str(date_range.get("field") or ""),
     )
 
 
@@ -812,23 +887,42 @@ def _caused_by_timeout(exc: BaseException) -> bool:
     return False
 
 
+_APPEND_LOCKS: Dict[str, threading.Lock] = {}
+_APPEND_GUARD = threading.Lock()
+
+
+def _append_lock(path: Path) -> threading.Lock:
+    key = str(path)
+    with _APPEND_GUARD:
+        lock = _APPEND_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _APPEND_LOCKS[key] = lock
+        return lock
+
+
 def _append_jsonl_private(path: Path | str, record: Dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    opened = False
-    try:
+    line = json.dumps(record, sort_keys=True, default=str) + "\n"
+    # Auth failures and the worker append to the same file. One write() under
+    # PIPE_BUF is atomic; holding the lock keeps a long question from splitting
+    # another record in half.
+    with _append_lock(target):
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        opened = False
         try:
-            os.chmod(target, 0o600)
-        except OSError:
-            pass
-        opened = True
-        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
-    except Exception:
-        if not opened:
-            os.close(descriptor)
-        raise
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
+            opened = True
+            with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
+                handle.write(line)
+        except Exception:
+            if not opened:
+                os.close(descriptor)
+            raise
 
 
 def _block_seconds(value: Any) -> float:

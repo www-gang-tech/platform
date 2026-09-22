@@ -615,6 +615,25 @@ def _redact(exc: Exception) -> str:
     return re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "sk-***", str(exc))
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """A local model endpoint must not forward the prompt anywhere else."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ProviderError(
+            "Ollama returned a redirect, which was not followed. "
+            "No remote fallback was used."
+        )
+
+
+# No env proxy, and no redirects. Either one would send the evidence packet
+# off the loopback host the caller configured.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RefuseRedirects())
+
+
+def _urlopen(request: urllib.request.Request, timeout: float):
+    return _OPENER.open(request, timeout=timeout)
+
+
 def _post_json(url: str, payload: Dict[str, Any], *, timeout: float) -> Dict[str, Any]:
     request = urllib.request.Request(
         url,
@@ -632,7 +651,7 @@ def _get_json(url: str, *, timeout: float) -> Dict[str, Any]:
 
 def _open_json(request: urllib.request.Request, *, timeout: float) -> Dict[str, Any]:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _urlopen(request, timeout) as response:
             data = json.loads(response.read().decode("utf-8") or "{}")
     except (TimeoutError, socket.timeout) as exc:
         raise ProviderTimeoutError(_ollama_help(str(exc))) from exc

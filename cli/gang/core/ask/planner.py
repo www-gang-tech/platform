@@ -25,6 +25,7 @@ from core.entities.resolver import AMBIGUOUS, RESOLVED, EntityResolver
 
 from . import temporal
 from .plan import (
+    DATE_FIELDS,
     DEFAULT_LIMIT,
     MAX_TEXT_QUERIES,
     QueryPlan,
@@ -81,6 +82,7 @@ class PlanOverrides:
     visibility: Optional[str] = None
     order: Optional[str] = None
     limit: int = DEFAULT_LIMIT
+    date_field: str = ""
 
 
 @dataclass(frozen=True)
@@ -165,7 +167,11 @@ class DeterministicPlanner:
         since = temporal.resolve_bound(overrides.since, clock=self.clock) if overrides.since else ""
         until = temporal.resolve_bound(overrides.until, clock=self.clock) if overrides.until else ""
         if since or until:
-            return {"field": "updated", "start": since, "end": until}
+            # CLI bounds are recency bounds. An explicit field, such as the HTTP
+            # date_range.field the caller already validated, must survive; otherwise
+            # a created-date filter is silently applied to updated.
+            field = overrides.date_field if overrides.date_field in DATE_FIELDS else "updated"
+            return {"field": field, "start": since, "end": until}
         return temporal.resolve_question_range(question, clock=self.clock)
 
     def _resolve_names(self, question: str):
