@@ -3,6 +3,7 @@ import os
 import stat
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -120,6 +121,7 @@ class AskHTTPServiceTests(unittest.TestCase):
 
         self._temp = TemporaryDirectory()
         self.addCleanup(self._temp.cleanup)
+        self.addCleanup(time.sleep, 0.05)
         self.root = Path(self._temp.name) / "repo"
         self.home = Path(self._temp.name) / "gang-home"
         self.token = "stage1-test-token"
@@ -734,6 +736,81 @@ class AskHTTPServiceTests(unittest.TestCase):
         contents = directory.path.read_text(encoding="utf-8")
         self.assertNotIn(daniel_plaintext, contents)
         self.assertNotIn(frank_plaintext, contents)
+
+    def test_brain_serve_help_works(self):
+        runner = CliRunner()
+        result = runner.invoke(gang_cli.cli, ["brain", "serve", "--help"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("--host", result.output)
+        self.assertIn("--port", result.output)
+        self.assertIn("--queue-depth", result.output)
+
+    def test_brain_serve_defaults_to_loopback_port_and_queue_depth(self):
+        runner = CliRunner()
+        fake_app = object()
+        with runner.isolated_filesystem():
+            Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
+            with mock.patch("core.ask.http_service.create_app", return_value=fake_app) as create_app_mock, mock.patch.object(
+                gang_cli, "_run_brain_ask_server"
+            ) as run_mock:
+                result = runner.invoke(gang_cli.cli, ["brain", "serve"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        create_app_mock.assert_called_once()
+        self.assertEqual(create_app_mock.call_args.kwargs["bind_host"], "127.0.0.1")
+        self.assertEqual(create_app_mock.call_args.kwargs["queue_depth"], 8)
+        run_mock.assert_called_once_with(fake_app, host="127.0.0.1", port=8787)
+        self.assertIn("http://127.0.0.1:8787", result.output)
+
+    def test_brain_serve_rejects_wildcard_before_serving(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
+            with mock.patch("core.ask.http_service.create_app") as create_app_mock, mock.patch.object(
+                gang_cli, "_run_brain_ask_server"
+            ) as run_mock:
+                result = runner.invoke(gang_cli.cli, ["brain", "serve", "--host", "0.0.0.0"])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("HTTP service may bind only to loopback", result.output)
+        create_app_mock.assert_not_called()
+        run_mock.assert_not_called()
+
+    def test_brain_serve_rejects_lan_and_public_hosts_before_serving(self):
+        runner = CliRunner()
+        for host in ("192.168.1.10", "8.8.8.8"):
+            with self.subTest(host=host):
+                with runner.isolated_filesystem():
+                    Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
+                    with mock.patch("core.ask.http_service.create_app") as create_app_mock, mock.patch.object(
+                        gang_cli, "_run_brain_ask_server"
+                    ) as run_mock:
+                        result = runner.invoke(gang_cli.cli, ["brain", "serve", "--host", host])
+
+                self.assertNotEqual(result.exit_code, 0)
+                self.assertIn("HTTP service may bind only to loopback", result.output)
+                create_app_mock.assert_not_called()
+                run_mock.assert_not_called()
+
+    def test_brain_serve_valid_loopback_invokes_ask_app_and_server_without_real_socket(self):
+        runner = CliRunner()
+        fake_app = object()
+        with runner.isolated_filesystem():
+            Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
+            with mock.patch("core.ask.http_service.create_app", return_value=fake_app) as create_app_mock, mock.patch.object(
+                gang_cli, "_run_brain_ask_server"
+            ) as run_mock:
+                result = runner.invoke(
+                    gang_cli.cli,
+                    ["brain", "serve", "--host", "localhost", "--port", "8799", "--queue-depth", "3"],
+                )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        create_app_mock.assert_called_once()
+        self.assertEqual(create_app_mock.call_args.kwargs["bind_host"], "localhost")
+        self.assertEqual(create_app_mock.call_args.kwargs["queue_depth"], 3)
+        run_mock.assert_called_once_with(fake_app, host="localhost", port=8799)
 
     def test_http_sessions_are_structurally_isolated_per_principal(self):
         _, daniel_token, frank_token = self.create_stage2_principals()

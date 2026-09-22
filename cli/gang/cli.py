@@ -1172,6 +1172,41 @@ def brain_migrate(from_path, apply_changes, output_format):
         click.echo("Dry run only. Re-run with --apply to copy files.")
 
 
+@brain.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Loopback host to bind")
+@click.option("--port", default=8787, show_default=True, type=click.IntRange(1, 65535), help="Port to bind")
+@click.option("--queue-depth", default=8, show_default=True, type=click.IntRange(1), help="Ask job queue depth")
+def brain_serve(host, port, queue_depth):
+    """Serve the authenticated private Ask web chat."""
+    try:
+        from core.ask.http_service import HTTPConfigError, create_app, validate_bind_host
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ask.http_service import HTTPConfigError, create_app, validate_bind_host
+
+    try:
+        validate_bind_host(host)
+        app = create_app(
+            root_path=Path.cwd(),
+            bind_host=host,
+            queue_depth=queue_depth,
+        )
+    except HTTPConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"GANG Ask serving at http://{host}:{port}")
+    click.echo("Press Ctrl+C to stop")
+    try:
+        _run_brain_ask_server(app, host=host, port=port)
+    except KeyboardInterrupt:
+        click.echo("\nShutting down GANG Ask")
+
+
+def _run_brain_ask_server(app, *, host, port):
+    app.run(host=host, port=port, threaded=True, use_reloader=False)
+
+
 @ingest.group("gmail", invoke_without_command=True)
 @click.option("--since", help="Bounded first sync range, such as 30d or 2026-01-31")
 @click.pass_context

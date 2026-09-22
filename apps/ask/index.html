@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GANG Ask</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <section id="connect-view" class="connect-view" aria-labelledby="connect-title">
+      <div class="connect-panel">
+        <p class="kicker">GANG private Ask</p>
+        <h1 id="connect-title">Connect this device</h1>
+        <form id="connect-form" class="connect-form">
+          <label for="token-input">Invite or device token</label>
+          <input id="token-input" name="token" type="password" autocomplete="off" spellcheck="false" required>
+          <button type="submit">Connect</button>
+        </form>
+        <p id="connect-error" class="form-error" role="alert"></p>
+      </div>
+    </section>
+
+    <section id="chat-view" class="chat-view hidden" aria-label="GANG chat">
+      <aside class="history" aria-label="Session history">
+        <div class="history-top">
+          <div>
+            <p class="kicker">Signed in</p>
+            <p id="principal-name" class="principal"></p>
+          </div>
+          <button id="forget-device" class="quiet-button" type="button">Forget this device</button>
+        </div>
+        <button id="new-conversation" class="new-button" type="button">New conversation</button>
+        <nav id="session-list" class="session-list" aria-label="Conversations"></nav>
+      </aside>
+
+      <section class="conversation" aria-label="Conversation">
+        <div id="thread" class="thread" aria-live="polite"></div>
+        <form id="composer" class="composer">
+          <fieldset class="level-picker">
+            <legend>Response level</legend>
+            <label>
+              <input type="radio" name="level" value="fast">
+              <span>Fast</span>
+              <small>deterministic lookups</small>
+            </label>
+            <label>
+              <input type="radio" name="level" value="normal" checked>
+              <span>Normal</span>
+              <small>local synthesis</small>
+            </label>
+          </fieldset>
+          <div class="composer-row">
+            <label class="sr-only" for="question-input">Message</label>
+            <textarea id="question-input" rows="2" placeholder="Ask GANG..." required></textarea>
+            <button id="send-button" type="submit">Send</button>
+          </div>
+          <p id="answer-status" class="answer-status" role="status"></p>
+        </form>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

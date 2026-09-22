@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 
-from flask import Flask, Response, g, jsonify, request
+from flask import Flask, Response, g, jsonify, request, send_file
 from werkzeug.exceptions import HTTPException
 
 from core.ai_provider import AIConfig, ProviderTimeoutError
@@ -49,6 +49,17 @@ TOKEN_HASH_ENV = "GANG_HTTP_TOKEN_SHA256"
 
 REQUEST_FIELDS = {"question", "session_id", "level", "filters"}
 LEVELS = {"fast", "normal"}
+CSP_HEADER = (
+    "default-src 'self'; "
+    "connect-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self'; "
+    "img-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none';"
+)
+ASK_STATIC_FILES = {"app.js", "style.css"}
 
 FILTER_FIELDS = {
     "document_types",
@@ -520,7 +531,7 @@ def create_app(
 
     @app.before_request
     def _authenticate():
-        if request.path == "/healthz":
+        if request.path in {"/", "/healthz", "/app.js", "/style.css"}:
             return None
         principal = _resolve_authorization(
             request.headers.get("Authorization", ""),
@@ -542,6 +553,11 @@ def create_app(
             )
         g.principal = principal
         return None
+
+    @app.after_request
+    def _security_headers(response: Response):
+        response.headers["Content-Security-Policy"] = CSP_HEADER
+        return response
 
     @app.errorhandler(HTTPRequestError)
     def _handle_request_error(exc: HTTPRequestError):
@@ -571,6 +587,16 @@ def create_app(
     @app.get("/healthz")
     def healthz():
         return jsonify({"status": "ok"})
+
+    @app.get("/")
+    def ask_index():
+        return send_file(_ask_app_path("index.html"))
+
+    @app.get("/<path:filename>")
+    def ask_static(filename: str):
+        if filename not in ASK_STATIC_FILES:
+            return _error("not_found", "No such route.", status=404)
+        return send_file(_ask_app_path(filename))
 
     @app.get("/v1/health")
     def health():
@@ -698,6 +724,14 @@ def _principal_directory_for(
     except PrincipalError as exc:
         raise HTTPConfigError("Valid principal directory is required") from exc
     return directory
+
+
+def _ask_app_path(filename: str) -> Path:
+    repo_root = Path(__file__).resolve().parents[4]
+    path = repo_root / "apps" / "ask" / filename
+    if not path.exists():
+        raise HTTPConfigError("Ask frontend asset is missing")
+    return path
 
 
 def _resolve_authorization(header: str, directory: Any) -> Optional[Principal]:
