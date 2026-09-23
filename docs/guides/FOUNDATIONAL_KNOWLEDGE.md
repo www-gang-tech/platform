@@ -40,8 +40,10 @@ Longer authored account, if the one-paragraph description is not enough.
 
 A record with neither is still a perfectly valid identity — it anchors
 mentions and relationships — it simply has nothing authoritative to say about
-what the thing is. It is then **not** foundational, and nothing is invented to
-fill the gap.
+what the thing is. It is then **not** foundational, and no description is
+invented to fill the gap. What happens instead is a
+[derived profile](#derived-profiles-when-nobody-has-authored-one): a
+reconstruction assembled from cited evidence and labelled as one.
 
 ---
 
@@ -150,6 +152,107 @@ a tiebreak that never deletes evidence, and the reason is recorded verbatim:
 
 ---
 
+## Derived profiles: when nobody has authored one
+
+Most entities never get a description. Requiring one before *"who is Frank?"*
+could be answered was too strict: the corpus often knows exactly who Frank is
+— a recorded relationship, an address on a known domain, a sentence in a board
+note saying so — and refusing to say any of it is not caution, it is silence.
+
+So when a definitional question resolves to an entity with no authored
+description, the answer is a **derived profile**: a short list of statements
+assembled from explicit evidence, each one cited, the whole thing labelled as a
+reconstruction.
+
+```
+Derived profile — reconstructed from cited corpus evidence. Nobody has
+authored a description of this entity.
+
+Frank Godchaux (person)
+- The record states: "Frank Godchaux is a co-founder of GANG..." [1]
+- Recorded relationship: Frank Godchaux is affiliated with GANG. [1]
+- Uses the email address frank@gang.example, which is on GANG's canonical
+  email domain. [1]
+- Appears in 4 documents in the private corpus between 2026-03-02 and
+  2026-09-18. [1][2][3][4]
+
+This reconstruction is generated and rebuildable, not canonical knowledge.
+`gang entity describe` authors the canonical account, which takes precedence.
+```
+
+### What it may read
+
+Four kinds of evidence, strongest first:
+
+| kind | what it is |
+| --- | --- |
+| `statement` | a sentence in a document that identifies the entity outright, **quoted verbatim** and attributed |
+| `relationship` | an evidence-backed relationship assertion, using the controlled predicate vocabulary |
+| `identifier` | a canonical email or domain on the record, **attested in a cited document** |
+| `involvement` | where and when the entity appears — presence, and nothing more |
+
+### What it may not conclude
+
+Participation. Appearing in an attendee list, a cc line, or five meetings in a
+row supports *"appears in the record"* and supports nothing else. There is no
+path from a pattern of attendance to a title, a job, an employer, or an
+ownership stake — the same rule `ask/affiliation.py` holds for participant
+bands, applied to identity.
+
+Two rules do the work:
+
+* A person needs a **named role or relationship noun** in the complement, so
+  *"Frank is out Friday"* is not an identity. A non-person needs a determiner,
+  so *"GANG is scheduled for Friday"* is not a definition.
+* The name has to sit **immediately before the verb**. A proximity window
+  would read *"With Dana copied, Frank is the certification owner"* as a
+  statement about Dana for sharing the sentence — which is precisely how
+  someone acquires a job they do not hold.
+
+Sentences on a header line (`Attendees:`, `To:`, `Cc:`) are skipped entirely.
+And when nothing in the evidence states a role, the profile says so in as many
+words rather than leaving the silence to be read as discretion.
+
+### Generated, rebuildable, never canonical
+
+Derived profiles live in their own SQLite database under
+`GANG_HOME/generated/entity-profiles.sqlite`. Nothing is ever written back to
+the entity's Markdown: a generated description filed as canonical knowledge is
+exactly the new company fact this whole layer exists to prevent.
+
+```bash
+# Optional. Precompute every profile the evidence supports.
+gang entity profiles build
+gang entity profiles build --type person --force
+
+# Inspect one, building it if needed.
+gang entity profiles show <entity-id>
+
+# Throw them all away. They rebuild on demand.
+gang entity profiles clear
+```
+
+Precomputing only buys speed. `ask` builds the same profile lazily when none
+has been precomputed, and caches it against a fingerprint of the evidence it
+was built from, so changed evidence and a changed builder both invalidate it.
+Deleting the file loses nothing.
+
+No model is called on this path, at any point. The statements are structured
+records and quoted source text; rendering them needs string formatting rather
+than language generation.
+
+### Precedence
+
+1. **Authored description** — if one exists, it is the answer, and no profile
+   is derived at all.
+2. **Derived profile** — assembled from cited evidence, labelled as derived.
+3. **No-evidence response** — when the evidence supports neither.
+
+Authoring a description later takes precedence immediately, and the derived
+profile for that entity is dropped from the generated store on the next build.
+
+---
+
 ## Entity types and reclassification
 
 The ontology is small and deliberate: `person`, `company`, `project`,
@@ -185,7 +288,9 @@ for a worked example, including a rehearsal against a copy of the real corpus.
 ## What this does not do
 
 It does not make the corpus self-describing. Foundational knowledge exists
-only where someone wrote it. Asked about an entity nobody has described, `ask`
-says what the documents say and does not pretend to a definition — which is
-the same contract as everywhere else: **GANG may generate new ideas; it may
-not generate new company facts.**
+only where someone wrote it, and a derived profile is not a quiet substitute
+for one: it is a reconstruction, it says so, it cites every line, and it
+refuses to turn attendance into a role. Asked about an entity nobody has
+described, `ask` reports what the documents actually state and does not
+promote it into a definition — which is the same contract as everywhere else:
+**GANG may generate new ideas; it may not generate new company facts.**

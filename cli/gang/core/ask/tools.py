@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from core import enrichment_state
 
 from . import affiliation as affiliation_module
+from . import assignments as assignments_module
 from . import timeline as timeline_module
 from .plan import MAX_LIMIT, QueryPlanError, validate_plan
 from .retrieval import Retriever
@@ -233,6 +234,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
             Parameter("topic", STRING, "Restrict to action items mentioning this term."),
             Parameter("entity_id", ID, "Restrict to documents mentioning this entity."),
             Parameter("limit", INTEGER, "Maximum documents to draw from.", maximum=MAX_TOOL_RESULTS),
+        ),
+    ),
+    ToolSpec(
+        "find_assignments",
+        "Tasks explicitly assigned to one person: owner fields, owner tables, action items, "
+        "and sentences where the person is the subject of the obligation. Never attendance.",
+        (
+            Parameter("person", STRING, "The person's name as written, if no entity id resolves.", required=True),
+            Parameter("entity_id", ID, "The person's canonical entity id, when one resolved."),
+            Parameter("since", DATE, "Earliest deadline or evidence date to include (YYYY-MM-DD)."),
+            Parameter("until", DATE, "Latest deadline or evidence date to include (YYYY-MM-DD)."),
+            Parameter("limit", INTEGER, "Maximum tasks.", maximum=MAX_TOOL_RESULTS),
         ),
     ),
     ToolSpec(
@@ -666,6 +679,105 @@ class ResearchTools:
 
     def _tool_find_action_items(self, values: Dict[str, Any]) -> ToolResult:
         return self._structured("action_items", "find_action_items", values)
+
+    def _tool_find_assignments(self, values: Dict[str, Any]) -> ToolResult:
+        """Work the evidence explicitly assigns to one person. Deterministic.
+
+        Reads widely — the person's name across the newest documents, and
+        alongside the words owner lists and task mail use — because a task list
+        is a breadth question. Returns tasks, and only the documents those
+        tasks cite.
+        """
+        person = self._assignment_person(values)
+        rows: List[Dict[str, Any]] = []
+        seen = set()
+        for plan in self._assignment_plans(person):
+            for row in self.retriever.retrieve(plan):
+                if row["document_id"] not in seen:
+                    seen.add(row["document_id"])
+                    rows.append(row)
+        # Structured action items live in enrichment, whether or not the body
+        # happens to mention the owner in a searchable way.
+        for row in self.retriever.enriched_documents(limit=50):
+            if row["document_id"] not in seen:
+                seen.add(row["document_id"])
+                rows.append(row)
+
+        everything = assignments_module.gather(
+            rows,
+            person,
+            since=values.get("since", ""),
+            until=values.get("until", ""),
+        )
+        found = everything[: int(values.get("limit") or self.max_results)]
+
+        # The primary source of every task first, then corroboration, so the
+        # document bound never costs a task its only citation.
+        cited: List[str] = []
+        depth = max((len(item.document_ids) for item in found), default=0)
+        for index in range(depth):
+            for item in found:
+                if index < len(item.document_ids) and item.document_ids[index] not in cited:
+                    cited.append(item.document_ids[index])
+
+        return ToolResult(
+            tool="find_assignments",
+            arguments=values,
+            documents=self.retriever.documents(cited[: self.max_results]),
+            # Always one record, even when empty: "nothing is assigned to X"
+            # is an answer about X, not an absence of evidence.
+            records=[
+                {
+                    "person": person.to_dict(),
+                    "assignments": [item.to_dict() for item in found],
+                    "total": len(everything),
+                    "since": values.get("since", ""),
+                    "until": values.get("until", ""),
+                }
+            ],
+            note=(
+                "Tasks the evidence explicitly assigns to this person: owner fields, owner "
+                "tables, derived action items, and sentences naming them as the subject of "
+                "the obligation. Attendance and mentions are not assignments."
+                if found
+                else "No task in the evidence is explicitly assigned to this person."
+            ),
+        )
+
+    def _assignment_person(self, values: Dict[str, Any]) -> "assignments_module.Person":
+        entity_id = values.get("entity_id", "")
+        record = self.retriever.entity(entity_id) if entity_id else None
+        if record:
+            return assignments_module.person_from(
+                record["name"],
+                aliases=record.get("aliases") or [],
+                resolved=True,
+                entity_id=record["entity_id"],
+            )
+        return assignments_module.person_from(values["person"])
+
+    def _assignment_plans(self, person: "assignments_module.Person"):
+        plans = []
+        for form in person.forms[:3]:
+            plans.append(self._scan_plan([form], "recency"))
+            for cue in assignments_module.SEARCH_CUES:
+                plans.append(self._scan_plan([form, cue], "relevance"))
+        return plans
+
+    def _scan_plan(self, text_queries: List[str], order: str):
+        """A retrieval plan at the full index bound, for breadth scans."""
+        try:
+            return validate_plan(
+                {
+                    "version": "1",
+                    "query": "assignment scan",
+                    "text_queries": text_queries,
+                    "order": order,
+                    "limit": MAX_LIMIT,
+                }
+            )
+        except QueryPlanError as exc:
+            raise ToolError(str(exc)) from exc
 
     def _tool_find_open_questions(self, values: Dict[str, Any]) -> ToolResult:
         return self._structured("unresolved_questions", "find_open_questions", values)

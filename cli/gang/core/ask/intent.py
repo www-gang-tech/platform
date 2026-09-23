@@ -35,6 +35,7 @@ COMPARE = "compare"
 EXPLAIN = "explain"
 DECISION = "decision"
 AFFILIATION = "affiliation"
+OWNERSHIP = "ownership"
 REPORT = "report"
 ADVISORY = "advisory"
 PLAN = "plan"
@@ -57,6 +58,7 @@ POLICIES = (
     EXPLAIN,
     DECISION,
     AFFILIATION,
+    OWNERSHIP,
     REPORT,
     ADVISORY,
     PLAN,
@@ -87,6 +89,7 @@ POLICY_MODES = {
     EXPLAIN: EVIDENCE,
     DECISION: EVIDENCE,
     AFFILIATION: EVIDENCE,
+    OWNERSHIP: EVIDENCE,
     REPORT: EVIDENCE,
     DISCOVER: EVIDENCE,
     RECEIPTS: EVIDENCE,
@@ -99,10 +102,92 @@ POLICY_MODES = {
 
 # ------------------------------------------------------------------ patterns
 
+#: Who an ownership question is about: a capitalized name as the user typed
+#: it, or the first person. Case-sensitive on purpose, so "what does it need
+#: to do?" and "what do we need to do?" are not read as questions about a
+#: person called "it" or "we".
+_NAME = r"[A-Z][\w-]*(?:['’][A-Z][\w-]*)?(?:\s+[A-Z][\w-]*(?:['’][A-Z][\w-]*)?){0,2}"
+_SUBJECT = r"(?P<subject>\b[Ii]\b|\b[Mm]e\b|" + _NAME + r")"
+_POSSESSIVE = r"(?:(?P<subject>\b[Mm]y)\b|(?P<owner>" + _NAME + r")['’]s)"
+
+#: Capitalized words that open a clause rather than name a person.
+_NOT_A_SUBJECT = frozenset(
+    """
+    it we they he she you this that these those the there everyone anyone someone
+    everybody anybody somebody nobody what who which
+    """.split()
+)
+
+
+class _AnyOf:
+    """Several patterns read as one table entry; the first to match wins.
+
+    Ownership phrasing puts the person in different places ("what does X need
+    to do", "X's action items", "what is due for X"), and a regex group can
+    only be named once per pattern, so each shape is its own pattern.
+    """
+
+    def __init__(self, *patterns: re.Pattern):
+        self.patterns = patterns
+
+    def search(self, text: str):
+        for pattern in self.patterns:
+            for found in pattern.finditer(text):
+                if _subject_of(found).casefold() not in _NOT_A_SUBJECT:
+                    return found
+        return None
+
+
+def _subject_of(found: "re.Match") -> str:
+    groups = found.groupdict()
+    return (groups.get("subject") or groups.get("owner") or "").strip()
+
+
+#: Work explicitly assigned to one person. Ahead of affiliation, decision,
+#: and definition, because "what does Daniel need to do?" looks like all three
+#: to a looser pattern — "what does X … do" is a definition shape, and a bare
+#: "action items" is a decision shape — and is none of them: it asks for a
+#: task list scoped to an owner. It still sits behind advice and planning, so
+#: "what should I do this week?" keeps asking for a recommendation.
+_OWNERSHIP = _AnyOf(
+    re.compile(
+        r"(?i:\bwhat\s+(?:else\s+)?(?:does|do|did)\s+)" + _SUBJECT
+        + r"(?i:\s+(?:still\s+)?(?:need|have|has|got)\s+to\s+(?:do|deliver|finish|handle|get\s+done)\b)"
+    ),
+    re.compile(
+        r"(?i:\bwhat\s+(?:is|are|am|was|were)\s+)" + _SUBJECT
+        + r"(?i:\s+(?:supposed|expected|meant|scheduled|assigned|due)\s+to\s+(?:do|deliver|handle|finish)\b)"
+    ),
+    re.compile(
+        r"(?i:\bwhat\s+(?:is|are|am)\s+)" + _SUBJECT
+        + r"(?i:\s+(?:responsible|accountable|on\s+the\s+hook)\s+for\b)"
+    ),
+    re.compile(r"(?i:\bwhat\s+(?:does|do)\s+)" + _SUBJECT + r"(?i:\s+own\b)"),
+    re.compile(
+        r"(?i:\bwhat(?:'s|\s+is|\s+are)?\s+(?:still\s+|currently\s+)?"
+        r"(?:due|assigned|outstanding|open|pending|overdue)\s+(?:for|to|from)\s+)" + _SUBJECT + r"\b"
+    ),
+    re.compile(
+        r"(?i:\b(?:action\s+items?|tasks?|to-?dos?|deliverables?|assignments?)\s+"
+        r"(?:for|assigned\s+to|owned\s+by|on)\s+)" + _SUBJECT + r"\b"
+    ),
+    re.compile(
+        r"(?i:\bwhat\s+(?:tasks?|action\s+items?|deliverables?)\s+(?:does|do|is|are|am)\s+)" + _SUBJECT
+        + r"(?i:\s+(?:have|has|own|owns|assigned|responsible|working))"
+    ),
+    re.compile(
+        _POSSESSIVE
+        + r"(?i:\s+(?:(?:open|current|outstanding|pending|remaining|upcoming|next)\s+)?"
+        r"(?:action\s+items?|tasks?|to-?dos?|to-?do\s+list|deliverables?|assignments?|"
+        r"responsibilities|plate)\b)"
+    ),
+)
+
+
 #: Ordered. The first pattern that matches wins, so the list runs from the most
 #: specific intent to the most general. Every entry is anchored on phrasing a
 #: person would actually type.
-_PATTERNS: Tuple[Tuple[str, re.Pattern], ...] = (
+_PATTERNS: Tuple[Tuple[str, Any], ...] = (
     (
         RECEIPTS,
         re.compile(
@@ -181,6 +266,7 @@ _PATTERNS: Tuple[Tuple[str, re.Pattern], ...] = (
             re.IGNORECASE,
         ),
     ),
+    (OWNERSHIP, _OWNERSHIP),
     (
         AFFILIATION,
         re.compile(
@@ -345,6 +431,10 @@ STRUCTURED_POLICIES = frozenset({DECISION, DISCOVER, PLAN})
 #: signals rather than from a roster document.
 PEOPLE_POLICIES = frozenset({AFFILIATION})
 
+#: Policies answered from work explicitly assigned to one person, never from
+#: participation and never from an authored description (§ ownership).
+ASSIGNMENT_POLICIES = frozenset({OWNERSHIP})
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -355,6 +445,10 @@ class Intent:
     scenario: bool = False
     listing: bool = False
     matched: str = ""
+    #: Whom an ownership question is about, exactly as written ("Daniel",
+    #: "I", "me"). Resolved to a person later, against canonical names and
+    #: verified aliases; never guessed here.
+    subject: str = ""
 
     @property
     def allows_recommendation(self) -> bool:
@@ -368,6 +462,11 @@ class Intent:
     def wants_people(self) -> bool:
         """Whether this question is about who is involved with something."""
         return self.policy in PEOPLE_POLICIES
+
+    @property
+    def wants_assignments(self) -> bool:
+        """Whether this question asks for the work assigned to one person."""
+        return self.policy in ASSIGNMENT_POLICIES
 
     @property
     def wants_identity(self) -> bool:
@@ -389,6 +488,7 @@ class Intent:
             "scenario": self.scenario,
             "listing": self.listing,
             "matched": self.matched,
+            "subject": self.subject,
         }
 
 
@@ -400,7 +500,7 @@ def infer_intent(question: str, *, override_mode: Optional[str] = None) -> Inten
     what synthesis may generate, and cannot come from retrieved content.
     """
     text = (question or "").strip()
-    policy, matched = _match_policy(text)
+    policy, matched, subject = _match_policy(text)
     mode = POLICY_MODES.get(policy, EVIDENCE)
 
     if override_mode:
@@ -414,15 +514,17 @@ def infer_intent(question: str, *, override_mode: Optional[str] = None) -> Inten
         scenario=bool(_SCENARIO_PATTERN.search(text)),
         listing=bool(_LISTING_PATTERN.search(text)),
         matched=matched,
+        subject=subject,
     )
 
 
-def _match_policy(text: str) -> Tuple[str, str]:
+def _match_policy(text: str) -> Tuple[str, str, str]:
     for policy, pattern in _PATTERNS:
         found = pattern.search(text)
         if found:
-            return policy, found.group(0).strip()
-    return LOOKUP, ""
+            subject = _subject_of(found) if policy == OWNERSHIP else ""
+            return policy, found.group(0).strip(), subject
+    return LOOKUP, "", ""
 
 
 # ------------------------------------------------------------- explanations
@@ -437,6 +539,7 @@ POLICY_DESCRIPTIONS = {
     EXPLAIN: "Explain a cause, using evidence for each premise.",
     DECISION: "Retrieve decisions, action items, and open questions structurally.",
     AFFILIATION: "Assemble who is involved, from participation signals rather than a roster.",
+    OWNERSHIP: "List the work explicitly assigned to one person, from owners stated in the evidence.",
     REPORT: "Summarize a topic across the evidence found.",
     ADVISORY: "Recommend a course of action, grounded in cited facts.",
     PLAN: "Propose a concrete plan, grounded in cited facts.",
@@ -460,4 +563,5 @@ def describe(intent: Intent) -> Dict[str, str]:
         "mode": intent.mode,
         "mode_description": MODE_DESCRIPTIONS.get(intent.mode, ""),
         "matched": intent.matched,
+        "subject": intent.subject,
     }

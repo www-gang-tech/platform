@@ -31,6 +31,14 @@ from .model import (
     MergeConflictError,
     normalize_name,
 )
+from .profiles import (
+    PROFILE_BUILDER_VERSION,
+    DerivedProfile,
+    EntityProfileService,
+    ProfileStatement,
+    ProfileStore,
+    build_profile,
+)
 from .proposals import (
     AIProviderError,
     AnthropicEntityProposer,
@@ -51,6 +59,7 @@ __all__ = [
     "AnthropicEntityProposer",
     "Candidate",
     "DeterministicEntityProposer",
+    "DerivedProfile",
     "DuplicateEntityError",
     "ENTITY_DIRECTORIES",
     "ENTITY_SCHEMA_SQL",
@@ -61,6 +70,7 @@ __all__ = [
     "EntityError",
     "EntityGraph",
     "EntityNotFoundError",
+    "EntityProfileService",
     "EntityProposalError",
     "EntityProposalService",
     "EntityRecord",
@@ -71,6 +81,9 @@ __all__ = [
     "MergeConflictError",
     "PREDICATES",
     "PREDICATE_VOCABULARY_VERSION",
+    "PROFILE_BUILDER_VERSION",
+    "ProfileStatement",
+    "ProfileStore",
     "ProposalValidationError",
     "PublicDocumentError",
     "RESOLVED",
@@ -78,6 +91,7 @@ __all__ = [
     "StaleProposalError",
     "UNRESOLVED",
     "build_entity_tables",
+    "build_profile",
     "collect_candidates",
     "normalize_mention",
     "normalize_name",

@@ -71,6 +71,7 @@ DECISION_TOOLS = {
         "search_documents",
         "find_decisions",
         "find_action_items",
+        "find_assignments",
         "find_open_questions",
         "find_participants",
     },
@@ -685,6 +686,7 @@ def _record_key(tool_name: str) -> str:
         "get_entity": "entities",
         "get_document_excerpt": "excerpts",
         "find_participants": "participants",
+        "find_assignments": "assignments",
     }.get(tool_name, "")
 
 

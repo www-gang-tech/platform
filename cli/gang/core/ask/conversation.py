@@ -21,10 +21,11 @@ The pipeline, in order:
 
 Everything `AskService` guarantees still holds, because this subclasses it and
 adds no write path: no canonical document is opened for writing, the index is
-opened read-only, and the only things written anywhere are the session file
-and the answer cache, both private, both generated, both disposable. A user
-correction does not edit the corpus; it becomes session context and an
-explanation of what the corpus actually says (§32).
+opened read-only, and the only things written anywhere are the session file,
+the answer cache, and the derived entity-profile cache — all private, all
+generated, all disposable. A user correction does not edit the corpus; it
+becomes session context and an explanation of what the corpus actually says
+(§32).
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.ai_provider import ProviderError
+from core.entities.profiles import EntityProfileService
 
 from . import affiliation as affiliation_module
 from . import authority as authority_module
@@ -89,6 +91,10 @@ class ConversationOptions:
     model: Optional[str] = None
     premium: bool = False
     local_only: Optional[bool] = None
+    #: Who "I" and "me" are for this turn: the authenticated principal's name
+    #: for the web service, the sole configured principal for the CLI. Only
+    #: ever used to scope a first-person question; never a retrieval filter.
+    principal_name: Optional[str] = None
 
 
 def _preference_within_packet(assessed, packet_assessed):
@@ -180,7 +186,10 @@ class ConversationService(AskService):
             resolution.retrieval_text or text,
             overrides,
             AskOptions(
-                use_ai=options.use_ai,
+                # An ownership question is answered by a code-owned primitive
+                # that reads its own evidence; a model-proposed plan would
+                # change nothing it does, so none is asked for.
+                use_ai=options.use_ai and not intent.wants_assignments,
                 provider=options.provider,
                 model=options.model,
                 premium=options.premium,
@@ -279,7 +288,7 @@ class ConversationService(AskService):
     # ------------------------------------------------------------- research
 
     def _research(self, question, planning, intent, session, options):
-        deterministic = self._deterministic_research(question, planning, intent)
+        deterministic = self._deterministic_research(question, planning, intent, options)
         if deterministic is not None:
             return deterministic
 
@@ -296,13 +305,24 @@ class ConversationService(AskService):
             session_context=session.context_summary(),
         )
 
-    def _deterministic_research(self, question, planning, intent):
+    def _deterministic_research(self, question, planning, intent, options=None):
         """Use typed deterministic capabilities before generic retrieval.
 
         Returning ``None`` means no clean deterministic operation maps to the
         question, so the normal retrieval-only fallback is still appropriate.
         """
-        routes = deterministic_module.capability_routes(question, planning.plan, intent)
+        routes = deterministic_module.capability_routes(
+            question,
+            planning.plan,
+            intent,
+            resolved_entities=planning.resolved_entities,
+            ambiguities=planning.ambiguities,
+            self_identity=(
+                self._self_identity(options.principal_name)
+                if options is not None and intent.wants_assignments
+                else None
+            ),
+        )
         if routes is None:
             return None
 
@@ -335,6 +355,18 @@ class ConversationService(AskService):
     def _deterministic_call(self, tools: ResearchTools, route, planning):
         tool_name = route.get("tool")
         try:
+            if tool_name == deterministic_module.UNRESOLVED_PERSON_TOOL:
+                arguments = route.get("arguments") or {}
+                return ToolResult(
+                    tool=tool_name,
+                    arguments=arguments,
+                    records=[deterministic_module.unresolved_person_record(arguments)],
+                    note=(
+                        "The name matches more than one person; none was chosen."
+                        if arguments.get("why") == "ambiguous"
+                        else "No principal identity is configured, so \"me\" cannot be scoped."
+                    ),
+                )
             if tool_name == "canonical_entity_description":
                 entity_ids: List[str] = [
                     str(entity.get("entity_id") or "")
@@ -345,16 +377,18 @@ class ConversationService(AskService):
                     if value not in entity_ids:
                         entity_ids.append(value)
                 rows = self.retriever.foundational_documents(entity_ids)
-                return ToolResult(
-                    tool="get_entity",
-                    arguments={"entity_ids": entity_ids},
-                    documents=rows,
-                    note=(
-                        "Authored canonical identity."
-                        if rows
-                        else "No canonical entity description matched."
-                    ),
-                )
+                if rows:
+                    return ToolResult(
+                        tool="get_entity",
+                        arguments={"entity_ids": entity_ids},
+                        documents=rows,
+                        note="Authored canonical identity.",
+                    )
+                # Nobody wrote a description. Rather than answering "no
+                # evidence" about an entity the corpus plainly knows, fall
+                # back to a reconstruction assembled from that evidence —
+                # labelled as derived, and never written back as canonical.
+                return self._derived_profile_result(entity_ids)
             return tools.call(tool_name, route.get("arguments") or {})
         except ToolError as exc:
             return ToolResult(
@@ -362,6 +396,68 @@ class ConversationService(AskService):
                 arguments=route.get("arguments") or {},
                 note=str(exc),
             )
+
+    def _derived_profile_result(self, entity_ids: Sequence[str]) -> ToolResult:
+        """A derived entity profile and the documents that support it.
+
+        Built lazily. `gang entity profiles build` precomputes the same thing
+        into the same generated store, so a precomputed corpus answers faster
+        and an unprepared one answers identically.
+        """
+        service = self._profiles()
+        profile = None
+        if service is not None:
+            for entity_id in entity_ids:
+                try:
+                    profile = service.profile(entity_id)
+                except Exception:  # noqa: BLE001 - a derived layer never fails an answer
+                    profile = None
+                if profile is not None:
+                    break
+
+        if profile is None:
+            return ToolResult(
+                tool="get_entity",
+                arguments={"entity_ids": list(entity_ids)},
+                note="No canonical entity description matched.",
+            )
+
+        documents = self.retriever.documents(profile.document_ids())
+        return ToolResult(
+            tool="entity_profile",
+            arguments={"entity_id": profile.entity_id},
+            documents=documents,
+            records=[profile.to_dict()],
+            note="Derived entity profile reconstructed from cited evidence (not canonical).",
+        )
+
+    def _self_identity(self, principal_name: Optional[str]) -> Optional[Dict[str, str]]:
+        """Who "I" is, as a name and — when it resolves exactly — an entity.
+
+        Resolution is the same exact canonical-name-or-alias lookup every other
+        name gets. A principal whose name matches no entity is still a name,
+        and is matched literally against owners in the evidence.
+        """
+        name = (principal_name or "").strip()
+        if not name:
+            return None
+        identity = {"name": name, "entity_id": ""}
+        resolver = self._resolver()
+        if resolver is not None:
+            try:
+                resolution = resolver.resolve(name)
+            except Exception:  # noqa: BLE001 - an unavailable entity layer is not fatal
+                resolution = None
+            if resolution is not None and resolution.resolved and resolution.entity_type == "person":
+                identity["entity_id"] = resolution.entity_id or ""
+        return identity
+
+    def _profiles(self):
+        """The derived-profile service, or nothing if it cannot be built."""
+        try:
+            return EntityProfileService(root_path=self.root_path, private_home=self.paths.home)
+        except Exception:  # noqa: BLE001 - a missing entity layer is not fatal
+            return None
 
     def _tools(self) -> ResearchTools:
         return ResearchTools(
@@ -416,14 +512,14 @@ class ConversationService(AskService):
         """Answer one turn, returning the answer, how it was produced, and the
         source-authority picture that actually applied to it."""
         bundle = context.bundle
-        if bundle.empty:
+        if bundle.empty and not deterministic_module.answers_without_documents(context):
             reason = "no-searchable-terms" if planning.plan.is_empty else "no-evidence"
             return (
                 deterministic_conversation_answer(bundle, reason=reason, intent=context.intent),
                 {"mode": "deterministic", "reason": reason, "cached": False},
                 assessed,
             )
-        if context.intent.listing or planning.listing_question:
+        if (context.intent.listing or planning.listing_question) and not context.intent.wants_assignments:
             return (
                 deterministic_conversation_answer(
                     bundle, reason="listing-question", intent=context.intent
@@ -435,7 +531,11 @@ class ConversationService(AskService):
         if deterministic is not None:
             return (
                 deterministic,
-                {"mode": "deterministic", "reason": "deterministic-capability", "cached": False},
+                {
+                    "mode": "deterministic",
+                    "reason": deterministic.get("reason") or "deterministic-capability",
+                    "cached": False,
+                },
                 assessed,
             )
         if not options.use_ai:

@@ -463,14 +463,27 @@
     if (result.insufficient_evidence) {
       values.push({ text: "Insufficient evidence to answer fully.", className: "insufficient" });
     }
-    array(result.uncertainties).forEach(function (item) {
-      values.push({ text: item, className: "" });
-    });
-    if (text(result.uncertainty)) {
+    /* `uncertainties` already opens with the answer's own `uncertainty`, so
+       the scalar is only a fallback for results that predate the list.
+       Rendering both printed the no-evidence sentence twice. */
+    if (Array.isArray(result.uncertainties)) {
+      result.uncertainties.forEach(function (item) {
+        values.push({ text: item, className: "" });
+      });
+    } else if (text(result.uncertainty)) {
       values.push({ text: result.uncertainty, className: "" });
     }
     array(result.conflicts).forEach(function (conflict) {
       values.push({ text: text(conflict.summary), className: "" });
+    });
+    var seen = {};
+    values = values.filter(function (value) {
+      var key = text(value.text);
+      if (!key || Object.prototype.hasOwnProperty.call(seen, key)) {
+        return false;
+      }
+      seen[key] = true;
+      return true;
     });
     if (!values.length) {
       return;
@@ -479,9 +492,6 @@
     block.appendChild(el("p", "section-title", "Uncertainty"));
     var list = el("ul", "status-list");
     values.forEach(function (value) {
-      if (!text(value.text)) {
-        return;
-      }
       list.appendChild(el("li", value.className, value.text));
     });
     block.appendChild(list);

@@ -89,6 +89,17 @@ class GangPaths:
         return self.access_path / "principals.yml"
 
     @property
+    def entity_profiles_path(self) -> Path:
+        """Derived entity profiles. Generated, rebuildable, never canonical.
+
+        Deliberately its own database rather than a table in ``brain.sqlite``:
+        the knowledge index is dropped and rebuilt wholesale on every entity
+        edit, and a profile that has to be rebuilt every time an alias changes
+        is not a cache. Deleting this file loses nothing.
+        """
+        return self.generated_path / "entity-profiles.sqlite"
+
+    @property
     def ask_cache_path(self) -> Path:
         """Disposable cache for `gang ask`. Private, generated, never canonical."""
         return self.generated_path / "ask-cache"

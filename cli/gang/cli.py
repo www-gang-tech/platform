@@ -1673,6 +1673,7 @@ def ask(
         model=model,
         premium=premium,
         local_only=local_only or None,
+        principal_name=_local_principal_name(service),
     )
 
     if not text:
@@ -1804,35 +1805,31 @@ def _run_ask_session(service, session, overrides, options, *, show_sources=False
 
 
 def _with_research(options, show_research):
-    from core.ask import ConversationOptions
+    from dataclasses import replace
 
-    return ConversationOptions(
-        use_ai=options.use_ai,
-        use_cache=options.use_cache,
-        persist=options.persist,
-        mode_override=options.mode_override,
-        show_research=show_research,
-        provider=options.provider,
-        model=options.model,
-        premium=options.premium,
-        local_only=options.local_only,
-    )
+    return replace(options, show_research=show_research)
 
 
 def _with_premium(options):
-    from core.ask import ConversationOptions
+    from dataclasses import replace
 
-    return ConversationOptions(
-        use_ai=options.use_ai,
-        use_cache=options.use_cache,
-        persist=options.persist,
-        mode_override=options.mode_override,
-        show_research=options.show_research,
-        provider="anthropic",
-        model=options.model,
-        premium=True,
-        local_only=options.local_only,
-    )
+    return replace(options, provider="anthropic", premium=True)
+
+
+def _local_principal_name(service):
+    """Who "I" is at this terminal: the sole configured principal, if any.
+
+    Only an unambiguous directory answers. With several principals and no
+    authenticated request to say which one is typing, "me" stays unresolved
+    and the answer says so, rather than borrowing someone's name.
+    """
+    from core.access import PrincipalDirectory, PrincipalError
+
+    try:
+        principals = PrincipalDirectory(service.paths.principals_path).load()
+    except (PrincipalError, OSError):
+        return None
+    return principals[0].display_name if len(principals) == 1 else None
 
 
 def _print_ask_sessions(service):
@@ -2328,6 +2325,7 @@ def _entity_imports():
             AliasCollisionError,
             DuplicateEntityError,
             EntityError,
+            EntityProfileService,
             EntityService,
             MergeConflictError,
             PREDICATES,
@@ -2341,6 +2339,7 @@ def _entity_imports():
             AliasCollisionError,
             DuplicateEntityError,
             EntityError,
+            EntityProfileService,
             EntityService,
             MergeConflictError,
             PREDICATES,
@@ -2351,6 +2350,7 @@ def _entity_imports():
         "AliasCollisionError": AliasCollisionError,
         "DuplicateEntityError": DuplicateEntityError,
         "EntityError": EntityError,
+        "EntityProfileService": EntityProfileService,
         "EntityService": EntityService,
         "MergeConflictError": MergeConflictError,
         "PREDICATES": PREDICATES,
@@ -2583,6 +2583,91 @@ def entity_describe(entity_id, description, body, from_file, clear):
         if record.description:
             click.echo(f"  Description: {record.description}")
         click.echo(f"  Foundational: {'yes' if record.foundational else 'no'}")
+
+
+@entity.group("profiles")
+def entity_profiles():
+    """Derived entity profiles: generated, rebuildable, never canonical"""
+    pass
+
+
+def _profile_service():
+    names = _entity_imports()
+    return names["EntityProfileService"](root_path=Path.cwd())
+
+
+@entity_profiles.command("build")
+@click.option("--type", "entity_type", type=click.Choice(["person", "company", "project", "product"]),
+              help="Only rebuild profiles for one entity type")
+@click.option("--force", is_flag=True, help="Rebuild even where the cached profile still matches its evidence")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_profiles_build(entity_type, force, output_format):
+    """Precompute derived profiles for every entity from corpus evidence.
+
+    \b
+    Optional. `gang ask "who is X?"` builds the same profile on demand when
+    none has been precomputed, so this only ever buys speed. Entities with a
+    human-authored description are skipped: that description is the answer,
+    and a derived profile beside it would only be the wrong one to reach for.
+    Nothing here is written to canonical Markdown.
+    """
+    with _entity_errors():
+        service = _profile_service()
+        if output_format == "text" and not service.reader.available():
+            # Every profile is read out of the knowledge index, so without one
+            # there is nothing to derive from and no point walking the vault.
+            click.echo("❌ No private knowledge index. Run: gang index build", err=True)
+            raise click.Abort()
+        report = service.build_all(entity_type=entity_type, force=force)
+        if output_format == "json":
+            click.echo(json.dumps(report, indent=2, sort_keys=True))
+            return
+        click.echo(
+            f"✅ Built {report['built']} derived profile(s) "
+            f"({report['authored']} authored, {report['insufficient']} without enough evidence)"
+        )
+        for row in report["profiles"]:
+            if row["status"] != "built":
+                continue
+            basis = ", ".join(row["basis"])
+            role = "" if row["role_evidence"] else "  (no role stated in evidence)"
+            click.echo(f"  {row['type']:<8} {row['name']:<28} {row['statements']} statement(s) [{basis}]{role}")
+        click.echo(f"\nGenerated, rebuildable, never canonical: {report['database']}")
+
+
+@entity_profiles.command("show")
+@click.argument("entity_id")
+@click.option("--refresh", is_flag=True, help="Rebuild from evidence instead of reading the cache")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_profiles_show(entity_id, refresh, output_format):
+    """Show the derived profile for one entity, building it if needed"""
+    with _entity_errors() as names:
+        record = names["EntityService"]().store.get(entity_id)
+        profile = _profile_service().profile(record.id, refresh=refresh)
+        if output_format == "json":
+            click.echo(json.dumps(profile.to_dict() if profile else None, indent=2, sort_keys=True))
+            return
+        if record.foundational:
+            click.echo(f"{record.name} has a human-authored description; no profile is derived.")
+            click.echo(f"  {record.description or record.authored_body}")
+            return
+        if profile is None:
+            click.echo(f"No derived profile for {record.name}: the evidence does not support one.")
+            return
+        click.echo(f"{profile.name} ({profile.entity_type})  derived, not canonical")
+        for statement in profile.statements:
+            click.echo(f"  - [{statement.kind}] {statement.text}")
+            click.echo(f"      documents: {', '.join(statement.document_ids)}")
+        if not profile.role_evidence:
+            click.echo("  No role, title, employment, or ownership is stated in the evidence.")
+
+
+@entity_profiles.command("clear")
+def entity_profiles_clear():
+    """Delete every derived profile. They are rebuilt on demand."""
+    with _entity_errors():
+        removed = _profile_service().clear()
+        click.echo(f"✅ Cleared {removed} derived profile(s). Nothing canonical was touched.")
 
 
 @entity.command("reclassify")

@@ -18,7 +18,7 @@ import secrets
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -461,7 +461,7 @@ class AskHTTPServer:
         level = payload.get("level") or "normal"
         session_store = self.session_store_for(job.principal_id)
         session = session_store.load_or_create(payload.get("session_id"))
-        options = _options_for(level)
+        options = replace(_options_for(level), principal_name=job.display_name)
         overrides = _overrides(payload["question"], filters)
 
         retriever = self.retriever

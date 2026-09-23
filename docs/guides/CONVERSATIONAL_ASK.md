@@ -178,6 +178,7 @@ injection from re-aiming the answer.
 | `lookup` | "What is our current BOM?" |
 | `definition` | "What is GANG?" — answered from [authored identity](FOUNDATIONAL_KNOWLEDGE.md) first |
 | `affiliation` | "Who is on the team?" — assembled from participation signals |
+| `ownership` | "What does Daniel need to do?" — work explicitly assigned to one person |
 | `status` | "What's happening with certification?" |
 | `timeline` | "What changed with packaging this month?" |
 | `compare` | "Compare the September schedules." |
@@ -244,6 +245,41 @@ No titles. No employment. No org chart.
 
 ---
 
+## What is on someone's plate
+
+"What does Daniel need to do?", "what are Frank's action items?", "what is due
+for me this week?" ask for a task list scoped to one owner. They route to the
+`ownership` policy ahead of definition, decision, and listing — "what does X
+need to do" looks like the definition shape "what does X do", and treating it
+as one sends a task-list question to the authored-description lookup, which
+has nothing to say about tasks.
+
+`find_assignments` reads the evidence deterministically and keeps only work
+that is explicitly assigned:
+
+| Evidence | Example |
+| --- | --- |
+| owner field | `WPC Qi Certification Owner: Daniel \| Due: 2026-09-20 \| Status: in progress` |
+| owner table | `Owner Deliverable Deadline / Timing Status` rows starting with the person |
+| derived action item | an enrichment `action_items` entry whose `owner` is the person |
+| addressed task | `@Daniel: Get CE the art file.` |
+| obligation | "Daniel will confirm the registration source." / "Daniel to obtain 3PL pricing." |
+
+The person resolves from a canonical name or verified alias; "I" and "me"
+resolve to the authenticated principal (the web service) or the sole
+configured principal (the CLI). A name that matches no entity is matched
+literally against owners in the evidence, and the answer says so. An ambiguous
+name is reported, never guessed. No authored description is needed.
+
+Attendance, cc lines, and being mentioned are not assignments: participant
+headers are masked before anything is read, and a name only owns a task when
+it is the subject of the obligation or the value of an owner field. The same
+task stated in a meeting recap, a daily schedule, and a follow-up collapses
+into one cited line; the newest stated status wins, and completed or
+superseded work is listed apart from current work. No model is called.
+
+---
+
 ## Research tools
 
 Multi-step research means a model decides what to look at next. The safety of
@@ -253,8 +289,8 @@ that rests on the size of the vocabulary it chooses from.
 search_documents          get_document              get_document_excerpt
 get_document_history      get_entity                get_entity_documents
 get_relationships         find_decisions            find_action_items
-find_open_questions       find_participants         build_timeline
-compare_documents         compare_document_versions
+find_open_questions       find_participants         find_assignments
+build_timeline            compare_documents         compare_document_versions
 ```
 
 Every tool is read-only, has a typed schema whose parameters are validated

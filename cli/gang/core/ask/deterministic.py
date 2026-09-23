@@ -4,18 +4,70 @@
 that already have typed primitives, this module gives those primitives first
 refusal and renders their structured records directly. Generic full-text
 retrieval remains the fallback for everything else.
+
+Identity questions are answered here twice over: from the authored canonical
+description when one exists, and otherwise from a derived entity profile —
+reconstructed from cited evidence and rendered as a reconstruction. Both are
+deterministic prose over structured records, so neither costs a model call.
+
+Ownership questions ("what does Daniel need to do?") are answered from work
+the evidence explicitly assigns to that person, and never from an authored
+description or from attendance. The route is chosen from the question's own
+shape before identity routing is considered, because "what does X need to
+do" also looks like "what does X do" to a looser reading — which is how it
+once ended up asking the canonical-description lookup for a task list.
 """
 
 from __future__ import annotations
 
+import calendar
 import re
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 from . import affiliation as affiliation_module
+from . import assignments as assignments_module
 from . import intent as intent_module
 from . import ledger as ledger_module
 from .plan import MAX_TEXT_QUERIES
 
+
+#: Research record key carrying a derived entity profile, when the canonical
+#: record has no authored description to answer with.
+ENTITY_PROFILE_KEY = "entity_profile"
+
+#: Synthesis reason for a reconstructed identity, distinct from the authored
+#: one so a caller can tell a derived answer from a canonical one without
+#: reading the prose.
+DERIVED_PROFILE_REASON = "derived-entity-profile"
+
+PROFILE_HEADER = (
+    "Derived profile — reconstructed from cited corpus evidence. "
+    "Nobody has authored a description of this entity."
+)
+
+PROFILE_FOOTER = (
+    "This reconstruction is generated and rebuildable, not canonical knowledge. "
+    "`gang entity describe` authors the canonical account, which takes precedence."
+)
+
+PROFILE_UNCERTAINTY = (
+    "Assembled from explicit corpus evidence at answer time rather than from an "
+    "authored record. No role, title, employment, or ownership is asserted beyond "
+    "what the cited evidence states."
+)
+
+#: Research record key carrying one person's assigned work.
+ASSIGNMENTS_KEY = "assignments"
+
+#: Synthesis reason for a task list, so a caller can tell it apart from other
+#: deterministic answers without reading the prose.
+ASSIGNMENTS_REASON = "deterministic-assignments"
+
+#: A pseudo-tool for an ownership question whose person could not be pinned
+#: down: an ambiguous name, or "me" with no known principal. Answered by
+#: saying so, never by picking a candidate.
+UNRESOLVED_PERSON_TOOL = "unresolved_person"
 
 GENERIC_PARTICIPANT_TOPICS = {
     "team",
@@ -51,14 +103,38 @@ STRUCTURED_STOPWORDS = {
 }
 
 
-def capability_routes(question: str, plan: Any, intent: Any) -> Optional[List[Dict[str, Any]]]:
+def capability_routes(
+    question: str,
+    plan: Any,
+    intent: Any,
+    *,
+    resolved_entities: Sequence[Dict[str, Any]] = (),
+    ambiguities: Sequence[Dict[str, Any]] = (),
+    self_identity: Optional[Dict[str, Any]] = None,
+) -> Optional[List[Dict[str, Any]]]:
     """Return deterministic primitive calls for a cleanly mapped question.
 
     ``None`` means "no clean mapping"; callers should use ordinary retrieval.
     An empty list is not returned: a mapped question always has one or more
     code-owned operations.
+
+    ``self_identity`` is who "I" and "me" are — the authenticated principal
+    for the web service, the sole configured principal for the CLI — as
+    ``{"name": …, "entity_id": …}``. Without one, a first-person ownership
+    question is answered by saying who it could not identify.
     """
     text = _fold(question)
+    if getattr(intent, "wants_assignments", False):
+        return [
+            _assignment_route(
+                getattr(intent, "subject", ""),
+                plan,
+                resolved_entities=resolved_entities,
+                ambiguities=ambiguities,
+                self_identity=self_identity,
+            )
+        ]
+
     if getattr(intent, "wants_people", False):
         arguments: Dict[str, Any] = {}
         topic = _topic(plan, generic=GENERIC_PARTICIPANT_TOPICS)
@@ -81,7 +157,7 @@ def capability_routes(question: str, plan: Any, intent: Any) -> Optional[List[Di
             {
                 "tool": "canonical_entity_description",
                 "arguments": {},
-                "key": "",
+                "key": ENTITY_PROFILE_KEY,
                 "reason": "definition question routed to canonical entity description",
             }
         ]
@@ -115,8 +191,14 @@ def capability_answer(context: Any) -> Optional[Dict[str, Any]]:
     records = context.records or {}
     question = context.question or ""
 
+    if ASSIGNMENTS_KEY in records:
+        return _assignments_answer(records[ASSIGNMENTS_KEY][0], context.bundle)
     if "participants" in records:
         return _participants_answer(records["participants"], context.bundle)
+    if records.get(ENTITY_PROFILE_KEY):
+        # No authored description exists, so the answer is a reconstruction
+        # and has to arrive labelled as one.
+        return _entity_profile_answer(records[ENTITY_PROFILE_KEY][0], context.bundle)
     if context.intent.policy == intent_module.DEFINITION:
         return _definition_answer(context.bundle)
     if "timeline" in records:
@@ -129,6 +211,191 @@ def capability_answer(context: Any) -> Optional[Dict[str, Any]]:
         return _structured_answer({key: records.get(key) or [] for key in structured_keys}, context.bundle)
 
     return None
+
+
+def answers_without_documents(context: Any) -> bool:
+    """Whether a capability answers even when no document survived.
+
+    "Nothing is assigned to Frank" is a statement about Frank, reached by
+    reading his evidence; it is not the generic "no documents matched", and
+    rendering it as that would make a scoped absence look like a failed
+    search.
+    """
+    return bool((context.records or {}).get(ASSIGNMENTS_KEY))
+
+
+# ------------------------------------------------------------- assignments
+
+
+def _assignment_route(
+    subject: str,
+    plan: Any,
+    *,
+    resolved_entities: Sequence[Dict[str, Any]],
+    ambiguities: Sequence[Dict[str, Any]],
+    self_identity: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Pin the question's person to a name or entity, then route to their tasks.
+
+    Resolution order: "I"/"me" to the principal; otherwise a canonical name or
+    verified alias the planner already resolved; otherwise the name exactly as
+    written, which is matched literally against owners in the evidence. An
+    ambiguous name is reported rather than resolved to whichever candidate
+    sorted first.
+    """
+    reason = "ownership question routed to explicitly assigned work"
+    arguments: Dict[str, Any] = {}
+    _date_bounds(arguments, plan)
+    _deadline_period_end(arguments, getattr(plan, "query", "") or "")
+
+    if assignments_module.is_first_person(subject):
+        name = str((self_identity or {}).get("name") or "").strip()
+        if not name:
+            return _unresolved_route(subject, "no-principal", reason=reason)
+        arguments["person"] = name
+        if (self_identity or {}).get("entity_id"):
+            arguments["entity_id"] = self_identity["entity_id"]
+        return {"tool": "find_assignments", "arguments": arguments, "key": ASSIGNMENTS_KEY, "reason": reason}
+
+    folded = _fold(subject)
+    for item in ambiguities:
+        if _fold(item.get("text")) and _fold(item.get("text")) in folded:
+            return _unresolved_route(
+                subject,
+                "ambiguous",
+                candidates=[candidate.get("name", "") for candidate in item.get("candidates") or []],
+                reason=reason,
+            )
+
+    arguments["person"] = subject
+    for entity in resolved_entities:
+        text = _fold(entity.get("text"))
+        if text and text in folded and entity.get("entity_type") in ("person", None):
+            arguments["entity_id"] = entity["entity_id"]
+            break
+    return {"tool": "find_assignments", "arguments": arguments, "key": ASSIGNMENTS_KEY, "reason": reason}
+
+
+def _deadline_period_end(arguments: Dict[str, Any], question: str) -> None:
+    """Carry "this week" / "this month" to the end of the period for deadlines.
+
+    Evidence ranges for the current period stop at today, which is right for
+    "what happened this week" and wrong for "what is due this week": a task
+    due on Friday is due this week even when asked on Wednesday.
+    """
+    until = arguments.get("until") or ""
+    try:
+        end = date.fromisoformat(until)
+    except ValueError:
+        return
+    if re.search(r"\bthis\s+week\b", question, re.IGNORECASE):
+        end = end + timedelta(days=6 - end.weekday())
+    elif re.search(r"\bthis\s+month\b", question, re.IGNORECASE):
+        end = end.replace(day=calendar.monthrange(end.year, end.month)[1])
+    else:
+        return
+    arguments["until"] = end.isoformat()
+
+
+def _unresolved_route(subject: str, why: str, *, candidates: Sequence[str] = (), reason: str) -> Dict[str, Any]:
+    return {
+        "tool": UNRESOLVED_PERSON_TOOL,
+        "arguments": {"subject": subject, "why": why, "candidates": list(candidates)},
+        "key": ASSIGNMENTS_KEY,
+        "reason": reason,
+    }
+
+
+def unresolved_person_record(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """The assignment record for a person who could not be identified."""
+    return {
+        "person": {"label": arguments.get("subject") or "", "forms": [], "resolved": False, "entity_id": ""},
+        "assignments": [],
+        "unresolved": arguments.get("why") or "",
+        "candidates": list(arguments.get("candidates") or []),
+    }
+
+
+def _assignments_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, Any]:
+    """Render one person's assigned work as a task list, every line cited.
+
+    Current work first; completed or superseded work, where a source says so,
+    in its own short section rather than mixed in or silently dropped. A task
+    whose documents did not survive into the evidence bundle is omitted rather
+    than shown uncited.
+    """
+    person = payload.get("person") or {}
+    label = str(person.get("label") or "This person")
+
+    if payload.get("unresolved") == "no-principal":
+        return _empty_answer(
+            f"I can't tell who \"{label}\" is here: no principal identity is configured for "
+            "this session, so there is no one to scope the task list to. Ask with a name instead."
+        )
+    if payload.get("unresolved") == "ambiguous":
+        names = ", ".join(name for name in payload.get("candidates") or [] if name)
+        return _empty_answer(
+            f"\"{label}\" matches more than one person ({names}). "
+            "Name the one you mean and I'll list their tasks."
+        )
+
+    citation_by_doc = _citation_by_document(bundle)
+    current: List[str] = []
+    closed: List[str] = []
+    claims: List[Dict[str, Any]] = []
+    for item in payload.get("assignments") or []:
+        citations = _record_citations(item.get("document_ids") or [], citation_by_doc)
+        task = str(item.get("task") or "").strip()
+        if not citations or not task:
+            continue
+        details = _assignment_details(item)
+        line = f"- {task}{' — ' + details if details else ''}{_cite_text(citations)}"
+        (closed if item.get("closed") else current).append(line)
+        claims.append(
+            _claim(
+                len(claims) + 1,
+                "fact",
+                f"{item.get('owner') or label} is assigned: {task}"
+                + (f" ({details})" if details else ""),
+                citations,
+            )
+        )
+
+    if not claims:
+        return _empty_answer(
+            f"I found no tasks explicitly assigned to {label} in the private corpus. "
+            "Being mentioned in, sent, or present at something is not counted as an assignment."
+        )
+
+    lines = [f"{label} — current action items", ""]
+    lines.extend(current or ["- Nothing open is explicitly assigned in the evidence."])
+    if closed:
+        lines.extend(["", "Completed or superseded", *closed])
+    remaining = int(payload.get("total") or 0) - len(payload.get("assignments") or [])
+    if remaining > 0:
+        lines.extend(["", f"{remaining} more assigned task(s) not shown."])
+
+    uncertainty = ""
+    if not person.get("resolved"):
+        uncertainty = (
+            f"No canonical person record or verified alias matched \"{label}\"; tasks were "
+            "matched on that name as written in the evidence."
+        )
+    return _answer("\n".join(lines), claims, uncertainty=uncertainty, reason=ASSIGNMENTS_REASON)
+
+
+def _assignment_details(item: Dict[str, Any]) -> str:
+    bits: List[str] = []
+    co_owners = [value for value in item.get("co_owners") or [] if value]
+    if co_owners:
+        bits.append("shared with " + ", ".join(co_owners))
+    if item.get("deadline"):
+        bits.append(f"due {item['deadline']}")
+    if item.get("status_text"):
+        bits.append(f"status: {item['status_text']}")
+    if item.get("stale"):
+        bits.append("stale derived record")
+    return "; ".join(bits)
 
 
 def _participants_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, Any]:
@@ -185,6 +452,50 @@ def _definition_answer(bundle: Any) -> Dict[str, Any]:
     return _answer(
         answer,
         [_claim(1, "fact", text, [item.citation_id])],
+    )
+
+
+def _entity_profile_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, Any]:
+    """Render a derived profile: labelled, cited line by line, claimed as fact.
+
+    Every line is a fact about the corpus — what a document says, what a
+    relationship records, where a name appears — so every line is a ``fact``
+    claim. What is *derived* is the assembly, which is why the header, the
+    footer, and the uncertainty all say so. A statement whose supporting
+    documents did not survive into the bundle is dropped rather than shown
+    uncited.
+    """
+    citation_by_doc = _citation_by_document(bundle)
+    lines = [PROFILE_HEADER, ""]
+    name = payload.get("name") or "This entity"
+    entity_type = payload.get("entity_type") or ""
+    lines.append(f"{name} ({entity_type})" if entity_type else str(name))
+
+    claims: List[Dict[str, Any]] = []
+    for statement in payload.get("statements") or []:
+        # Ascending, because a profile line is read as prose and [2][3][4][1]
+        # reads as a typo. Elsewhere citation order follows record order.
+        citations = sorted(
+            _record_citations(statement.get("document_ids") or [], citation_by_doc)
+        )
+        text = str(statement.get("text") or "").strip()
+        if not citations or not text:
+            continue
+        lines.append(f"- {text}{_cite_text(citations)}")
+        claims.append(_claim(len(claims) + 1, "fact", text, citations))
+
+    if not claims:
+        return _empty_answer(
+            "I found no canonical entity description, and no cited evidence to "
+            "reconstruct one from."
+        )
+
+    lines.extend(["", PROFILE_FOOTER])
+    return _answer(
+        "\n".join(lines),
+        claims,
+        uncertainty=PROFILE_UNCERTAINTY,
+        reason=DERIVED_PROFILE_REASON,
     )
 
 
@@ -251,6 +562,7 @@ def _answer(
     *,
     uncertainty: str = "",
     insufficient: bool = False,
+    reason: str = "deterministic-capability",
 ) -> Dict[str, Any]:
     cited = sorted({value for claim in claims for value in claim.get("citations", [])})
     claim_list = list(claims)
@@ -284,7 +596,7 @@ def _answer(
         "grounding_warnings": [],
         "ungrounded_premises": [],
         "softened_negatives": [],
-        "reason": "deterministic-capability",
+        "reason": reason,
     }
 
 
