@@ -21,6 +21,14 @@ import yaml
 from core.entities.documents import preserved_entity_frontmatter
 from core.paths import GangPaths
 
+from .attachments import (
+    ATTACHMENT_CONTENT_SOURCE_TYPE,
+    AttachmentIngestionService,
+    AttachmentOccurrence,
+    AttachmentReport,
+    attachment_source_id,
+)
+from .extract import STATUS_EXTRACTED, STATUS_UNSUPPORTED
 from .ids import content_sha256, slugify, stable_source_id, uuid7
 from .raw_store import LocalRawStore, RawRecord, RawStore
 from .registry import IngestionRegistry
@@ -58,6 +66,9 @@ class GmailAttachment:
     mime_type: str
     message_id: str
     size: int = 0
+    #: The MIME part ID. Unlike ``attachment_id``, which Gmail reissues on
+    #: every response, it is stable for the life of the message.
+    part_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,7 @@ class GmailThreadResult:
     messages: int
     raw_versions: List[RawRecord]
     error: Optional[str] = None
+    attachments: Optional[AttachmentReport] = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +116,7 @@ class GmailSyncResult:
     checkpoint: Dict[str, Any]
     checkpoint_advanced: bool
     results: List[GmailThreadResult]
+    attachments: AttachmentReport = field(default_factory=AttachmentReport)
 
 
 class GmailProvider(Protocol):
@@ -191,6 +204,11 @@ class GoogleGmailProvider:
             parsed = _message_from_gmail_payload(item, raw_payload)
             messages.append(parsed)
         return GmailThread(thread_id=thread_id, messages=messages)
+
+    def account_email(self) -> str:
+        """The mailbox being read, recorded as each attachment's source account."""
+        response = self._execute(self._gmail_service().users().getProfile(userId="me"))
+        return str(response.get("emailAddress") or "")
 
     def fetch_attachment(self, message_id: str, attachment_id: str) -> bytes:
         response = self._execute(
@@ -283,10 +301,20 @@ class GmailSyncService:
         self.emails_path = self._resolve(emails_path) if emails_path is not None else self.paths.emails_path
         self.checkpoint_path = self._resolve(checkpoint_path) if checkpoint_path is not None else self.paths.gmail_checkpoint_path
         self.registry = registry or IngestionRegistry(self.paths.registry_path, root_path=self.paths.home)
+        self.attachments_path = self.paths.attachments_path
+        self.source_account = ""
+
+    def attachment_service(self) -> AttachmentIngestionService:
+        return AttachmentIngestionService(
+            raw_store=self.raw_store,
+            registry=self.registry,
+            attachments_path=self.attachments_path,
+        )
 
     def sync(self, *, since: Optional[str] = None) -> GmailSyncResult:
         checkpoint = self.load_checkpoint()
         query = self._query_for_sync(since, checkpoint)
+        self.source_account = self._resolve_source_account(checkpoint)
         thread_ids = list(dict.fromkeys(self.provider.discover_thread_ids(query)))
 
         results: List[GmailThreadResult] = []
@@ -314,11 +342,17 @@ class GmailSyncService:
                     )
                 )
 
+        attachments = AttachmentReport()
+        for result in results:
+            if result.attachments is not None:
+                attachments.merge(result.attachments)
+
         failed = sum(1 for result in results if result.status == "failed")
         checkpoint_advanced = False
         if failed == 0:
             checkpoint = {
                 "version": 1,
+                "account_email": self.source_account,
                 "last_query": query,
                 "last_successful_sync_at": datetime.now(timezone.utc).isoformat(),
                 "last_successful_internal_date_ms": max_internal_date,
@@ -338,6 +372,7 @@ class GmailSyncService:
             checkpoint=checkpoint,
             checkpoint_advanced=checkpoint_advanced,
             results=results,
+            attachments=attachments,
         )
 
     def status(self) -> Dict[str, Any]:
@@ -351,6 +386,30 @@ class GmailSyncService:
             "checkpoint": self.load_checkpoint(),
             "threads": len(sources),
             "documents": len({record.get("document_id") for record in sources.values() if record.get("document_id")}),
+            "attachments": self._attachment_status(),
+        }
+
+    def _attachment_status(self) -> Dict[str, Any]:
+        records = self.registry.all_sources().values()
+        payloads = [record for record in records if record.get("source_type") == ATTACHMENT_CONTENT_SOURCE_TYPE]
+        by_status: Dict[str, int] = {}
+        for record in payloads:
+            status = str(record.get("extraction_status") or "unknown")
+            by_status[status] = by_status.get(status, 0) + 1
+        problems = sorted(
+            (
+                record
+                for record in payloads
+                if record.get("extraction_status") not in {STATUS_EXTRACTED, STATUS_UNSUPPORTED}
+            ),
+            key=lambda record: (str(record.get("extraction_status")), str(record.get("source_name"))),
+        )
+        return {
+            "occurrences": sum(1 for record in records if record.get("source_type") == "gmail-attachment" and record.get("content_source_id")),
+            "payloads": len(payloads),
+            "documents": sum(1 for record in payloads if record.get("document_id")),
+            "by_status": by_status,
+            "problems": problems,
         }
 
     def load_checkpoint(self) -> Dict[str, Any]:
@@ -396,20 +455,24 @@ class GmailSyncService:
                     payload = self.provider.fetch_attachment(message.message_id, attachment.attachment_id)
                     attachment_raw = self.raw_store.put(
                         "gmail-attachment",
-                        _gmail_attachment_source_id(message.message_id, attachment.attachment_id),
+                        attachment_source_id(message.message_id, content_sha256(payload)),
                         payload,
                         filename=attachment.filename or attachment.attachment_id,
                         metadata={
                             "gmail_message_id": message.message_id,
                             "gmail_thread_id": thread.thread_id,
                             "gmail_attachment_id": attachment.attachment_id,
+                            "part_id": attachment.part_id,
                             "filename": attachment.filename,
                             "mime_type": attachment.mime_type,
                         },
                     )
+                    # The ephemeral Gmail attachment ID stays out of the
+                    # manifest: an unchanged thread must hash the same twice.
                     attachment_records.append(
                         {
-                            "attachment_id": attachment.attachment_id,
+                            "source_id": attachment_raw.source_id,
+                            "part_id": attachment.part_id,
                             "filename": attachment.filename,
                             "mime_type": attachment.mime_type,
                             "parent_gmail_message_id": message.message_id,
@@ -459,6 +522,7 @@ class GmailSyncService:
                 status="unchanged",
                 messages=len(messages),
                 raw_versions=raw_versions,
+                attachments=self._ingest_attachments(thread.thread_id, messages, message_records),
             )
 
         manifest_raw = self.raw_store.put(
@@ -507,7 +571,44 @@ class GmailSyncService:
             status="updated" if previous else "created",
             messages=len(messages),
             raw_versions=[*raw_versions, manifest_raw],
+            attachments=self._ingest_attachments(thread.thread_id, messages, message_records),
         )
+
+    def _ingest_attachments(
+        self,
+        thread_id: str,
+        messages: List[GmailMessage],
+        message_records: List[Dict[str, Any]],
+    ) -> AttachmentReport:
+        """Each attachment as its own canonical document. Never fails the thread."""
+        received = {message.message_id: _iso_from_ms(message.internal_date_ms) for message in messages}
+        occurrences = [
+            AttachmentOccurrence(
+                gmail_message_id=record["gmail_message_id"],
+                gmail_thread_id=thread_id,
+                filename=attachment.get("filename") or "",
+                mime_type=attachment.get("mime_type") or "application/octet-stream",
+                content_hash=attachment["content_hash"],
+                raw_ref=attachment["raw_ref"],
+                received_at=received.get(record["gmail_message_id"], ""),
+                source_account=self.source_account,
+                part_id=attachment.get("part_id") or "",
+            )
+            for record in message_records
+            for attachment in record.get("attachments") or []
+        ]
+        if not occurrences:
+            return AttachmentReport()
+        return self.attachment_service().ingest(occurrences)
+
+    def _resolve_source_account(self, checkpoint: Dict[str, Any]) -> str:
+        account_email = getattr(self.provider, "account_email", None)
+        if callable(account_email):
+            try:
+                return str(account_email() or "")
+            except Exception:  # noqa: BLE001 - provenance nicety, never a sync failure
+                pass
+        return str(checkpoint.get("account_email") or "")
 
     def _write_thread_document(
         self,
@@ -655,6 +756,7 @@ def _extract_attachments(item: Dict[str, Any]) -> List[GmailAttachment]:
                     mime_type=part.get("mimeType") or "application/octet-stream",
                     message_id=item["id"],
                     size=int(body.get("size") or 0),
+                    part_id=str(part.get("partId") or ""),
                 )
             )
         for child in part.get("parts") or []:
@@ -761,10 +863,6 @@ def _gmail_thread_source_id(thread_id: str) -> str:
 
 def _gmail_message_source_id(message_id: str) -> str:
     return stable_source_id("gmail-message", "gmail", message_id)
-
-
-def _gmail_attachment_source_id(message_id: str, attachment_id: str) -> str:
-    return stable_source_id("gmail-attachment", "gmail", f"{message_id}:{attachment_id}")
 
 
 def _thread_metadata(thread_id: str, messages: List[GmailMessage]) -> Dict[str, Any]:

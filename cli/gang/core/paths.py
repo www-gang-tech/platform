@@ -59,6 +59,11 @@ class GangPaths:
         return self.private_vault / "documents"
 
     @property
+    def attachments_path(self) -> Path:
+        """Canonical documents extracted from email attachments, one per distinct payload."""
+        return self.private_vault / "attachments"
+
+    @property
     def raw_path(self) -> Path:
         return self.home / "raw"
 
@@ -154,6 +159,11 @@ class GangPaths:
     @property
     def drive_checkpoint_path(self) -> Path:
         return self.drive_path / "checkpoint.json"
+
+    @property
+    def drive_folders_path(self) -> Path:
+        """Explicitly configured company-record folders. Private, human-owned."""
+        return self.drive_path / "folders.yml"
 
     @property
     def drive_token_path(self) -> Path:

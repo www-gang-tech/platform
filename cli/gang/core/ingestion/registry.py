@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from core.paths import GangPaths
 
@@ -17,6 +18,33 @@ class IngestionRegistry:
         paths = GangPaths.from_env()
         self.path = Path(path) if path is not None else paths.registry_path
         self.root_path = Path(root_path) if root_path is not None else self._infer_root_path(self.path)
+        self._batch_depth = 0
+        self._batch_data: Optional[Dict[str, Any]] = None
+        self._batch_dirty = False
+
+    @contextmanager
+    def batch(self) -> Iterator["IngestionRegistry"]:
+        """Hold the registry in memory and write it once, on exit.
+
+        Every upsert otherwise rewrites the whole file, which turns a backfill
+        of thousands of sources into gigabytes of writes. Nested batches join
+        the outer one. The file is still written if the body raises, so work
+        already done is never lost.
+        """
+        if self._batch_depth == 0:
+            self._batch_data = self._read()
+            self._batch_dirty = False
+        self._batch_depth += 1
+        try:
+            yield self
+        finally:
+            self._batch_depth -= 1
+            if self._batch_depth == 0:
+                data, dirty = self._batch_data, self._batch_dirty
+                self._batch_data = None
+                self._batch_dirty = False
+                if dirty and data is not None:
+                    self._write(data)
 
     def get(self, source_id: str) -> Optional[Dict[str, Any]]:
         return self._load()["sources"].get(source_id)
@@ -73,6 +101,11 @@ class IngestionRegistry:
         return self.root_path / path
 
     def _load(self) -> Dict[str, Any]:
+        if self._batch_data is not None:
+            return self._batch_data
+        return self._read()
+
+    def _read(self) -> Dict[str, Any]:
         if not self.path.exists():
             return {"version": 1, "sources": {}}
         data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -81,6 +114,13 @@ class IngestionRegistry:
         return data
 
     def _save(self, data: Dict[str, Any]) -> None:
+        if self._batch_data is not None:
+            self._batch_data = data
+            self._batch_dirty = True
+            return
+        self._write(data)
+
+    def _write(self, data: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         data["updated_at"] = datetime.now(timezone.utc).isoformat()
         temp_path = self.path.with_suffix(".tmp")

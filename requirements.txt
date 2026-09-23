@@ -11,6 +11,8 @@ requests>=2.31.0
 boto3>=1.28.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.100.0
+# Text layer of ingested PDFs (attachments, Drive). Pure Python; no OCR.
+pypdf>=4.0
 
 # Structured local synthesis: response shapes are declared as Pydantic models
 # and the generated JSON Schema is handed to Ollama's structured output.

@@ -1005,16 +1005,17 @@ def _run_private_ingest(adapter):
     return results
 
 
-def _apply_deterministic_backfill(document_ids, *, root_path, private_home):
+def _apply_deterministic_backfill(document_ids, *, root_path, private_home, rebuild_index=True):
     """Run the same high-confidence entity linker backfill uses against freshly ingested documents.
 
     So once an entity's verified email or canonical name is known, future
     ingests of documents that mention it link automatically, instead of
-    waiting on a manual ``gang entity backfill``.
+    waiting on a manual ``gang entity backfill``. Returns whether any link
+    was written.
     """
     ids = {document_id for document_id in document_ids if document_id}
     if not ids:
-        return
+        return False
     try:
         from core.entities import EntityService
         from core.entities.backfill import BACKFILL_ENTITY_TYPES, run_backfill
@@ -1027,13 +1028,70 @@ def _apply_deterministic_backfill(document_ids, *, root_path, private_home):
     service = EntityService(root_path=root_path, private_home=private_home)
     records = [record for record in service.store.list() if record.type in BACKFILL_ENTITY_TYPES]
     if not records:
-        return
+        return False
     targeted = [document for document in service.documents.iter_documents() if document.document_id in ids]
     if not targeted:
-        return
+        return False
     _, changed = run_backfill(targeted, records, documents=service.documents, apply=True)
-    if changed:
+    if changed and rebuild_index:
         service.rebuild_index()
+    return bool(changed)
+
+
+def _refresh_derived_knowledge(document_ids):
+    """New or changed canonical documents through the existing derived pipeline.
+
+    Deterministic entity linking, then the private index, then an incremental
+    Evidence Facts refresh (which classifies each document's source). Returns
+    what changed in the generated facts store.
+    """
+    try:
+        from core.paths import GangPaths
+        from core.private_index import PrivateKnowledgeIndex
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.paths import GangPaths
+        from core.private_index import PrivateKnowledgeIndex
+
+    paths = GangPaths.from_env()
+    ids = sorted({document_id for document_id in document_ids if document_id})
+    facts_service = _facts_service()
+    before = _fact_ids(facts_service)
+    linked = _apply_deterministic_backfill(ids, root_path=paths.repo_root, private_home=paths.home, rebuild_index=False)
+    index = PrivateKnowledgeIndex(root_path=paths.repo_root, private_home=paths.home).build()
+    report = facts_service.build()
+    after = _fact_ids(facts_service)
+    return {
+        "documents": len(ids),
+        "entity_links_written": linked,
+        "index_documents": index.documents,
+        "facts_total": report["facts"],
+        "decisions_total": report["decisions"],
+        "facts_added": len(after["facts"] - before["facts"]),
+        "facts_removed": len(before["facts"] - after["facts"]),
+        "decisions_added": len(after["decisions"] - before["decisions"]),
+        "decisions_removed": len(before["decisions"] - after["decisions"]),
+        "documents_reextracted": report["extracted"],
+        "by_source_class": report["by_source_class"],
+    }
+
+
+def _fact_ids(facts_service):
+    snapshot = facts_service.store.snapshot() if facts_service.store.exists() else {}
+    return {
+        "facts": {row[0] for row in snapshot.get("facts", [])},
+        "decisions": {row[0] for row in snapshot.get("decisions", [])},
+    }
+
+
+def _print_refresh(refresh):
+    click.echo("Derived knowledge refreshed")
+    click.echo(f"  Documents linked and indexed: {refresh['documents']}"
+               + (" (new entity links written)" if refresh["entity_links_written"] else ""))
+    click.echo(f"  Evidence facts: {refresh['facts_total']} (+{refresh['facts_added']} / -{refresh['facts_removed']}), "
+               f"decisions: {refresh['decisions_total']} (+{refresh['decisions_added']} / -{refresh['decisions_removed']})")
+    click.echo(f"  Documents re-extracted for facts: {refresh['documents_reextracted']}")
 
 def _print_ingest_results(results):
     if not results:
@@ -1113,21 +1171,115 @@ def ingest_status():
 
 @ingest.command('inspect')
 @click.argument('source_id')
-def ingest_inspect(source_id):
-    """Inspect one private ingestion source record"""
+@click.option('--remote', is_flag=True, help='For Drive documents, also ask Drive whether a newer revision exists')
+@click.option('--format', 'output_format', type=click.Choice(['text', 'json']), default='text')
+def ingest_inspect(source_id, remote, output_format):
+    """Inspect a source record, or trace a document or fact back to its source.
+
+    \b
+    SOURCE_ID may be an ingestion source ID (prints the registry record), a
+    canonical document ID, or an evidence fact or decision ID. For documents
+    and facts it reports which attachment or Drive file the document came
+    from, which emails and threads carried it, and whether the original
+    bytes still match what was extracted.
+    """
     try:
-        from core.ingestion import IngestionRegistry
+        from core.ingestion import IngestionRegistry, LocalRawStore
+        from core.ingestion.provenance import ProvenanceError, document_provenance
+        from core.paths import GangPaths
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
-        from core.ingestion import IngestionRegistry
+        from core.ingestion import IngestionRegistry, LocalRawStore
+        from core.ingestion.provenance import ProvenanceError, document_provenance
+        from core.paths import GangPaths
 
     registry = IngestionRegistry()
     record = registry.get(source_id)
-    if not record:
+    if record:
+        click.echo(json.dumps(record, indent=2, sort_keys=True))
+        return
+
+    paths = GangPaths.from_env()
+    cited = _facts_service().store.lookup(source_id)
+    document_id = cited.document_id if cited is not None else source_id
+    drive_provider = None
+    if remote:
+        from core.ingestion import GoogleDriveProvider
+        drive_provider = GoogleDriveProvider()
+    try:
+        report = document_provenance(
+            document_id,
+            paths=paths,
+            registry=IngestionRegistry(paths.registry_path, root_path=paths.home),
+            raw_store=LocalRawStore(paths.raw_path),
+            drive_provider=drive_provider,
+        )
+    except ProvenanceError:
         click.echo(f"Source not found: {source_id}", err=True)
         raise click.Abort()
-    click.echo(json.dumps(record, indent=2, sort_keys=True))
+    if cited is not None:
+        report["cited_by"] = cited.to_dict()
+    supported = _facts_service().store.for_document(report["document_id"])
+    report["supports"] = {
+        "facts": [fact.fact_id for fact in supported["facts"]],
+        "decisions": [decision.decision_id for decision in supported["decisions"]],
+    }
+    if output_format == "json":
+        click.echo(json.dumps(report, indent=2, sort_keys=True, default=str))
+        return
+    _print_provenance(report)
+
+
+def _print_provenance(report):
+    if report.get("cited_by"):
+        cited = report["cited_by"]
+        label = cited.get("fact_id") or cited.get("decision_id")
+        click.echo(f"{label} is supported by:")
+        click.echo(f"  “{(cited.get('excerpt') or cited.get('text') or '')[:200]}”")
+        click.echo(f"  Source class: {cited.get('source_class')} (rank {cited.get('source_rank')})")
+        click.echo("")
+    click.echo(f"Document: {report.get('title')}")
+    click.echo(f"  ID: {report['document_id']}")
+    click.echo(f"  Path: {report['path']}")
+    click.echo(f"  Source: {report.get('source_type')} {report.get('source_id')}")
+    click.echo(f"  Raw evidence: {report.get('raw_ref')}")
+    click.echo(f"  Content hash: {report.get('content_hash')}")
+    integrity = report.get("raw_integrity") or {}
+    click.echo(f"  Original bytes: {integrity.get('status')}")
+    if "extraction" in report and report["extraction"]:
+        extraction = report["extraction"]
+        current = "current" if report.get("extraction_current") else "stale — re-run ingestion to rebuild"
+        click.echo(f"  Extraction: {extraction.get('status')} via {extraction.get('method') or 'n/a'} "
+                   f"({extraction.get('extractor_version')}, {current})")
+    if report.get("origin") == "gmail-attachment":
+        click.echo(f"  Attached {len(report['occurrences'])} time(s):")
+        for item in report["occurrences"]:
+            click.echo(f"    - {item.get('filename')}  received {item.get('received_at') or 'unknown'}"
+                       + (f"  account {item['source_account']}" if item.get("source_account") else ""))
+            click.echo(f"      Thread: {item.get('thread_subject') or '(unknown subject)'}")
+            click.echo(f"      Thread document: {item.get('thread_document_id') or 'n/a'}")
+            click.echo(f"      Gmail thread {item.get('gmail_thread_id')}, message {item.get('gmail_message_id')}")
+            click.echo(f"      Raw: {item.get('raw_ref')} ({(item.get('raw_integrity') or {}).get('status')})")
+    elif report.get("origin") == "drive-file":
+        click.echo(f"  Drive file: {report.get('name')} ({report.get('drive_file_id')})")
+        if report.get("folder_path"):
+            click.echo(f"  Folder: {report['folder_path']}")
+        click.echo(f"  Revision: {report.get('source_version')}  modified {report.get('modified_time')}")
+        if report.get("source_url"):
+            click.echo(f"  URL: {report['source_url']}")
+        if "remote" in report:
+            remote = report["remote"]
+            if remote.get("checked"):
+                click.echo(f"  Drive now: revision {remote.get('current_version')}"
+                           + ("  (CHANGED since extraction)" if remote.get("changed") else "  (unchanged)"))
+            else:
+                click.echo(f"  Drive check failed: {remote.get('error')}")
+    elif report.get("origin") == "gmail-thread":
+        click.echo(f"  Gmail thread {report.get('gmail_thread_id')}, {len(report.get('messages') or [])} message(s)")
+    click.echo(f"  Source changed since extraction: {'YES' if report.get('source_changed') else 'no'}")
+    supports = report.get("supports") or {}
+    click.echo(f"  Supports {len(supports.get('facts') or [])} fact(s), {len(supports.get('decisions') or [])} decision(s)")
 
 
 @cli.group("brain")
@@ -1263,7 +1415,9 @@ def ingest_gmail(ctx, since):
         result = GmailSyncService(GoogleGmailProvider()).sync(since=since)
         paths = GangPaths.from_env()
         _apply_deterministic_backfill(
-            [item.document_id for item in result.results], root_path=paths.repo_root, private_home=paths.home
+            [item.document_id for item in result.results] + result.attachments.changed_document_ids,
+            root_path=paths.repo_root,
+            private_home=paths.home,
         )
     except GmailIngestionError as e:
         click.echo(f"❌ Gmail ingest failed: {e}", err=True)
@@ -1297,7 +1451,8 @@ def ingest_gmail_auth():
 
 
 @ingest_gmail.command("status")
-def ingest_gmail_status():
+@click.option("--failures", is_flag=True, help="List attachments that need OCR or could not be read")
+def ingest_gmail_status(failures):
     """Show private Gmail connector status"""
     try:
         from core.ingestion import GmailSyncService, GoogleGmailProvider
@@ -1316,8 +1471,141 @@ def ingest_gmail_status():
         click.echo(f"  Last successful sync: {checkpoint.get('last_successful_sync_at')}")
         click.echo(f"  Last checkpoint: {checkpoint.get('last_successful_internal_date_ms')}")
         click.echo(f"  Last query: {checkpoint.get('last_query')}")
+        if checkpoint.get("account_email"):
+            click.echo(f"  Account: {checkpoint['account_email']}")
     else:
         click.echo("  Last successful sync: never")
+    attachments = status["attachments"]
+    click.echo("  Attachments:")
+    click.echo(f"    Occurrences recorded: {attachments['occurrences']}")
+    click.echo(f"    Distinct payloads: {attachments['payloads']}")
+    click.echo(f"    Canonical documents: {attachments['documents']}")
+    for name, count in sorted(attachments["by_status"].items()):
+        click.echo(f"    {name}: {count}")
+    if not attachments["payloads"]:
+        click.echo("    None extracted yet. Backfill with: gang ingest gmail attachments --dry-run")
+    if failures:
+        problems = attachments["problems"]
+        click.echo(f"  Attachments needing attention: {len(problems)}")
+        for item in problems:
+            click.echo(f"    - [{item['extraction_status']}] {item['source_name']}")
+            if item.get("extraction_detail"):
+                click.echo(f"        {item['extraction_detail']}")
+            click.echo(f"        {item['source_id']}  raw {item['raw_ref']}")
+
+
+@ingest_gmail.command("attachments")
+@click.option("--dry-run", is_flag=True, help="Discover and extract in memory; write nothing")
+@click.option("--thread", "thread_ids", multiple=True, help="Only this Gmail thread ID (repeatable)")
+@click.option("--since", default=None, help="Only attachments received on or after YYYY-MM-DD")
+@click.option("--retry-failed", is_flag=True, help="Re-extract payloads that previously failed or needed OCR")
+@click.option("--account", default=None, help="Source account to record (default: the connected Gmail account)")
+@click.option("--no-refresh", is_flag=True, help="Skip entity linking, index, and evidence-facts refresh")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def ingest_gmail_attachments(dry_run, thread_ids, since, retry_failed, account, no_refresh, output_format):
+    """Backfill attachments of already-ingested threads as canonical documents.
+
+    \b
+    Reads the attachment bytes Gmail ingestion already holds in raw custody:
+    nothing is downloaded, no OCR, no model. (At most one Gmail profile lookup
+    records the source account; pass --account to skip it.) Each distinct payload becomes one
+    private document under vault/attachments/, linked to every message and
+    thread that carried it. Re-running is idempotent. Unsupported, scanned,
+    password-protected, and corrupt files are reported, never fatal.
+    """
+    try:
+        from core.ingestion import GmailSyncService, GoogleGmailProvider
+        from core.ingestion.attachments import occurrences_from_thread_manifests
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import GmailSyncService, GoogleGmailProvider
+        from core.ingestion.attachments import occurrences_from_thread_manifests
+
+    if since and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since):
+        raise click.BadParameter("use YYYY-MM-DD", param_hint="--since")
+    service = GmailSyncService(GoogleGmailProvider())
+    source_account = account if account is not None else _gmail_source_account(service)
+    occurrences = occurrences_from_thread_manifests(
+        service.registry,
+        service.raw_store,
+        thread_ids=[*thread_ids] or None,
+        since=since,
+        source_account=source_account,
+    )
+    report = service.attachment_service().ingest(occurrences, dry_run=dry_run, retry_failed=retry_failed)
+    refresh = None
+    if not dry_run and not no_refresh and report.changed_document_ids:
+        refresh = _refresh_derived_knowledge(report.changed_document_ids)
+    if output_format == "json":
+        payload = report.summary()
+        payload["problems"] = [_attachment_result_dict(item) for item in report.problems]
+        payload["documents"] = [
+            _attachment_result_dict(item) for item in report.results if item.document_id
+        ]
+        payload["refresh"] = refresh
+        click.echo(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        return
+    _print_attachment_report(report)
+    if refresh:
+        _print_refresh(refresh)
+    elif not dry_run and not no_refresh:
+        click.echo("No canonical documents changed; derived knowledge left as is.")
+
+
+def _gmail_source_account(service):
+    checkpoint = service.load_checkpoint()
+    if checkpoint.get("account_email"):
+        return checkpoint["account_email"]
+    try:
+        return service.provider.account_email()
+    except Exception:  # noqa: BLE001 - without a live token the account stays unrecorded
+        return ""
+
+
+def _attachment_result_dict(item):
+    return {
+        "filename": item.filename,
+        "mime_type": item.mime_type,
+        "extraction_status": item.extraction_status,
+        "document_status": item.document_status,
+        "document_id": item.document_id,
+        "document_path": str(item.document_path) if item.document_path else "",
+        "detail": item.detail,
+        "content_hash": item.content_hash,
+        "content_source_id": item.content_source_id,
+        "occurrences": len(item.source_ids),
+        "thread_ids": item.thread_ids,
+    }
+
+
+def _print_attachment_report(report):
+    heading = "Gmail attachment backfill (dry run: nothing written)" if report.dry_run else "Gmail attachment backfill"
+    click.echo(heading)
+    click.echo(f"  Files discovered: {report.discovered}")
+    click.echo(f"  Distinct payloads: {report.distinct_payloads}")
+    click.echo(f"  Duplicates (same bytes, another occurrence): {report.duplicates}")
+    click.echo(f"  Extracted: {report.extracted}")
+    click.echo(f"  Requires OCR: {report.requires_ocr}")
+    click.echo(f"  Unsupported: {report.unsupported}")
+    click.echo(f"  Failures: {report.failed}")
+    verb = "would be " if report.dry_run else ""
+    click.echo(f"  Canonical documents {verb}created: {report.created}  {verb}updated: {report.updated}  unchanged: {report.unchanged}")
+    if report.unsupported_types:
+        top = ", ".join(f"{name} {count}" for name, count in report.unsupported_types.most_common(8))
+        click.echo(f"  Unsupported types: {top}")
+    problems = report.problems
+    if problems:
+        click.echo("  Needs attention:")
+        for item in problems:
+            click.echo(f"    - [{item.extraction_status}] {item.filename}" + (f": {item.detail}" if item.detail else ""))
+    changed = [item for item in report.results if item.document_status in {"created", "updated"}]
+    if changed:
+        click.echo("  Documents:")
+        for item in changed[:50]:
+            click.echo(f"    - {item.document_status}: {item.filename}" + (f"  {item.document_id}" if item.document_id else ""))
+        if len(changed) > 50:
+            click.echo(f"    … and {len(changed) - 50} more")
 
 
 def _print_gmail_sync_result(result):
@@ -1328,6 +1616,13 @@ def _print_gmail_sync_result(result):
     click.echo(f"  Updated: {result.updated}")
     click.echo(f"  Unchanged: {result.unchanged}")
     click.echo(f"  Failed: {result.failed}")
+    attachments = result.attachments
+    if attachments.discovered:
+        click.echo(
+            f"  Attachments: {attachments.discovered} discovered, {attachments.extracted} extracted, "
+            f"{attachments.duplicates} duplicate, {attachments.requires_ocr} requires OCR, "
+            f"{attachments.unsupported} unsupported, {attachments.failed} failed"
+        )
     checkpoint_value = result.checkpoint.get("last_successful_internal_date_ms") if result.checkpoint else None
     click.echo(f"  Checkpoint: {checkpoint_value or 'not advanced'}")
     for item in result.results:
@@ -1345,28 +1640,64 @@ def _print_gmail_sync_result(result):
 
 @ingest.group("drive", invoke_without_command=True)
 @click.option("--since", help="Bounded first sync range, such as 30d or 2026-01-31")
-@click.option("--folder", "folder_id", help="Bounded initial sync to one Drive folder ID")
+@click.option("--folder", "folder_ids", multiple=True, help="Bounded sync of a Drive folder ID (repeatable)")
+@click.option("--recursive", is_flag=True, help="With --folder, include every subfolder")
+@click.option("--configured", is_flag=True, help="Recursively ingest the configured company-record folders")
+@click.option("--dry-run", is_flag=True, help="With --configured or --recursive, list what would change; write nothing")
+@click.option("--no-refresh", is_flag=True, help="Skip the index and evidence-facts refresh after folder ingestion")
 @click.pass_context
-def ingest_drive(ctx, since, folder_id):
-    """Authenticate and import Google Drive files as private documents"""
+def ingest_drive(ctx, since, folder_ids, recursive, configured, dry_run, no_refresh):
+    """Authenticate and import Google Drive files as private documents
+
+    \b
+    Company-record folders are ingested with --configured (see
+    `gang ingest drive folders`) or --folder ID --recursive. Only those
+    folders and their descendants are listed; the rest of the Drive never is.
+    """
     if ctx.invoked_subcommand is not None:
         return
 
     try:
-        from core.ingestion import DriveIngestionError, DriveSyncService, GoogleDriveProvider
+        from core.ingestion import (
+            DriveFolder,
+            DriveIngestionError,
+            DriveSyncService,
+            GoogleDriveProvider,
+            load_drive_folders,
+        )
         from core.paths import GangPaths
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
-        from core.ingestion import DriveIngestionError, DriveSyncService, GoogleDriveProvider
+        from core.ingestion import (
+            DriveFolder,
+            DriveIngestionError,
+            DriveSyncService,
+            GoogleDriveProvider,
+            load_drive_folders,
+        )
         from core.paths import GangPaths
 
+    folder_mode = configured or recursive or len(folder_ids) > 1
+    if dry_run and not folder_mode:
+        raise click.UsageError("--dry-run applies to --configured or --folder ... --recursive")
+    if recursive and not folder_ids:
+        raise click.UsageError("--recursive needs at least one --folder")
+    paths = GangPaths.from_env()
+    refresh = None
     try:
-        result = DriveSyncService(GoogleDriveProvider()).sync(since=since, folder_id=folder_id)
-        paths = GangPaths.from_env()
-        _apply_deterministic_backfill(
-            [item.document_id for item in result.results], root_path=paths.repo_root, private_home=paths.home
-        )
+        service = DriveSyncService(GoogleDriveProvider())
+        if folder_mode:
+            folders = load_drive_folders(paths.drive_folders_path) if configured else []
+            folders += [DriveFolder(folder_id=folder_id, recursive=recursive) for folder_id in folder_ids]
+            result = service.sync_folders(folders, dry_run=dry_run)
+            if not dry_run and not no_refresh and result.changed_document_ids:
+                refresh = _refresh_derived_knowledge(result.changed_document_ids)
+        else:
+            result = service.sync(since=since, folder_id=folder_ids[0] if folder_ids else None)
+            _apply_deterministic_backfill(
+                [item.document_id for item in result.results], root_path=paths.repo_root, private_home=paths.home
+            )
     except DriveIngestionError as e:
         click.echo(f"❌ Drive ingest failed: {e}", err=True)
         raise click.Abort()
@@ -1375,6 +1706,65 @@ def ingest_drive(ctx, since, folder_id):
         raise click.Abort()
 
     _print_drive_sync_result(result)
+    if refresh:
+        _print_refresh(refresh)
+
+
+@ingest_drive.group("folders", invoke_without_command=True)
+@click.pass_context
+def ingest_drive_folders(ctx):
+    """List the company-record folders `gang ingest drive --configured` reads"""
+    if ctx.invoked_subcommand is not None:
+        return
+    load_drive_folders, _, paths = _drive_folder_config()
+    folders = load_drive_folders(paths.drive_folders_path)
+    click.echo(f"Configured Drive folders ({paths.drive_folders_path})")
+    if not folders:
+        click.echo("  None. Add one with: gang ingest drive folders add FOLDER_ID --label 'Company Records'")
+    for folder in folders:
+        click.echo(f"  - {folder.folder_id}  {folder.label or '(no label)'}  {'recursive' if folder.recursive else 'top level only'}")
+
+
+@ingest_drive_folders.command("add")
+@click.argument("folder_id")
+@click.option("--label", default="", help="Human name for the folder, used as its path root")
+@click.option("--no-recursive", is_flag=True, help="Read only the folder's direct children")
+def ingest_drive_folders_add(folder_id, label, no_recursive):
+    """Allow GANG to ingest one Drive folder and its subfolders"""
+    load_drive_folders, save_drive_folders, paths = _drive_folder_config()
+    from core.ingestion import DriveFolder
+
+    folders = [folder for folder in load_drive_folders(paths.drive_folders_path) if folder.folder_id != folder_id]
+    folders.append(DriveFolder(folder_id=folder_id, label=label, recursive=not no_recursive))
+    save_drive_folders(paths.drive_folders_path, folders)
+    click.echo(f"✅ Configured Drive folder {folder_id}" + (f" ({label})" if label else ""))
+    click.echo("  Ingest with: gang ingest drive --configured --dry-run")
+
+
+@ingest_drive_folders.command("remove")
+@click.argument("folder_id")
+def ingest_drive_folders_remove(folder_id):
+    """Stop ingesting a configured folder. Documents already ingested are kept."""
+    load_drive_folders, save_drive_folders, paths = _drive_folder_config()
+    folders = load_drive_folders(paths.drive_folders_path)
+    remaining = [folder for folder in folders if folder.folder_id != folder_id]
+    if len(remaining) == len(folders):
+        click.echo(f"{folder_id} was not configured.")
+        return
+    save_drive_folders(paths.drive_folders_path, remaining)
+    click.echo(f"✅ Removed Drive folder {folder_id}. Canonical documents already ingested were not touched.")
+
+
+def _drive_folder_config():
+    try:
+        from core.ingestion import load_drive_folders, save_drive_folders
+        from core.paths import GangPaths
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ingestion import load_drive_folders, save_drive_folders
+        from core.paths import GangPaths
+    return load_drive_folders, save_drive_folders, GangPaths.from_env()
 
 
 @ingest_drive.command("auth")
@@ -1399,7 +1789,8 @@ def ingest_drive_auth():
 
 
 @ingest_drive.command("status")
-def ingest_drive_status():
+@click.option("--failures", is_flag=True, help="List Drive files that need OCR or could not be read")
+def ingest_drive_status(failures):
     """Show private Drive connector status"""
     try:
         from core.ingestion import DriveSyncService, GoogleDriveProvider
@@ -1423,21 +1814,36 @@ def ingest_drive_status():
             click.echo(f"  Last folder bound: {checkpoint.get('last_folder_id')}")
     else:
         click.echo("  Last successful sync: never")
+    click.echo(f"  Configured folders: {status['configured_folders']}")
+    for name, count in sorted(status["by_extraction_status"].items()):
+        click.echo(f"    {name}: {count}")
+    if failures:
+        click.echo(f"  Files needing attention: {len(status['problems'])}")
+        for record in status["problems"]:
+            click.echo(f"    - [{record.get('extraction_status')}] {record.get('source_name')}"
+                       + (f"  ({record['drive_folder_path']})" if record.get("drive_folder_path") else ""))
+            if record.get("extraction_detail"):
+                click.echo(f"        {record['extraction_detail']}")
 
 
 def _print_drive_sync_result(result):
-    click.echo("Drive ingestion complete")
+    click.echo("Drive ingestion (dry run: nothing written)" if result.dry_run else "Drive ingestion complete")
     click.echo(f"  Files discovered: {result.files_discovered}")
     click.echo(f"  Supported: {result.supported}")
     click.echo(f"  Unsupported: {result.unsupported}")
     click.echo(f"  Created: {result.created}")
     click.echo(f"  Updated: {result.updated}")
     click.echo(f"  Unchanged: {result.unchanged}")
+    click.echo(f"  Requires OCR: {result.requires_ocr}")
+    click.echo(f"  Extraction failures: {result.extraction_failed}")
     click.echo(f"  Failed: {result.failed}")
+    if result.dry_run:
+        pending = sum(1 for item in result.results if item.status.startswith("would-"))
+        click.echo(f"  Would fetch and extract: {pending}")
     checkpoint_value = result.checkpoint.get("start_page_token") if result.checkpoint else None
     click.echo(f"  Checkpoint: {checkpoint_value or 'not advanced'}")
     for item in result.results:
-        click.echo(f"  - Drive file: {item.drive_file_id}")
+        click.echo(f"  - Drive file: {item.drive_file_id}" + (f"  {item.folder_path}/{item.name}" if item.folder_path else ""))
         click.echo(f"    Status: {item.status}")
         click.echo(f"    Source ID: {item.source_id}")
         if item.document_id:

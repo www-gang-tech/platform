@@ -8,8 +8,8 @@ import json
 import random
 import re
 import time
-import zipfile
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol
@@ -19,6 +19,14 @@ import yaml
 from core.entities.documents import preserved_entity_frontmatter
 from core.paths import GangPaths
 
+from .extract import (
+    EXTRACTOR_VERSION,
+    STATUS_EXTRACTED,
+    STATUS_REQUIRES_OCR,
+    Extraction,
+    extract_text,
+    extraction_kind,
+)
 from .gmail import _error_status, _error_text, _retry_after_seconds
 from .ids import content_sha256, slugify, stable_source_id, uuid7
 from .raw_store import LocalRawStore, RawRecord, RawStore
@@ -31,6 +39,15 @@ GOOGLE_SHEETS_MIME = "application/vnd.google-apps.spreadsheet"
 GOOGLE_SLIDES_MIME = "application/vnd.google-apps.presentation"
 GOOGLE_FORMS_MIME = "application/vnd.google-apps.form"
 GOOGLE_DRAWINGS_MIME = "application/vnd.google-apps.drawing"
+GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
+DRIVE_FILE_FIELDS = (
+    "id,name,mimeType,webViewLink,createdTime,modifiedTime,owners(displayName,emailAddress),"
+    "parents,md5Checksum,size,trashed,version,headRevisionId"
+)
+#: Recursive folder ingestion is bounded, so a misconfigured folder ID can
+#: never turn into a crawl of the whole Drive.
+DEFAULT_MAX_FOLDER_DEPTH = 8
+DEFAULT_MAX_FOLDER_FILES = 5000
 PDF_MIME = "application/pdf"
 TEXT_MIME_TYPES = {"text/plain", "text/markdown", "text/x-markdown"}
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -75,6 +92,19 @@ class DriveFile:
     head_revision_id: str = ""
     trashed: bool = False
     deleted: bool = False
+    #: Where a configured-folder traversal found the file, e.g.
+    #: ``Company Records/Legal``. Empty outside folder traversal.
+    folder_path: str = ""
+    root_folder_id: str = ""
+
+
+@dataclass(frozen=True)
+class DriveFolder:
+    """One explicitly configured company-record folder."""
+
+    folder_id: str
+    label: str = ""
+    recursive: bool = True
 
 
 @dataclass(frozen=True)
@@ -100,6 +130,9 @@ class DriveFileResult:
     supported: bool
     raw_record: Optional[RawRecord] = None
     error: Optional[str] = None
+    name: str = ""
+    mime_type: str = ""
+    folder_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -114,6 +147,17 @@ class DriveSyncResult:
     checkpoint: Dict[str, Any]
     checkpoint_advanced: bool
     results: List[DriveFileResult]
+    requires_ocr: int = 0
+    extraction_failed: int = 0
+    dry_run: bool = False
+
+    @property
+    def changed_document_ids(self) -> List[str]:
+        return [
+            result.document_id
+            for result in self.results
+            if result.document_id and result.status in {"created", "updated"}
+        ]
 
 
 class DriveProvider(Protocol):
@@ -130,6 +174,12 @@ class DriveProvider(Protocol):
 
     def current_start_page_token(self) -> str:
         """Return the current Drive changes checkpoint token."""
+
+    def get_file(self, file_id: str) -> DriveFile:
+        """Return metadata for one file or folder."""
+
+    def list_children(self, folder_id: str) -> Iterable[DriveFile]:
+        """Return the direct, untrashed children of one folder."""
 
 
 class GoogleDriveProvider:
@@ -265,13 +315,40 @@ class GoogleDriveProvider:
             )
 
         return DrivePayload(
-            payload=self._download_bytes(service.files().get_media(fileId=drive_file.file_id)),
+            payload=self._download_bytes(service.files().get_media(fileId=drive_file.file_id, supportsAllDrives=True)),
             filename=drive_file.name or f"{drive_file.file_id}.bin",
         )
 
     def current_start_page_token(self) -> str:
         response = self._execute(self._drive_service().changes().getStartPageToken())
         return str(response.get("startPageToken") or "")
+
+    def get_file(self, file_id: str) -> DriveFile:
+        response = self._execute(
+            self._drive_service().files().get(fileId=file_id, fields=DRIVE_FILE_FIELDS, supportsAllDrives=True)
+        )
+        return _drive_file_from_api(response)
+
+    def list_children(self, folder_id: str) -> Iterable[DriveFile]:
+        service = self._drive_service()
+        query = f"'{_escape_drive_query(folder_id)}' in parents and trashed = false"
+        page_token = None
+        while True:
+            response = self._execute(
+                service.files().list(
+                    q=query,
+                    pageToken=page_token,
+                    fields=f"nextPageToken,files({DRIVE_FILE_FIELDS})",
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    orderBy="folder,name",
+                )
+            )
+            for item in response.get("files", []):
+                yield _drive_file_from_api(item)
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
 
     def _download_bytes(self, request) -> bytes:
         try:
@@ -402,22 +479,7 @@ class DriveSyncService:
         else:
             raise DriveIngestionError("First Drive sync must be bounded. Example: gang ingest drive --since 30d")
 
-        results: List[DriveFileResult] = []
-        for drive_file in files:
-            try:
-                results.append(self._ingest_file(drive_file))
-            except Exception as exc:
-                results.append(
-                    DriveFileResult(
-                        drive_file_id=drive_file.file_id,
-                        source_id=_drive_file_source_id(drive_file.file_id),
-                        document_id="",
-                        document_path=None,
-                        status="failed",
-                        supported=_is_supported(drive_file),
-                        error=_safe_error(exc),
-                    )
-                )
+        results = self._ingest_files(files)
 
         failed = sum(1 for result in results if result.status == "failed")
         checkpoint_advanced = False
@@ -434,18 +496,128 @@ class DriveSyncService:
             self._save_checkpoint(checkpoint)
             checkpoint_advanced = True
 
-        return DriveSyncResult(
-            files_discovered=len(files),
-            supported=sum(1 for result in results if result.supported),
-            unsupported=sum(1 for result in results if not result.supported),
-            created=sum(1 for result in results if result.status == "created"),
-            updated=sum(1 for result in results if result.status == "updated"),
-            unchanged=sum(1 for result in results if result.status == "unchanged"),
-            failed=failed,
-            checkpoint=checkpoint,
-            checkpoint_advanced=checkpoint_advanced,
-            results=results,
+        return _sync_result(files, results, checkpoint=checkpoint, checkpoint_advanced=checkpoint_advanced)
+
+    def sync_folders(
+        self,
+        folders: List[DriveFolder],
+        *,
+        dry_run: bool = False,
+        max_depth: int = DEFAULT_MAX_FOLDER_DEPTH,
+        max_files: int = DEFAULT_MAX_FOLDER_FILES,
+    ) -> DriveSyncResult:
+        """Ingest explicitly configured company-record folders, recursively.
+
+        Only the named folders and their descendants are listed, never the
+        rest of the Drive, and shortcuts are not followed out of the tree. The
+        Changes checkpoint is left alone: this is a full, idempotent pass whose
+        unchanged revisions cost a listing and no download.
+        """
+        if not folders:
+            raise DriveIngestionError("No Drive folders configured. Add one with: gang ingest drive folders add FOLDER_ID")
+        files: List[DriveFile] = []
+        seen = set()
+        for folder in folders:
+            for drive_file in self.discover_folder(folder, max_depth=max_depth, max_files=max_files):
+                if drive_file.file_id not in seen:
+                    seen.add(drive_file.file_id)
+                    files.append(drive_file)
+        if dry_run:
+            results = [self._preview_file(drive_file) for drive_file in files]
+        else:
+            results = self._ingest_files(files)
+        checkpoint = self.load_checkpoint()
+        result = _sync_result(files, results, checkpoint=checkpoint, checkpoint_advanced=False)
+        return replace(result, dry_run=dry_run)
+
+    def discover_folder(
+        self,
+        folder: DriveFolder,
+        *,
+        max_depth: int = DEFAULT_MAX_FOLDER_DEPTH,
+        max_files: int = DEFAULT_MAX_FOLDER_FILES,
+    ) -> Iterable[DriveFile]:
+        root = self.provider.get_file(folder.folder_id)
+        if root.mime_type != GOOGLE_FOLDER_MIME:
+            raise DriveIngestionError(f"Configured Drive ID is not a folder: {folder.folder_id}")
+        if root.trashed:
+            raise DriveIngestionError(f"Configured Drive folder is in the trash: {folder.folder_id}")
+        root_path = folder.label or root.name or folder.folder_id
+        queue = deque([(folder.folder_id, root_path, 0)])
+        visited = {folder.folder_id}
+        yielded = 0
+        while queue:
+            folder_id, path, depth = queue.popleft()
+            for child in self.provider.list_children(folder_id):
+                if child.trashed:
+                    continue
+                if child.mime_type == GOOGLE_FOLDER_MIME:
+                    if folder.recursive and depth < max_depth and child.file_id not in visited:
+                        visited.add(child.file_id)
+                        queue.append((child.file_id, f"{path}/{child.name}", depth + 1))
+                    continue
+                yielded += 1
+                if yielded > max_files:
+                    raise DriveIngestionError(
+                        f"Drive folder {folder.folder_id} holds more than {max_files} files; refusing an unbounded crawl"
+                    )
+                yield replace(child, folder_path=path, root_folder_id=folder.folder_id)
+
+    def _ingest_files(self, files: Iterable[DriveFile]) -> List[DriveFileResult]:
+        results: List[DriveFileResult] = []
+        for drive_file in files:
+            try:
+                results.append(self._ingest_file(drive_file))
+            except Exception as exc:
+                results.append(
+                    DriveFileResult(
+                        drive_file_id=drive_file.file_id,
+                        source_id=_drive_file_source_id(drive_file.file_id),
+                        document_id="",
+                        document_path=None,
+                        status="failed",
+                        supported=_is_supported(drive_file),
+                        error=_safe_error(exc),
+                        name=drive_file.name,
+                        mime_type=drive_file.mime_type,
+                        folder_path=drive_file.folder_path,
+                    )
+                )
+        return results
+
+    def _preview_file(self, drive_file: DriveFile) -> DriveFileResult:
+        source_id = _drive_file_source_id(drive_file.file_id)
+        previous = self.registry.get(source_id)
+        supported = _is_supported(drive_file)
+        if not supported:
+            status = "unsupported"
+        elif previous and self._revision_unchanged(previous, drive_file):
+            status = "unchanged"
+        else:
+            status = "would-update" if previous else "would-create"
+        return DriveFileResult(
+            drive_file_id=drive_file.file_id,
+            source_id=source_id,
+            document_id=(previous or {}).get("document_id", ""),
+            document_path=None,
+            status=status,
+            supported=supported,
+            name=drive_file.name,
+            mime_type=drive_file.mime_type,
+            folder_path=drive_file.folder_path,
         )
+
+    def _revision_unchanged(self, previous: Dict[str, Any], drive_file: DriveFile) -> bool:
+        """Same revision, same metadata, same extractor: nothing to download."""
+        if previous.get("extractor_version") != EXTRACTOR_VERSION:
+            return False
+        if not previous.get("drive_metadata_hash") or previous.get("drive_metadata_hash") != _drive_metadata_hash(drive_file):
+            return False
+        if previous.get("extraction_status", STATUS_EXTRACTED) == STATUS_EXTRACTED:
+            document_path = previous.get("document_path")
+            if not document_path or not self.registry.resolve_path(document_path).exists():
+                return False
+        return bool(_source_version(drive_file))
 
     def status(self) -> Dict[str, Any]:
         sources = {
@@ -453,11 +625,33 @@ class DriveSyncService:
             for source_id, record in self.registry.all_sources().items()
             if record.get("adapter") == "DriveSyncService" or record.get("source_type") == "drive-file"
         }
+        by_extraction_status: Dict[str, int] = {}
+        for record in sources.values():
+            if not record.get("supported", True):
+                status = "unsupported"
+            else:
+                status = str(record.get("extraction_status") or "not-yet-classified")
+            by_extraction_status[status] = by_extraction_status.get(status, 0) + 1
+        problems = sorted(
+            (
+                record
+                for record in sources.values()
+                if record.get("supported", True) and record.get("extraction_status") not in {None, STATUS_EXTRACTED}
+            ),
+            key=lambda record: (str(record.get("extraction_status")), str(record.get("source_name"))),
+        )
+        try:
+            configured = len(load_drive_folders(self.paths.drive_folders_path))
+        except DriveIngestionError:
+            configured = 0
         return {
             "checkpoint_path": self.checkpoint_path,
             "checkpoint": self.load_checkpoint(),
             "files": len(sources),
             "documents": len({record.get("document_id") for record in sources.values() if record.get("document_id")}),
+            "configured_folders": configured,
+            "by_extraction_status": by_extraction_status,
+            "problems": problems,
         }
 
     def load_checkpoint(self) -> Dict[str, Any]:
@@ -471,6 +665,20 @@ class DriveSyncService:
         supported = _is_supported(drive_file)
         now = datetime.now(timezone.utc).isoformat()
         created_at = previous.get("created_at", now) if previous else now
+
+        if previous and supported and self._revision_unchanged(previous, drive_file):
+            return DriveFileResult(
+                drive_file_id=drive_file.file_id,
+                source_id=source_id,
+                document_id=previous.get("document_id", ""),
+                document_path=self.registry.resolve_path(previous["document_path"]) if previous.get("document_path") else None,
+                status="unchanged" if previous.get("extraction_status", STATUS_EXTRACTED) == STATUS_EXTRACTED else previous["extraction_status"],
+                supported=True,
+                error=previous.get("extraction_detail") or None,
+                name=drive_file.name,
+                mime_type=drive_file.mime_type,
+                folder_path=drive_file.folder_path,
+            )
 
         if not supported:
             raw_record = self._store_unsupported_evidence(drive_file)
@@ -494,6 +702,9 @@ class DriveSyncService:
                 status="unsupported",
                 supported=False,
                 raw_record=raw_record,
+                name=drive_file.name,
+                mime_type=drive_file.mime_type,
+                folder_path=drive_file.folder_path,
             )
 
         fetched = self.provider.fetch_file(drive_file)
@@ -508,6 +719,36 @@ class DriveSyncService:
         normalized = _normalize_drive_file(drive_file, fetched.payload, fetched.filename, fetched.export_mime_type)
         payload_hash = raw_record.content_hash
         source_state_hash = _source_state_hash(drive_file, payload_hash, normalized["metadata"])
+        extraction: Extraction = normalized["extraction"]
+        if not extraction.extracted:
+            # No usable text: the original is in raw custody and the outcome is
+            # recorded, but no canonical document is written or overwritten.
+            self._upsert_registry(
+                drive_file=drive_file,
+                raw_record=raw_record,
+                payload_hash=payload_hash,
+                source_state_hash=source_state_hash,
+                document_id=previous.get("document_id", "") if previous else "",
+                document_path=previous.get("document_path", "") if previous else "",
+                created_at=created_at,
+                updated_at=now,
+                supported=True,
+                append_raw_version=not previous or (previous.get("payload_hash") or previous.get("content_hash")) != payload_hash,
+                extraction=extraction,
+            )
+            return DriveFileResult(
+                drive_file_id=drive_file.file_id,
+                source_id=source_id,
+                document_id=previous.get("document_id", "") if previous else "",
+                document_path=None,
+                status=extraction.status,
+                supported=True,
+                raw_record=raw_record,
+                error=extraction.detail or None,
+                name=drive_file.name,
+                mime_type=drive_file.mime_type,
+                folder_path=drive_file.folder_path,
+            )
         manifest = {
             "source_type": "drive-file",
             "source_id": source_id,
@@ -521,19 +762,45 @@ class DriveSyncService:
         }
         previous_payload_hash = previous.get("payload_hash") or previous.get("content_hash") if previous else ""
         previous_source_state_hash = previous.get("source_state_hash") or previous.get("content_hash") if previous else ""
+        previous_document = (
+            self.registry.resolve_path(previous["document_path"]) if previous and previous.get("document_path") else None
+        )
 
-        if previous and previous_payload_hash == payload_hash and previous_source_state_hash == source_state_hash:
+        if (
+            previous
+            and previous_payload_hash == payload_hash
+            and previous_source_state_hash == source_state_hash
+            and previous_document is not None
+            and previous_document.exists()
+        ):
+            if previous.get("drive_metadata_hash") != _drive_metadata_hash(drive_file) or previous.get("extractor_version") != EXTRACTOR_VERSION:
+                self._upsert_registry(
+                    drive_file=drive_file,
+                    raw_record=raw_record,
+                    payload_hash=payload_hash,
+                    source_state_hash=source_state_hash,
+                    document_id=previous["document_id"],
+                    document_path=previous["document_path"],
+                    created_at=created_at,
+                    updated_at=previous.get("updated_at", now),
+                    supported=True,
+                    append_raw_version=False,
+                    extraction=extraction,
+                )
             return DriveFileResult(
                 drive_file_id=drive_file.file_id,
                 source_id=source_id,
                 document_id=previous["document_id"],
-                document_path=self.registry.resolve_path(previous["document_path"]),
+                document_path=previous_document,
                 status="unchanged",
                 supported=True,
                 raw_record=raw_record,
+                name=drive_file.name,
+                mime_type=drive_file.mime_type,
+                folder_path=drive_file.folder_path,
             )
 
-        document_id = previous["document_id"] if previous else uuid7()
+        document_id = previous["document_id"] if previous and previous.get("document_id") else uuid7()
         document_path = self._write_document(
             document_id=document_id,
             drive_file=drive_file,
@@ -556,15 +823,27 @@ class DriveSyncService:
             updated_at=now,
             supported=True,
             append_raw_version=not previous or previous_payload_hash != payload_hash,
+            extraction=extraction,
         )
+        if not previous or not previous.get("document_id"):
+            status = "created"
+        elif previous_payload_hash != payload_hash or previous_document is None or not previous_document.exists():
+            status = "updated"
+        elif previous_source_state_hash != source_state_hash and previous.get("extractor_version") != EXTRACTOR_VERSION:
+            status = "updated"
+        else:
+            status = "unchanged"
         return DriveFileResult(
             drive_file_id=drive_file.file_id,
             source_id=source_id,
             document_id=document_id,
             document_path=document_path,
-            status="updated" if previous and previous_payload_hash != payload_hash else ("unchanged" if previous else "created"),
+            status=status,
             supported=True,
             raw_record=raw_record,
+            name=drive_file.name,
+            mime_type=drive_file.mime_type,
+            folder_path=drive_file.folder_path,
         )
 
     def _store_unsupported_evidence(self, drive_file: DriveFile) -> RawRecord:
@@ -660,8 +939,17 @@ class DriveSyncService:
         updated_at: str,
         supported: bool,
         append_raw_version: bool = True,
+        extraction: Optional[Extraction] = None,
     ) -> None:
         source_id = _drive_file_source_id(drive_file.file_id)
+        extraction_fields: Dict[str, Any] = {}
+        if extraction is not None:
+            extraction_fields = {
+                "extraction_status": extraction.status,
+                "extraction_detail": extraction.detail,
+                "extractor_version": EXTRACTOR_VERSION,
+                "drive_metadata_hash": _drive_metadata_hash(drive_file),
+            }
         self.registry.upsert(
             source_id,
             {
@@ -685,7 +973,11 @@ class DriveSyncService:
                 "drive_modified_time": drive_file.modified_time,
                 "drive_trashed": drive_file.trashed,
                 "drive_deleted": drive_file.deleted,
+                "drive_source_version": _source_version(drive_file),
+                "drive_folder_path": drive_file.folder_path,
+                "drive_root_folder_id": drive_file.root_folder_id,
                 "supported": supported,
+                **extraction_fields,
             },
             append_version=append_raw_version,
             version_record={
@@ -711,6 +1003,77 @@ class DriveSyncService:
         return self.root_path / candidate
 
 
+def load_drive_folders(path: Path) -> List[DriveFolder]:
+    """Configured company-record folders from ``GANG_HOME/ingestion/drive/folders.yml``."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict) or not isinstance(data.get("folders") or [], list):
+        raise DriveIngestionError(f"Invalid Drive folder configuration: {path}")
+    folders = []
+    for item in data.get("folders") or []:
+        if not isinstance(item, dict) or not str(item.get("id") or "").strip():
+            raise DriveIngestionError(f"Invalid Drive folder entry in {path}: {item!r}")
+        folders.append(
+            DriveFolder(
+                folder_id=str(item["id"]).strip(),
+                label=str(item.get("label") or "").strip(),
+                recursive=bool(item.get("recursive", True)),
+            )
+        )
+    return folders
+
+
+def save_drive_folders(path: Path, folders: List[DriveFolder]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "folders": [
+            {"id": folder.folder_id, "label": folder.label, "recursive": folder.recursive} for folder in folders
+        ]
+    }
+    header = (
+        "# Company-record Drive folders GANG may ingest. Only these folders and\n"
+        "# their descendants are read; the rest of the Drive never is.\n"
+    )
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(header + yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    temp_path.replace(path)
+
+
+def _sync_result(
+    files: List[DriveFile],
+    results: List[DriveFileResult],
+    *,
+    checkpoint: Dict[str, Any],
+    checkpoint_advanced: bool,
+) -> DriveSyncResult:
+    return DriveSyncResult(
+        files_discovered=len(files),
+        supported=sum(1 for result in results if result.supported),
+        unsupported=sum(1 for result in results if not result.supported),
+        created=sum(1 for result in results if result.status == "created"),
+        updated=sum(1 for result in results if result.status == "updated"),
+        unchanged=sum(1 for result in results if result.status == "unchanged"),
+        failed=sum(1 for result in results if result.status == "failed"),
+        checkpoint=checkpoint,
+        checkpoint_advanced=checkpoint_advanced,
+        results=results,
+        requires_ocr=sum(1 for result in results if result.status == STATUS_REQUIRES_OCR),
+        extraction_failed=sum(1 for result in results if result.status in _EXTRACTION_FAILURE_STATUSES),
+    )
+
+
+_EXTRACTION_FAILURE_STATUSES = frozenset(
+    {"password-protected", "malformed", "empty", "too-large", "extractor-unavailable"}
+)
+
+
+def _drive_metadata_hash(drive_file: DriveFile) -> str:
+    return content_sha256(json.dumps(_drive_metadata(drive_file), sort_keys=True).encode("utf-8"))
+
+
 def _drive_file_source_id(file_id: str) -> str:
     return stable_source_id("drive-file", "drive", file_id)
 
@@ -720,15 +1083,9 @@ def _is_supported(drive_file: DriveFile) -> bool:
         return False
     if drive_file.mime_type == GOOGLE_DOC_MIME:
         return True
-    if drive_file.mime_type == PDF_MIME:
+    if Path(drive_file.name).suffix.lower() in {".md", ".txt"} and not drive_file.mime_type.startswith("application/vnd.google-apps."):
         return True
-    if drive_file.mime_type in TEXT_MIME_TYPES:
-        return True
-    if Path(drive_file.name).suffix.lower() in {".md", ".txt"}:
-        return True
-    if drive_file.mime_type in SUPPORTED_OFFICE_MIME_TYPES:
-        return True
-    return False
+    return extraction_kind(drive_file.mime_type, drive_file.name) is not None
 
 
 def _is_downloadable(drive_file: DriveFile) -> bool:
@@ -778,62 +1135,32 @@ def _normalize_drive_file(
         "export_mime_type": export_mime_type,
     }
     if drive_file.mime_type == GOOGLE_DOC_MIME:
+        # Google Docs keep their existing export path: Drive renders them as
+        # Markdown (or HTML, for older exports), so there is no file to parse.
         text = _decode_text(payload)
         if (export_mime_type or "").lower() == "text/html":
             body = _html_to_markdown(text)
         else:
             body = text.rstrip() + "\n"
-        return {"title": _first_heading(body) or title, "body": _ensure_heading(body, title), "metadata": metadata}
-    if drive_file.mime_type == PDF_MIME:
-        extracted = _extract_pdf_text(payload)
-        body = f"# {title}\n\n## Extracted Text\n\n{extracted.rstrip() or '(No extractable PDF text.)'}\n"
-        return {"title": title, "body": body, "metadata": {**metadata, "extraction": "pdf-text"}}
-    if drive_file.mime_type in TEXT_MIME_TYPES or Path(filename).suffix.lower() in {".md", ".txt"}:
-        text = _decode_text(payload).rstrip() + "\n"
-        body = text if Path(filename).suffix.lower() == ".md" or drive_file.mime_type == "text/markdown" else f"# {title}\n\n{text}"
-        return {"title": _first_heading(body) or title, "body": body, "metadata": metadata}
-    if drive_file.mime_type == DOCX_MIME:
-        body = f"# {title}\n\n{_extract_docx_text(payload).rstrip()}\n"
-        return {"title": title, "body": body, "metadata": {**metadata, "extraction": "docx-text"}}
-    raise DriveIngestionError(f"Unsupported Drive file type: {drive_file.mime_type}")
+        extraction = Extraction(STATUS_EXTRACTED, kind="google-doc", text=body, method=f"drive-export:{export_mime_type or 'text/markdown'}")
+        return {
+            "title": _first_heading(body) or title,
+            "body": _ensure_heading(body, title),
+            "metadata": {**metadata, "extraction": extraction.to_dict()},
+            "extraction": extraction,
+        }
 
-
-def _extract_pdf_text(payload: bytes) -> str:
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        return _extract_printable_strings(payload)
-
-    reader = PdfReader(io.BytesIO(payload))
-    parts = []
-    for page in reader.pages:
-        parts.append(page.extract_text() or "")
-    return "\n\n".join(part.strip() for part in parts if part.strip())
-
-
-def _extract_docx_text(payload: bytes) -> str:
-    try:
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            xml = archive.read("word/document.xml").decode("utf-8", errors="replace")
-    except Exception as exc:
-        raise DriveIngestionError("DOCX text extraction failed") from exc
-    paragraphs = re.findall(r"<w:p\b[\s\S]*?</w:p>", xml)
-    lines = []
-    for paragraph in paragraphs:
-        texts = re.findall(r"<w:t[^>]*>([\s\S]*?)</w:t>", paragraph)
-        line = html.unescape("".join(texts)).strip()
-        if line:
-            lines.append(line)
-    return "\n\n".join(lines) or "(No extractable DOCX text.)"
-
-
-def _extract_printable_strings(payload: bytes) -> str:
-    text = payload.decode("latin-1", errors="ignore")
-    literal_strings = [html.unescape(item) for item in re.findall(r"\(([^()]{3,})\)", text)]
-    if literal_strings:
-        return "\n".join(_safe_markdown_text(item) for item in literal_strings)
-    strings = re.findall(r"[A-Za-z0-9][A-Za-z0-9 ,.;:'\"!?()/_-]{8,}", text)
-    return "\n".join(_safe_markdown_text(item) for item in strings[:200])
+    extraction = extract_text(payload, mime_type=drive_file.mime_type, filename=filename or drive_file.name)
+    metadata = {**metadata, "extraction": extraction.to_dict()}
+    if not extraction.extracted:
+        return {"title": title, "body": "", "metadata": metadata, "extraction": extraction}
+    if extraction.kind == "markdown":
+        body = extraction.text.rstrip() + "\n"
+        return {"title": _first_heading(body) or title, "body": _ensure_heading(body, title), "metadata": metadata, "extraction": extraction}
+    if extraction.kind == "text":
+        return {"title": title, "body": f"# {title}\n\n{extraction.text.rstrip()}\n", "metadata": metadata, "extraction": extraction}
+    body = f"# {title}\n\n## Extracted Text\n\n{extraction.text.rstrip()}\n"
+    return {"title": title, "body": body, "metadata": metadata, "extraction": extraction}
 
 
 def _html_to_markdown(value: str) -> str:
@@ -911,6 +1238,8 @@ def _drive_metadata(drive_file: DriveFile) -> Dict[str, Any]:
         "size": drive_file.size,
         "trashed": drive_file.trashed,
         "deleted": drive_file.deleted,
+        "folder_path": drive_file.folder_path,
+        "root_folder_id": drive_file.root_folder_id,
     }
 
 
@@ -973,15 +1302,6 @@ def _is_retryable_google_error(exc: Exception) -> bool:
     if status == 403 and any(marker in details for marker in RETRYABLE_403_MARKERS):
         return True
     return False
-
-
-def _safe_markdown_text(value: str) -> str:
-    value = html.unescape(value or "")
-    value = value.replace("\r\n", "\n").replace("\r", "\n")
-    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", value)
-    value = value.replace("<", "&lt;").replace(">", "&gt;")
-    value = re.sub(r"\n{4,}", "\n\n\n", value)
-    return value.strip()
 
 
 def _safe_error(exc: Exception) -> str:

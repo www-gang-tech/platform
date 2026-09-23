@@ -108,16 +108,25 @@ Every document is classified before extraction (`core/source_classes.py`):
 | class | rank | identity evidence | decisions |
 | --- | ---: | :---: | :---: |
 | `corporate-record` — bylaws, operating agreement, 83(b), engagement letter | 100 | ✓ | ✓ |
-| `company-document` — other Drive and uploaded documents | 80 | ✓ | ✓ |
+| `company-document` — other Drive documents, email attachments, uploads | 80 | ✓ | ✓ |
 | `meeting-notes` — notes, minutes, recaps, meeting summaries | 70 | ✓ | ✓ |
 | `agenda` — working agendas and drafts | 50 | ✓ | — |
 | `email` — ordinary correspondence | 40 | ✓ | ✓ |
 | `bulk` — newsletters, marketing, receipts, calendar notifications | 0 | — | — |
 
 The classifier reads the title, the source type, and the sender headers
-ingestion recorded. It reads body text for exactly one thing: unsubscribe and
-"you are receiving this" boilerplate. That signal can only ever *demote* a
-document, so a document can argue its way down but never up.
+ingestion recorded. It reads body text for two things, and both can only ever
+*demote* a document, so a document can argue its way down but never up:
+
+- unsubscribe and "you are receiving this" boilerplate (to `bulk`);
+- a legal-sounding title whose own text never names the instrument. A file
+  called `Bylaws.docx` becomes `corporate-record` only if its extracted text
+  names bylaws too; otherwise it stays `company-document`. Templates and
+  samples are never records.
+
+Email attachments (`source_type: gmail-attachment`) are documents, not
+correspondence, so an executed 83(b) election attached to an email ranks as a
+corporate record.
 
 Mail from an address or domain with a canonical entity record is always
 correspondence, whatever boilerplate it carries.
@@ -243,8 +252,10 @@ later cannot quietly turn generated text into company knowledge.
 It is not a knowledge graph, an ontology, or semantic search. There are no
 embeddings and no fuzzy extraction.
 
-It doesn't cover documents the corpus doesn't hold. On the audit date, the
-bylaws, operating agreement, 83(b) elections, and engagement letters existed
-only as email attachment names. See the
-[Phase 0 audit](../reviews/EVIDENCE_FACTS_V1_AUDIT.md). That is an ingestion
-gap, and V1 does not paper over it by inference.
+It doesn't cover documents the corpus doesn't hold. On the V1 audit date, the
+bylaws, 83(b) elections, and engagement letters existed only as email
+attachment names ([Phase 0 audit](../reviews/EVIDENCE_FACTS_V1_AUDIT.md)).
+Epic 11 closed that ingestion gap: attachments and configured Drive folders
+are now canonical documents
+([audit](../reviews/HIGH_AUTHORITY_INGESTION_AUDIT.md)). V1 still does not
+paper over missing documents by inference.

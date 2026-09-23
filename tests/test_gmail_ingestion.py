@@ -223,7 +223,8 @@ class GmailIngestionTests(unittest.TestCase):
             self.assertTrue(attachment_record["raw_ref"].startswith("local://gmail-attachment/"))
 
             registry = json.loads((gang_home(root) / "ingestion/registry.json").read_text(encoding="utf-8"))
-            records = list(registry["sources"].values())
+            records = [record for record in registry["sources"].values() if record["source_type"] == "gmail-thread"]
+            self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["adapter"], "GmailSyncService")
             self.assertEqual(records[0]["gmail_thread_id"], "thread-1")
 

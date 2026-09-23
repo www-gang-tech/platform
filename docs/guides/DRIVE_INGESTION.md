@@ -44,6 +44,21 @@ Or import one Drive folder by ID:
 python3 cli/gang/cli.py ingest drive --folder DRIVE_FOLDER_ID
 ```
 
+### Company-record folders
+
+Ingest one or more explicitly configured folders and all their subfolders. Only those folders are listed; the rest of the Drive never is, and shortcuts aren't followed out of the tree.
+
+```sh
+python3 cli/gang/cli.py ingest drive folders add DRIVE_FOLDER_ID --label "Company Records"
+python3 cli/gang/cli.py ingest drive folders                 # list configured folders
+python3 cli/gang/cli.py ingest drive --configured --dry-run  # what would change; writes nothing
+python3 cli/gang/cli.py ingest drive --configured            # ingest, link, refresh facts and index
+python3 cli/gang/cli.py ingest drive --folder ID --recursive # one-off, without configuring
+python3 cli/gang/cli.py ingest drive status --failures       # files that need OCR or could not be read
+```
+
+The configuration lives in `GANG_HOME/ingestion/drive/folders.yml`. Traversal is bounded (8 levels, 5,000 files per folder) so a wrong ID can't become a crawl. Each document records its folder path (`drive.folder_path`, e.g. `Company Records/Legal`), the configured root folder, the Drive revision, modified time, content hash, and source URL. A file whose revision, metadata, and extractor version are all unchanged isn't downloaded again.
+
 Later syncs use the private Drive changes checkpoint:
 
 ```sh
@@ -60,10 +75,9 @@ Routine output reports counts, document IDs, source IDs, and checkpoint state. I
 
 ## Supported Formats
 
-- Google Docs are exported deterministically and normalized into semantic Markdown/text.
-- PDF files are preserved as raw evidence and text is extracted deterministically where possible. OCR is not performed.
-- Markdown and plain text files are preserved and normalized directly.
-- DOCX files use a replaceable text extraction boundary. Other office formats are not deeply modeled in this epic.
+- Google Docs are exported deterministically as Markdown and normalized.
+- PDF, DOCX, Markdown, and plain text go through the same extractor as Gmail attachments (`core/ingestion/extract.py`). PDF text comes from the embedded text layer via `pypdf`. OCR is never performed: a PDF without a text layer is recorded as `requires-ocr`, and no canonical document is written or overwritten.
+- Password-protected, corrupt, and empty files are recorded with their status and never abort a run.
 
 Unsupported formats include Google Sheets, Slides, Forms, drawings, video/audio, and arbitrary binaries. Unsupported files get source records and raw/metadata evidence where practical, but no canonical semantic Markdown is created.
 

@@ -25,6 +25,9 @@ from core.ingestion.drive import (
 )
 from core.private_index import PrivateKnowledgeIndex
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from document_fixtures import text_pdf  # noqa: E402
+
 
 def gang_home(root):
     return root / "gang-home"
@@ -323,7 +326,7 @@ class DriveIngestionTests(unittest.TestCase):
             provider = MockDriveProvider(
                 files=[pdf, text, unsupported],
                 payloads={
-                    "pdf-1": b"%PDF-1.4\n(Flux capacitor certification) Tj\n",
+                    "pdf-1": text_pdf(["Flux capacitor certification requirements for the housing."]),
                     "text-1": b"Plain text design note.\n",
                 },
             )

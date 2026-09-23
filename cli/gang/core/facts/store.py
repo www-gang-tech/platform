@@ -21,7 +21,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from .model import (
     EXTRACTOR_VERSION,
@@ -297,6 +297,54 @@ class FactStore:
         except sqlite3.DatabaseError:
             return []
         return [_decision_from_row(row) for row in rows]
+
+    def lookup(self, item_id: str) -> Optional[Any]:
+        """One generated fact or decision by its ID, for provenance lookups."""
+        if not self.exists() or not item_id:
+            return None
+        try:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT f.*, s.title AS document_title FROM facts f "
+                    "LEFT JOIN sources s ON s.document_id = f.document_id WHERE f.fact_id = ?",
+                    (item_id,),
+                ).fetchone()
+                if row is not None:
+                    return _fact_from_row(row)
+                row = connection.execute(
+                    "SELECT d.*, s.title AS document_title FROM decisions d "
+                    "LEFT JOIN sources s ON s.document_id = d.document_id WHERE d.decision_id = ?",
+                    (item_id,),
+                ).fetchone()
+        except sqlite3.DatabaseError:
+            return None
+        return _decision_from_row(row) if row is not None else None
+
+    def for_document(self, document_id: str) -> Dict[str, List[Any]]:
+        """Every generated fact and decision one document supports."""
+        empty: Dict[str, List[Any]] = {"facts": [], "decisions": []}
+        if not self.exists() or not document_id:
+            return empty
+        try:
+            with closing(self._connect()) as connection:
+                facts = connection.execute(
+                    "SELECT f.*, s.title AS document_title FROM facts f "
+                    "LEFT JOIN sources s ON s.document_id = f.document_id "
+                    "WHERE f.document_id = ? ORDER BY f.fact_id",
+                    (document_id,),
+                ).fetchall()
+                decisions = connection.execute(
+                    "SELECT d.*, s.title AS document_title FROM decisions d "
+                    "LEFT JOIN sources s ON s.document_id = d.document_id "
+                    "WHERE d.document_id = ? ORDER BY d.decision_id",
+                    (document_id,),
+                ).fetchall()
+        except sqlite3.DatabaseError:
+            return empty
+        return {
+            "facts": [_fact_from_row(row) for row in facts],
+            "decisions": [_decision_from_row(row) for row in decisions],
+        }
 
     def counts(self) -> Dict[str, int]:
         if not self.exists():
