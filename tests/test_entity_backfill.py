@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
 import cli as gang_cli
-from core.entities import EntityService, EntityValidationError
+from core.entities import EntityService, EntityValidationError, PublicDocumentError
 
 
 def write_markdown(path, frontmatter, body):
@@ -66,6 +66,24 @@ class BackfillTestCase(unittest.TestCase):
                 "source_id": f"gmail-thread_{document_id}",
                 "source_ids": [f"gmail-thread_{document_id}"],
                 "gmail": {"participants": participants},
+            },
+            body,
+        )
+        return path
+
+    def write_public_post(self, relative_path, *, document_id, body):
+        path = self.root / "brain/vault/public/posts" / relative_path
+        write_markdown(
+            path,
+            {
+                "id": document_id,
+                "type": "knowledge",
+                "source_type": "file",
+                "title": "Public post",
+                "visibility": "public",
+                "status": "active",
+                "content_trust": "trusted",
+                "source_id": f"file_{document_id}",
             },
             body,
         )
@@ -306,6 +324,104 @@ class FutureIngestionTests(BackfillTestCase):
 
         view = service.show(daniel.id)
         self.assertEqual(view["provenance"]["mentions"], 1)
+
+
+class PublicDocumentSafetyTests(BackfillTestCase):
+    def test_backfill_all_apply_links_private_and_skips_public_without_aborting(self):
+        # Reproduces the reported bug: a corpus with both a private match and
+        # an unrelated public match must complete, not abort on the public one.
+        private_path = self.write_gmail_thread(
+            "private-thread.md",
+            document_id="private-doc",
+            participants=["Daniel Hirunrusme <daniel@gang.tech>"],
+            body="# Thread\n\nBody text.\n",
+        )
+        public_path = self.write_public_post(
+            "public-post.md",
+            document_id="public-doc",
+            body="Daniel Hirunrusme wrote this post.\n",
+        )
+        public_raw_before = public_path.read_text(encoding="utf-8")
+
+        service = self.service()
+        daniel = service.create("person", "Daniel Hirunrusme", emails=["daniel@gang.tech"])
+
+        reports = service.backfill(None, apply=True)
+        report = reports[daniel.id]
+
+        self.assertEqual(report["new_mentions"], 1)
+        self.assertIn("entity_refs", read_frontmatter(private_path))
+
+        self.assertEqual(report["public_documents_skipped"], 1)
+        skipped_ids = {item["document_id"] for item in report["skipped_documents"]}
+        self.assertIn("public-doc", skipped_ids)
+        self.assertEqual(
+            [item["reason"] for item in report["skipped_documents"]], ["visibility-public"]
+        )
+
+        # The public document must be byte-for-byte unchanged.
+        self.assertEqual(public_path.read_text(encoding="utf-8"), public_raw_before)
+        self.assertNotIn("entity_refs", read_frontmatter(public_path))
+
+        # A second --apply pass is idempotent: no new writes, no error, and
+        # the public document is still reported (and left) untouched.
+        second = service.backfill(None, apply=True)[daniel.id]
+        self.assertEqual(second["new_mentions"], 0)
+        self.assertEqual(second["already_linked"], 1)
+        self.assertEqual(second["public_documents_skipped"], 1)
+        self.assertEqual(public_path.read_text(encoding="utf-8"), public_raw_before)
+
+    def test_cli_entity_backfill_all_apply_does_not_abort_on_public_match(self):
+        # `entity backfill --all` with no root_path resolves the public vault
+        # relative to the process cwd, exactly like the real CLI invocation
+        # that reported this bug, so this runs in an isolated cwd rather than
+        # the checked-out repo (which has its own real public documents).
+        service = self.service()
+        service.create("person", "Daniel Hirunrusme", emails=["daniel@gang.tech"])
+
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            Path("gang.config.yml").write_text("build: {}\n", encoding="utf-8")
+            write_markdown(
+                Path("brain/vault/public/posts/public-post.md"),
+                {
+                    "id": "public-doc-2",
+                    "type": "knowledge",
+                    "source_type": "file",
+                    "title": "Public post",
+                    "visibility": "public",
+                    "status": "active",
+                    "content_trust": "trusted",
+                    "source_id": "file_public-doc-2",
+                },
+                "Daniel Hirunrusme wrote this post.\n",
+            )
+            self.write_gmail_thread(
+                "private-thread2.md",
+                document_id="private-doc-2",
+                participants=["Daniel Hirunrusme <daniel@gang.tech>"],
+                body="# Thread\n\nBody text.\n",
+            )
+
+            env = {"GANG_HOME": str(self.home)}
+            result = runner.invoke(
+                gang_cli.cli, ["entity", "backfill", "--all", "--apply", "--verbose"], env=env
+            )
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("public documents skipped: 1", result.output)
+        self.assertIn("visibility-public", result.output)
+
+    def test_apply_references_still_refuses_direct_public_write(self):
+        # Defense in depth: the store-level guard must keep working even
+        # though the backfill layer no longer relies on it to catch mistakes.
+        self.write_public_post("direct.md", document_id="direct-doc", body="Some public body.\n")
+        service = self.service()
+        document = service.documents.load("direct-doc")
+        with self.assertRaises(PublicDocumentError):
+            service.documents.apply_references(
+                document,
+                mentions=[{"entity_id": "x", "entity_type": "person", "label": "X"}],
+            )
 
 
 if __name__ == "__main__":

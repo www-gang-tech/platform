@@ -112,6 +112,14 @@ class MergeConflictError(EntityError):
     """Raised when a merge would be unsafe."""
 
 
+class MarkdownParseError(EntityError):
+    """Raised when a document's YAML frontmatter cannot be parsed.
+
+    Wraps the underlying ``yaml.YAMLError`` so callers can catch a single
+    domain error without importing PyYAML themselves.
+    """
+
+
 @dataclass
 class EntityRecord:
     """A canonical entity. The Markdown file on disk is the source of truth."""
@@ -355,7 +363,10 @@ def parse_markdown(text: str) -> tuple[Dict[str, Any], str]:
     parts = text.split("---", 2)
     if len(parts) < 3:
         return {}, text
-    frontmatter = yaml.safe_load(parts[1]) or {}
+    try:
+        frontmatter = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError as exc:
+        raise MarkdownParseError(str(exc)) from exc
     if not isinstance(frontmatter, dict):
         frontmatter = {}
     return frontmatter, parts[2]

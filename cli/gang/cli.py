@@ -2853,11 +2853,18 @@ def entity_backfill(entity_id, backfill_all, apply_changes, verbose, output_form
             click.echo(f"already linked: {report['already_linked']}")
             click.echo(f"new mentions: {report['new_mentions']}")
             click.echo(f"ambiguous candidates skipped: {report['ambiguous_skipped']}")
+            click.echo(f"public documents skipped: {report['public_documents_skipped']}")
+            click.echo(f"malformed documents skipped: {report['malformed_documents_skipped']}")
             if verbose:
                 for match in report["matches"]:
                     click.echo(f"  match: {match['document_id']}  {match['reason']}  {match['label']}")
                 for candidate in report["candidates"]:
                     click.echo(f"  candidate: {candidate['document_id']}  alias: {candidate['alias']}")
+                for skipped in report["skipped_documents"]:
+                    click.echo(f"  skipped: {skipped['document_id']}  reason: {skipped['reason']}")
+                for malformed in report["malformed_documents"]:
+                    click.echo(f"  {malformed['document_id'] or malformed['path']}")
+                    click.echo(f"  YAML parse error: {malformed['error']}")
             click.echo("")
 
         if apply_changes:
@@ -2913,8 +2920,9 @@ def entity_relate(document_id, subject, predicate, object_entity_id, evidence, s
 @entity.command("candidates")
 @click.option("--type", "entity_type", help="Filter by entity type")
 @click.option("--unresolved-only", is_flag=True, help="Hide strings that already resolve")
+@click.option("--verbose", is_flag=True, help="List malformed document IDs/paths and parse errors")
 @click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
-def entity_candidates(entity_type, unresolved_only, output_format):
+def entity_candidates(entity_type, unresolved_only, verbose, output_format):
     """Report entity-like strings across the corpus (read-only)"""
     with _entity_errors() as names:
         report = names["EntityService"]().candidates(
@@ -2929,6 +2937,7 @@ def entity_candidates(entity_type, unresolved_only, output_format):
             f"({summary['resolved']} resolved, {summary['ambiguous']} ambiguous, "
             f"{summary['unresolved']} unresolved)"
         )
+        click.echo(f"malformed documents skipped: {summary['malformed_documents_skipped']}")
         for row in report["candidates"]:
             marker = {"resolved": "✓", "ambiguous": "?"}.get(row["status"], " ")
             click.echo(f"  {marker} {row['text']:<28} {row['documents']:>4} documents  [{row['entity_type']}]")
@@ -2936,6 +2945,10 @@ def entity_candidates(entity_type, unresolved_only, output_format):
                 click.echo(f"      -> {row['entity_name']} ({row['entity_id']})")
             for candidate in row["candidates"]:
                 click.echo(f"      ? {candidate['name']} ({candidate['entity_id']}): {candidate['reason']}")
+        if verbose:
+            for malformed in report["malformed_documents"]:
+                click.echo(f"  {malformed['document_id'] or malformed['path']}")
+                click.echo(f"  YAML parse error: {malformed['error']}")
         click.echo("\nThis command does not change anything.")
 
 

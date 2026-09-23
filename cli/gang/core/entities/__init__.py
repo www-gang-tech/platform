@@ -18,6 +18,7 @@ from .candidates import collect_candidates, summarize
 from .documents import (
     EntityDocument,
     EntityDocumentStore,
+    MalformedDocument,
     PublicDocumentError,
     normalize_mention,
     normalize_relationship,
@@ -36,6 +37,7 @@ from .model import (
     EntityNotFoundError,
     EntityRecord,
     EntityValidationError,
+    MarkdownParseError,
     MergeConflictError,
     normalize_name,
 )
@@ -88,6 +90,8 @@ __all__ = [
     "EntityService",
     "EntityStore",
     "EntityValidationError",
+    "MalformedDocument",
+    "MarkdownParseError",
     "MergeConflictError",
     "PREDICATES",
     "PREDICATE_VOCABULARY_VERSION",

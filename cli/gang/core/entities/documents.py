@@ -16,9 +16,10 @@ are left untouched for compatibility.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core.paths import GangPaths
 
@@ -27,6 +28,7 @@ from .model import (
     RELATIONSHIP_FIELD,
     EntityError,
     EntityValidationError,
+    MarkdownParseError,
     clean_excerpt,
     dump_markdown,
     is_entity_frontmatter,
@@ -37,6 +39,19 @@ from .model import (
     validate_entity_type,
     validate_predicate,
 )
+
+#: Ingestion writes corpus documents as ``{document_id}-{slug}.md`` (see
+#: ``core.ingestion.pipeline``/``gmail``/``drive``). A malformed document's
+#: frontmatter can't be parsed to recover its ``id``, so this is the only way
+#: to identify *which* document broke well enough to report it.
+_ID_PREFIX_PATTERN = re.compile(
+    r"^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-"
+)
+
+
+def _infer_document_id(path: Path) -> Optional[str]:
+    match = _ID_PREFIX_PATTERN.match(path.name)
+    return match.group(1) if match else None
 
 
 #: Frontmatter that identity and provenance depend on. Applying entity data must
@@ -111,6 +126,28 @@ class EntityDocument:
         }
 
 
+@dataclass(frozen=True)
+class MalformedDocument:
+    """A corpus file whose YAML frontmatter could not be parsed.
+
+    Never repaired or rewritten: the source file is left exactly as found.
+    ``document_id`` is a best-effort guess recovered from the filename
+    convention ingestion uses, and is ``None`` when the name doesn't start
+    with a UUID.
+    """
+
+    path: Path
+    document_id: Optional[str]
+    error: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "document_id": self.document_id,
+            "path": str(self.path),
+            "error": self.error,
+        }
+
+
 class EntityDocumentStore:
     """Read canonical documents and apply entity references to them."""
 
@@ -127,30 +164,70 @@ class EntityDocumentStore:
             self.vault_paths = [self._resolve(path) for path in vault_paths]
         else:
             self.vault_paths = [self.paths.private_vault, self.paths.repo_public_vault]
+        #: Populated by the most recent ``iter_documents()`` pass. Corpus-wide
+        #: callers (entity candidates, entity backfill) read this afterwards
+        #: to report what was skipped; nothing here is ever repaired.
+        self.malformed_documents: List[MalformedDocument] = []
 
     # ------------------------------------------------------------------ read
 
-    def iter_documents(self) -> Iterable[EntityDocument]:
+    def _iter_raw(self) -> Iterable[Tuple[Optional[EntityDocument], Optional[MalformedDocument]]]:
+        """Parse every corpus file once, the shared boundary for both read paths.
+
+        Yields ``(document, None)`` on success or ``(None, malformed)`` on a
+        YAML parse failure, so ``iter_documents`` can skip-and-continue while
+        ``load`` can still raise for the one document it was explicitly asked
+        for.
+        """
         for path in self._markdown_paths():
             raw_text = path.read_text(encoding="utf-8")
-            frontmatter, body = parse_markdown(raw_text)
+            try:
+                frontmatter, body = parse_markdown(raw_text)
+            except MarkdownParseError as exc:
+                yield None, MalformedDocument(
+                    path=path, document_id=_infer_document_id(path), error=str(exc)
+                )
+                continue
             if is_entity_frontmatter(frontmatter):
                 continue
             document_id = string_value(frontmatter.get("id"))
             if not document_id:
                 continue
-            yield EntityDocument(
-                document_id=document_id,
-                path=path,
-                frontmatter=frontmatter,
-                body=body,
-                raw_text=raw_text,
-                document_hash=sha256_text(raw_text),
+            yield (
+                EntityDocument(
+                    document_id=document_id,
+                    path=path,
+                    frontmatter=frontmatter,
+                    body=body,
+                    raw_text=raw_text,
+                    document_hash=sha256_text(raw_text),
+                ),
+                None,
             )
 
+    def iter_documents(self) -> Iterable[EntityDocument]:
+        """Corpus-wide scan. A malformed document is skipped and recorded, never repaired."""
+        self.malformed_documents = []
+        for document, malformed in self._iter_raw():
+            if malformed is not None:
+                self.malformed_documents.append(malformed)
+                continue
+            yield document
+
     def load(self, document_id: str) -> EntityDocument:
+        """Explicit single-document access. Unlike ``iter_documents``, a parse
+        error for the requested document is never swallowed."""
         document_id = string_value(document_id)
-        matches = [document for document in self.iter_documents() if document.document_id == document_id]
+        matches: List[EntityDocument] = []
+        for document, malformed in self._iter_raw():
+            if malformed is not None:
+                if malformed.document_id == document_id:
+                    raise MarkdownParseError(
+                        f"Document {document_id} at {malformed.path} is malformed: {malformed.error}"
+                    )
+                continue
+            if document.document_id == document_id:
+                matches.append(document)
         if not matches:
             raise EntityError(f"Document not found: {document_id}")
         if len(matches) > 1:

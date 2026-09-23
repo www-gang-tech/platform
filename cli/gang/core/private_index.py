@@ -322,7 +322,14 @@ class PrivateKnowledgeIndex:
         )
         for root, path in self._markdown_paths():
             text = path.read_text(encoding="utf-8")
-            frontmatter, body = _parse_markdown(text)
+            try:
+                frontmatter, body = _parse_markdown(text)
+            except yaml.YAMLError:
+                # A document that fails deterministic entity-link backfill's
+                # own scan for the same reason must not also abort a rebuild
+                # of this search index. Skip it, never repair it; it stays
+                # invisible to search until its YAML is fixed by hand.
+                continue
             if is_entity_frontmatter(frontmatter):
                 # An entity record is an identity, not a document — except when
                 # someone has authored what the entity *is*. That authored
@@ -350,7 +357,10 @@ class PrivateKnowledgeIndex:
         seen_ids = set()
         for _, path in self._markdown_paths():
             text = path.read_text(encoding="utf-8")
-            frontmatter, body = _parse_markdown(text)
+            try:
+                frontmatter, body = _parse_markdown(text)
+            except yaml.YAMLError:
+                continue
             if not is_entity_frontmatter(frontmatter):
                 continue
             record = EntityRecord.from_frontmatter(frontmatter, body, path)

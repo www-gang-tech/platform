@@ -43,6 +43,7 @@ from .model import (
 REASON_VERIFIED_EMAIL = "verified-email"
 REASON_CANONICAL_NAME = "canonical-name"
 REASON_VERIFIED_DOMAIN = "verified-domain"
+REASON_VISIBILITY_PUBLIC = "visibility-public"
 
 #: Entity types the deterministic matching rules below are defined for.
 BACKFILL_ENTITY_TYPES = ("person", "company")
@@ -72,8 +73,12 @@ class BackfillEntityReport:
     already_linked: int = 0
     new_mentions: int = 0
     ambiguous_skipped: int = 0
+    public_documents_skipped: int = 0
+    malformed_documents_skipped: int = 0
     matches: List[Dict[str, Any]] = field(default_factory=list)
     candidates: List[Dict[str, Any]] = field(default_factory=list)
+    skipped_documents: List[Dict[str, Any]] = field(default_factory=list)
+    malformed_documents: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -85,8 +90,12 @@ class BackfillEntityReport:
             "already_linked": self.already_linked,
             "new_mentions": self.new_mentions,
             "ambiguous_skipped": self.ambiguous_skipped,
+            "public_documents_skipped": self.public_documents_skipped,
+            "malformed_documents_skipped": self.malformed_documents_skipped,
             "matches": list(self.matches),
             "candidates": list(self.candidates),
+            "skipped_documents": list(self.skipped_documents),
+            "malformed_documents": list(self.malformed_documents),
         }
 
 
@@ -102,6 +111,20 @@ def run_backfill(
     Every entity that matches the same document is applied in a single
     ``apply_references`` call so a document is only ever written once per
     pass, however many entities it turns out to reference.
+
+    Private entity references must never land on a public document, so a
+    public document is entirely out of scope for matching: it is counted and
+    reported as skipped, never scanned for candidate mentions and never
+    passed to ``apply_references``. ``EntityDocumentStore.apply_references``
+    also refuses public writes on its own, but that is defense in depth, not
+    the primary control.
+
+    ``document_iter`` is expected to come from ``documents.iter_documents()``,
+    which already skips any file whose YAML frontmatter fails to parse. Once
+    the scan is done, that skip list is copied onto every report as
+    ``malformed_documents_skipped``/``malformed_documents`` so the corruption
+    stays visible without aborting the run. Nothing here repairs or rewrites
+    a malformed source file.
     """
     reports = {
         record.id: BackfillEntityReport(
@@ -114,6 +137,14 @@ def run_backfill(
     for document in document_iter:
         for report in reports.values():
             report.scanned += 1
+
+        if document.visibility != "private":
+            for report in reports.values():
+                report.public_documents_skipped += 1
+                report.skipped_documents.append(
+                    {"document_id": document.document_id, "reason": REASON_VISIBILITY_PUBLIC}
+                )
+            continue
 
         already_linked_ids = {string_value(item.get("entity_id")) for item in document.mentions}
         pending_mentions: List[Dict[str, Any]] = []
@@ -156,6 +187,11 @@ def run_backfill(
         if apply and pending_mentions:
             documents.apply_references(document, mentions=pending_mentions)
             changed = True
+
+    malformed = [item.to_dict() for item in documents.malformed_documents]
+    for report in reports.values():
+        report.malformed_documents_skipped = len(malformed)
+        report.malformed_documents = list(malformed)
 
     return reports, changed
 

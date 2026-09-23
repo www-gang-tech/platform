@@ -220,14 +220,22 @@ class EntityService:
             return self.graph().show(record.id)
 
     def candidates(self, *, entity_type: Optional[str] = None, unresolved_only: bool = False) -> Dict[str, Any]:
-        """Read-only. Never mutates canonical data or the generated index."""
+        """Read-only. Never mutates canonical data or the generated index.
+
+        A document whose YAML frontmatter fails to parse is skipped by the
+        underlying corpus scan (``EntityDocumentStore.iter_documents``), not
+        repaired, and reported here as ``malformed_documents_skipped``.
+        """
         rows = collect_candidates(
             self.documents,
             self.resolver(),
             entity_type=entity_type,
             unresolved_only=unresolved_only,
         )
-        return {"candidates": rows, "summary": summarize(rows)}
+        summary = summarize(rows)
+        malformed = [item.to_dict() for item in self.documents.malformed_documents]
+        summary["malformed_documents_skipped"] = len(malformed)
+        return {"candidates": rows, "summary": summary, "malformed_documents": malformed}
 
     def rebuild_index(self) -> Any:
         from core.private_index import PrivateKnowledgeIndex
