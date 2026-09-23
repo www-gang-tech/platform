@@ -144,7 +144,12 @@ def select_for_local_synthesis(
         excerpts = [_truncate(excerpt, budget.max_excerpt_chars) for excerpt in item.excerpts[:1]]
         if excerpts:
             selected.append(replace(item, excerpts=excerpts))
-            evidence_tokens = _estimate_tokens(_compact_source_text(item, excerpts, entry["source_kind"]))
+            evidence_tokens = _estimate_tokens(
+                _compact_source_text(item, excerpts, entry["source_kind"])
+            )
+            # The fallback is the one document the answer will see. Listing it
+            # as rejected as well makes --show-research contradict itself.
+            rejected = [row for row in rejected if row["document_id"] != item.document_id]
 
     selected_ids = {item.document_id for item in selected}
     for entry in scored:

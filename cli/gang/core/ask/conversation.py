@@ -537,14 +537,19 @@ class ConversationService(AskService):
         else:
             self._record_provider_call("synthesis", synthesizer)
 
+        # Ground against the evidence the model actually saw. After local
+        # packet selection that is the trimmed copy on ``context``, not the
+        # original retrieved set: a citation the packet dropped is a
+        # fabrication, even when the id existed in retrieval, and a figure
+        # sitting past a truncated excerpt was never in front of the model.
         answer = validate_conversation_answer(
             payload,
-            bundle,
+            context.bundle,
             intent=context.intent,
             assumptions=context.assumptions,
             preference_note=authority_module.preference_note(assessed),
         )
-        notice = synthesis.ambiguity_notice(bundle.ambiguities)
+        notice = synthesis.ambiguity_notice(context.bundle.ambiguities)
         if notice:
             answer = {**answer, "answer": f"{notice}\n\n{answer['answer']}"}
         if options.use_cache:
