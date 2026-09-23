@@ -7,10 +7,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from core.paths import GangPaths
 
+from .backfill import BACKFILL_ENTITY_TYPES, run_backfill
 from .candidates import collect_candidates, summarize
 from .documents import EntityDocumentStore
 from .graph import EntityGraph
-from .model import EntityRecord, string_value, validate_entity_type, validate_predicate
+from .model import EntityRecord, EntityValidationError, string_value, validate_entity_type, validate_predicate
 from .proposals import (
     AnthropicEntityProposer,
     DeterministicEntityProposer,
@@ -155,6 +156,32 @@ class EntityService:
         result = self.documents.apply_references(document, relationships=[relationship])
         self.rebuild_index()
         return result
+
+    # -------------------------------------------------------------- backfill
+
+    def backfill(self, entity_id: Optional[str] = None, *, apply: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Deterministically link existing documents to canonical entities.
+
+        No AI, no fuzzy matching. See ``core.entities.backfill`` for the exact
+        matching rules. Dry run unless ``apply=True``.
+        """
+        if entity_id:
+            record = self.store.follow_merges(entity_id)
+            if record.type not in BACKFILL_ENTITY_TYPES:
+                raise EntityValidationError(
+                    f"Backfill supports {' and '.join(BACKFILL_ENTITY_TYPES)} entities only, "
+                    f"not {record.type!r}: {entity_id}"
+                )
+            records = [record]
+        else:
+            records = [record for record in self.store.list() if record.type in BACKFILL_ENTITY_TYPES]
+
+        reports, changed = run_backfill(
+            self.documents.iter_documents(), records, documents=self.documents, apply=apply
+        )
+        if apply and changed:
+            self.rebuild_index()
+        return {entity_id_: report.to_dict() for entity_id_, report in reports.items()}
 
     # ------------------------------------------------------------ proposals
 

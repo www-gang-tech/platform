@@ -998,7 +998,42 @@ def _run_private_ingest(adapter):
         meetings_path=paths.meetings_path,
         registry=IngestionRegistry(paths.registry_path, root_path=paths.home),
     )
-    return pipeline.ingest(adapter)
+    results = pipeline.ingest(adapter)
+    _apply_deterministic_backfill(
+        [result.document_id for result in results], root_path=paths.repo_root, private_home=paths.home
+    )
+    return results
+
+
+def _apply_deterministic_backfill(document_ids, *, root_path, private_home):
+    """Run the same high-confidence entity linker backfill uses against freshly ingested documents.
+
+    So once an entity's verified email or canonical name is known, future
+    ingests of documents that mention it link automatically, instead of
+    waiting on a manual ``gang entity backfill``.
+    """
+    ids = {document_id for document_id in document_ids if document_id}
+    if not ids:
+        return
+    try:
+        from core.entities import EntityService
+        from core.entities.backfill import BACKFILL_ENTITY_TYPES, run_backfill
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.entities import EntityService
+        from core.entities.backfill import BACKFILL_ENTITY_TYPES, run_backfill
+
+    service = EntityService(root_path=root_path, private_home=private_home)
+    records = [record for record in service.store.list() if record.type in BACKFILL_ENTITY_TYPES]
+    if not records:
+        return
+    targeted = [document for document in service.documents.iter_documents() if document.document_id in ids]
+    if not targeted:
+        return
+    _, changed = run_backfill(targeted, records, documents=service.documents, apply=True)
+    if changed:
+        service.rebuild_index()
 
 def _print_ingest_results(results):
     if not results:
@@ -1217,13 +1252,19 @@ def ingest_gmail(ctx, since):
 
     try:
         from core.ingestion import GmailIngestionError, GmailSyncService, GoogleGmailProvider
+        from core.paths import GangPaths
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from core.ingestion import GmailIngestionError, GmailSyncService, GoogleGmailProvider
+        from core.paths import GangPaths
 
     try:
         result = GmailSyncService(GoogleGmailProvider()).sync(since=since)
+        paths = GangPaths.from_env()
+        _apply_deterministic_backfill(
+            [item.document_id for item in result.results], root_path=paths.repo_root, private_home=paths.home
+        )
     except GmailIngestionError as e:
         click.echo(f"❌ Gmail ingest failed: {e}", err=True)
         raise click.Abort()
@@ -1313,13 +1354,19 @@ def ingest_drive(ctx, since, folder_id):
 
     try:
         from core.ingestion import DriveIngestionError, DriveSyncService, GoogleDriveProvider
+        from core.paths import GangPaths
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
         from core.ingestion import DriveIngestionError, DriveSyncService, GoogleDriveProvider
+        from core.paths import GangPaths
 
     try:
         result = DriveSyncService(GoogleDriveProvider()).sync(since=since, folder_id=folder_id)
+        paths = GangPaths.from_env()
+        _apply_deterministic_backfill(
+            [item.document_id for item in result.results], root_path=paths.repo_root, private_home=paths.home
+        )
     except DriveIngestionError as e:
         click.echo(f"❌ Drive ingest failed: {e}", err=True)
         raise click.Abort()
@@ -2770,6 +2817,53 @@ def entity_merge(source_entity_id, target_entity_id):
         if audit["absorbed_aliases"]:
             click.echo(f"  Absorbed aliases: {', '.join(audit['absorbed_aliases'])}")
         click.echo(f"  Rewritten documents: {len(audit['rewritten_documents'])}")
+
+
+@entity.command("backfill")
+@click.argument("entity_id", required=False)
+@click.option("--all", "backfill_all", is_flag=True, help="Backfill every eligible person/company entity")
+@click.option("--apply", "apply_changes", is_flag=True, help="Write new mentions (default is dry-run)")
+@click.option("--verbose", is_flag=True, help="List matched document IDs and match reasons")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def entity_backfill(entity_id, backfill_all, apply_changes, verbose, output_format):
+    """Deterministically link existing documents to a canonical entity (no AI)
+
+    \b
+    Auto-links only high-confidence evidence: a verified participant email or
+    domain found in a document's own ingestion metadata, or an exact canonical
+    name. Aliases are reported as candidates only and are never auto-linked.
+    Default is a dry run; pass --apply to write mentions. Idempotent: running
+    with --apply again writes zero new mentions once everything is linked.
+    """
+    if bool(entity_id) == bool(backfill_all):
+        click.echo("❌ Pass exactly one of ENTITY_ID or --all.", err=True)
+        raise click.Abort()
+
+    with _entity_errors() as names:
+        reports = names["EntityService"]().backfill(entity_id, apply=apply_changes)
+
+        if output_format == "json":
+            click.echo(json.dumps(reports, indent=2, sort_keys=True))
+            return
+
+        for report in reports.values():
+            click.echo(report["entity_name"])
+            click.echo(f"scanned: {report['scanned']} documents")
+            click.echo(f"high-confidence matches: {report['high_confidence']}")
+            click.echo(f"already linked: {report['already_linked']}")
+            click.echo(f"new mentions: {report['new_mentions']}")
+            click.echo(f"ambiguous candidates skipped: {report['ambiguous_skipped']}")
+            if verbose:
+                for match in report["matches"]:
+                    click.echo(f"  match: {match['document_id']}  {match['reason']}  {match['label']}")
+                for candidate in report["candidates"]:
+                    click.echo(f"  candidate: {candidate['document_id']}  alias: {candidate['alias']}")
+            click.echo("")
+
+        if apply_changes:
+            click.echo("✅ Applied. Already-linked mentions are never duplicated on re-run.")
+        else:
+            click.echo("Dry run only — nothing was written. Re-run with --apply to write mentions.")
 
 
 @entity.command("mention")

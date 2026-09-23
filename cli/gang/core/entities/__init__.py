@@ -6,6 +6,14 @@ companies,projects,products}``. Documents reference them through additive
 that carries their evidence. SQLite only ever holds a rebuildable index.
 """
 
+from .backfill import (
+    BACKFILL_ENTITY_TYPES,
+    REASON_CANONICAL_NAME,
+    REASON_VERIFIED_DOMAIN,
+    REASON_VERIFIED_EMAIL,
+    BackfillEntityReport,
+    run_backfill,
+)
 from .candidates import collect_candidates, summarize
 from .documents import (
     EntityDocument,
@@ -57,6 +65,8 @@ __all__ = [
     "AMBIGUOUS",
     "AliasCollisionError",
     "AnthropicEntityProposer",
+    "BACKFILL_ENTITY_TYPES",
+    "BackfillEntityReport",
     "Candidate",
     "DeterministicEntityProposer",
     "DerivedProfile",
@@ -86,6 +96,9 @@ __all__ = [
     "ProfileStore",
     "ProposalValidationError",
     "PublicDocumentError",
+    "REASON_CANONICAL_NAME",
+    "REASON_VERIFIED_DOMAIN",
+    "REASON_VERIFIED_EMAIL",
     "RESOLVED",
     "Resolution",
     "StaleProposalError",
@@ -97,5 +110,6 @@ __all__ = [
     "normalize_name",
     "normalize_relationship",
     "relationship_id",
+    "run_backfill",
     "summarize",
 ]
