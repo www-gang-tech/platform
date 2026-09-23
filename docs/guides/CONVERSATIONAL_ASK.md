@@ -183,7 +183,7 @@ injection from re-aiming the answer.
 | `timeline` | "What changed with packaging this month?" |
 | `compare` | "Compare the September schedules." |
 | `explain` | "Why are we behind?" |
-| `decision` | "What have we actually decided?" |
+| `decision` | "What did we decide about packaging?" — materialized decision records first |
 | `report` | "Summarize where packaging stands." |
 | `advisory` | "What should we do?" / "What do you think?" |
 | `plan` | "Give me a plan for next week." |
@@ -296,6 +296,12 @@ build_timeline            compare_documents         compare_document_versions
 Every tool is read-only, has a typed schema whose parameters are validated
 before execution, returns bounded results with provenance, and exposes no
 filesystem surface — no parameter anywhere in the table names a path.
+
+`find_decisions` reads explicit decision statements from the generated
+evidence-facts store first — dated, with a status and the section they were
+recorded under — re-verifying each one against the current text of the
+document it cites, then adds any enrichment-derived decisions they do not
+already say. See [Evidence facts](EVIDENCE_FACTS.md).
 
 An unknown parameter is an **error**, not something to ignore. Silently
 dropping an extra argument is how an unsupported capability gets to look like

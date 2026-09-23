@@ -39,15 +39,32 @@ PROFILE = settings(
 
 #: The identifier shapes the corpus actually contains: certification numbers,
 #: part codes, FCC-style ids, and version strings.
+UPPER = tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+ALPHA = tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+
+upper_text = st.lists(
+    st.sampled_from(UPPER),
+    min_size=1,
+    max_size=4,
+).map("".join)
+
+alpha_text = st.lists(
+    st.sampled_from(ALPHA),
+    min_size=2,
+    max_size=6,
+).map("".join)
+
 identifiers = st.one_of(
     st.tuples(
-        st.text("ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=4),
+        upper_text,
         st.integers(min_value=0, max_value=999999),
     ).map(lambda pair: f"{pair[0]}-{pair[1]}"),
+
     st.tuples(
-        st.text("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", min_size=2, max_size=6),
+        alpha_text,
         st.integers(min_value=0, max_value=9999),
     ).map(lambda pair: f"{pair[0]}{pair[1]}"),
+
     st.tuples(
         st.integers(min_value=0, max_value=30),
         st.integers(min_value=0, max_value=30),

@@ -612,10 +612,26 @@ class WhoIsQuestionTests(ProfileTestCase):
             [source["document_id"] for source in full["sources"]],
         )
 
-    def test_the_answer_is_marked_derived_rather_than_canonical(self):
+    def test_an_explicit_statement_is_stated_before_any_reconstruction(self):
+        # "Frank Godchaux is a co-founder of GANG" is in the corporate binder
+        # notes, so the answer states it — quoted and cited — rather than
+        # assembling a derived profile around it.
         self.seed()
 
         result = self.ask("Who is Frank?")
+
+        self.assertEqual(result["synthesis"]["reason"], deterministic_module.EVIDENCE_FACTS_REASON)
+        self.assertTrue(result["answer"].startswith("Frank Godchaux is a co-founder of GANG."))
+        self.assertIn("Evidence: “Frank Godchaux is a co-founder of GANG", result["answer"])
+        self.assertNotIn("Derived profile", result["answer"])
+        self.assertIn(BOARD_ID, [source["document_id"] for source in result["sources"]])
+
+    def test_the_answer_is_marked_derived_rather_than_canonical(self):
+        # Dana is only ever in an attendee list: nothing states anything
+        # about her, so the answer is a reconstruction and says so.
+        self.seed()
+
+        result = self.ask("Who is Dana Reyes?")
 
         self.assertEqual(
             result["synthesis"]["reason"], deterministic_module.DERIVED_PROFILE_REASON
@@ -636,8 +652,8 @@ class WhoIsQuestionTests(ProfileTestCase):
 
     def test_an_authored_description_takes_precedence_once_written(self):
         seeded = self.seed()
-        derived = self.ask("Who is Frank?")
-        self.assertIn("Derived profile", derived["answer"])
+        stated = self.ask("Who is Frank?")
+        self.assertEqual(stated["synthesis"]["reason"], deterministic_module.EVIDENCE_FACTS_REASON)
 
         self.entities().describe(
             seeded["frank"].id,
@@ -648,6 +664,7 @@ class WhoIsQuestionTests(ProfileTestCase):
 
         self.assertEqual(authored["synthesis"]["reason"], "deterministic-capability")
         self.assertNotIn("Derived profile", authored["answer"])
+        self.assertNotIn("Stated from explicit evidence", authored["answer"])
         self.assertIn("chairs its board", authored["answer"])
         self.assertEqual(authored["sources"][0]["document_id"], seeded["frank"].id)
         self.assertEqual(authored["sources"][0]["type"], FOUNDATIONAL_TYPE)
@@ -687,18 +704,18 @@ class WhoIsQuestionTests(ProfileTestCase):
         self.seed()
         self.assertEqual(self.profiles().profiles.count(), 0)
 
-        result = self.ask("Who is Frank?")
+        result = self.ask("Who is Dana Reyes?")
 
-        self.assertIn("co-founder of GANG", result["answer"])
+        self.assertIn("Derived profile", result["answer"])
         self.assertGreaterEqual(self.profiles().profiles.count(), 1)
 
     def test_a_precomputed_profile_gives_the_same_answer(self):
         self.seed()
-        lazy = self.ask("Who is Frank?")
+        lazy = self.ask("Who is Dana Reyes?")
 
         self.profiles().clear()
         self.profiles().build_all()
-        precomputed = self.ask("Who is Frank?")
+        precomputed = self.ask("Who is Dana Reyes?")
 
         self.assertEqual(lazy["answer"], precomputed["answer"])
 
@@ -707,7 +724,7 @@ class WhoIsQuestionTests(ProfileTestCase):
         service = self.service()
 
         result = service.converse(
-            "Who is Frank?",
+            "Who is Dana Reyes?",
             session=service.start(),
             options=ConversationOptions(use_cache=False, persist=False, show_research=True),
         )

@@ -61,6 +61,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from core.paths import GangPaths
 
+from core.source_classes import classify_source, senders_from_body
+
 from .model import EntityRecord, normalize_domain, normalize_name, string_value
 from .store import EntityStore
 
@@ -68,7 +70,7 @@ from .store import EntityStore
 #: Bumped whenever the builder's output could change for unchanged evidence.
 #: Stored with every row, so a code change invalidates cached profiles exactly
 #: the way changed evidence does.
-PROFILE_BUILDER_VERSION = 1
+PROFILE_BUILDER_VERSION = 2
 
 PROFILE_PAYLOAD_VERSION = 1
 
@@ -89,6 +91,16 @@ STATEMENT_KINDS = (
 #: Documents read per entity when building. Generous enough to find a role
 #: sentence, small enough that a rebuild over a whole corpus stays quick.
 MAX_EVIDENCE_DOCUMENTS = 40
+
+#: Linked documents considered before source classification picks the ones
+#: worth reading. A mailbox owner is linked to every thread in the mailbox,
+#: most of them newsletters and receipts, so the window has to be wider than
+#: the evidence it yields.
+MAX_CANDIDATE_DOCUMENTS = 400
+
+#: Characters from each end of a body used to classify its source. Sender
+#: lines sit at the top of a thread; unsubscribe footers at the bottom.
+CLASSIFY_WINDOW = 4000
 
 #: Documents a finished profile may cite. Matches the research document bound
 #: in `ask/research.py`, so no statement arrives at the answer uncitable.
@@ -414,31 +426,7 @@ class ProfileEvidenceReader:
         self, record: EntityRecord, *, records: Sequence[EntityRecord] = ()
     ) -> EntityEvidence:
         with closing(self._connect()) as connection:
-            documents = [
-                EvidenceDocument(
-                    document_id=row["document_id"],
-                    title=row["title"] or row["document_id"],
-                    type=row["type"] or "",
-                    source_type=row["source_type"] or "",
-                    created=row["created"] or "",
-                    updated=row["updated"] or "",
-                    body=(row["body"] or "")[:MAX_BODY_SCAN],
-                )
-                for row in connection.execute(
-                    """
-                    SELECT d.document_id, d.title, d.type, d.source_type,
-                           d.created, d.updated, d.body
-                    FROM document_entity_mentions m
-                    JOIN documents d ON d.document_id = m.document_id
-                    WHERE m.entity_id = ?
-                    GROUP BY d.document_id
-                    ORDER BY COALESCE(NULLIF(d.updated, ''), d.created) DESC,
-                             d.document_id ASC
-                    LIMIT ?
-                    """,
-                    (record.id, MAX_EVIDENCE_DOCUMENTS),
-                )
-            ]
+            documents = self._evidence_documents(connection, record, records)
             relationships = [
                 RelationshipEvidence(
                     relationship_id=row["relationship_id"],
@@ -479,6 +467,79 @@ class ProfileEvidenceReader:
             relationships=relationships,
             domain_owners=_domain_owners(records, exclude=record.id),
         )
+
+    def _evidence_documents(
+        self, connection: sqlite3.Connection, record: EntityRecord, records: Sequence[EntityRecord]
+    ) -> List[EvidenceDocument]:
+        """The linked documents worth reading, most authoritative first.
+
+        Bulk and automated mail is dropped before anything is read from it:
+        being the recipient of a newsletter is not evidence of who someone
+        is, however recent the newsletter. Among what remains, corporate
+        records and company documents come ahead of meeting notes, and
+        meeting notes ahead of ordinary email; recency breaks ties.
+        """
+        known_addresses = {email for item in records if item.status == "active" for email in item.emails}
+        known_domains = {domain for item in records if item.status == "active" for domain in item.domains}
+        candidates = connection.execute(
+            """
+            SELECT d.document_id, d.title, d.type, d.source_type, d.created, d.updated,
+                   substr(d.body, 1, ?) AS head,
+                   CASE WHEN length(d.body) > ? THEN substr(d.body, -?) ELSE '' END AS tail
+            FROM document_entity_mentions m
+            JOIN documents d ON d.document_id = m.document_id
+            WHERE m.entity_id = ?
+            GROUP BY d.document_id
+            ORDER BY COALESCE(NULLIF(d.updated, ''), d.created) DESC,
+                     d.document_id ASC
+            LIMIT ?
+            """,
+            (CLASSIFY_WINDOW, CLASSIFY_WINDOW, CLASSIFY_WINDOW, record.id, MAX_CANDIDATE_DOCUMENTS),
+        ).fetchall()
+
+        ranked: List[tuple] = []
+        for position, row in enumerate(candidates):
+            sample = f"{row['head'] or ''}\n{row['tail'] or ''}"
+            source = classify_source(
+                title=row["title"] or "",
+                source_type=row["source_type"] or "",
+                document_type=row["type"] or "",
+                senders=senders_from_body(row["head"] or ""),
+                body=sample,
+                known_addresses=known_addresses,
+                known_domains=known_domains,
+            )
+            if not source.identity_evidence:
+                continue
+            ranked.append((-source.rank, position, row["document_id"]))
+        chosen = [document_id for _, _, document_id in sorted(ranked)[:MAX_EVIDENCE_DOCUMENTS]]
+        if not chosen:
+            return []
+
+        placeholders = ", ".join("?" for _ in chosen)
+        rows = {
+            row["document_id"]: row
+            for row in connection.execute(
+                f"""
+                SELECT document_id, title, type, source_type, created, updated,
+                       substr(body, 1, ?) AS body
+                FROM documents WHERE document_id IN ({placeholders})
+                """,
+                (MAX_BODY_SCAN, *chosen),
+            )
+        }
+        return [
+            EvidenceDocument(
+                document_id=row["document_id"],
+                title=row["title"] or row["document_id"],
+                type=row["type"] or "",
+                source_type=row["source_type"] or "",
+                created=row["created"] or "",
+                updated=row["updated"] or "",
+                body=row["body"] or "",
+            )
+            for row in (rows[document_id] for document_id in chosen if document_id in rows)
+        ]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(f"file:{self.index_path}?mode=ro", uri=True)

@@ -100,6 +100,25 @@ class GangPaths:
         return self.generated_path / "entity-profiles.sqlite"
 
     @property
+    def evidence_facts_path(self) -> Path:
+        """Generated evidence facts and decision records. Rebuildable, never canonical.
+
+        Its own database for the same reason as entity profiles: facts are
+        invalidated per source document, while the knowledge index is rebuilt
+        wholesale on every entity edit.
+        """
+        return self.generated_path / "evidence-facts.sqlite"
+
+    @property
+    def facts_overrides_path(self) -> Path:
+        """Human suppressions of generated facts. Durable, private, never generated.
+
+        Lives outside ``generated/`` so that deleting the generated store never
+        deletes a person's decision to hide one of its claims.
+        """
+        return self.home / "facts" / "overrides.yml"
+
+    @property
     def ask_cache_path(self) -> Path:
         """Disposable cache for `gang ask`. Private, generated, never canonical."""
         return self.generated_path / "ask-cache"

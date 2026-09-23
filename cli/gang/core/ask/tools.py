@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core import enrichment_state
+from core.facts.model import quote_in_source
 
 from . import affiliation as affiliation_module
 from . import assignments as assignments_module
@@ -220,11 +221,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         "find_decisions",
-        "Decisions recorded in derived document structures. Stale entries stay marked stale.",
+        "Explicit decisions recorded in documents, with dates, status, and the words that "
+        "record them; falls back to derived document structures. Stale entries stay marked stale.",
         (
-            Parameter("topic", STRING, "Restrict to decisions mentioning this term."),
+            Parameter("topic", STRING, "Restrict to decisions about this subject."),
             Parameter("entity_id", ID, "Restrict to documents mentioning this entity."),
-            Parameter("limit", INTEGER, "Maximum documents to draw from.", maximum=MAX_TOOL_RESULTS),
+            Parameter("since", DATE, "Earliest decision date to include (YYYY-MM-DD)."),
+            Parameter("until", DATE, "Latest decision date to include (YYYY-MM-DD)."),
+            Parameter("limit", INTEGER, "Maximum decisions.", maximum=MAX_TOOL_RESULTS),
         ),
     ),
     ToolSpec(
@@ -314,9 +318,13 @@ class ResearchTools:
         registry_path: Optional[Path] = None,
         resolver: Optional[Any] = None,
         entities: Sequence[Any] = (),
+        facts: Optional[Any] = None,
         max_results: int = MAX_TOOL_RESULTS,
     ):
         self.retriever = retriever
+        #: The generated evidence-facts service, when one is available. Read
+        #: only: nothing here builds, suppresses, or writes facts.
+        self.facts = facts
         self.registry_path = Path(registry_path) if registry_path else None
         self.resolver = resolver
         #: Canonical entity records, used as the vocabulary for recognizing
@@ -675,7 +683,117 @@ class ResearchTools:
     # ---------------------------------------------------------- structured
 
     def _tool_find_decisions(self, values: Dict[str, Any]) -> ToolResult:
-        return self._structured("decisions", "find_decisions", values)
+        derived = self._structured("decisions", "find_decisions", values)
+        materialized = self._materialized_decisions(values)
+        if materialized is None:
+            return derived
+        # Explicit statements first, then anything enrichment recorded that
+        # they do not already say. Neither source replaces the other.
+        known = {_statement_key(record["text"]) for record in materialized.records}
+        extra = [record for record in derived.records if _statement_key(record.get("text") or "") not in known]
+        limit = int(values.get("limit") or self.max_results)
+        records = (materialized.records + extra)[:limit]
+        cited = [
+            document_id
+            for record in records
+            for document_id in (record.get("document_ids") or [record.get("document_id")])
+            if document_id
+        ]
+        return ToolResult(
+            tool="find_decisions",
+            arguments=values,
+            documents=self.retriever.documents(list(dict.fromkeys(cited))[:MAX_LIMIT]),
+            records=records,
+            truncated=materialized.truncated or derived.truncated or len(materialized.records) + len(extra) > limit,
+            note=materialized.note
+            + (" Derived decisions from document enrichment follow them." if extra else ""),
+        )
+
+    def _materialized_decisions(self, values: Dict[str, Any]) -> Optional[ToolResult]:
+        """Explicit decision statements from the generated facts store.
+
+        Each one is re-verified against the current text of the document it
+        cites before it is returned: a decision whose words are no longer in
+        its source is stale and is dropped, not shown. ``None`` means there
+        were none, and the derived-structure fallback should run.
+        """
+        if self.facts is None:
+            return None
+        limit = int(values.get("limit") or self.max_results)
+        try:
+            found = self.facts.decisions(
+                topic=values.get("topic", ""),
+                since=values.get("since", ""),
+                until=values.get("until", ""),
+                limit=MAX_LIMIT,
+            )
+        except Exception:  # noqa: BLE001 - a generated layer never fails an answer
+            return None
+
+        allowed: Optional[set] = None
+        if values.get("entity_id"):
+            allowed = set(self.retriever.entity_document_ids(values["entity_id"], limit=MAX_LIMIT))
+
+        candidates = [
+            record
+            for record in found.get("decisions") or []
+            if allowed is None or set(record.get("document_ids") or []) & allowed
+        ]
+        wanted: List[str] = []
+        for record in candidates:
+            for document_id in record.get("document_ids") or []:
+                if document_id not in wanted:
+                    wanted.append(document_id)
+        bodies = {row["document_id"]: row for row in self.retriever.documents(wanted)}
+
+        records: List[Dict[str, Any]] = []
+        cited: List[str] = []
+        for record in candidates:
+            verified = [
+                document_id
+                for document_id in record.get("document_ids") or []
+                if document_id in bodies
+                and quote_in_source(record.get("text") or "", bodies[document_id].get("body") or "")
+            ]
+            if not verified:
+                continue
+            primary = bodies[verified[0]]
+            records.append(
+                {
+                    "text": record["text"],
+                    "document_id": verified[0],
+                    "document_ids": verified,
+                    "title": primary.get("title") or record.get("document_title") or "",
+                    "date": record.get("date") or "",
+                    "status": record.get("status") or "",
+                    "context": record.get("context") or "",
+                    "source_class": record.get("source_class") or "",
+                    "rule": record.get("rule") or "",
+                    "decision_id": record.get("decision_id") or "",
+                    "stale": False,
+                    "generated": True,
+                    "materialized": True,
+                }
+            )
+            for document_id in verified:
+                if document_id not in cited:
+                    cited.append(document_id)
+            if len(records) >= limit:
+                break
+
+        if not records:
+            return None
+        return ToolResult(
+            tool="find_decisions",
+            arguments=values,
+            documents=self.retriever.documents(cited[:MAX_LIMIT]),
+            records=records,
+            truncated=len(candidates) > len(records),
+            note=(
+                "Explicit decision statements materialized from the cited documents: generated "
+                "and rebuildable, not a canonical register. Each was re-verified against its source."
+            ),
+        )
 
     def _tool_find_action_items(self, values: Dict[str, Any]) -> ToolResult:
         return self._structured("action_items", "find_action_items", values)
@@ -875,6 +993,11 @@ class ResearchTools:
 
 
 # --------------------------------------------------------------- validation
+
+
+def _statement_key(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", str(text or "").casefold()).strip()
+
 
 
 def _validate_arguments(spec: ToolSpec, arguments: Any) -> Dict[str, Any]:

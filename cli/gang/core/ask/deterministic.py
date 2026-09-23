@@ -21,6 +21,7 @@ once ended up asking the canonical-description lookup for a task list.
 from __future__ import annotations
 
 import calendar
+import html
 import re
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Sequence
@@ -55,6 +56,27 @@ PROFILE_UNCERTAINTY = (
     "Assembled from explicit corpus evidence at answer time rather than from an "
     "authored record. No role, title, employment, or ownership is asserted beyond "
     "what the cited evidence states."
+)
+
+#: Payload kind for an identity answered from explicit evidence: human
+#: relationship assertions and generated evidence facts, each quoted and cited.
+EVIDENCE_FACTS_KIND = "evidence-facts"
+
+#: Synthesis reason for an identity stated from explicit evidence facts.
+EVIDENCE_FACTS_REASON = "evidence-facts"
+
+#: Synthesis reason for decisions materialized from explicit statements.
+MATERIALIZED_DECISIONS_REASON = "materialized-decisions"
+
+EVIDENCE_FACTS_FOOTER = (
+    "Stated from explicit evidence in the cited documents. Generated facts are "
+    "rebuildable, not canonical; `gang entity describe` authors the canonical account, "
+    "which takes precedence."
+)
+
+MATERIALIZED_DECISIONS_FOOTER = (
+    "Materialized from explicit decision statements in the cited documents — generated "
+    "and rebuildable, not a canonical register."
 )
 
 #: Research record key carrying one person's assigned work.
@@ -100,6 +122,14 @@ STRUCTURED_STOPWORDS = {
     "record",
     "recorded",
     "records",
+    "decide",
+    "decides",
+    "deciding",
+    "agree",
+    "agreed",
+    "agreement",
+    "settle",
+    "settled",
 }
 
 
@@ -169,7 +199,14 @@ def capability_routes(
         return [_structured_route("find_action_items", "action_items", plan, "action-item question")]
 
     if _asks_decisions(text) or getattr(intent, "policy", "") == intent_module.DECISION:
-        return [_structured_route("find_decisions", "decisions", plan, "decision question")]
+        route = _structured_route("find_decisions", "decisions", plan, "decision question")
+        topic = _all_topic_words(plan, generic=STRUCTURED_STOPWORDS)
+        if topic:
+            route["arguments"]["topic"] = topic
+        # Decisions are dated, so a question bounded in time is answered
+        # within that bound. The other structured tools have no dates.
+        _date_bounds(route["arguments"], plan)
+        return [route]
 
     if getattr(intent, "policy", "") == intent_module.TIMELINE:
         arguments = _timeline_arguments(plan)
@@ -196,9 +233,14 @@ def capability_answer(context: Any) -> Optional[Dict[str, Any]]:
     if "participants" in records:
         return _participants_answer(records["participants"], context.bundle)
     if records.get(ENTITY_PROFILE_KEY):
+        payload = records[ENTITY_PROFILE_KEY][0]
+        if payload.get("kind") == EVIDENCE_FACTS_KIND:
+            # No authored description, but the corpus states what this
+            # entity is in so many words: say it, quote it, cite it.
+            return _evidence_facts_answer(payload, context.bundle)
         # No authored description exists, so the answer is a reconstruction
         # and has to arrive labelled as one.
-        return _entity_profile_answer(records[ENTITY_PROFILE_KEY][0], context.bundle)
+        return _entity_profile_answer(payload, context.bundle)
     if context.intent.policy == intent_module.DEFINITION:
         return _definition_answer(context.bundle)
     if "timeline" in records:
@@ -499,6 +541,38 @@ def _entity_profile_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, An
     )
 
 
+def _evidence_facts_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, Any]:
+    """State an identity from explicit evidence, one cited sentence per claim.
+
+    The sentence is rendered from the claim's structure; the quote beneath it
+    is the source's own words, so a reader can check one against the other.
+    A claim whose documents did not survive into the bundle is dropped, and
+    if none survive the answer says there is nothing to state.
+    """
+    citation_by_doc = _citation_by_document(bundle)
+    lines: List[str] = []
+    claims: List[Dict[str, Any]] = []
+    for statement in payload.get("statements") or []:
+        citations = sorted(_record_citations(statement.get("document_ids") or [], citation_by_doc))
+        text = str(statement.get("text") or "").strip()
+        if not citations or not text:
+            continue
+        lines.append(f"{text}{_cite_text(citations)}")
+        quote = _short(statement.get("quote") or "", 220)
+        if quote:
+            source = statement.get("source_label") or ""
+            lines.append(f"  Evidence: “{quote}”" + (f" — {source}" if source else ""))
+        claims.append(_claim(len(claims) + 1, "fact", text, citations))
+
+    if not claims:
+        return _empty_answer(
+            "I found no canonical entity description, and none of the explicit evidence "
+            "about this entity could be cited."
+        )
+    lines.extend(["", EVIDENCE_FACTS_FOOTER])
+    return _answer("\n".join(lines), claims, reason=EVIDENCE_FACTS_REASON)
+
+
 def _timeline_answer(payload: Any, bundle: Any) -> Dict[str, Any]:
     items = payload.get("items") if isinstance(payload, dict) else payload
     items = items if isinstance(items, list) else []
@@ -532,24 +606,47 @@ def _structured_answer(records: Dict[str, Sequence[Dict[str, Any]]], bundle: Any
     }
     lines: List[str] = []
     claims: List[Dict[str, Any]] = []
+    materialized = False
     for key, heading in labels.items():
         if key not in records:
             continue
         rows = list(records.get(key) or [])
+        if key == "decisions" and any(row.get("materialized") for row in rows):
+            materialized = True
+            heading = "Decisions (newest first)"
         lines.append(heading)
         if not rows:
             lines.append("- None found.")
             lines.append("")
             continue
         for row in rows:
-            citations = _record_citations([row.get("document_id")], citation_by_doc)
+            citations = _record_citations(row.get("document_ids") or [row.get("document_id")], citation_by_doc)
+            if row.get("materialized") and not citations:
+                # Every materialized decision is shown with its source or
+                # not at all.
+                continue
             stale = " (stale derived record)" if row.get("stale") else ""
             date = row.get("date") or "undated"
-            text = row.get("text") or ""
-            lines.append(f"- {date} — {text}{stale}{_cite_text(citations)}")
-            claims.append(_claim(len(claims) + 1, "fact", text, citations))
+            text = _readable(row.get("text") or "")
+            details = [bit for bit in (row.get("status"), _readable(row.get("context") or "")) if bit]
+            detail_text = f" ({'; '.join(details)})" if details else ""
+            lines.append(f"- {date} — {text}{detail_text}{stale}{_cite_text(citations)}")
+            claims.append(
+                _claim(
+                    len(claims) + 1,
+                    "fact",
+                    f"{date}: {text}" + (f" [{row['status']}]" if row.get("status") else ""),
+                    citations,
+                )
+            )
         lines.append("")
-    return _answer("\n".join(lines).strip(), claims)
+    if materialized:
+        lines.append(MATERIALIZED_DECISIONS_FOOTER)
+    return _answer(
+        "\n".join(lines).strip(),
+        claims,
+        reason=MATERIALIZED_DECISIONS_REASON if materialized else "deterministic-capability",
+    )
 
 
 def _empty_answer(text: str) -> Dict[str, Any]:
@@ -658,6 +755,23 @@ def _topic(plan: Any, *, generic: set) -> str:
         if words:
             return " ".join(words)
     return ""
+
+
+def _all_topic_words(plan: Any, *, generic: set) -> str:
+    """Every subject word across the plan's queries, not just the first
+    query's. "What did we decide about packaging?" plans as ``decide`` and
+    ``packaging``; the topic is the second one."""
+    words: List[str] = []
+    for query in getattr(plan, "text_queries", []) or []:
+        for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9'-]*", query):
+            if _fold(word) not in generic and _fold(word) not in {_fold(item) for item in words}:
+                words.append(word)
+    return " ".join(words)[:200]
+
+
+def _readable(text: str) -> str:
+    """Mail bodies arrive HTML-escaped; an answer should not show ``&amp;``."""
+    return html.unescape(str(text or ""))
 
 
 def _date_bounds(arguments: Dict[str, Any], plan: Any) -> None:

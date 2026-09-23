@@ -22,8 +22,8 @@ The pipeline, in order:
 Everything `AskService` guarantees still holds, because this subclasses it and
 adds no write path: no canonical document is opened for writing, the index is
 opened read-only, and the only things written anywhere are the session file,
-the answer cache, and the derived entity-profile cache — all private, all
-generated, all disposable. A user correction does not edit the corpus; it
+the answer cache, the derived entity-profile cache, and the generated
+evidence-facts store — all private, all generated, all disposable. A user correction does not edit the corpus; it
 becomes session context and an explanation of what the corpus actually says
 (§32).
 """
@@ -37,7 +37,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.ai_provider import ProviderError
-from core.entities.profiles import EntityProfileService
+from core.entities.profiles import PREDICATE_PHRASES, EntityProfileService
+from core.facts import EvidenceFactService
+from core.facts.model import quote_in_source, readable
+from core.source_classes import SOURCE_DESCRIPTIONS
 
 from . import affiliation as affiliation_module
 from . import authority as authority_module
@@ -186,10 +189,14 @@ class ConversationService(AskService):
             resolution.retrieval_text or text,
             overrides,
             AskOptions(
-                # An ownership question is answered by a code-owned primitive
-                # that reads its own evidence; a model-proposed plan would
-                # change nothing it does, so none is asked for.
-                use_ai=options.use_ai and not intent.wants_assignments,
+                # Ownership, definition, and decision questions are answered
+                # by code-owned primitives that read their own evidence; a
+                # model-proposed plan would change nothing they do, and a
+                # factual answer must not cost a model call.
+                use_ai=options.use_ai
+                and not intent.wants_assignments
+                and not intent.wants_identity
+                and intent.policy != intent_module.DECISION,
                 provider=options.provider,
                 model=options.model,
                 premium=options.premium,
@@ -326,6 +333,12 @@ class ConversationService(AskService):
         if routes is None:
             return None
 
+        if any(
+            route.get("tool") in ("canonical_entity_description", "find_decisions") for route in routes
+        ):
+            # Cheap when nothing changed: unchanged documents are recognized
+            # by file stat and never re-read.
+            self._facts_service(refresh=True)
         tools = self._tools()
         result = ResearchResult(rounds=1, stopped_because="deterministic-capability")
         seen = set()
@@ -384,7 +397,13 @@ class ConversationService(AskService):
                         documents=rows,
                         note="Authored canonical identity.",
                     )
-                # Nobody wrote a description. Rather than answering "no
+                # Nobody wrote a description. Next best is what the corpus
+                # states outright: human relationship assertions, then
+                # high-confidence generated evidence facts, each quoted.
+                stated = self._evidence_facts_result(entity_ids)
+                if stated is not None:
+                    return stated
+                # Nothing stated either. Rather than answering "no
                 # evidence" about an entity the corpus plainly knows, fall
                 # back to a reconstruction assembled from that evidence —
                 # labelled as derived, and never written back as canonical.
@@ -396,6 +415,122 @@ class ConversationService(AskService):
                 arguments=route.get("arguments") or {},
                 note=str(exc),
             )
+
+    def _evidence_facts_result(self, entity_ids: Sequence[str]) -> Optional[ToolResult]:
+        """What the corpus explicitly states about the first entity it states
+        anything about, or ``None``.
+
+        Two sources, in precedence order: relationship assertions a person
+        recorded against a document, then high-confidence generated evidence
+        facts. Every generated claim is re-verified against the current text
+        of each document it cites; a quote that is no longer there is stale,
+        and its document is not cited.
+        """
+        facts = self._facts_service()
+        for entity_id in entity_ids:
+            statements: List[Dict[str, Any]] = []
+            try:
+                relationships = self.retriever.entity_relationships(entity_id)
+            except Exception:  # noqa: BLE001 - an old index without relationships
+                relationships = []
+            for relationship in relationships:
+                phrase = PREDICATE_PHRASES.get(relationship.get("predicate") or "")
+                if not phrase or not relationship.get("document_id"):
+                    continue
+                statements.append(
+                    {
+                        "kind": "relationship",
+                        "text": f"{relationship['subject']} {phrase} {relationship['object']}.",
+                        "document_ids": [relationship["document_id"]],
+                        "quote": readable(relationship.get("excerpt") or ""),
+                        "source_label": "recorded relationship assertion",
+                        "canonical": True,
+                    }
+                )
+
+            claims: List[Dict[str, Any]] = []
+            if facts is not None:
+                try:
+                    claims = facts.identity_claims(entity_id)
+                except Exception:  # noqa: BLE001 - a generated layer never fails an answer
+                    claims = []
+            wanted = [document_id for claim in claims for document_id in claim.get("document_ids") or []]
+            bodies = {row["document_id"]: row for row in self.retriever.documents(wanted)}
+            for claim in claims:
+                evidence = [
+                    entry
+                    for entry in claim.get("evidence") or []
+                    if entry.get("document_id") in bodies
+                    and quote_in_source(entry.get("excerpt") or "", bodies[entry["document_id"]].get("body") or "")
+                ]
+                if not evidence:
+                    continue
+                best = evidence[0]
+                statements.append(
+                    {
+                        "kind": "generated-fact",
+                        "text": claim["sentence"],
+                        "document_ids": [entry["document_id"] for entry in evidence],
+                        "quote": readable(best.get("excerpt") or ""),
+                        "source_label": _evidence_label(best),
+                        "predicate": claim.get("predicate"),
+                        "confidence": claim.get("confidence"),
+                        "fact_ids": [entry.get("fact_id") for entry in evidence],
+                        "canonical": False,
+                    }
+                )
+
+            if not statements:
+                continue
+            record = self._entity_record(entity_id)
+            cited: List[str] = []
+            for statement in statements:
+                for document_id in statement["document_ids"]:
+                    if document_id not in cited:
+                        cited.append(document_id)
+            return ToolResult(
+                tool="evidence_facts",
+                arguments={"entity_id": entity_id},
+                documents=self.retriever.documents(cited),
+                records=[
+                    {
+                        "kind": deterministic_module.EVIDENCE_FACTS_KIND,
+                        "entity_id": entity_id,
+                        "name": getattr(record, "name", "") or "",
+                        "entity_type": getattr(record, "type", "") or "",
+                        "statements": statements,
+                        "generated": any(not item.get("canonical") for item in statements),
+                        "canonical": False,
+                    }
+                ],
+                note="Explicit statements about this entity, each quoted from and verified against its source.",
+            )
+        return None
+
+    def _entity_record(self, entity_id: str):
+        return next((record for record in self._entity_records() if record.id == entity_id), None)
+
+    def _facts_service(self, *, refresh: bool = False) -> Optional[EvidenceFactService]:
+        """The generated evidence-facts service, or nothing if it cannot be built.
+
+        ``refresh`` brings the store up to date first. It is incremental —
+        only documents whose files changed are re-read — so running it before
+        a definition or decision question is cheap; a missing store is built
+        on first use, the same way derived profiles are.
+        """
+        service = getattr(self, "_facts", None)
+        if service is None:
+            try:
+                service = EvidenceFactService(root_path=self.root_path, private_home=self.paths.home)
+            except Exception:  # noqa: BLE001 - a missing facts layer is not fatal
+                return None
+            self._facts = service
+        if refresh:
+            try:
+                service.build()
+            except Exception:  # noqa: BLE001 - serve what is already built, if anything
+                pass
+        return service if service.store.exists() else None
 
     def _derived_profile_result(self, entity_ids: Sequence[str]) -> ToolResult:
         """A derived entity profile and the documents that support it.
@@ -465,6 +600,7 @@ class ConversationService(AskService):
             registry_path=self.paths.registry_path,
             resolver=self._resolver(),
             entities=self._entity_records(),
+            facts=self._facts_service(),
         )
 
     def _home_company_known(self) -> bool:
@@ -1009,6 +1145,22 @@ class ConversationService(AskService):
             "research": {"rounds": 0, "stopped_because": "receipts-from-session", "trace": []},
             "research_limits": self.limits.to_dict(),
         }
+
+
+def _evidence_label(entry: Dict[str, Any]) -> str:
+    """Where a quoted fact came from, in words: "email signature in 'X'
+    (2026-02-12, an ordinary email)"."""
+    rule = entry.get("rule") or ""
+    lead = "email signature in" if rule == "signature-block" else "stated in"
+    title = readable(entry.get("document_title") or entry.get("document_id") or "")
+    if len(title) > 70:
+        title = title[:69].rstrip() + "…"
+    details = [
+        bit
+        for bit in (entry.get("document_date") or "", SOURCE_DESCRIPTIONS.get(entry.get("source_class") or "", ""))
+        if bit
+    ]
+    return f"{lead} “{title}”" + (f" ({', '.join(details)})" if details else "")
 
 
 def _first_excerpt(body: str, limit: int = 280) -> str:

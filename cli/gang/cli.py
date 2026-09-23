@@ -1478,6 +1478,176 @@ def private_index_build():
     click.echo(f"  Relationships: {result.relationships}")
     click.echo(f"  Generated: {result.generated_at}")
 
+    # Evidence facts are derived from the same canonical documents. The
+    # refresh is incremental, so an index rebuild keeps them current for
+    # the cost of a file walk. A failure here never fails the index build.
+    try:
+        report = _facts_service().build()
+    except Exception as e:  # noqa: BLE001
+        click.echo(f"⚠️  Evidence facts not refreshed: {e}", err=True)
+    else:
+        click.echo(
+            f"  Evidence facts: {report['facts']} fact(s), {report['decisions']} decision(s) "
+            f"({report['extracted']} document(s) re-extracted)"
+        )
+
+
+def _facts_service():
+    try:
+        from core.facts import EvidenceFactService
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.facts import EvidenceFactService
+    return EvidenceFactService(root_path=Path.cwd())
+
+
+@cli.group("facts")
+def facts():
+    """Generated evidence facts and decisions: explicit, cited, never canonical"""
+    pass
+
+
+@facts.command("build")
+@click.option("--force", is_flag=True, help="Re-extract every document, not just the ones that changed")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def facts_build(force, output_format):
+    """Extract explicit relationship statements and decisions from the vault.
+
+    \b
+    Incremental: only documents whose files changed since the last build are
+    re-read, and a rebuild over unchanged evidence changes nothing. A new
+    extractor version or an entity edit (a new alias, a new person)
+    re-extracts everything. `gang ask` refreshes the same store on demand,
+    so this only ever buys speed. Nothing is written to canonical Markdown.
+    """
+    report = _facts_service().build(force=force)
+    if output_format == "json":
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    click.echo(
+        f"✅ Evidence facts: {report['facts']} fact(s), {report['decisions']} decision(s) "
+        f"from {report['sources']} document(s)"
+    )
+    click.echo(
+        f"  Re-extracted: {report['extracted']}  Unchanged: {report['unchanged']}  "
+        f"Removed: {report['removed']}  Malformed skipped: {report['malformed']}"
+    )
+    if report["rejected"]:
+        click.echo(f"  Proposals rejected by validation: {report['rejected']}")
+    classes = ", ".join(f"{name} {count}" for name, count in sorted(report["by_source_class"].items()))
+    if classes:
+        click.echo(f"  Source classes: {classes}")
+    click.echo(f"\nGenerated, rebuildable, never canonical: {report['database']}")
+
+
+@facts.command("status")
+def facts_status():
+    """Show the generated evidence-facts store"""
+    status = _facts_service().status()
+    click.echo("Evidence facts")
+    click.echo(f"  Database: {status['database']}")
+    click.echo(f"  Built: {'yes' if status['exists'] else 'no'}")
+    click.echo(f"  Documents: {status['sources']}")
+    click.echo(f"  Facts: {status['facts']}")
+    click.echo(f"  Decisions: {status['decisions']}")
+    click.echo(f"  Suppressed: {status['suppressed']}")
+    click.echo(f"  Extractor version: {status['extractor_version']}"
+               + (f" (store built with {status['built_extractor_version']})"
+                  if status["built_extractor_version"] and status["built_extractor_version"] != str(status["extractor_version"])
+                  else ""))
+    if status["built_at"]:
+        click.echo(f"  Built at: {status['built_at']}")
+
+
+@facts.command("show")
+@click.argument("entity")
+@click.option("--all", "show_all", is_flag=True, help="Include medium-confidence and suppressed facts")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def facts_show(entity, show_all, output_format):
+    """Show the generated facts about one entity (ID, name, or alias)"""
+    with _entity_errors() as names:
+        service = names["EntityService"]()
+        resolution = service.resolver().resolve(entity)
+        if not resolution.resolved:
+            raise click.ClickException(f"{entity!r} does not resolve to one entity ({resolution.reason})")
+        facts_service = _facts_service()
+        facts_service.ensure_current()
+        found = facts_service.facts_for(
+            resolution.entity_id,
+            min_confidence="low" if show_all else "high",
+            include_suppressed=show_all,
+        )
+        if output_format == "json":
+            click.echo(json.dumps([fact.to_dict() for fact in found], indent=2, sort_keys=True))
+            return
+        if not found:
+            click.echo(f"No generated facts about {resolution.name}.")
+            return
+        click.echo(f"{resolution.name} — generated evidence facts (not canonical)")
+        for fact in found:
+            flags = [fact.confidence, fact.source_class, fact.rule]
+            if fact.suppressed:
+                flags.append("SUPPRESSED")
+            click.echo(f"  - {fact.sentence()}  [{', '.join(flags)}]")
+            click.echo(f"      “{fact.excerpt[:200]}”")
+            click.echo(f"      {fact.document_title or fact.document_id} ({fact.document_date})  {fact.fact_id}")
+
+
+@facts.command("decisions")
+@click.option("--topic", default="", help="Only decisions about this subject")
+@click.option("--since", default="", help="Earliest decision date (YYYY-MM-DD)")
+@click.option("--until", default="", help="Latest decision date (YYYY-MM-DD)")
+@click.option("--limit", default=20, show_default=True, type=int)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def facts_decisions(topic, since, until, limit, output_format):
+    """List materialized decision records, newest first"""
+    service = _facts_service()
+    service.ensure_current()
+    result = service.decisions(topic=topic, since=since, until=until, limit=limit)
+    if output_format == "json":
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+        return
+    if not result["decisions"]:
+        click.echo("No explicit decisions matched." if topic else "No decisions have been materialized.")
+        return
+    heading = f"Decisions about {result['topic']}" if result["topic"] else "Decisions"
+    click.echo(f"{heading} ({result['total']} found, newest first)")
+    for record in result["decisions"]:
+        details = "; ".join(bit for bit in (record["status"], record["context"]) if bit)
+        click.echo(f"  - {record['date'] or 'undated'} — {record['text'][:220]}" + (f" ({details})" if details else ""))
+        click.echo(f"      {record['document_title'] or record['document_id']}  {record['decision_id']}")
+
+
+@facts.command("suppress")
+@click.argument("item_id")
+@click.option("--reason", default="", help="Why this generated record is wrong or unhelpful")
+def facts_suppress(item_id, reason):
+    """Hide a generated fact or decision from answers, without editing its source"""
+    try:
+        entry = _facts_service().suppress(item_id, reason=reason)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    click.echo(f"✅ Suppressed {entry['id']}. The source document was not touched.")
+
+
+@facts.command("unsuppress")
+@click.argument("item_id")
+def facts_unsuppress(item_id):
+    """Undo a suppression"""
+    if _facts_service().unsuppress(item_id):
+        click.echo(f"✅ {item_id} is no longer suppressed.")
+    else:
+        click.echo(f"{item_id} was not suppressed.")
+
+
+@facts.command("clear")
+def facts_clear():
+    """Delete the generated store. It is rebuilt on demand; suppressions are kept."""
+    removed = _facts_service().clear()
+    click.echo("✅ Cleared the evidence-facts store. Nothing canonical was touched."
+               if removed else "Nothing to clear.")
+
 
 @private_index.command("status")
 def private_index_status():

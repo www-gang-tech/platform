@@ -180,30 +180,39 @@ class EntityDocumentStore:
         for.
         """
         for path in self._markdown_paths():
-            raw_text = path.read_text(encoding="utf-8")
-            try:
-                frontmatter, body = parse_markdown(raw_text)
-            except MarkdownParseError as exc:
-                yield None, MalformedDocument(
-                    path=path, document_id=_infer_document_id(path), error=str(exc)
-                )
+            document, malformed = self.read_path(path)
+            if document is None and malformed is None:
                 continue
-            if is_entity_frontmatter(frontmatter):
-                continue
-            document_id = string_value(frontmatter.get("id"))
-            if not document_id:
-                continue
-            yield (
-                EntityDocument(
-                    document_id=document_id,
-                    path=path,
-                    frontmatter=frontmatter,
-                    body=body,
-                    raw_text=raw_text,
-                    document_hash=sha256_text(raw_text),
-                ),
-                None,
-            )
+            yield document, malformed
+
+    def read_path(self, path: Path) -> Tuple[Optional[EntityDocument], Optional[MalformedDocument]]:
+        """Parse one corpus file. ``(None, None)`` for an entity record or a
+        file with no document id, which are not knowledge documents."""
+        raw_text = path.read_text(encoding="utf-8")
+        try:
+            frontmatter, body = parse_markdown(raw_text)
+        except MarkdownParseError as exc:
+            return None, MalformedDocument(path=path, document_id=_infer_document_id(path), error=str(exc))
+        if is_entity_frontmatter(frontmatter):
+            return None, None
+        document_id = string_value(frontmatter.get("id"))
+        if not document_id:
+            return None, None
+        return (
+            EntityDocument(
+                document_id=document_id,
+                path=path,
+                frontmatter=frontmatter,
+                body=body,
+                raw_text=raw_text,
+                document_hash=sha256_text(raw_text),
+            ),
+            None,
+        )
+
+    def markdown_paths(self) -> List[Path]:
+        """Every corpus file a scan would read, in scan order."""
+        return self._markdown_paths()
 
     def iter_documents(self) -> Iterable[EntityDocument]:
         """Corpus-wide scan. A malformed document is skipped and recorded, never repaired."""

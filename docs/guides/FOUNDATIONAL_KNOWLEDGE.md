@@ -191,6 +191,14 @@ Four kinds of evidence, strongest first:
 | `identifier` | a canonical email or domain on the record, **attested in a cited document** |
 | `involvement` | where and when the entity appears — presence, and nothing more |
 
+Which documents it reads is decided by **source class**, not recency alone
+(`core/source_classes.py`). Bulk and automated mail — newsletters, receipts,
+calendar notifications, list mail — is dropped before anything is read from
+it: a mailbox owner is linked to every thread in the mailbox, and being the
+recipient of a newsletter says nothing about who someone is. Among what
+remains, corporate records and company documents come ahead of meeting notes,
+and meeting notes ahead of ordinary email; recency breaks ties.
+
 ### What it may not conclude
 
 Participation. Appearing in an attendee list, a cc line, or five meetings in a
@@ -243,13 +251,20 @@ than language generation.
 
 ### Precedence
 
-1. **Authored description** — if one exists, it is the answer, and no profile
-   is derived at all.
-2. **Derived profile** — assembled from cited evidence, labelled as derived.
-3. **No-evidence response** — when the evidence supports neither.
+1. **Authored description** — if one exists, it is the answer, and nothing
+   else is consulted.
+2. **Recorded relationship assertions** — evidence-backed relationships a
+   person applied to a document (`gang entity relate`).
+3. **High-confidence evidence facts** — explicit statements materialized with
+   their quotes, e.g. *"Daniel Hirunrusme is a co-founder of GANG."* from his
+   own signature block. See [Evidence facts](EVIDENCE_FACTS.md).
+4. **Derived profile** — identifiers and involvement assembled from cited
+   evidence, labelled as derived.
+5. **No-evidence response** — when the evidence supports none of these.
 
-Authoring a description later takes precedence immediately, and the derived
-profile for that entity is dropped from the generated store on the next build.
+Steps 2 and 3 answer together, relationships first. Authoring a description
+later takes precedence immediately, and the derived profile for that entity is
+dropped from the generated store on the next build.
 
 ---
 

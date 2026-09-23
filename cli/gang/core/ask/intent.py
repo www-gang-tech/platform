@@ -286,7 +286,8 @@ _PATTERNS: Tuple[Tuple[str, Any], ...] = (
     (
         DECISION,
         re.compile(
-            r"\bwhat\s+(?:have|did|has)\s+(?:we|they)\s+(?:actually\s+)?(?:decided|agreed|settled)\b"
+            r"\bwhat\s+(?:have|did|has|had)\s+(?:we|they|you)\s+(?:actually\s+|finally\s+|ever\s+)?"
+            r"(?:decided?|agreed?|settled?)\b"
             r"|\bwhat\s+(?:decisions?|action items?|open questions?)\b"
             r"|\b(?:needs?|requires?|still needs?)\s+(?:a\s+)?decision\b"
             r"|\bopen\s+questions?\b"
