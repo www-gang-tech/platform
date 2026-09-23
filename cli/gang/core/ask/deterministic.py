@@ -257,9 +257,8 @@ def _assignment_route(
             arguments["entity_id"] = self_identity["entity_id"]
         return {"tool": "find_assignments", "arguments": arguments, "key": ASSIGNMENTS_KEY, "reason": reason}
 
-    folded = _fold(subject)
     for item in ambiguities:
-        if _fold(item.get("text")) and _fold(item.get("text")) in folded:
+        if _name_in_subject(item.get("text"), subject):
             return _unresolved_route(
                 subject,
                 "ambiguous",
@@ -269,8 +268,9 @@ def _assignment_route(
 
     arguments["person"] = subject
     for entity in resolved_entities:
-        text = _fold(entity.get("text"))
-        if text and text in folded and entity.get("entity_type") in ("person", None):
+        if entity.get("entity_type") not in ("person", None):
+            continue
+        if _name_in_subject(entity.get("text"), subject):
             arguments["entity_id"] = entity["entity_id"]
             break
     return {"tool": "find_assignments", "arguments": arguments, "key": ASSIGNMENTS_KEY, "reason": reason}
@@ -715,3 +715,17 @@ def _short(text: str, limit: int) -> str:
 
 def _fold(text: str) -> str:
     return str(text or "").casefold()
+
+
+def _name_in_subject(name: Any, subject: str) -> bool:
+    """Whether ``name`` is the subject, or a whole word inside it.
+
+    Character containment is wrong here: "dan" is inside "daniel" and "ai" is
+    inside "daniel", but neither is the person the question named. A resolved
+    "Daniel" still matches the subject "Daniel Hirunrusme".
+    """
+    candidate = _fold(name).strip()
+    haystack = _fold(subject).strip()
+    if not candidate or not haystack:
+        return False
+    return re.search(rf"(?<!\w){re.escape(candidate)}(?!\w)", haystack) is not None

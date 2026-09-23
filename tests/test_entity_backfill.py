@@ -228,6 +228,120 @@ class CompanyDomainTests(BackfillTestCase):
         self.assertIn("entity_refs", read_frontmatter(name_path))
 
 
+class PublicAndAddressTests(BackfillTestCase):
+    def test_public_documents_are_skipped_instead_of_aborting_the_pass(self):
+        private_path = self.home / "vault/inbox/private.md"
+        write_markdown(
+            private_path,
+            {
+                "id": "private-doc",
+                "type": "knowledge",
+                "source_type": "file",
+                "title": "Private",
+                "visibility": "private",
+                "status": "active",
+                "content_trust": "untrusted",
+                "source_id": "file_private",
+            },
+            "Daniel Hirunrusme reviewed the draft.\n",
+        )
+        public_path = self.root / "brain/vault/public/posts/about-daniel.md"
+        write_markdown(
+            public_path,
+            {
+                "id": "public-doc",
+                "type": "post",
+                "title": "About",
+                "visibility": "public",
+                "status": "published",
+            },
+            "Daniel Hirunrusme founded the studio.\n",
+        )
+        # Visibility defaults to private when the field is omitted, which used
+        # to look writable until the public-vault path check raised mid-pass.
+        unmarked_path = self.root / "brain/vault/public/posts/unmarked.md"
+        write_markdown(
+            unmarked_path,
+            {
+                "id": "unmarked-doc",
+                "type": "post",
+                "title": "Unmarked",
+                "status": "published",
+            },
+            "Daniel Hirunrusme is mentioned here too.\n",
+        )
+
+        service = self.service()
+        daniel = service.create("person", "Daniel Hirunrusme")
+        report = service.backfill(daniel.id, apply=True)[daniel.id]
+
+        self.assertEqual(report["scanned"], 1)
+        self.assertEqual(report["new_mentions"], 1)
+        self.assertIn("entity_refs", read_frontmatter(private_path))
+        self.assertNotIn("entity_refs", read_frontmatter(public_path))
+        self.assertNotIn("entity_refs", read_frontmatter(unmarked_path))
+
+    def test_canonical_name_does_not_match_inside_an_email_or_domain(self):
+        email_path = self.home / "vault/inbox/emailish.md"
+        write_markdown(
+            email_path,
+            {
+                "id": "emailish-doc",
+                "type": "knowledge",
+                "source_type": "file",
+                "title": "Address",
+                "visibility": "private",
+                "status": "active",
+                "content_trust": "untrusted",
+                "source_id": "file_emailish",
+            },
+            "Ping dan@example.com when the file is ready.\n",
+        )
+        domain_path = self.home / "vault/inbox/domainish.md"
+        write_markdown(
+            domain_path,
+            {
+                "id": "domainish-doc",
+                "type": "knowledge",
+                "source_type": "file",
+                "title": "Domain",
+                "visibility": "private",
+                "status": "active",
+                "content_trust": "untrusted",
+                "source_id": "file_domainish",
+            },
+            "The notes are on gang.tech for now.\n",
+        )
+        prose_path = self.home / "vault/inbox/prose.md"
+        write_markdown(
+            prose_path,
+            {
+                "id": "prose-doc",
+                "type": "knowledge",
+                "source_type": "file",
+                "title": "Prose",
+                "visibility": "private",
+                "status": "active",
+                "content_trust": "untrusted",
+                "source_id": "file_prose",
+            },
+            "Dan will send the file. Gang will file the form.\n",
+        )
+
+        service = self.service()
+        dan = service.create("person", "Dan")
+        gang = service.create("company", "Gang")
+        reports = service.backfill(None, apply=True)
+
+        self.assertEqual(reports[dan.id]["new_mentions"], 1)
+        self.assertEqual(reports[dan.id]["matches"][0]["document_id"], "prose-doc")
+        self.assertEqual(reports[gang.id]["new_mentions"], 1)
+        self.assertEqual(reports[gang.id]["matches"][0]["document_id"], "prose-doc")
+        self.assertNotIn("entity_refs", read_frontmatter(email_path))
+        self.assertNotIn("entity_refs", read_frontmatter(domain_path))
+        self.assertEqual(len(read_frontmatter(prose_path)["entity_refs"]), 2)
+
+
 class ScopeTests(BackfillTestCase):
     def test_backfill_rejects_unsupported_entity_types(self):
         service = self.service()

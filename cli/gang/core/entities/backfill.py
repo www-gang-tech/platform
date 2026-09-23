@@ -112,6 +112,12 @@ def run_backfill(
     changed = False
 
     for document in document_iter:
+        # Public pages are in the corpus, but entity links are private knowledge.
+        # Trying to write one raises, which used to abort the pass after earlier
+        # private documents had already been updated and before the index rebuild.
+        if not documents.accepts_entity_references(document):
+            continue
+
         for report in reports.values():
             report.scanned += 1
 
@@ -222,7 +228,14 @@ def _participant_emails(document: EntityDocument) -> List[Tuple[str, str]]:
 def _whole_word_excerpt(body: str, label: str) -> Optional[str]:
     if len(label) < MIN_LABEL_LENGTH:
         return None
-    pattern = re.compile(rf"(?<!\w){re.escape(label)}(?!\w)", re.IGNORECASE)
+    # `.` and `@` are not word characters, so a bare `(?<!\w)…(?!\w)` treats
+    # `gang.tech` as the name "Gang" and `dan@example.com` as the name "Dan".
+    # Those are addresses, not canonical-name evidence; a verified domain or
+    # email only counts when it comes from structured participant metadata.
+    pattern = re.compile(
+        rf"(?<![\w.]){re.escape(label)}(?![\w@]|\.\w)",
+        re.IGNORECASE,
+    )
     match = pattern.search(body)
     if not match:
         return None
