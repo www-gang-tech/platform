@@ -337,16 +337,29 @@ class EntityDocumentStore:
 
     # --------------------------------------------------------------- helpers
 
+    def accepts_entity_references(self, document: EntityDocument) -> bool:
+        """Whether a private entity reference may be written onto this document.
+
+        A public page is not a place entity links can live. A file under the
+        public vault is refused even when its frontmatter omits ``visibility``
+        and therefore defaults to private.
+        """
+        if document.visibility != "private":
+            return False
+        public_root = self.paths.repo_public_vault.resolve()
+        try:
+            document.path.resolve().relative_to(public_root)
+        except ValueError:
+            return True
+        return False
+
     def _assert_private(self, document: EntityDocument) -> None:
         if document.visibility != "private":
             raise PublicDocumentError(
                 f"Refusing to write private entity references to a {document.visibility} document: "
                 f"{document.document_id}"
             )
-        public_root = self.paths.repo_public_vault.resolve()
-        try:
-            document.path.resolve().relative_to(public_root)
-        except ValueError:
+        if self.accepts_entity_references(document):
             return
         raise PublicDocumentError(
             f"Refusing to write private entity references under the public vault: {document.path}"
