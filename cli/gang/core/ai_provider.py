@@ -24,6 +24,7 @@ was missed, and the only safe response to a missed filter is not to transmit.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -60,10 +61,6 @@ DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180.0
 
 API_KEY_ENV = "ANTHROPIC_API_KEY"
 
-#: Hosts an Ollama endpoint may name and still count as on this machine.
-LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"}
-
-
 class ProviderError(Exception):
     """Raised when the configured AI provider cannot produce a response.
 
@@ -94,8 +91,26 @@ def is_remote_provider(provider: Any) -> bool:
 
 
 def is_loopback_endpoint(endpoint: str) -> bool:
-    host = (urlparse(endpoint if "://" in endpoint else f"http://{endpoint}").hostname or "").lower()
-    return host in LOOPBACK_HOSTS or host.startswith("127.")
+    """Whether ``endpoint`` names this machine.
+
+    A hostname that merely begins with ``127.`` (``127.0.0.1.example``) is a
+    DNS name, not the loopback network. Only ``localhost`` and an address
+    ``ipaddress`` accepts as loopback count, including an IPv4-mapped loopback.
+    Anything else is remote, so sensitive evidence is kept off it.
+    """
+    raw = endpoint if "://" in str(endpoint or "") else f"http://{endpoint}"
+    host = (urlparse(raw).hostname or "").strip().lower().rstrip(".")
+    if host == "localhost":
+        return True
+    host = host.split("%", 1)[0]
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
+    return bool(address.is_loopback)
 
 
 def refuse_sensitive_egress(request: Dict[str, Any], *, purpose: str, provider: str) -> None:
@@ -713,9 +728,42 @@ def _get_json(url: str, *, timeout: float) -> Dict[str, Any]:
     return _open_json(request, timeout=timeout)
 
 
+class _RefuseRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """A loopback Ollama must not be talked into forwarding the request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ProviderError(
+            "Refused to follow an Ollama redirect. The request stays on the configured endpoint."
+        )
+
+
+def _safe_opener() -> urllib.request.OpenerDirector:
+    # An empty proxy map ignores HTTP_PROXY / HTTPS_PROXY. The default opener
+    # would send the evidence packet to whichever proxy the environment names.
+    return urllib.request.build_opener(_RefuseRedirectHandler, urllib.request.ProxyHandler({}))
+
+
+_SAFE_OPENER = _safe_opener()
+_REAL_URLOPEN = urllib.request.urlopen
+
+
+def _urlopen(request: urllib.request.Request, timeout: float):
+    """Open one Ollama request.
+
+    Tests replace ``urllib.request.urlopen`` with a fake that records the
+    request. Honor that replacement. The process opener never follows a
+    redirect and never consults environment proxies, so a loopback endpoint
+    cannot be turned into an outbound send.
+    """
+    current = urllib.request.urlopen
+    if current is not _REAL_URLOPEN:
+        return current(request, timeout=timeout)
+    return _SAFE_OPENER.open(request, timeout=timeout)
+
+
 def _open_json(request: urllib.request.Request, *, timeout: float) -> Dict[str, Any]:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _urlopen(request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8") or "{}")
     except (TimeoutError, socket.timeout) as exc:
         raise ProviderTimeoutError(_ollama_help(str(exc))) from exc
