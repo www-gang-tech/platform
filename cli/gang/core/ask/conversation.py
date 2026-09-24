@@ -51,6 +51,7 @@ from . import followup as followup_module
 from . import intent as intent_module
 from . import ledger as ledger_module
 from . import schema as schema_module
+from . import session as session_module
 from . import synthesis
 from .answer import (
     AnswerContext,
@@ -146,7 +147,9 @@ class ConversationService(AskService):
             clock=clock,
         )
         self.limits = (limits or ResearchLimits()).clamped()
-        self.sessions = SessionStore(self.paths.sessions_path)
+        self.sessions = SessionStore(
+            self.paths.sessions_path, sensitivity=self._display_sensitivity
+        )
         self._director = director
 
     # ------------------------------------------------------------- session
@@ -156,6 +159,48 @@ class ConversationService(AskService):
 
     def resume(self, session_id: str) -> Session:
         return self.sessions.load(session_id)
+
+    # ---------------------------------------------------------- maintenance
+
+    def sanitize_stored_state(self, *, dry_run: bool = False) -> Dict[str, Any]:
+        """One-time cleanup of Ask state written before display masking existed.
+
+        The answer cache is disposable, so it is deleted rather than rewritten;
+        answers are regenerated on demand. Sessions are working memory a user
+        may resume, so each is rewritten in place with identifiers masked
+        wherever it quotes a restricted or local-only document. Canonical
+        documents, the index, and the evidence-facts store are only read.
+        """
+        levels = self._display_sensitivity
+        cache_files = sorted(self.paths.ask_cache_path.glob("*.json")) if self.paths.ask_cache_path.exists() else []
+        report: Dict[str, Any] = {
+            "dry_run": dry_run,
+            "answer_cache": {"path": str(self.paths.ask_cache_path), "removed": len(cache_files)},
+            "sessions": {"scanned": 0, "sanitized": [], "unreadable": []},
+        }
+        for path in sorted(self.sessions.sessions_path.glob("*.json")) if self.sessions.sessions_path.exists() else []:
+            report["sessions"]["scanned"] += 1
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                report["sessions"]["unreadable"].append(path.stem)
+                continue
+            if not isinstance(payload, dict):
+                report["sessions"]["unreadable"].append(path.stem)
+                continue
+            sanitized = session_module.sanitize_payload(payload, levels)
+            if sanitized == payload:
+                continue
+            report["sessions"]["sanitized"].append(path.stem)
+            if not dry_run:
+                self.sessions.write_payload(path, sanitized)
+        if not dry_run:
+            for path in cache_files:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        return report
 
     # ------------------------------------------------------------------ ask
 
@@ -219,6 +264,14 @@ class ConversationService(AskService):
                 "AI provider timed out during research. No additional model calls were made.",
                 provider_calls=self._provider_calls,
             )
+        # Records and the trace are display copies: tool snippets, fact
+        # quotes, and notes that can reach the answer, the session, and the
+        # cache. Rows keep their bodies; the bundle masks its own excerpts.
+        research = replace(
+            research,
+            records=disclosure.sanitize_for_display(research.records, self._display_sensitivity),
+            trace=disclosure.sanitize_for_display(research.trace, self._display_sensitivity),
+        )
 
         bundle = build_bundle(
             text,
@@ -871,6 +924,10 @@ class ConversationService(AskService):
             assessed,
         )
 
+    def _display_sensitivity(self, document_ids):
+        """Disclosure levels for `disclosure.sanitize_for_display`."""
+        return self.retriever.sensitivity(document_ids)
+
     def _remote_context(self, context: AnswerContext) -> AnswerContext:
         """Everything around the evidence, minus what cites a withheld document.
 
@@ -1132,7 +1189,6 @@ class ConversationService(AskService):
         hashes = {row["document_id"]: row.get("content_hash", "") for row in rows}
 
         entries: List[Dict[str, Any]] = []
-        lines: List[str] = ["Here's what the previous answer rested on."]
         for claim in session.last_claims:
             citations = claim.get("citations") or []
             if not citations:
@@ -1162,8 +1218,23 @@ class ConversationService(AskService):
             if not documents:
                 continue
             entries.append({"claim": claim.get("text", ""), "type": claim.get("type", ""), "sources": documents})
-            lines.append(f"\n{claim.get('text', '')}")
-            for document in documents:
+
+        # A receipt re-reads source text, so it is masked like any other
+        # display copy. The claim cites its documents only through its
+        # sources, so it is wrapped with their ids for the sanitizer.
+        wrapped = disclosure.sanitize_for_display(
+            [
+                {"document_ids": [document["document_id"] for document in entry["sources"]], "entry": entry}
+                for entry in entries
+            ],
+            self._display_sensitivity,
+        )
+        entries = [item["entry"] for item in wrapped]
+
+        lines: List[str] = ["Here's what the previous answer rested on."]
+        for entry in entries:
+            lines.append(f"\n{entry['claim']}")
+            for document in entry["sources"]:
                 marker = " (source has changed since)" if document["source_changed_since"] else ""
                 lines.append(f"  [{document['citation_id']}] {document['title']}{marker}")
                 if document["excerpt"]:

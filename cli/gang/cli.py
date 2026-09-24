@@ -2198,6 +2198,50 @@ def sensitivity_show(document_id, output_format):
     click.echo("  Matched values are never stored or printed. The canonical document is unchanged.")
 
 
+@sensitivity_group.command("sanitize-ask-state")
+@click.option("--dry-run", is_flag=True, help="Report what would change without changing anything")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def sensitivity_sanitize_ask_state(dry_run, output_format):
+    """One-time cleanup of Ask sessions and caches written before masking
+
+    \b
+    Deletes the disposable Ask answer cache (answers are regenerated on
+    demand) and rewrites saved Ask sessions in place, masking identifiers
+    wherever they quote a restricted or local-only document. Canonical
+    documents, the index, and the evidence-facts store are only read.
+    """
+    try:
+        from core.ask import ConversationService, RetrievalError
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.ask import ConversationService, RetrievalError
+
+    try:
+        report = ConversationService(root_path=Path.cwd()).sanitize_stored_state(dry_run=dry_run)
+    except RetrievalError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
+    if output_format == "json":
+        click.echo(json.dumps(report, indent=2, sort_keys=True))
+        return
+    sessions = report["sessions"]
+    click.echo("Ask state sanitation" + (" (dry run)" if dry_run else ""))
+    click.echo(
+        f"  answer cache: {'would remove' if dry_run else 'removed'} "
+        f"{report['answer_cache']['removed']} file(s)"
+    )
+    click.echo(
+        f"  sessions: scanned {sessions['scanned']}, "
+        f"{'would sanitize' if dry_run else 'sanitized'} {len(sessions['sanitized'])}"
+    )
+    for session_id in sessions["sanitized"]:
+        click.echo(f"    - {session_id}")
+    for session_id in sessions["unreadable"]:
+        click.echo(f"  skipped unreadable session: {session_id}")
+    click.echo("  Canonical documents, the index, and the evidence-facts store are unchanged.")
+
+
 @cli.command("search")
 @click.argument("query", nargs=-1, required=True)
 @click.option("--type", "type_filter", help="Filter by document type")

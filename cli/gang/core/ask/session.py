@@ -35,6 +35,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from . import disclosure
+
 
 SESSION_VERSION = "1"
 
@@ -537,8 +539,16 @@ class Session:
 class SessionStore:
     """Sessions on disk under ``GANG_HOME/sessions/``. Private, never in git."""
 
-    def __init__(self, sessions_path: Path | str):
+    def __init__(
+        self,
+        sessions_path: Path | str,
+        *,
+        sensitivity: Optional[disclosure.SensitivityLookup] = None,
+    ):
         self.sessions_path = Path(sessions_path)
+        #: When set, every save masks identifiers quoted from restricted and
+        #: local-only documents (`sanitize_payload`) before anything is written.
+        self.sensitivity = sensitivity
 
     def path_for(self, session_id: str) -> Path:
         if not _SESSION_ID.fullmatch(session_id or ""):
@@ -575,8 +585,15 @@ class SessionStore:
     def save(self, session: Session) -> Path:
         path = self.path_for(session.session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
+        data = session.to_dict()
+        if self.sensitivity is not None:
+            data = sanitize_payload(data, self.sensitivity)
+        self.write_payload(path, data)
+        return path
+
+    def write_payload(self, path: Path, data: Dict[str, Any]) -> None:
         temporary = path.with_suffix(".json.tmp")
-        payload = json.dumps(session.to_dict(), indent=2, sort_keys=True, default=str) + "\n"
+        payload = json.dumps(data, indent=2, sort_keys=True, default=str) + "\n"
         temporary.write_text(payload, encoding="utf-8")
         # Private by construction, not by the umask the shell happened to have.
         try:
@@ -584,7 +601,6 @@ class SessionStore:
         except OSError:
             pass
         temporary.replace(path)
-        return path
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         """Newest first. Reads only the header fields, never the turns."""
@@ -615,6 +631,36 @@ class SessionStore:
             return False
         path.unlink()
         return True
+
+
+def sanitize_payload(payload: Dict[str, Any], lookup: disclosure.SensitivityLookup) -> Dict[str, Any]:
+    """A stored session with identifiers masked wherever it quotes a sensitive document.
+
+    Turns, conclusions, and snapshots cite their documents directly, so
+    `disclosure.sanitize_for_display` handles them as they are. The previous
+    answer's claims point through citation numbers instead, so each is
+    resolved through ``last_citation_map`` first. Ids, hashes, and citations
+    are never touched; a session that quotes nothing sensitive is unchanged.
+    """
+    citation_map = payload.get("last_citation_map") or {}
+    claims = [
+        {
+            "document_ids": [
+                citation_map[str(value)]
+                for value in claim.get("citations") or []
+                if citation_map.get(str(value))
+            ],
+            "claim": claim,
+        }
+        for claim in payload.get("last_claims") or []
+        if isinstance(claim, dict)
+    ]
+    rest = {key: value for key, value in payload.items() if key != "last_claims"}
+    sanitized = disclosure.sanitize_for_display(rest, lookup)
+    wrapped = disclosure.sanitize_for_display(claims, lookup)
+    if sanitized is rest and wrapped is claims:
+        return payload
+    return {**sanitized, "last_claims": [entry["claim"] for entry in wrapped]}
 
 
 def new_session_id() -> str:

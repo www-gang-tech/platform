@@ -466,6 +466,12 @@ class ResearchLoop:
                 # corpus. Anything citing a restricted or local-only document
                 # is dropped before the director's request is built.
                 observation = disclosure.remote_data(observation, self.tools.retriever.sensitivity)
+            else:
+                # A local director sees sensitive previews, masked like any
+                # display copy, since its reasons are shown in the trace.
+                observation = disclosure.sanitize_for_display(
+                    observation, self.tools.retriever.sensitivity
+                )
             proposed = self.director.decide(observation)
             telemetry = getattr(self.director, "telemetry", {}) or {}
             if isinstance(telemetry, dict) and telemetry:

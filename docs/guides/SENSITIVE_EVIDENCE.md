@@ -101,12 +101,23 @@ Deterministic answers and loopback local models use restricted and local-only
 evidence exactly as before. A fact stated only in a local-only document still
 answers "who is …?" with its citation.
 
-Excerpts and titles from restricted or local-only documents replace detected
-identifier values with a marker, e.g. `social security number: [ssn withheld]`
-or `Tax election [ssn withheld]`. These display copies appear in answers, JSON
-results, source lists, session snapshots, answer caches, and whatever a local
-model is given. The canonical document and the index still hold the value for
-anyone who opens them.
+Every display copy of text from a restricted or local-only document replaces
+detected identifier values with a marker, e.g. `social security number: [ssn withheld]`
+or `Tax election [ssn withheld]`. That covers evidence excerpts and titles, and
+also research-tool snippets, research trace reasons, evidence-fact and profile
+quotes, decision and assignment text, and receipts — in answers, JSON results,
+source lists, sessions, answer caches, and whatever a local model is given.
+
+Everything other than the evidence bundle goes through one sanitizer,
+`disclosure.sanitize_for_display`: any entry that cites a restricted or
+local-only document (by `document_id` or `document_ids`) has its text masked.
+Ids, hashes, and citations are never rewritten, so provenance is intact.
+Anything citing only `normal` documents is returned as the very same object,
+so ordinary output is unchanged byte for byte. Saved sessions pass through the
+same sanitizer on every write.
+
+The canonical document, the index, and the evidence-facts store still hold the
+value for anyone who opens them.
 
 ### When the local model is unavailable
 
@@ -149,6 +160,7 @@ gang sensitivity status              # counts at each level
 gang sensitivity list                # everything that is not normal, with detectors
 gang sensitivity list --level restricted
 gang sensitivity show DOCUMENT_ID    # level, basis, and why
+gang sensitivity sanitize-ask-state  # one-time cleanup of older Ask sessions and caches
 gang index status                    # includes the three counts
 ```
 
@@ -172,6 +184,23 @@ When a remote provider was used, `gang ask` lists the sources it did not see
 under "Retrieved but not sent to the remote AI provider". JSON results carry
 the same list as `synthesis.withheld_sources`, and each source has a
 `sensitivity` field.
+
+### Ask state written before masking
+
+Answer caches and sessions written by an older version may still hold
+unmasked text. One command cleans them up:
+
+```bash
+gang sensitivity sanitize-ask-state --dry-run   # report only
+gang sensitivity sanitize-ask-state
+```
+
+It deletes the answer cache (disposable; answers are regenerated on demand)
+and rewrites each saved session in place, masking only what quotes a
+restricted or local-only document. Sessions that quote nothing sensitive are
+left byte-for-byte alone, and running it again changes nothing. It only reads
+canonical documents, the index, and the evidence-facts store. It needs a
+current index (`gang index build`) to know each document's level.
 
 ## Requirements
 
