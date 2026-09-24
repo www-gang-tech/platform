@@ -13,6 +13,13 @@ Two rules hold for every caller:
 * Retrieved corpus content is always DATA in a user message. Callers build the
   system prompt from constants they own; nothing read out of the vault is ever
   promoted into system or developer position.
+
+A third rule belongs to the callers, with a backstop here. Restricted and
+local-only documents (``core.sensitivity``) are filtered out before a remote
+context is built. This module does not filter anything; it refuses. A request
+bound for a remote endpoint that still carries a strongly structured sensitive
+identifier is never sent, because reaching that point means a filter upstream
+was missed, and the only safe response to a missed filter is not to transmit.
 """
 
 from __future__ import annotations
@@ -27,6 +34,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
+from core import sensitivity
 
 
 #: Model used by the proposal flows (enrichment, entity resolution).
@@ -50,6 +60,9 @@ DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180.0
 
 API_KEY_ENV = "ANTHROPIC_API_KEY"
 
+#: Hosts an Ollama endpoint may name and still count as on this machine.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"}
+
 
 class ProviderError(Exception):
     """Raised when the configured AI provider cannot produce a response.
@@ -61,6 +74,58 @@ class ProviderError(Exception):
 
 class ProviderTimeoutError(ProviderError):
     """Raised when a provider call reaches its configured timeout."""
+
+
+class SensitiveEgressError(ProviderError):
+    """Raised instead of sending a remote request that carries a sensitive identifier."""
+
+
+def is_remote_provider(provider: Any) -> bool:
+    """Whether text handed to ``provider`` leaves this machine.
+
+    Clients and the Ask wrappers answer through ``is_remote``. Anything that
+    does not say is judged by its provider name, and a name this module does
+    not know as local is remote: a boundary that has to guess guesses closed.
+    """
+    declared = getattr(provider, "is_remote", None)
+    if isinstance(declared, bool):
+        return declared
+    return str(getattr(provider, "provider_name", "") or "") not in LOCAL_PROVIDERS
+
+
+def is_loopback_endpoint(endpoint: str) -> bool:
+    host = (urlparse(endpoint if "://" in endpoint else f"http://{endpoint}").hostname or "").lower()
+    return host in LOOPBACK_HOSTS or host.startswith("127.")
+
+
+def refuse_sensitive_egress(request: Dict[str, Any], *, purpose: str, provider: str) -> None:
+    """Refuse a remote request that still carries a sensitive identifier.
+
+    A backstop, not the filter. It names the detectors that fired and never
+    the values, so the refusal is as safe to log as the request was not.
+    """
+    detectors = sensitivity.contains_sensitive_identifier(_request_text(request))
+    if detectors:
+        raise SensitiveEgressError(
+            f"Refused to send {purpose} to remote provider {provider}: the request contains "
+            f"sensitive identifiers ({', '.join(sorted(set(detectors)))}). Restricted and "
+            "local-only evidence must be filtered out before a remote context is built. "
+            "Nothing was sent."
+        )
+
+
+def _request_text(request: Dict[str, Any]) -> str:
+    parts: List[str] = [str(request.get("system") or "")]
+    for message in request.get("messages") or []:
+        content = message.get("content") if isinstance(message, dict) else message
+        if isinstance(content, list):
+            parts.extend(
+                str(block.get("text") or "") if isinstance(block, dict) else str(block)
+                for block in content
+            )
+        else:
+            parts.append(str(content or ""))
+    return "\n".join(parts)
 
 
 @dataclass(frozen=True)
@@ -251,6 +316,10 @@ class ConfiguredAIClient:
         return getattr(self._client, "endpoint", "")
 
     @property
+    def is_remote(self) -> bool:
+        return self._client.is_remote
+
+    @property
     def telemetry(self) -> Dict[str, Any]:
         return getattr(self._client, "telemetry", {})
 
@@ -266,6 +335,7 @@ class AnthropicClient:
     """Narrow wrapper over ``anthropic.Anthropic`` that returns JSON objects."""
 
     provider_name = "anthropic"
+    is_remote = True
 
     def __init__(
         self,
@@ -288,6 +358,7 @@ class AnthropicClient:
         ``request`` carries ``system``, ``messages``, and ``max_tokens``. The
         credential is never included in the error text raised from here.
         """
+        refuse_sensitive_egress(request, purpose=purpose, provider=self.provider_name)
         if not self.api_key:
             raise ProviderError(f"{API_KEY_ENV} is required for {purpose}")
 
@@ -348,7 +419,19 @@ class OllamaClient:
     def has_credentials(self) -> bool:
         return True
 
+    @property
+    def is_remote(self) -> bool:
+        """An Ollama server on another host is a remote provider.
+
+        The provider name says nothing about where the text goes. An endpoint
+        pointed at a LAN box or a hosted GPU is exactly as remote as Anthropic
+        for the purposes of sensitive evidence.
+        """
+        return not is_loopback_endpoint(self.endpoint)
+
     def complete_json(self, request: Dict[str, Any], *, purpose: str) -> Dict[str, Any]:
+        if self.is_remote:
+            refuse_sensitive_egress(request, purpose=purpose, provider=f"ollama at {self.endpoint}")
         messages = [{"role": "system", "content": request["system"]}]
         messages.extend(request.get("messages") or [])
         # A caller that knows the shape it wants sends a JSON Schema, and

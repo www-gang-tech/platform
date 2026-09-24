@@ -152,6 +152,7 @@ class AuditedRetriever(Retriever):
         "foundational_documents",
         "recent_documents",
         "enriched_documents",
+        "sensitivity",
     )
 
     def __init__(
@@ -238,6 +239,11 @@ class AuditedRetriever(Retriever):
     def enriched_documents(self, *, limit: int = 50):
         result = super().enriched_documents(limit=limit)
         self._write_audit("enriched_documents", result, {"limit": limit})
+        return result
+
+    def sensitivity(self, document_ids):
+        result = super().sensitivity(document_ids)
+        self._write_audit("sensitivity", result, {"document_ids": list(document_ids or [])})
         return result
 
 

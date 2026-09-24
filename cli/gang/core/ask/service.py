@@ -26,7 +26,7 @@ from core.entities.resolver import EntityResolver
 from core.entities.store import EntityStore
 from core.paths import GangPaths
 
-from . import synthesis
+from . import disclosure, synthesis
 from .evidence import EvidenceBundle, build_bundle
 from .plan import DEFAULT_LIMIT
 from .planner import (
@@ -198,6 +198,25 @@ class AskService:
                 {"mode": "deterministic", "reason": "no-provider", "cached": False},
             )
 
+        withheld: Dict[str, Any] = {}
+        if disclosure.applies(synthesizer):
+            # Narrowed before anything is serialized for the provider. The
+            # full bundle still backs the local source list.
+            remote_bundle = bundle.for_remote_provider()
+            withheld = {"withheld_sources": disclosure.withheld_summary(remote_bundle)}
+            if remote_bundle.empty:
+                answer = synthesis.deterministic_answer(
+                    bundle, reason=disclosure.SENSITIVE_EVIDENCE_REASON
+                )
+                answer["answer"] = f"{disclosure.SENSITIVE_EVIDENCE_NOTICE}\n\n{answer['answer']}"
+                return answer, {
+                    "mode": "deterministic",
+                    "reason": disclosure.SENSITIVE_EVIDENCE_REASON,
+                    "cached": False,
+                    **withheld,
+                }
+            bundle = remote_bundle
+
         model = getattr(synthesizer, "model", "")
         provider_name = getattr(synthesizer, "provider_name", "unknown")
         cache_key = self._cache_key(bundle, model)
@@ -210,6 +229,7 @@ class AskService:
                     "model": model,
                     "api_cost": "$0" if provider_name == "ollama" else "remote provider",
                     "cached": True,
+                    **withheld,
                 }
 
         try:
@@ -228,6 +248,7 @@ class AskService:
             "model": model,
             "api_cost": "$0" if provider_name == "ollama" else "remote provider",
             "cached": False,
+            **withheld,
         }
 
     # --------------------------------------------------------------- result

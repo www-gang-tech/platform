@@ -259,6 +259,10 @@ class AnthropicQueryPlanner:
         return self._client.provider_name
 
     @property
+    def is_remote(self) -> bool:
+        return self._client.is_remote
+
+    @property
     def model(self) -> str:
         return self._client.model
 

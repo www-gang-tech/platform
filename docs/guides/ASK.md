@@ -347,6 +347,11 @@ repository, no question history is kept, and no provider prompt is stored. The
 cache lives under `GANG_HOME`, which is outside the repo and never committed.
 API keys never appear in a prompt, a log line, or an error message.
 
+Restricted and local-only documents never enter a remote provider's context.
+They are filtered out before the request is built, and deterministic and
+loopback-local answers still use them. See
+[SENSITIVE_EVIDENCE.md](SENSITIVE_EVIDENCE.md).
+
 ## Requirements
 
 `gang ask` reads `GANG_HOME/generated/brain.sqlite`. An index built before this
