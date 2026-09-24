@@ -147,6 +147,34 @@ def remote_data(value: Any, lookup: SensitivityLookup) -> Any:
     return {} if scrubbed is _DROP and isinstance(value, Mapping) else scrubbed
 
 
+def sanitize_for_display(value: Any, lookup: SensitivityLookup) -> Any:
+    """``value`` with detected identifiers masked wherever it quotes a sensitive document.
+
+    The local counterpart of `remote_data`: the same walk, the same notion of
+    an entry "citing" a document, but nothing is dropped. Every string inside
+    an entry that cites a restricted or local-only document passes through
+    `sensitivity.mask_identifiers`, so a research snippet, a fact quote, or a
+    receipt shows ``[ssn withheld]`` exactly as an evidence excerpt does.
+    Identifier fields are left alone, so citations and provenance survive.
+
+    When nothing cited is restricted or local-only, ``value`` itself is
+    returned: ordinary material is not copied, let alone changed.
+    """
+    wanted = sorted(referenced_document_ids(value))
+    if not wanted:
+        return value
+    levels = lookup(wanted) or {}
+    masked = {
+        document_id
+        for document_id in wanted
+        if sensitivity.normalize_level(levels.get(document_id))
+        in (sensitivity.RESTRICTED, sensitivity.LOCAL_ONLY)
+    }
+    if not masked:
+        return value
+    return _mask(value, masked, inside=False)
+
+
 def withheld_summary(bundle: Any) -> List[Dict[str, Any]]:
     """What a remote provider did not see, for the local reader. No text."""
     return [dict(entry) for entry in getattr(bundle, "withheld", []) or []]
@@ -175,6 +203,25 @@ def _scrub(value: Any, withheld: Set[str]) -> Any:
             if cleaned is not _DROP and not (isinstance(cleaned, str) and cleaned in withheld)
         ]
     return value
+
+
+def _mask(value: Any, masked: Set[str], *, inside: bool) -> Any:
+    if isinstance(value, Mapping):
+        inside = inside or _cites(value, masked)
+        return {
+            key: child if _identifier_field(str(key)) else _mask(child, masked, inside=inside)
+            for key, child in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_mask(child, masked, inside=inside) for child in value]
+    if inside and isinstance(value, str):
+        return sensitivity.mask_identifiers(value)
+    return value
+
+
+def _identifier_field(name: str) -> bool:
+    """Ids and hashes are provenance, not prose, and are never rewritten."""
+    return name == "id" or name.endswith(("_id", "_ids", "hash"))
 
 
 def _cites(entry: Mapping[str, Any], withheld: Set[str]) -> bool:

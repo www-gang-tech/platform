@@ -1233,5 +1233,381 @@ class SensitiveTitleTests(SensitivityTestCase):
         self.assertEqual(stored, self.TITLE)
 
 
+# ======================================================= display sanitation
+
+
+IDENTIFIERS = (SSN, SSN.replace("-", ""), ROUTING)
+
+
+class ScriptedLocalDirector:
+    """A loopback research director that follows a script.
+
+    A step may be a callable over the observation, so a step can quote what
+    the director was shown — the way a real model's reason would.
+    """
+
+    provider_name = "ollama"
+    model = "director-stub"
+    is_remote = False
+    has_credentials = True
+    telemetry = {}
+
+    def __init__(self, steps):
+        self.steps = list(steps)
+        self.observations = []
+
+    def decide(self, observation):
+        self.observations.append(observation)
+        step = self.steps.pop(0) if self.steps else {"decision": "ENOUGH_EVIDENCE", "reason": "done"}
+        return step(observation) if callable(step) else step
+
+
+class EchoEverythingProvider:
+    """A local model that repeats everything it was given into its answer.
+
+    Whatever it was shown reaches the answer, the claim ledger, the session,
+    and the cache — so none of those can hold a value it was never shown.
+    """
+
+    provider_name = "ollama"
+    model = "echo-everything"
+    is_remote = False
+    has_credentials = True
+    telemetry = {}
+
+    def synthesize(self, context, **_):
+        seen = json.dumps(
+            {
+                "records": context.records,
+                "session": context.session_context,
+                "evidence": context.bundle.to_dict(),
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+        ids = context.bundle.citation_ids()
+        markers = "".join(f"[{value}]" for value in ids)
+        return {
+            "answer": f"Everything I was shown {markers}: {seen}",
+            "claims": [
+                {"id": f"c{value}", "type": "fact", "text": f"Shown {seen[:300]}", "citations": [value]}
+                for value in ids
+            ],
+        }
+
+
+def preview_of(observation, document_id):
+    for item in observation.get("documents_so_far") or []:
+        if item.get("document_id") == document_id:
+            return item.get("excerpt") or ""
+    return ""
+
+
+class DisplaySanitationTests(SensitivityTestCase):
+    """Every display copy of restricted or local-only text is masked, not just
+    evidence excerpts and titles: research snippets, trace reasons, fact
+    quotes, sessions, receipts, and caches."""
+
+    def assert_no_identifiers(self, text, where=""):
+        for value in IDENTIFIERS:
+            self.assertNotIn(value, text, where)
+
+    def stored_text(self, service):
+        paths = list(service.paths.sessions_path.glob("*.json")) + list(service.paths.ask_cache_path.glob("*.json"))
+        return {path.name: path.read_text(encoding="utf-8") for path in paths}
+
+    def snippet_director(self, *, target=SSN_ID, other=NORMAL_ID):
+        return ScriptedLocalDirector(
+            [
+                lambda observation: {
+                    "decision": "READ_DOCUMENT",
+                    "tool": "get_document_excerpt",
+                    "arguments": {"document_id": target, "around": "number"},
+                    # A reason that quotes the preview it was shown.
+                    "reason": preview_of(observation, target),
+                },
+                {
+                    "decision": "READ_DOCUMENT",
+                    "tool": "compare_documents",
+                    "arguments": {"document_ids": [target, other]},
+                    "reason": "compare",
+                },
+                {"decision": "ENOUGH_EVIDENCE", "reason": "enough"},
+            ]
+        )
+
+    def test_research_snippets_answers_sessions_receipts_and_caches_never_carry_identifiers(self):
+        self.build_index()
+        director = self.snippet_director()
+        service = ConversationService(
+            root_path=self.root, private_home=self.home,
+            synthesizer=EchoEverythingProvider(), director=director,
+        )
+        session = service.sessions.create("snippets")
+        result = service.converse(
+            SYNTHESIS_QUESTION, session=session,
+            options=ConversationOptions(use_cache=True, persist=True, show_research=True),
+        )
+
+        # The research really did quote the sensitive document, masked.
+        records = result["research"]["records"]
+        (excerpt,) = [item["excerpt"] for item in records["excerpts"] if item["document_id"] == SSN_ID]
+        self.assertIn("social security number: [ssn withheld]", excerpt)
+        comparison = {item["document_id"]: item["excerpt"] for item in records["comparison"]}
+        self.assertIn("[ssn withheld]", comparison[SSN_ID])
+        self.assertIn("[bank-account withheld]", comparison[SSN_ID])
+        # The director was shown masked previews, and its quoting reason is masked.
+        self.assertIn("[ssn withheld]", preview_of(director.observations[0], SSN_ID))
+        reasons = [entry.get("reason", "") for entry in result["research"]["trace"]]
+        self.assertTrue(any("[ssn withheld]" in reason for reason in reasons), reasons)
+        # The echoing model repeated what it saw, which was masked.
+        self.assertEqual(result["synthesis"]["mode"], "ai")
+        self.assertIn("[ssn withheld]", result["answer"])
+        # Provenance survives: ids and citations are untouched.
+        self.assertIn(SSN_ID, [source["document_id"] for source in result["sources"]])
+        self.assertIn(SSN_ID, [entry["document_id"] for entry in records["excerpts"]])
+
+        self.assert_no_identifiers(json.dumps(result, default=str), "answer/result")
+        stored = self.stored_text(service)
+        self.assertTrue(any(name.startswith("snippets") for name in stored))
+        self.assertTrue(any(name != "snippets.json" for name in stored), "no cache was written")
+        for name, text in stored.items():
+            self.assert_no_identifiers(text, name)
+
+        receipts = service.converse(
+            "show me the receipts", session=service.resume("snippets"),
+            options=ConversationOptions(use_cache=True, persist=True),
+        )
+        self.assertEqual(receipts["synthesis"]["reason"], "receipts")
+        (entry,) = [
+            document
+            for item in receipts["receipts"]
+            for document in item["sources"]
+            if document["document_id"] == SSN_ID
+        ][:1]
+        self.assertIn("[ssn withheld]", entry["excerpt"])
+        self.assertIn("[ssn withheld]", receipts["answer"])
+        self.assert_no_identifiers(json.dumps(receipts, default=str), "receipts")
+        for name, text in self.stored_text(service).items():
+            self.assert_no_identifiers(text, name)
+
+    def test_ordinary_snippets_are_unchanged_render_for_render(self):
+        # A part number a person marked normal looks like an SSN. As ordinary
+        # evidence it must be shown exactly as written.
+        write_markdown(
+            self.home / "vault/documents/part-numbers.md",
+            {"id": DOWNGRADED_ID, "type": "knowledge", "title": "Qi2 certification part list",
+             "visibility": "private", "sensitivity": "normal",
+             "sensitivity_reason": "part number, not an SSN"},
+            "Qi2 certification fixture part number 222-33-4444 is on order.\n",
+        )
+        self.build_index()
+        service = ConversationService(
+            root_path=self.root, private_home=self.home,
+            synthesizer=RecordingProvider(provider_name="ollama", is_remote=False),
+            director=self.snippet_director(target=DOWNGRADED_ID),
+        )
+        result = service.converse(
+            SYNTHESIS_QUESTION, session=service.start(),
+            options=ConversationOptions(use_cache=False, persist=False, show_research=True),
+        )
+        records = result["research"]["records"]
+        (excerpt,) = [item["excerpt"] for item in records["excerpts"] if item["document_id"] == DOWNGRADED_ID]
+        self.assertIn("222-33-4444", excerpt)
+        comparison = {item["document_id"]: item["excerpt"] for item in records["comparison"]}
+        self.assertEqual(comparison[DOWNGRADED_ID], "Qi2 certification fixture part number 222-33-4444 is on order.")
+        self.assertEqual(comparison[NORMAL_ID], " ".join(NORMAL_BODY.split()))
+
+    def test_evidence_fact_quotes_never_carry_identifiers(self):
+        entities = EntityService(root_path=self.root, private_home=self.home)
+        entities.create("company", "GANG", domains=["gang.example"])
+        entities.create("person", "Daniel Hirunrusme", aliases=["Daniel"], emails=["daniel@gang.example"])
+        write_markdown(
+            self.home / "vault/documents/offer-letter.md",
+            {"id": OFFER_ID, "type": "knowledge", "source_type": "gmail-attachment",
+             "title": "Offer letter", "visibility": "private", "status": "active",
+             "created": "2026-03-01", "updated": "2026-03-01"},
+            f"Daniel Hirunrusme is a co-founder of GANG, employee SSN: {SSN}.\n",
+        )
+        self.build_index()
+        service = ConversationService(root_path=self.root, private_home=self.home)
+        session = service.sessions.create("facts")
+
+        result = service.converse(
+            "who is Daniel?", session=session,
+            options=ConversationOptions(use_cache=False, persist=True, show_research=True),
+        )
+
+        (record,) = result["research"]["records"]["entity_profile"]
+        quotes = [statement.get("quote", "") for statement in record["statements"]]
+        self.assertTrue(any("[ssn withheld]" in quote for quote in quotes), quotes)
+        self.assertEqual(record["statements"][0]["document_ids"], [OFFER_ID])
+        self.assertIn(OFFER_ID, [source["document_id"] for source in result["sources"]])
+        self.assertIn(": [ssn withheld].", result["answer"])
+        self.assert_no_identifiers(json.dumps(result, default=str), "fact answer")
+        for name, text in self.stored_text(service).items():
+            self.assert_no_identifiers(text, name)
+        # The generated store keeps its provenance quote as extracted.
+        facts = sqlite3.connect(str(service.paths.generated_path / "evidence-facts.sqlite"))
+        try:
+            excerpts = [row[0] for row in facts.execute("SELECT excerpt FROM facts")]
+        finally:
+            facts.close()
+        self.assertTrue(any(SSN in excerpt for excerpt in excerpts))
+
+    def test_a_session_saved_from_memory_is_masked_on_disk(self):
+        self.build_index()
+        service = ConversationService(root_path=self.root, private_home=self.home)
+        session = service.sessions.create("memory")
+        session.record_turn(
+            question="what is in the payroll packet?",
+            resolved_question="what is in the payroll packet?",
+            policy="evidence", mode="evidence",
+            answer=f"It lists SSN {SSN} [1].",
+            evidence=[{"document_id": SSN_ID, "citation_id": 1, "title": SSN_TITLE}],
+            claims=[{"id": "c1", "type": "fact", "status": "accepted",
+                     "text": f"Routing number {ROUTING}.", "citations": [1]}],
+        )
+        path = service.sessions.save(session)
+        text = path.read_text(encoding="utf-8")
+        self.assert_no_identifiers(text)
+        stored = json.loads(text)
+        self.assertEqual(stored["last_citation_map"], {"1": SSN_ID})
+        self.assertEqual(stored["last_claims"][0]["citations"], [1])
+        self.assertEqual(stored["turns"][0]["document_ids"], [SSN_ID])
+
+
+class SanitizerUnitTests(unittest.TestCase):
+    LEVELS = {"secret": "local-only", "board": "restricted", "ok": "normal"}
+
+    def lookup(self, ids):
+        return {value: self.LEVELS[value] for value in ids if value in self.LEVELS}
+
+    def test_only_entries_citing_restricted_or_local_only_documents_are_masked(self):
+        value = {
+            "records": [
+                {"document_id": "secret", "excerpt": f"SSN: {SSN}", "content_hash": "123-45-6789"},
+                {"document_ids": ["board"], "quote": f"routing number: {ROUTING}"},
+                {"document_id": "ok", "excerpt": "part 222-33-4444"},
+                {"document_id": "unknown", "excerpt": "part 222-33-4444"},
+            ],
+        }
+        sanitized = disclosure.sanitize_for_display(value, self.lookup)
+        secret, board, ok, unknown = sanitized["records"]
+        self.assertEqual(secret, {"document_id": "secret", "excerpt": "SSN: [ssn withheld]", "content_hash": "123-45-6789"})
+        self.assertNotIn(ROUTING, board["quote"])
+        self.assertEqual(board["document_ids"], ["board"])
+        self.assertEqual(ok, value["records"][2])
+        self.assertEqual(unknown, value["records"][3])
+        # The input is not mutated.
+        self.assertIn(SSN, value["records"][0]["excerpt"])
+
+    def test_nothing_sensitive_returns_the_very_same_object(self):
+        value = {"records": [{"document_id": "ok", "excerpt": f"part {SSN}"}], "note": SSN}
+        self.assertIs(disclosure.sanitize_for_display(value, self.lookup), value)
+        self.assertIs(disclosure.sanitize_for_display("plain", self.lookup), "plain")
+
+
+class AskStateMigrationTests(SensitivityTestCase):
+    """`gang sensitivity sanitize-ask-state` for state written before masking."""
+
+    def old_session(self):
+        return {
+            "session_id": "legacy",
+            "version": "1",
+            "created": "2026-09-01T00:00:00+00:00",
+            "updated": "2026-09-01T00:00:00+00:00",
+            "active_topics": ["payroll"],
+            "active_entity_ids": [],
+            "active_entity_names": {},
+            "active_document_ids": [SSN_ID, NORMAL_ID],
+            "active_time_range": None,
+            "turns": [
+                {"index": 1, "question": "what is in the payroll packet?", "resolved_question": "",
+                 "policy": "evidence", "mode": "evidence",
+                 "answer_summary": f"Employee social security number: {SSN}", "citations": [1],
+                 "document_ids": [SSN_ID], "created": "2026-09-01T00:00:00+00:00"},
+                {"index": 2, "question": "and the part?", "resolved_question": "",
+                 "policy": "evidence", "mode": "evidence",
+                 "answer_summary": "Part 222-33-4444 is on order.", "citations": [1],
+                 "document_ids": [NORMAL_ID], "created": "2026-09-01T00:00:00+00:00"},
+            ],
+            "snapshots": {
+                SSN_ID: {"document_id": SSN_ID, "content_hash": "abc", "title": f"Payroll {SSN}",
+                         "source_type": "gmail-attachment", "updated": "", "source_ids": [],
+                         "citation_id": 1, "excerpt_count": 1, "retrieved_at": ""},
+            },
+            "assumptions": [],
+            "conclusions": [
+                {"claim_id": "c1", "type": "fact", "text": f"Routing number {ROUTING}.",
+                 "citations": [1], "document_ids": [SSN_ID], "turn": 1},
+            ],
+            "last_claims": [{"id": "c1", "type": "fact", "text": f"SSN {SSN}", "citations": [1]}],
+            "last_citation_map": {"1": SSN_ID},
+        }
+
+    def test_migration_masks_old_sessions_deletes_caches_and_touches_nothing_else(self):
+        self.build_index()
+        sessions = self.home / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        (sessions / "legacy.json").write_text(json.dumps(self.old_session()), encoding="utf-8")
+        ordinary = {**self.old_session(), "session_id": "ordinary", "turns": self.old_session()["turns"][1:],
+                    "snapshots": {}, "conclusions": [], "last_claims": [], "last_citation_map": {},
+                    "active_document_ids": [NORMAL_ID]}
+        ordinary_text = json.dumps(ordinary)
+        (sessions / "ordinary.json").write_text(ordinary_text, encoding="utf-8")
+        cache = self.home / "generated/ask-cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "old.json").write_text(json.dumps({"answer": f"SSN {SSN}"}), encoding="utf-8")
+
+        untouched = [path for path in self.home.rglob("*") if path.is_file()
+                     and "sessions" not in path.parts and "ask-cache" not in path.parts]
+        before = {path: path.read_bytes() for path in untouched}
+
+        dry = self.run_cli(["sensitivity", "sanitize-ask-state", "--dry-run", "--format", "json"])
+        self.assertEqual(dry.exit_code, 0, dry.output)
+        report = json.loads(dry.output)
+        self.assertEqual(report["sessions"]["sanitized"], ["legacy"])
+        self.assertEqual(report["answer_cache"]["removed"], 1)
+        self.assertIn(SSN, (sessions / "legacy.json").read_text(encoding="utf-8"))
+        self.assertTrue((cache / "old.json").exists())
+
+        outcome = self.run_cli(["sensitivity", "sanitize-ask-state"])
+        self.assertEqual(outcome.exit_code, 0, outcome.output)
+        self.assertIn("sanitized 1", outcome.output)
+        self.assert_no_identifiers_in(outcome.output)
+
+        migrated_path = sessions / "legacy.json"
+        migrated = json.loads(migrated_path.read_text(encoding="utf-8"))
+        self.assert_no_identifiers_in(json.dumps(migrated))
+        self.assertEqual(migrated["turns"][0]["answer_summary"], "Employee social security number: [ssn withheld]")
+        self.assertEqual(migrated["turns"][1]["answer_summary"], "Part 222-33-4444 is on order.")
+        self.assertEqual(migrated["last_citation_map"], {"1": SSN_ID})
+        self.assertEqual(migrated["conclusions"][0]["document_ids"], [SSN_ID])
+        self.assertEqual(stat_mode(migrated_path), 0o600)
+        # Ordinary sessions are left byte-for-byte alone.
+        self.assertEqual((sessions / "ordinary.json").read_text(encoding="utf-8"), ordinary_text)
+        # Disposable caches are removed, not rewritten.
+        self.assertEqual(list(cache.glob("*.json")), [])
+        # Canonical documents, the index, and every other store are unchanged.
+        self.assertEqual({path: path.read_bytes() for path in untouched}, before)
+        # And the migrated session still resumes.
+        service = ConversationService(root_path=self.root, private_home=self.home)
+        self.assertEqual(service.resume("legacy").last_citation_map, {"1": SSN_ID})
+
+        again = self.run_cli(["sensitivity", "sanitize-ask-state", "--format", "json"])
+        self.assertEqual(json.loads(again.output)["sessions"]["sanitized"], [])
+
+    def assert_no_identifiers_in(self, text):
+        for value in IDENTIFIERS:
+            self.assertNotIn(value, text)
+
+
+def stat_mode(path):
+    import stat
+
+    return stat.S_IMODE(path.stat().st_mode)
+
+
 if __name__ == "__main__":
     unittest.main()
