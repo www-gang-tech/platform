@@ -14,8 +14,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
 
+from core import sensitivity
 from core.ai_provider import DEFAULT_MODEL as DEFAULT_ANTHROPIC_MODEL
-from core.ai_provider import AnthropicClient, ProviderError
+from core.ai_provider import AnthropicClient, ProviderError, is_remote_provider
 from core.paths import GangPaths
 
 from .documents import EntityDocument, EntityDocumentStore
@@ -72,6 +73,10 @@ class StaleProposalError(EntityProposalError):
     """Raised when the canonical document changed after the proposal was generated."""
 
 
+class SensitiveDocumentError(EntityProposalError):
+    """Raised instead of sending a restricted or local-only document to a remote provider."""
+
+
 class AIProviderError(EntityProposalError):
     """Raised when the configured AI provider cannot produce a proposal."""
 
@@ -99,6 +104,8 @@ class DeterministicEntityProposer:
     """
 
     provider_name = DETERMINISTIC_PROVIDER
+    #: Resolves names in-process. No text goes anywhere.
+    is_remote = False
     model = DETERMINISTIC_MODEL
 
     #: Shorter lookup keys match too much prose to be useful as body evidence.
@@ -300,6 +307,14 @@ class EntityProposalService:
     def create_proposal(self, document_id: str, *, provider: Optional[EntityProposalProvider] = None) -> Dict[str, Any]:
         document = self.documents.load(document_id)
         active_provider = provider or self.provider or DeterministicEntityProposer(self.resolver())
+        if is_remote_provider(active_provider):
+            assessment = sensitivity.classify(document.frontmatter, document.body)
+            if not assessment.permits_remote:
+                raise SensitiveDocumentError(
+                    f"Document {document_id} is {assessment.level} "
+                    f"({'; '.join(assessment.reasons())}) and cannot be sent to remote provider "
+                    f"{active_provider.provider_name}. Use the deterministic proposer. Nothing was sent."
+                )
         raw = active_provider.generate(document, self.catalog())
         if not isinstance(raw, dict):
             raise ProposalValidationError("Provider must return a JSON object")

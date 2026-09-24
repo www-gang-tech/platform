@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import yaml
 
-from core import enrichment_state
+from core import enrichment_state, sensitivity
 from core.paths import GangPaths
 from core.entities.graph import ENTITY_SCHEMA_SQL, build_entity_tables
 from core.entities.model import EntityRecord, is_entity_frontmatter
@@ -44,6 +44,10 @@ class IndexedDocument:
     content_trust: str = "trusted"
     enrichment_status: str = enrichment_state.NONE
     enrichment: Dict[str, Any] = field(default_factory=dict)
+    #: Disclosure level and the value-free reasons for it. See
+    #: ``core.sensitivity``; the canonical document itself is never altered.
+    sensitivity: str = sensitivity.NORMAL
+    sensitivity_detail: Dict[str, Any] = field(default_factory=dict)
 
 
 #: Document type given to an entity record's authored identity. Distinct from
@@ -74,6 +78,7 @@ def foundational_document(record: EntityRecord) -> Optional[IndexedDocument]:
 
     aliases = ", ".join(record.aliases)
     body = identity if not aliases else f"{identity}\n\nAlso known as: {aliases}."
+    assessment = sensitivity.classify({}, record.name, body)
 
     return IndexedDocument(
         # The entity's own ID. A citation to this document is a citation to
@@ -107,6 +112,8 @@ def foundational_document(record: EntityRecord) -> Optional[IndexedDocument]:
         ],
         entity_relationships=[],
         content_trust="trusted",
+        sensitivity=assessment.level,
+        sensitivity_detail=assessment.to_dict(),
     )
 
 
@@ -207,6 +214,7 @@ class PrivateKnowledgeIndex:
                 "entities": 0,
                 "entity_mentions": 0,
                 "relationships": 0,
+                "by_sensitivity": sensitivity.empty_counts(),
             }
 
         with closing(sqlite3.connect(self.database_path)) as connection:
@@ -224,6 +232,12 @@ class PrivateKnowledgeIndex:
                     "SELECT visibility, COUNT(*) AS count FROM documents GROUP BY visibility ORDER BY visibility"
                 )
             }
+            by_sensitivity = sensitivity.empty_counts()
+            if _has_column(connection, "documents", "sensitivity"):
+                for row in connection.execute(
+                    "SELECT sensitivity, COUNT(*) AS count FROM documents GROUP BY sensitivity"
+                ):
+                    by_sensitivity[row["sensitivity"]] = row["count"]
             count = connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
             graph = {
                 table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -239,7 +253,65 @@ class PrivateKnowledgeIndex:
             "entities": graph["entities"],
             "entity_mentions": graph["document_entity_mentions"],
             "relationships": graph["relationships"],
+            "by_sensitivity": by_sensitivity,
         }
+
+    def sensitivity_report(
+        self, *, document_id: Optional[str] = None, level: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Per-document sensitivity and the reasons for it. Never the values.
+
+        With no arguments, every document that is not ``normal``. The rows
+        carry identifiers, titles, detector names, and counts; the text that
+        tripped a detector is not stored here and so cannot be printed.
+        """
+        if not self.database_path.exists():
+            raise FileNotFoundError(f"Search index not found: {self.relative_database_path()}")
+        where: List[str] = []
+        params: List[Any] = []
+        if document_id:
+            where.append("document_id = ?")
+            params.append(document_id)
+        elif level:
+            where.append("sensitivity = ?")
+            params.append(sensitivity.normalize_level(level) or level)
+        else:
+            where.append("sensitivity != ?")
+            params.append(sensitivity.NORMAL)
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.row_factory = sqlite3.Row
+            if not _has_column(connection, "documents", "sensitivity"):
+                raise ValueError(
+                    "Private knowledge index predates sensitivity classification. Run: gang index build"
+                )
+            rows = connection.execute(
+                f"""
+                SELECT document_id, title, type, source_type, updated, sensitivity, sensitivity_detail
+                FROM documents
+                WHERE {" AND ".join(where)}
+                ORDER BY CASE sensitivity WHEN 'local-only' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
+                         document_id ASC
+                """,
+                params,
+            ).fetchall()
+        return [
+            {
+                "document_id": row["document_id"],
+                "title": row["title"],
+                "type": row["type"],
+                "source_type": row["source_type"],
+                "updated": row["updated"],
+                "sensitivity": row["sensitivity"],
+                **{
+                    key: value
+                    for key, value in sensitivity.Assessment.from_dict(
+                        _json_object(row["sensitivity_detail"])
+                    ).to_dict().items()
+                    if key != "level"
+                },
+            }
+            for row in rows
+        ]
 
     def search(
         self,
@@ -285,6 +357,7 @@ class PrivateKnowledgeIndex:
                 d.visibility,
                 d.updated,
                 d.source_ids,
+                d.sensitivity,
                 snippet(documents_fts, -1, '', '', ' ... ', 18) AS excerpt,
                 bm25(documents_fts, 4.0, 1.0, 2.0) AS rank
             FROM documents_fts
@@ -311,6 +384,7 @@ class PrivateKnowledgeIndex:
                 "visibility": row["visibility"],
                 "updated": row["updated"],
                 "source_ids": json.loads(row["source_ids"]),
+                "sensitivity": row["sensitivity"],
             }
             for row in rows
         ]
@@ -414,6 +488,9 @@ class PrivateKnowledgeIndex:
         document_id = _string(frontmatter.get("id")) or f"vault_{hashlib.sha256(rel_path.encode('utf-8')).hexdigest()[:16]}"
         source_ids = _source_ids(frontmatter)
         ledger = ledger or enrichment_state.EnrichmentLedger()
+        # Classified from the raw body, not the cleaned one: cleaning drops
+        # code blocks, and an identifier inside one is still in the file.
+        assessment = sensitivity.classify(frontmatter, title, body)
 
         return IndexedDocument(
             document_id=document_id,
@@ -440,6 +517,8 @@ class PrivateKnowledgeIndex:
                 document_id=document_id, frontmatter=frontmatter, raw_text=raw_text
             ),
             enrichment=enrichment_state.enrichment_payload(frontmatter),
+            sensitivity=assessment.level,
+            sensitivity_detail=assessment.to_dict(),
         )
 
     def _create_schema(self, connection: sqlite3.Connection) -> None:
@@ -476,7 +555,9 @@ class PrivateKnowledgeIndex:
                 content_hash TEXT NOT NULL,
                 content_trust TEXT NOT NULL,
                 enrichment_status TEXT NOT NULL,
-                enrichment TEXT NOT NULL
+                enrichment TEXT NOT NULL,
+                sensitivity TEXT NOT NULL,
+                sensitivity_detail TEXT NOT NULL
             );
 
             CREATE VIRTUAL TABLE documents_fts USING fts5(
@@ -517,6 +598,8 @@ class PrivateKnowledgeIndex:
             "content_trust": document.content_trust,
             "enrichment_status": document.enrichment_status,
             "enrichment": json.dumps(document.enrichment, sort_keys=True, default=str),
+            "sensitivity": document.sensitivity,
+            "sensitivity_detail": json.dumps(document.sensitivity_detail, sort_keys=True),
         }
         columns = ", ".join(values)
         placeholders = ", ".join("?" for _ in values)
@@ -602,6 +685,18 @@ def _semantic_enrichment_text(frontmatter: Dict[str, Any]) -> str:
 
     parts.extend(_human_readable_related(frontmatter.get("related")))
     return _compact(" ".join(parts))
+
+
+def _has_column(connection: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(row[1] == column for row in connection.execute(f"PRAGMA table_info({table})"))
+
+
+def _json_object(value: Any) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _dict_list(value: Any) -> List[Dict[str, Any]]:

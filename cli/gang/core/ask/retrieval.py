@@ -39,14 +39,21 @@ MAX_ALIAS_FORMS = 8
 DOCUMENT_SELECT = """
     SELECT document_id, type, source_type, title, body, visibility, status,
            created, updated, source_ids, tags, people, companies, projects,
-           content_hash, content_trust, enrichment_status, enrichment
+           content_hash, content_trust, enrichment_status, enrichment, sensitivity
     FROM documents
 """
 
 #: Columns `ask` needs that older index builds do not have. The index is
 #: disposable and rebuilt from canonical Markdown, so the fix is always the
-#: same: rebuild it.
-REQUIRED_DOCUMENT_COLUMNS = ("source_type", "content_trust", "enrichment_status", "enrichment")
+#: same: rebuild it. ``sensitivity`` is on the list so that an index built
+#: before classification existed fails closed instead of reading as all-normal.
+REQUIRED_DOCUMENT_COLUMNS = (
+    "source_type",
+    "content_trust",
+    "enrichment_status",
+    "enrichment",
+    "sensitivity",
+)
 
 
 class RetrievalError(RuntimeError):
@@ -351,6 +358,7 @@ class Retriever:
             "content_trust": row["content_trust"] or "trusted",
             "enrichment_status": row["enrichment_status"] or "none",
             "enrichment": _json_object(row["enrichment"]),
+            "sensitivity": row["sensitivity"],
             "entity_refs": self._mentions(connection, row["document_id"]),
             "relationships": self._relationships(connection, row["document_id"]),
             "signals": {},
@@ -394,6 +402,23 @@ class Retriever:
                     wanted,
                 )
             }
+
+    def sensitivity(self, document_ids: Sequence[str]) -> Dict[str, str]:
+        """Disclosure level per document id. Ids not in the index are absent,
+        and a caller deciding what may leave the machine treats absent as not
+        permitted."""
+        wanted = sorted({value for value in document_ids if value})
+        levels: Dict[str, str] = {}
+        with closing(self.connect()) as connection:
+            for start in range(0, len(wanted), PASS_LIMIT):
+                chunk = wanted[start : start + PASS_LIMIT]
+                placeholders = ", ".join("?" for _ in chunk)
+                for row in connection.execute(
+                    f"SELECT document_id, sensitivity FROM documents WHERE document_id IN ({placeholders})",
+                    chunk,
+                ):
+                    levels[row["document_id"]] = row["sensitivity"]
+        return levels
 
     def entity(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """One canonical entity record with its aliases, or None."""
@@ -520,7 +545,7 @@ class Retriever:
             rows = connection.execute(
                 f"""
                 SELECT document_id, title, type, source_type, created, updated,
-                       enrichment_status, enrichment
+                       enrichment_status, enrichment, sensitivity
                 FROM documents
                 WHERE enrichment != '' AND enrichment != '{{}}'
                 ORDER BY {_recency_expression()} DESC, document_id ASC
@@ -538,6 +563,7 @@ class Retriever:
                 "updated": row["updated"],
                 "enrichment_status": row["enrichment_status"] or "none",
                 "enrichment": _json_object(row["enrichment"]),
+                "sensitivity": row["sensitivity"],
             }
             for row in rows
         ]

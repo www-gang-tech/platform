@@ -13,8 +13,9 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol
 
 import yaml
 
+from core import sensitivity
 from core.ai_provider import DEFAULT_MODEL as DEFAULT_ANTHROPIC_MODEL
-from core.ai_provider import AnthropicClient, ProviderError
+from core.ai_provider import AnthropicClient, ProviderError, is_remote_provider
 from core.paths import GangPaths
 from core.private_index import PrivateKnowledgeIndex
 
@@ -51,6 +52,10 @@ PROTECTED_FRONTMATTER_FIELDS = {
 
 class EnrichmentError(Exception):
     """Base error for enrichment workflow failures."""
+
+
+class SensitiveDocumentError(EnrichmentError):
+    """Raised instead of sending a restricted or local-only document to a remote provider."""
 
 
 class AIProviderError(EnrichmentError):
@@ -195,7 +200,18 @@ class EnrichmentService:
             raise AIProviderError("No AI enrichment provider configured")
 
         document = self.load_document(document_id)
-        context_documents = self.related_context(document, limit=context_limit)
+        remote = is_remote_provider(self.provider)
+        if remote:
+            # The whole body and frontmatter go into this request, so the
+            # decision is made on the document before anything is built.
+            assessment = sensitivity.classify(document.frontmatter, document.body)
+            if not assessment.permits_remote:
+                raise SensitiveDocumentError(
+                    f"Document {document_id} is {assessment.level} "
+                    f"({'; '.join(assessment.reasons())}) and cannot be sent to remote provider "
+                    f"{self.provider.provider_name}. Nothing was sent."
+                )
+        context_documents = self.related_context(document, limit=context_limit, remote=remote)
         proposed_enrichment = self.provider.generate_enrichment(document, context_documents)
         proposed_enrichment = validate_proposed_enrichment(proposed_enrichment)
         generated_at = datetime.now(timezone.utc).isoformat()
@@ -273,14 +289,20 @@ class EnrichmentService:
             document_hash=_sha256_text(raw_text),
         )
 
-    def related_context(self, document: KnowledgeDocument, *, limit: int = 3) -> List[Dict[str, Any]]:
+    def related_context(
+        self, document: KnowledgeDocument, *, limit: int = 3, remote: bool = False
+    ) -> List[Dict[str, Any]]:
         limit = max(0, min(limit, 5))
         if limit == 0:
             return []
 
         index = PrivateKnowledgeIndex(root_path=self.root_path, private_home=self.paths.home)
         try:
-            results = index.search(_context_query(document), limit=limit + 1, visibility="private")
+            # Over-fetch when some results may be withheld, so a remote call
+            # still gets its share of permitted context.
+            results = index.search(
+                _context_query(document), limit=(limit + 1) * (3 if remote else 1), visibility="private"
+            )
         except FileNotFoundError:
             return []
         except Exception:
@@ -289,6 +311,8 @@ class EnrichmentService:
         context = []
         for result in results:
             if result["document_id"] == document.document_id:
+                continue
+            if remote and not sensitivity.permits_remote(result.get("sensitivity")):
                 continue
             context.append(
                 {

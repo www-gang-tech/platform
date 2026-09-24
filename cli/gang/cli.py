@@ -1882,6 +1882,11 @@ def private_index_build():
     click.echo(f"  Entities: {result.entities}")
     click.echo(f"  Entity mentions: {result.mentions}")
     click.echo(f"  Relationships: {result.relationships}")
+    counts = PrivateKnowledgeIndex().status().get("by_sensitivity") or {}
+    click.echo(
+        "  Sensitivity: "
+        + ", ".join(f"{level} {counts.get(level, 0)}" for level in ("normal", "restricted", "local-only"))
+    )
     click.echo(f"  Generated: {result.generated_at}")
 
     # Evidence facts are derived from the same canonical documents. The
@@ -2080,10 +2085,117 @@ def private_index_status():
         click.echo("  Types:")
         for doc_type, count in status["by_type"].items():
             click.echo(f"    {doc_type}: {count}")
+    _print_sensitivity_counts(status.get("by_sensitivity") or {})
     click.echo("  Entity graph:")
     click.echo(f"    entities: {status['entities']}")
     click.echo(f"    mentions: {status['entity_mentions']}")
     click.echo(f"    relationships: {status['relationships']}")
+
+
+def _print_sensitivity_counts(counts):
+    from core import sensitivity
+
+    click.echo("  Sensitivity:")
+    for level in sensitivity.LEVELS:
+        click.echo(f"    {level}: {counts.get(level, 0)}")
+
+
+@cli.group("sensitivity")
+def sensitivity_group():
+    """Inspect document sensitivity: normal, restricted, local-only.
+
+    \b
+    Restricted and local-only documents are never placed in a remote AI
+    provider's context. Deterministic and local answers still use them.
+    Reports name the detectors that fired and how often, never the values.
+    Override a document with `sensitivity: <level>` (and optionally
+    `sensitivity_reason: ...`) in its frontmatter, then run `gang index build`.
+    """
+    pass
+
+
+def _sensitivity_index():
+    try:
+        from core.private_index import PrivateKnowledgeIndex
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from core.private_index import PrivateKnowledgeIndex
+    return PrivateKnowledgeIndex()
+
+
+def _sensitivity_report(**kwargs):
+    try:
+        return _sensitivity_index().sensitivity_report(**kwargs)
+    except FileNotFoundError:
+        click.echo("Private knowledge index is missing. Run: gang index build", err=True)
+        raise click.Abort()
+    except ValueError as e:
+        click.echo(str(e), err=True)
+        raise click.Abort()
+
+
+@sensitivity_group.command("status")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def sensitivity_status(output_format):
+    """Count documents at each sensitivity level"""
+    status = _sensitivity_index().status()
+    if not status["exists"]:
+        click.echo("Private knowledge index is missing. Run: gang index build", err=True)
+        raise click.Abort()
+    counts = status.get("by_sensitivity") or {}
+    if output_format == "json":
+        click.echo(json.dumps({"documents": status["documents"], "by_sensitivity": counts}, indent=2, sort_keys=True))
+        return
+    click.echo("Document sensitivity")
+    click.echo(f"  Documents: {status['documents']}")
+    _print_sensitivity_counts(counts)
+
+
+@sensitivity_group.command("list")
+@click.option("--level", type=click.Choice(["normal", "restricted", "local-only"]),
+              help="Only this level (default: everything that is not normal)")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def sensitivity_list(level, output_format):
+    """List documents that are restricted or local-only, and why"""
+    rows = _sensitivity_report(level=level)
+    if output_format == "json":
+        click.echo(json.dumps(rows, indent=2, sort_keys=True))
+        return
+    if not rows:
+        click.echo("No documents at that level." if level else "Every indexed document is normal.")
+        return
+    for row in rows:
+        detectors = ", ".join(finding["detector"] for finding in row["findings"])
+        click.echo(f"{row['sensitivity']:<10}  {row['document_id']}  {row['title']}")
+        click.echo(f"            basis: {row['basis']}" + (f"; detectors: {detectors}" if detectors else ""))
+
+
+@sensitivity_group.command("show")
+@click.argument("document_id")
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
+def sensitivity_show(document_id, output_format):
+    """Explain one document's sensitivity level"""
+    rows = _sensitivity_report(document_id=document_id)
+    if not rows:
+        click.echo(f"Document not found in the index: {document_id}", err=True)
+        raise click.Abort()
+    row = rows[0]
+    if output_format == "json":
+        click.echo(json.dumps(row, indent=2, sort_keys=True))
+        return
+    click.echo(f"{row['title']}")
+    click.echo(f"  document_id: {row['document_id']}")
+    click.echo(f"  type: {row['type']}" + (f" ({row['source_type']})" if row["source_type"] else ""))
+    click.echo(f"  sensitivity: {row['sensitivity']}")
+    click.echo(f"  basis: {row['basis']}")
+    if row["basis"] == "override" and row["detected_level"] != row["sensitivity"]:
+        click.echo(f"  detected level: {row['detected_level']}")
+    click.echo(f"  remote AI providers: {'allowed' if row['sensitivity'] == 'normal' else 'never sent'}")
+    click.echo("  why:")
+    for reason in row["reasons"]:
+        click.echo(f"    - {reason}")
+    click.echo("  Matched values are never stored or printed. The canonical document is unchanged.")
 
 
 @cli.command("search")
@@ -2136,7 +2248,14 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
         click.echo(f"   updated: {result['updated']}")
         if source_ids:
             click.echo(f"   source_id: {source_ids}")
-        if result["excerpt"]:
+        if result.get("sensitivity") and result["sensitivity"] != "normal":
+            click.echo(f"   sensitivity: {result['sensitivity']}")
+        if result.get("sensitivity") == "local-only":
+            # A search hit only has to identify the document. Its snippet is
+            # an arbitrary window, and on these documents that window is too
+            # likely to land on the identifier that made them local-only.
+            click.echo(f"   excerpt: not shown (see: gang sensitivity show {result['document_id']})")
+        elif result["excerpt"]:
             click.echo(f"   excerpt: {result['excerpt']}")
 
 @cli.command("ask")
@@ -2740,6 +2859,16 @@ def _print_ask_answer(result, *, show_sources=False, show_diagnostics=True):
             if show_sources:
                 click.echo(f"      document_id: {item['document_id']}")
                 click.echo("      The canonical document and its raw source are unchanged.")
+
+    withheld = meta.get("withheld_sources") or []
+    if withheld:
+        click.echo("")
+        click.echo("Retrieved but not sent to the remote AI provider (restricted or local-only):")
+        for item in withheld:
+            marker = f"[{item['citation_id']}] " if item.get("citation_id") else ""
+            click.echo(f"  - {marker}{item.get('title', '')} ({item.get('sensitivity', '')})")
+            if show_sources:
+                click.echo(f"      document_id: {item['document_id']}")
 
     if meta.get("mode") == "deterministic":
         click.echo("")

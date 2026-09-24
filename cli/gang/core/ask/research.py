@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 
 from core.ai_provider import ConfiguredAIClient, ProviderTimeoutError
 
+from . import disclosure
 from .plan import MAX_TEXT_QUERIES, QueryPlan
 from .tools import (
     ALLOWED_TOOLS,
@@ -434,34 +435,38 @@ class ResearchLoop:
         session_context: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         try:
-            proposed = self.director.decide(
-                {
-                    "question": question,
-                    "intent": intent.to_dict() if hasattr(intent, "to_dict") else {},
-                    "rounds_used": result.rounds,
-                    "rounds_remaining": self.limits.max_rounds - result.rounds,
-                    "documents_so_far": [
-                        {
-                            "document_id": row.get("document_id"),
-                            "title": row.get("title"),
-                            "type": row.get("type"),
-                            "source_type": row.get("source_type"),
-                            "updated": row.get("updated"),
-                            "excerpt": _preview(row.get("body")),
-                            "entity_ids": [
-                                ref.get("entity_id")
-                                for ref in (row.get("entity_refs") or [])
-                                if isinstance(ref, dict)
-                            ][:6],
-                        }
-                        for row in result.rows
-                    ],
-                    "structured_records": {
-                        key: value[:6] for key, value in result.records.items()
-                    },
-                    "session_context": session_context or {},
-                }
-            )
+            observation = {
+                "question": question,
+                "intent": intent.to_dict() if hasattr(intent, "to_dict") else {},
+                "rounds_used": result.rounds,
+                "rounds_remaining": self.limits.max_rounds - result.rounds,
+                "documents_so_far": [
+                    {
+                        "document_id": row.get("document_id"),
+                        "title": row.get("title"),
+                        "type": row.get("type"),
+                        "source_type": row.get("source_type"),
+                        "updated": row.get("updated"),
+                        "excerpt": _preview(row.get("body")),
+                        "entity_ids": [
+                            ref.get("entity_id")
+                            for ref in (row.get("entity_refs") or [])
+                            if isinstance(ref, dict)
+                        ][:6],
+                    }
+                    for row in result.rows
+                ],
+                "structured_records": {
+                    key: value[:6] for key, value in result.records.items()
+                },
+                "session_context": session_context or {},
+            }
+            if disclosure.applies(self.director):
+                # Previews, records, and conversation state all quote the
+                # corpus. Anything citing a restricted or local-only document
+                # is dropped before the director's request is built.
+                observation = disclosure.remote_data(observation, self.tools.retriever.sensitivity)
+            proposed = self.director.decide(observation)
             telemetry = getattr(self.director, "telemetry", {}) or {}
             if isinstance(telemetry, dict) and telemetry:
                 result.provider_calls.append({"purpose": "research-step", **telemetry})
@@ -558,6 +563,10 @@ class AnthropicResearchDirector:
     @property
     def provider_name(self) -> str:
         return self._client.provider_name
+
+    @property
+    def is_remote(self) -> bool:
+        return self._client.is_remote
 
     @property
     def model(self) -> str:

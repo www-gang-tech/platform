@@ -45,6 +45,7 @@ from core.source_classes import SOURCE_DESCRIPTIONS
 from . import affiliation as affiliation_module
 from . import authority as authority_module
 from . import deterministic as deterministic_module
+from . import disclosure
 from . import followup as followup_module
 from . import intent as intent_module
 from . import ledger as ledger_module
@@ -693,6 +694,44 @@ class ConversationService(AskService):
                 assessed,
             )
 
+        remote = disclosure.applies(synthesizer)
+        withheld: Dict[str, Any] = {}
+        if remote:
+            # Restricted and local-only evidence leaves the context here,
+            # before any packet selection or request building sees it. The
+            # full bundle still backs the local source list and session.
+            remote_bundle = bundle.for_remote_provider()
+            withheld = {"withheld_sources": disclosure.withheld_summary(remote_bundle)}
+            if remote_bundle.empty:
+                answer = deterministic_conversation_answer(
+                    bundle, reason=disclosure.SENSITIVE_EVIDENCE_REASON, intent=context.intent
+                )
+                answer["answer"] = f"{disclosure.SENSITIVE_EVIDENCE_NOTICE}\n\n{answer['answer']}"
+                return (
+                    answer,
+                    {
+                        "mode": "deterministic",
+                        "reason": disclosure.SENSITIVE_EVIDENCE_REASON,
+                        "cached": False,
+                        **withheld,
+                    },
+                    assessed,
+                )
+            bundle = remote_bundle
+            assessed = _preference_within_packet(
+                assessed,
+                authority_module.assess(
+                    bundle.items,
+                    current_state_question=current_state,
+                    purpose=(
+                        authority_module.DEFINITION
+                        if context.intent.wants_identity
+                        else authority_module.CURRENT_STATE
+                    ),
+                ),
+            )
+            context = replace(context, bundle=bundle)
+
         packet_diagnostics: Dict[str, Any] = {}
         if getattr(synthesizer, "uses_local_ollama", False):
             selected_bundle, packet_diagnostics = select_for_local_synthesis(
@@ -730,6 +769,9 @@ class ConversationService(AskService):
                 stale_evidence=context.stale_evidence,
             )
 
+        if remote:
+            context = self._remote_context(context)
+
         model = getattr(synthesizer, "model", "")
         provider_name = getattr(synthesizer, "provider_name", "unknown")
         key = self._conversation_cache_key(context, model)
@@ -745,6 +787,7 @@ class ConversationService(AskService):
                         "api_cost": "$0" if provider_name == "ollama" else "remote provider",
                         "cached": True,
                         "evidence_packet": packet_diagnostics,
+                        **withheld,
                     },
                     assessed,
                 )
@@ -797,8 +840,27 @@ class ConversationService(AskService):
                 "structured_output": getattr(
                     synthesizer, "structured_output", schema_module.STRUCTURED_NOT_REQUESTED
                 ),
+                **withheld,
             },
             assessed,
+        )
+
+    def _remote_context(self, context: AnswerContext) -> AnswerContext:
+        """Everything around the evidence, minus what cites a withheld document.
+
+        The bundle was narrowed already. Records, authority guidance,
+        conversation state, resolved references, and stale-evidence notices
+        can each carry a quote or a summary from a sensitive source, so each
+        loses the entries that cite one.
+        """
+        lookup = self.retriever.sensitivity
+        return replace(
+            context,
+            session_context=disclosure.remote_data(context.session_context, lookup),
+            authority=disclosure.remote_data(context.authority, lookup),
+            records=disclosure.remote_data(context.records, lookup),
+            resolved_references=disclosure.remote_data(context.resolved_references, lookup),
+            stale_evidence=disclosure.remote_data(context.stale_evidence, lookup),
         )
 
     def _conversation_synthesizer(self, options: Optional[ConversationOptions] = None):

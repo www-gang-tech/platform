@@ -420,6 +420,9 @@ class Session:
                     # Prefixed everywhere it is serialized. The model must not
                     # be able to read this as a retrieved source.
                     "previous_answer_summary": turn.answer_summary,
+                    # What the summary rests on, so a remote context can drop
+                    # a turn whose answer drew on sensitive evidence.
+                    "document_ids": list(turn.document_ids),
                 }
                 for turn in self.recent_turns()
             ],

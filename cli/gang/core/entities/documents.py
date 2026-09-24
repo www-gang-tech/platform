@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from core import sensitivity
 from core.paths import GangPaths
 
 from .model import (
@@ -603,11 +604,12 @@ def assert_protected_fields_unchanged(before: Dict[str, Any], after: Dict[str, A
 
 
 def preserved_entity_frontmatter(path: Optional[Path]) -> Dict[str, Any]:
-    """Return applied entity references already present in a document.
+    """Return human-applied frontmatter already present in a document.
 
     Connectors regenerate canonical documents from immutable source evidence
-    whenever a thread or file changes. Stable entity references are human-applied
-    knowledge layered on top, so they must survive that regeneration.
+    whenever a thread or file changes. Stable entity references and a manual
+    sensitivity override are human-applied knowledge layered on top, so they
+    must survive that regeneration.
     """
     if path is None or not Path(path).exists():
         return {}
@@ -617,6 +619,7 @@ def preserved_entity_frontmatter(path: Optional[Path]) -> Dict[str, Any]:
         values = [item for item in (frontmatter.get(field) or []) if isinstance(item, dict)]
         if values:
             preserved[field] = values
+    preserved.update(sensitivity.preserved_override(frontmatter))
     return preserved
 
 

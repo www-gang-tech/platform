@@ -164,6 +164,11 @@ document it cites** at answer time. A quote that is no longer in its source is
 stale and is not shown. Definition and decision questions make **zero
 provider calls**: no model plans them, and no model writes the answer.
 
+A fact from a restricted or local-only document keeps its provenance and still
+answers these questions locally. When a remote provider is involved, any
+record or statement citing such a document is left out of the remote context
+([SENSITIVE_EVIDENCE.md](SENSITIVE_EVIDENCE.md)).
+
 ---
 
 ## Storage, invalidation, and correction

@@ -18,6 +18,18 @@ in diagnostics.
 Citation IDs are assigned from the final rank order over *usable* evidence, so
 the same evidence set always produces the same numbering and an unreadable
 document can never be cited.
+
+Excerpts from a restricted or local-only document have any detected identifier
+value (an SSN, a routing number) replaced by a marker. The excerpt is a display
+copy that travels into answers, session snapshots, and caches; the value is
+almost never what a question is about, and the canonical document still holds
+it for anyone who opens the file.
+
+A bundle bound for a remote provider is a narrower copy
+(`EvidenceBundle.for_remote_provider`): restricted and local-only items are
+removed whole, before any request is built, and keep no place in it. Nothing is
+cut out of an excerpt after the fact. Citation ids are preserved, so an answer
+over the narrower bundle still points into the full source list.
 """
 
 from __future__ import annotations
@@ -25,10 +37,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from core import enrichment_state
+from core import enrichment_state, sensitivity as sensitivity_module
 
 from .grounding import (
     READABLE,
@@ -71,6 +83,9 @@ class EvidenceItem:
     #: Alias forms per entity, used by grounding checks only. Deliberately not
     #: sent to the model: they widen matching, not understanding.
     entity_aliases: Dict[str, List[str]] = field(default_factory=dict)
+    #: Disclosure level from the index. Empty means unknown, and unknown is
+    #: never permitted to reach a remote provider. Not sent to any model.
+    sensitivity: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
@@ -115,6 +130,7 @@ class EvidenceItem:
             "source_ids": list(self.source_ids),
             "enrichment_status": self.enrichment_status,
             "extraction_quality": self.extraction_quality,
+            "sensitivity": self.sensitivity or "unknown",
         }
 
     def supporting_text(self) -> List[str]:
@@ -172,6 +188,7 @@ class ExcludedSource:
     updated: str
     reason: str
     metrics: Dict[str, float] = field(default_factory=dict)
+    sensitivity: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -195,10 +212,46 @@ class EvidenceBundle:
     date_range: Optional[Dict[str, str]] = None
     text_query_count: int = 0
     excluded: List[ExcludedSource] = field(default_factory=list)
+    #: Retrieved sources held back from this bundle by sensitivity, as
+    #: metadata for the local reader. Only the count ever reaches a model.
+    withheld: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def empty(self) -> bool:
         return not self.items
+
+    def for_remote_provider(self) -> "EvidenceBundle":
+        """The copy of this bundle a remote provider may see.
+
+        Items whose sensitivity does not permit remote disclosure are removed
+        whole — excerpts, relationship evidence, enrichment, title, and all —
+        along with any unreadable source that is not ``normal``. Nothing is
+        edited, only left out.
+        """
+        kept = [item for item in self.items if sensitivity_module.permits_remote(item.sensitivity)]
+        excluded = [
+            item for item in self.excluded if sensitivity_module.permits_remote(item.sensitivity)
+        ]
+        withheld = [
+            {
+                "citation_id": item.citation_id,
+                "document_id": item.document_id,
+                "title": item.title,
+                "sensitivity": item.sensitivity or "unknown",
+            }
+            for item in self.items
+            if not sensitivity_module.permits_remote(item.sensitivity)
+        ] + [
+            {
+                "citation_id": None,
+                "document_id": item.document_id,
+                "title": item.title,
+                "sensitivity": item.sensitivity or "unknown",
+            }
+            for item in self.excluded
+            if not sensitivity_module.permits_remote(item.sensitivity)
+        ]
+        return replace(self, items=kept, excluded=excluded, withheld=list(self.withheld) + withheld)
 
     @property
     def only_weak_matches(self) -> bool:
@@ -269,7 +322,7 @@ class EvidenceBundle:
         return [item.source_entry() for item in self.items]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload: Dict[str, Any] = {
             "question": self.question,
             "evidence": [item.to_dict() for item in self.items],
             "temporal_ordering": self.temporal_ordering(),
@@ -281,6 +334,19 @@ class EvidenceBundle:
                 {"title": item.title, "reason": item.reason} for item in self.excluded
             ],
         }
+        if self.withheld:
+            # A count, never a title: enough for the model to avoid reading
+            # the gap as absence of evidence, nothing about what is in it.
+            payload["withheld_sources"] = {
+                "count": len(self.withheld),
+                "rule": (
+                    "This many retrieved sources are restricted or local-only and were "
+                    "deliberately not provided to you. Do not speculate about their "
+                    "content, and do not treat their absence as evidence that something "
+                    "did not happen."
+                ),
+            }
+        return payload
 
     def fingerprint(self) -> str:
         """Stable hash of the evidence content, for cache keying."""
@@ -325,9 +391,19 @@ def build_bundle(
                     updated=row.get("updated", ""),
                     reason=quality.reason,
                     metrics=quality.metrics,
+                    sensitivity=_sensitivity(row),
                 )
             )
             continue
+
+        level = _sensitivity(row)
+        relationships = _relationships(row.get("relationships") or [])
+        if level in (sensitivity_module.RESTRICTED, sensitivity_module.LOCAL_ONLY):
+            excerpts = [sensitivity_module.mask_identifiers(excerpt) for excerpt in excerpts]
+            relationships = [
+                {**item, "excerpt": sensitivity_module.mask_identifiers(item["excerpt"])}
+                for item in relationships
+            ]
 
         items.append(
             EvidenceItem(
@@ -344,12 +420,13 @@ def build_bundle(
                 source_ids=list(row.get("source_ids") or []),
                 entity_refs=_entity_refs(row.get("entity_refs") or []),
                 entity_aliases=_entity_aliases(row.get("entity_refs") or []),
-                relationships=_relationships(row.get("relationships") or []),
+                relationships=relationships,
                 excerpts=excerpts,
                 enrichment_status=row.get("enrichment_status") or enrichment_state.NONE,
                 enrichment=_bounded_enrichment(row.get("enrichment") or {}),
                 content_trust=row.get("content_trust") or "trusted",
                 signals=dict(row.get("signals") or {}),
+                sensitivity=level,
             )
         )
 
@@ -502,6 +579,10 @@ def _bounded_enrichment(value: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(items, list) and items:
             payload[field_name] = items[:MAX_ENRICHMENT_ITEMS]
     return payload
+
+
+def _sensitivity(row: Dict[str, Any]) -> str:
+    return sensitivity_module.normalize_level(row.get("sensitivity")) or ""
 
 
 def _string(value: Any) -> str:
