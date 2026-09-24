@@ -250,7 +250,8 @@ _SSN_FORMATTED = re.compile(
 _SSN_LABELED = re.compile(
     r"(?:\bSSN\b|\bSS#|\bSS\s?No\b\.?|(?i:\bsocial\s+security(?:\s+(?:number|no\b\.?|#))?))"
     + _SEP
-    + r"(?<!\d)((?!000|666|9\d\d)\d{3}[ -]?(?!00)\d{2}[ -]?(?!0000)\d{4})(?![\d-])"
+    + r"(?<!\d)((?!000|666|9\d\d)\d{3}[ -]?(?!00)\d{2}[ -]?(?!0000)\d{4})(?![\d-])",
+    re.IGNORECASE,
 )
 _ITIN = re.compile(
     r"(?<![\d-])9\d{2}-(?:5\d|6[0-5]|7\d|8[0-8]|9[0-2]|9[4-9])-\d{4}(?![\d-])"
@@ -261,13 +262,15 @@ _TAXPAYER_ID_LABELED = re.compile(
     r"|\bfederal\s+(?:tax|employer)\s+(?:id|identification)(?:\s+(?:number|no\b\.?))?"
     r"|\b(?:payer|recipient|employer|partner|partnership)['’]?s\s+(?:TIN|identifying\s+number)))"
     + _SEP
-    + r"(?<!\d)(\d{2}-?\d{7}|\d{3}-?\d{2}-?\d{4})(?![\d-])"
+    + r"(?<!\d)(\d{2}-?\d{7}|\d{3}-?\d{2}-?\d{4})(?![\d-])",
+    re.IGNORECASE,
 )
 _ROUTING_LABELED = re.compile(
     r"(?:\bRTN\b|\bABA\b(?:\s+(?:number|no\b\.?|#|routing))?"
     r"|(?i:\brouting(?:\s+(?:and|&)\s+transit)?(?:\s+(?:number|no\b\.?|#))?))"
     + _SEP
-    + r"(?<!\d)(\d{9})(?!\d)"
+    + r"(?<!\d)(\d{9})(?!\d)",
+    re.IGNORECASE,
 )
 _BANK_ACCOUNT_LABELED = re.compile(
     r"(?i:\b(?:bank|checking|savings|deposit|beneficiary|DDA)\s+(?:account|acct\b\.?)"
@@ -276,7 +279,8 @@ _BANK_ACCOUNT_LABELED = re.compile(
     + r"(?<![\dA-Za-z])(\d(?:[ -]?\d){5,16})(?![\d])"
 )
 _IBAN = re.compile(
-    r"(?<![A-Z0-9])([A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?))(?![A-Z0-9])"
+    r"(?<![A-Z0-9])([A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?))(?![A-Z0-9])",
+    re.IGNORECASE,
 )
 _PAYMENT_CARD = re.compile(
     r"(?<![\d-])(\d{4}([ -])\d{4}\2\d{4}\2\d{4}|3[47]\d{2}([ -])\d{6}\3\d{5})(?![\d-])"
@@ -284,12 +288,14 @@ _PAYMENT_CARD = re.compile(
 _PASSPORT_LABELED = re.compile(
     r"(?i:\bpassport\s+(?:number|no\b\.?|#))"
     + _SEP
-    + r"(?<![A-Z0-9])((?=[A-Z0-9]*\d{6})[A-Z0-9]{6,9})(?![A-Z0-9])"
+    + r"(?<![A-Z0-9])((?=[A-Z0-9]*\d{6})[A-Z0-9]{6,9})(?![A-Z0-9])",
+    re.IGNORECASE,
 )
 _DRIVERS_LICENSE_LABELED = re.compile(
     r"(?:(?i:\bdriver['’]?s?\s+licen[cs]e(?:\s+(?:number|no\b\.?|#))?)|\bDL\s?(?:#|No\b\.?|Number))"
     + _SEP
-    + r"(?<![A-Z0-9])((?=[A-Z0-9-]*\d{4})[A-Z0-9][A-Z0-9-]{4,18}[A-Z0-9])(?![A-Z0-9])"
+    + r"(?<![A-Z0-9])((?=[A-Z0-9-]*\d{4})[A-Z0-9][A-Z0-9-]{4,18}[A-Z0-9])(?![A-Z0-9])",
+    re.IGNORECASE,
 )
 
 #: A tax form is recognized by its printed title AND at least one of the field
@@ -491,19 +497,29 @@ def mask_identifiers(text: Any) -> str:
     For display copies only — excerpts shown as provenance, session snapshots,
     answer caches. A canonical document is never passed through this. Labels
     and surrounding words stay, so the excerpt still reads as what it is.
+
+    Spans come from the same normalization ``detect`` uses, then map back onto
+    the original text, so a JSON-escaped newline between a label and a value
+    is not left visible after the document has been classified as sensitive.
     """
     value = _text(text)
     if not value:
         return value
-    # Same-length normalization only, so spans index the original text.
-    scanned = value.replace("’", "'").replace("‘", "'").replace("\u00a0", " ")
+    scanned, origin = _normalize_with_map(value)
     spans: List[Tuple[int, int, str]] = []
     for detector in _DETECTORS:
-        spans.extend((start, end, detector.category) for start, end in detector.spans(scanned))
+        for start, end in detector.spans(scanned):
+            if start >= end or start >= len(origin):
+                continue
+            spans.append((origin[start][0], origin[end - 1][1], detector.category))
     masked = value
     last_start = len(value) + 1
-    for start, end, category in sorted(spans, key=lambda item: (item[0], -item[1]), reverse=True):
+    # Longer span first at the same start, then right to left, so a shorter
+    # overlapping match cannot leave the tail of a longer identifier in place.
+    for start, end, category in sorted(spans, key=lambda item: (item[0], item[1]), reverse=True):
         if end > last_start:
+            end = last_start
+        if end <= start:
             continue
         masked = masked[:start] + f"[{category} withheld]" + masked[end:]
         last_start = start
@@ -528,14 +544,37 @@ def _normalize(text: str) -> str:
     # Curly apostrophes are how the forms are printed and how most extractors
     # emit them. JSON-escaped whitespace is how text looks inside a serialized
     # provider request, which the egress check scans.
-    return (
-        text.replace("’", "'")
-        .replace("‘", "'")
-        .replace("\\n", "\n")
-        .replace("\\t", " ")
-        .replace("\\r", " ")
-        .replace("\u00a0", " ")
-    )
+    return _normalize_with_map(text)[0]
+
+
+def _normalize_with_map(text: str) -> Tuple[str, List[Tuple[int, int]]]:
+    """Normalized text, and the original ``[start, end)`` of each output character."""
+    escapes = {"n": "\n", "t": " ", "r": " "}
+    out: List[str] = []
+    origin: List[Tuple[int, int]] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char in "’‘":
+            out.append("'")
+            origin.append((index, index + 1))
+            index += 1
+            continue
+        if char == "\u00a0":
+            out.append(" ")
+            origin.append((index, index + 1))
+            index += 1
+            continue
+        if char == "\\" and index + 1 < length and text[index + 1] in escapes:
+            out.append(escapes[text[index + 1]])
+            origin.append((index, index + 2))
+            index += 2
+            continue
+        out.append(char)
+        origin.append((index, index + 1))
+        index += 1
+    return "".join(out), origin
 
 
 def _frontmatter_text(frontmatter: Mapping[str, Any]) -> str:

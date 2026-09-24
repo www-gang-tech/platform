@@ -275,6 +275,14 @@ class DetectionTests(unittest.TestCase):
             "Driver's License Number: D1234567": ["drivers-license-labeled"],
             "Form W-2 Wage and Tax Statement. Wages, tips, other compensation 100000": ["tax-form"],
             "1040 U.S. Individual Income Tax Return. Adjusted gross income 90,000": ["tax-form"],
+            # Labels and IBANs are written in either case. A lowercase label
+            # is still the identifier.
+            "ssn: 123456789": ["us-ssn-labeled"],
+            "Ssn 123 45 6789": ["us-ssn-labeled"],
+            "ein: 12-3456789": ["us-taxpayer-id-labeled"],
+            "aba: 021000021": ["bank-routing-labeled"],
+            "dl# D1234567": ["drivers-license-labeled"],
+            "Pay de89 3704 0044 0532 0130 00 FROM tomorrow": ["iban"],
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
@@ -329,6 +337,14 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(assessment.level, sensitivity.LOCAL_ONLY)
         self.assertEqual(assessment.basis, sensitivity.BASIS_DETECTED)
         self.assertTrue(any("secret" in reason for reason in assessment.reasons()))
+
+    def test_json_escaped_separator_is_masked_the_same_way_it_is_detected(self):
+        text = "SSN:\\n123456789"
+        self.assertEqual(self.detectors(text), ["us-ssn-labeled"])
+        masked = sensitivity.mask_identifiers(text)
+        self.assertNotIn("123456789", masked)
+        self.assertIn("[ssn withheld]", masked)
+        self.assertIn("SSN:", masked)
 
     def test_only_normal_is_permitted_remotely_and_unknown_is_not(self):
         self.assertTrue(sensitivity.permits_remote("normal"))
@@ -574,6 +590,18 @@ class RemoteProviderSafetyTests(SensitivityTestCase):
             role="synthesis", provider="ollama", config=AIConfig.from_mapping({"ollama": {"endpoint": "http://127.0.0.1:11434"}})
         )
         self.assertFalse(loopback.is_remote)
+        mapped = ConfiguredAIClient(
+            role="synthesis",
+            provider="ollama",
+            config=AIConfig.from_mapping({"ollama": {"endpoint": "http://[::ffff:127.0.0.1]:11434"}}),
+        )
+        self.assertFalse(mapped.is_remote)
+        disguised = ConfiguredAIClient(
+            role="synthesis",
+            provider="ollama",
+            config=AIConfig.from_mapping({"ollama": {"endpoint": "http://127.0.0.1.evil.example:11434"}}),
+        )
+        self.assertTrue(disguised.is_remote)
         lan = ConfiguredAIClient(
             role="synthesis", provider="ollama", config=AIConfig.from_mapping({"ollama": {"endpoint": "http://gpu.example:11434"}})
         )
