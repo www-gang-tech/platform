@@ -14,6 +14,7 @@ network or ~/.gang.
 
 import json
 import os
+import socket
 import sqlite3
 import sys
 import unittest
@@ -35,9 +36,10 @@ from core.ai_provider import (
     AnthropicClient,
     ConfiguredAIClient,
     SensitiveEgressError,
+    is_loopback_endpoint,
     is_remote_provider,
 )
-from core.ask import ConversationOptions, ConversationService
+from core.ask import AskError, ConversationOptions, ConversationService
 from core.ask import disclosure
 from core.ask.answer import ConversationSynthesizer
 from core.ask.evidence import build_bundle
@@ -45,7 +47,7 @@ from core.ask.planner import DeterministicPlanner, PlanOverrides
 from core.ask.research import AnthropicResearchDirector
 from core.ask.retrieval import RetrievalError, Retriever
 from core.ask.service import AskOptions, AskService
-from core.ask.synthesis import AnthropicAnswerSynthesizer
+from core.ask.synthesis import AnthropicAnswerSynthesizer, SynthesisError
 from core.enrichment import AnthropicEnrichmentProvider, EnrichmentService, SensitiveDocumentError
 from core.entities import EntityService
 from core.entities.documents import preserved_entity_frontmatter
@@ -58,6 +60,8 @@ from core.private_index import PrivateKnowledgeIndex
 
 
 SSN = "123-45-6789"
+#: A second, distinct SSN that appears only in a document title.
+TITLE_SSN = "234-56-7890"
 ROUTING = "021000021"
 BOARD_MARKER = "BOARD-ONLY-MARKER"
 
@@ -65,6 +69,7 @@ NORMAL_ID = "01b0bcc1-0000-7000-8000-000000000001"
 SSN_ID = "01b0bcc1-0000-7000-8000-000000000002"
 RESTRICTED_ID = "01b0bcc1-0000-7000-8000-000000000003"
 DOWNGRADED_ID = "01b0bcc1-0000-7000-8000-000000000004"
+OFFER_ID = "01b0bcc1-0000-7000-8000-000000000005"
 
 NORMAL_TITLE = "Qi2 certification timeline"
 SSN_TITLE = "Payroll onboarding packet"
@@ -171,6 +176,23 @@ class RecordingProvider:
             "answer": f"The certification was restarted [{first}].",
             "claims": [{"id": "c1", "type": "fact", "text": "The certification was restarted.", "citations": [first]}],
         }
+
+
+class FailingProvider:
+    """A provider stub whose every synthesis call fails, with an explicit locality."""
+
+    model = "stub-model"
+    has_credentials = True
+
+    def __init__(self, *, provider_name, is_remote, error="connection refused"):
+        self.provider_name = provider_name
+        self.is_remote = is_remote
+        self.error = error
+        self.calls = 0
+
+    def synthesize(self, context, **_):
+        self.calls += 1
+        raise SynthesisError(self.error)
 
 
 class SensitivityTestCase(unittest.TestCase):
@@ -747,6 +769,468 @@ class RemoteDataScrubTests(unittest.TestCase):
     def test_nothing_sensitive_means_the_value_is_returned_as_is(self):
         value = {"documents_so_far": [{"document_id": "ok-1", "excerpt": "fine"}]}
         self.assertIs(disclosure.remote_data(value, self.lookup), value)
+
+
+# ================================================= local synthesis fallback
+
+
+class LocalSynthesisFallbackTests(SensitivityTestCase):
+    """A local model that is down does not abort an Ask over local-only evidence.
+
+    The boundary never moves: nothing is sent remotely, even with a remote
+    provider configured and credentialed. What changes is that the reader gets
+    the evidence `--no-ai` would have shown, rather than an error.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Remote is available and credentialed, so "no remote call" is a
+        # decision the code made, not a provider that could not be reached.
+        environment = mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.fake = self.fake_anthropic()
+
+    def ollama_timeout(self):
+        return mock.patch("urllib.request.urlopen", side_effect=socket.timeout("timed out"))
+
+    def converse(self, question=SYNTHESIS_QUESTION, **options):
+        service = ConversationService(root_path=self.root, private_home=self.home)
+        return service.converse(
+            question,
+            session=service.start(),
+            options=ConversationOptions(use_cache=False, persist=False, **options),
+        )
+
+    def assert_evidence_only_fallback(self, result):
+        self.assertEqual(result["synthesis"]["mode"], "deterministic")
+        self.assertEqual(result["synthesis"]["reason"], disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON)
+        self.assertTrue(result["answer"].startswith(disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_NOTICE))
+        self.assertIn("evidence-only", result["answer"])
+
+    def assert_citations_preserved(self, result):
+        by_id = {source["document_id"]: source for source in result["sources"]}
+        self.assertEqual(set(by_id), {NORMAL_ID, SSN_ID, RESTRICTED_ID})
+        for source in by_id.values():
+            self.assertTrue(source["cited"], source)
+            self.assertIn(f"[{source['citation_id']}]", result["answer"])
+        self.assertIn(SSN_TITLE, result["answer"])
+        self.assertEqual(
+            {claim["citations"][0] for claim in result["claims"]},
+            {source["citation_id"] for source in by_id.values()},
+        )
+
+    def assert_values_masked(self, result):
+        serialized = json.dumps(result, default=str)
+        self.assertNotIn(SSN, serialized)
+        self.assertNotIn(ROUTING, serialized)
+        (excerpt,) = [item["excerpts"][0] for item in result["evidence"] if item["document_id"] == SSN_ID]
+        self.assertIn("social security number: [ssn withheld]", excerpt)
+
+    def test_conversation_ollama_timeout_over_local_only_evidence_returns_evidence(self):
+        self.build_index()
+        with self.ollama_timeout() as urlopen:
+            result = self.converse()
+
+        self.assert_evidence_only_fallback(result)
+        self.assertEqual(result["synthesis"]["fallback_from"]["provider"], "ollama")
+        self.assertEqual(result["synthesis"]["fallback_from"]["status"], "timeout")
+        # One attempt at the loopback model, and nothing anywhere else.
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertTrue(is_loopback_endpoint(urlopen.call_args[0][0].full_url))
+        self.assertEqual(self.fake.requests, [])
+        (call,) = result["provider_calls"]
+        self.assertEqual((call["purpose"], call["provider"], call["status"]), ("synthesis", "ollama", "timeout"))
+        self.assert_citations_preserved(result)
+        self.assert_values_masked(result)
+
+    def test_one_shot_ollama_timeout_over_local_only_evidence_returns_evidence(self):
+        self.build_index()
+        with self.ollama_timeout() as urlopen:
+            result = AskService(root_path=self.root, private_home=self.home).ask(
+                SYNTHESIS_QUESTION, options=AskOptions(use_cache=False)
+            )
+
+        self.assert_evidence_only_fallback(result)
+        self.assertEqual(result["synthesis"]["fallback_from"]["status"], "timeout")
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(self.fake.requests, [])
+        self.assert_citations_preserved(result)
+        self.assert_values_masked(result)
+
+    def test_any_local_model_error_falls_back_the_same_way(self):
+        self.build_index()
+        local = FailingProvider(provider_name="ollama", is_remote=False)
+        service = ConversationService(root_path=self.root, private_home=self.home, synthesizer=local)
+
+        result = service.converse(
+            SYNTHESIS_QUESTION,
+            session=service.start(),
+            options=ConversationOptions(use_cache=False, persist=False),
+        )
+
+        self.assertEqual(local.calls, 1)
+        self.assert_evidence_only_fallback(result)
+        self.assertEqual(result["synthesis"]["fallback_from"]["status"], "failed")
+        self.assertEqual(self.fake.requests, [])
+        self.assert_citations_preserved(result)
+
+    def test_cli_prints_the_evidence_instead_of_aborting(self):
+        self.build_index()
+        with self.ollama_timeout():
+            outcome = self.run_cli(["ask", SYNTHESIS_QUESTION])
+
+        self.assertEqual(outcome.exit_code, 0, outcome.output)
+        self.assertIn("Local synthesis was unavailable", outcome.output)
+        self.assertIn(SSN_TITLE, outcome.output)
+        self.assertIn("Cited sources:", outcome.output)
+        self.assertIn(f"(answered deterministically: {disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON})", outcome.output)
+        self.assertNotIn("Ask failed", outcome.output)
+        self.assertNotIn(SSN, outcome.output)
+        self.assertNotIn(ROUTING, outcome.output)
+        self.assertEqual(self.fake.requests, [])
+
+    def test_no_ai_and_failed_local_synthesis_show_the_same_evidence(self):
+        self.build_index()
+        no_ai = self.converse(use_ai=False)
+        with self.ollama_timeout():
+            fallback = self.converse()
+
+        self.assertEqual(no_ai["synthesis"]["reason"], "ai-disabled")
+        prefix = f"{disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_NOTICE}\n\n"
+        self.assertEqual(fallback["answer"], prefix + no_ai["answer"])
+        for key in (
+            "claims",
+            "claim_ledger",
+            "sources",
+            "evidence",
+            "excluded_sources",
+            "insufficient_evidence",
+            "uncertainty",
+            "cited_source_count",
+        ):
+            self.assertEqual(fallback[key], no_ai[key], key)
+
+        one_shot_no_ai = AskService(root_path=self.root, private_home=self.home).ask(
+            SYNTHESIS_QUESTION, options=AskOptions(use_ai=False, use_cache=False)
+        )
+        with self.ollama_timeout():
+            one_shot = AskService(root_path=self.root, private_home=self.home).ask(
+                SYNTHESIS_QUESTION, options=AskOptions(use_cache=False)
+            )
+        self.assertEqual(one_shot["answer"], prefix + one_shot_no_ai["answer"])
+        for key in ("claims", "sources", "evidence", "insufficient_evidence", "uncertainty"):
+            self.assertEqual(one_shot[key], one_shot_no_ai[key], key)
+
+    def test_no_usable_evidence_keeps_the_no_evidence_answer(self):
+        self.build_index()
+        local = FailingProvider(provider_name="ollama", is_remote=False)
+        service = ConversationService(root_path=self.root, private_home=self.home, synthesizer=local)
+
+        result = service.converse(
+            "What did the zeppelin hangar audit conclude?",
+            session=service.start(),
+            options=ConversationOptions(use_cache=False, persist=False),
+        )
+
+        self.assertEqual(local.calls, 0)
+        self.assertEqual(result["synthesis"]["reason"], "no-evidence")
+        self.assertNotIn(disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_NOTICE, result["answer"])
+
+    def test_explicit_local_only_falls_back_over_ordinary_evidence(self):
+        for path in (self.home / "vault/documents").glob("*.md"):
+            if path.name != "qi2-timeline.md":
+                path.unlink()
+        self.build_index()
+
+        with self.ollama_timeout() as urlopen:
+            result = self.converse(local_only=True, local_only_requested=True)
+        self.assertEqual(result["synthesis"]["reason"], disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON)
+        self.assertEqual(result["synthesis"]["fallback_basis"], disclosure.LOCAL_ONLY_REQUESTED_BASIS)
+        self.assertTrue(result["answer"].startswith(disclosure.LOCAL_ONLY_SYNTHESIS_UNAVAILABLE_NOTICE))
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertTrue(is_loopback_endpoint(urlopen.call_args[0][0].full_url))
+        ((source),) = result["sources"]
+        self.assertEqual(source["document_id"], NORMAL_ID)
+        self.assertTrue(source["cited"])
+        self.assertIn(f"[{source['citation_id']}]", result["answer"])
+
+        with self.ollama_timeout():
+            one_shot = AskService(root_path=self.root, private_home=self.home).ask(
+                SYNTHESIS_QUESTION, options=AskOptions(use_cache=False, local_only=True, local_only_requested=True)
+            )
+        self.assertEqual(one_shot["synthesis"]["fallback_basis"], disclosure.LOCAL_ONLY_REQUESTED_BASIS)
+        self.assertTrue(one_shot["answer"].startswith(disclosure.LOCAL_ONLY_SYNTHESIS_UNAVAILABLE_NOTICE))
+
+        with self.ollama_timeout():
+            outcome = self.run_cli(["ask", "--local-only", SYNTHESIS_QUESTION])
+        self.assertEqual(outcome.exit_code, 0, outcome.output)
+        self.assertIn("Local synthesis was unavailable", outcome.output)
+        self.assertIn(NORMAL_TITLE, outcome.output)
+        self.assertNotIn("Ask failed", outcome.output)
+
+        # Zero remote calls anywhere, with a credentialed remote provider on hand.
+        self.assertEqual(self.fake.requests, [])
+
+    def test_local_only_as_policy_keeps_the_existing_failure_over_ordinary_evidence(self):
+        # Configuration and the web service's server-wide policy block remote
+        # providers too, but only a user's own --local-only changes what a
+        # failed local call returns.
+        for path in (self.home / "vault/documents").glob("*.md"):
+            if path.name != "qi2-timeline.md":
+                path.unlink()
+        self.build_index()
+        for label, options, environment in (
+            ("server policy", {"local_only": True}, {}),
+            ("configuration", {}, {"GANG_LOCAL_ONLY": "1"}),
+        ):
+            with self.subTest(label):
+                with mock.patch.dict(os.environ, environment), self.ollama_timeout():
+                    with self.assertRaises(AskError):
+                        self.converse(**options)
+        self.assertEqual(self.fake.requests, [])
+
+    def test_sensitive_evidence_takes_precedence_as_the_fallback_basis(self):
+        self.build_index()
+        with self.ollama_timeout():
+            result = self.converse(local_only=True, local_only_requested=True)
+        self.assertEqual(result["synthesis"]["fallback_basis"], disclosure.SENSITIVE_EVIDENCE_BASIS)
+        self.assertTrue(result["answer"].startswith(disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_NOTICE))
+        self.assertEqual(self.fake.requests, [])
+
+    def test_ordinary_evidence_keeps_the_existing_local_failure(self):
+        for path in (self.home / "vault/documents").glob("*.md"):
+            if path.name != "qi2-timeline.md":
+                path.unlink()
+        self.build_index()
+
+        with self.ollama_timeout():
+            with self.assertRaises(AskError) as raised:
+                self.converse()
+        self.assertEqual(raised.exception.provider_calls[0]["status"], "timeout")
+
+        with self.ollama_timeout():
+            with self.assertRaises(AskError):
+                AskService(root_path=self.root, private_home=self.home).ask(
+                    SYNTHESIS_QUESTION, options=AskOptions(use_cache=False)
+                )
+        self.assertEqual(self.fake.requests, [])
+
+    def test_a_failed_remote_provider_keeps_the_existing_failure(self):
+        # A remote provider never saw the sensitive evidence, so its failure is
+        # an ordinary one: still an error, never a local listing in disguise.
+        self.build_index()
+        for factory in (
+            lambda remote: ConversationService(root_path=self.root, private_home=self.home, synthesizer=remote),
+            lambda remote: AskService(root_path=self.root, private_home=self.home, synthesizer=remote),
+        ):
+            remote = FailingProvider(provider_name="anthropic", is_remote=True)
+            service = factory(remote)
+            with self.subTest(service=type(service).__name__):
+                with self.assertRaises(AskError):
+                    if isinstance(service, ConversationService):
+                        service.converse(
+                            SYNTHESIS_QUESTION,
+                            session=service.start(),
+                            options=ConversationOptions(use_cache=False, persist=False),
+                        )
+                    else:
+                        service.ask(SYNTHESIS_QUESTION, options=AskOptions(use_cache=False))
+                self.assertEqual(remote.calls, 1)
+
+
+# ================================================================ titles
+
+
+class EchoTitleProvider:
+    """A local model that repeats the titles it was given, and so would repeat
+    an identifier if one reached it."""
+
+    model = "echo-model"
+    provider_name = "ollama"
+    is_remote = False
+    has_credentials = True
+
+    def __init__(self):
+        self.titles = []
+
+    def synthesize(self, context, **_):
+        bundle = getattr(context, "bundle", context)
+        self.titles.extend(item.title for item in bundle.items)
+        first = bundle.citation_ids()[0]
+        listed = "; ".join(f"{item.title} [{item.citation_id}]" for item in bundle.items)
+        return {
+            "answer": f"The certification was restarted [{first}]. Sources: {listed}",
+            "claims": [{"id": "c1", "type": "fact", "text": "The certification was restarted.", "citations": [first]}],
+        }
+
+
+class SensitiveTitleTests(SensitivityTestCase):
+    """A detected identifier in a document's title is masked wherever Ask shows it."""
+
+    TITLE = f"Qi2 certification tax election {TITLE_SSN}"
+    MASKED_TITLE = "Qi2 certification tax election [ssn withheld]"
+
+    def setUp(self):
+        super().setUp()
+        self.fake = self.fake_anthropic()
+        self.path = self.home / "vault/documents/tax-election.md"
+        write_markdown(
+            self.path,
+            {"id": DOWNGRADED_ID, "type": "knowledge", "source_type": "gmail-attachment",
+             "title": self.TITLE, "visibility": "private", "status": "active",
+             "created": "2026-09-13", "updated": "2026-09-13"},
+            "The Qi2 certification restart affects the tax election filing deadline.\n",
+        )
+        self.build_index()
+
+    def assert_no_title_identifier(self, text):
+        self.assertNotIn(TITLE_SSN, text)
+        self.assertNotIn(TITLE_SSN.replace("-", ""), text)
+
+    def converse(self, service=None, **options):
+        service = service or ConversationService(root_path=self.root, private_home=self.home)
+        return service.converse(
+            SYNTHESIS_QUESTION,
+            session=service.start(),
+            options=ConversationOptions(use_cache=False, persist=False, **{**options}),
+        )
+
+    def test_the_title_makes_the_document_local_only(self):
+        (row,) = self.index().sensitivity_report(document_id=DOWNGRADED_ID)
+        self.assertEqual(row["sensitivity"], "local-only")
+
+    def test_no_ai_answers_sources_and_evidence_show_the_masked_title(self):
+        result = self.converse(use_ai=False)
+        self.assertIn(self.MASKED_TITLE, result["answer"])
+        titles = {source["document_id"]: source["title"] for source in result["sources"]}
+        self.assertEqual(titles[DOWNGRADED_ID], self.MASKED_TITLE)
+        (item,) = [entry for entry in result["evidence"] if entry["document_id"] == DOWNGRADED_ID]
+        self.assertEqual(item["title"], self.MASKED_TITLE)
+        self.assert_no_title_identifier(json.dumps(result, default=str))
+
+        one_shot = AskService(root_path=self.root, private_home=self.home).ask(
+            SYNTHESIS_QUESTION, options=AskOptions(use_ai=False, use_cache=False)
+        )
+        self.assertIn(self.MASKED_TITLE, one_shot["answer"])
+        self.assert_no_title_identifier(json.dumps(one_shot, default=str))
+
+    def test_failed_local_synthesis_fallback_shows_the_masked_title(self):
+        with mock.patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
+            result = self.converse()
+        self.assertEqual(result["synthesis"]["reason"], disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON)
+        self.assertIn(self.MASKED_TITLE, result["answer"])
+        self.assert_no_title_identifier(json.dumps(result, default=str))
+
+    def test_cli_listings_never_print_the_identifier(self):
+        for args in (
+            ["ask", "--no-ai", "--show-sources", SYNTHESIS_QUESTION],
+            ["ask", "--no-ai", "--json", SYNTHESIS_QUESTION],
+            ["ask", "--show-sources", "--show-research", SYNTHESIS_QUESTION],
+        ):
+            with self.subTest(args=args):
+                with mock.patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
+                    outcome = self.run_cli(args)
+                self.assertEqual(outcome.exit_code, 0, outcome.output)
+                self.assertIn("[ssn withheld]", outcome.output)
+                self.assert_no_title_identifier(outcome.output)
+
+    def test_sessions_never_store_the_identifier(self):
+        service = ConversationService(root_path=self.root, private_home=self.home)
+        session = service.sessions.create("titles")
+        service.converse(
+            SYNTHESIS_QUESTION,
+            session=session,
+            options=ConversationOptions(use_ai=False, use_cache=False, persist=True),
+        )
+        receipts = service.converse(
+            "show me the receipts",
+            session=service.resume("titles"),
+            options=ConversationOptions(use_ai=False, use_cache=False, persist=True),
+        )
+        stored = "\n".join(
+            path.read_text(encoding="utf-8") for path in service.paths.sessions_path.rglob("*") if path.is_file()
+        )
+        self.assertIn(self.MASKED_TITLE, stored)
+        self.assert_no_title_identifier(stored)
+        self.assert_no_title_identifier(json.dumps(receipts, default=str))
+
+    def test_local_models_and_answer_caches_see_only_the_masked_title(self):
+        local = EchoTitleProvider()
+        service = ConversationService(root_path=self.root, private_home=self.home, synthesizer=local)
+        result = service.converse(
+            SYNTHESIS_QUESTION,
+            session=service.start(),
+            options=ConversationOptions(use_cache=True, persist=False),
+        )
+        self.assertEqual(result["synthesis"]["mode"], "ai")
+        self.assertIn(self.MASKED_TITLE, local.titles)
+        self.assert_no_title_identifier(json.dumps(result, default=str))
+
+        one_shot = AskService(root_path=self.root, private_home=self.home, synthesizer=local).ask(
+            SYNTHESIS_QUESTION, options=AskOptions(use_cache=True)
+        )
+        self.assert_no_title_identifier(json.dumps(one_shot, default=str))
+
+        caches = list(service.paths.ask_cache_path.glob("*.json"))
+        self.assertTrue(caches)
+        for path in caches:
+            self.assert_no_title_identifier(path.read_text(encoding="utf-8"))
+
+    def test_the_withheld_list_for_a_remote_provider_shows_the_masked_title(self):
+        remote = RecordingProvider(provider_name="anthropic", is_remote=True)
+        result = self.converse(ConversationService(root_path=self.root, private_home=self.home, synthesizer=remote))
+        withheld = {item["document_id"]: item["title"] for item in result["synthesis"]["withheld_sources"]}
+        self.assertEqual(withheld[DOWNGRADED_ID], self.MASKED_TITLE)
+        self.assert_no_title_identifier(json.dumps(result, default=str))
+
+    def test_evidence_fact_labels_show_the_masked_title(self):
+        entities = EntityService(root_path=self.root, private_home=self.home)
+        entities.create("company", "GANG", domains=["gang.example"])
+        entities.create("person", "Daniel Hirunrusme", aliases=["Daniel"], emails=["daniel@gang.example"])
+        write_markdown(
+            self.home / "vault/documents/offer-letter.md",
+            {"id": OFFER_ID, "type": "knowledge", "source_type": "gmail-attachment",
+             "title": f"Offer letter {TITLE_SSN}", "visibility": "private", "status": "active",
+             "created": "2026-03-01", "updated": "2026-03-01"},
+            "Daniel Hirunrusme is a co-founder of GANG.\n",
+        )
+        self.build_index()
+        service = ConversationService(root_path=self.root, private_home=self.home)
+
+        result = service.converse(
+            "who is Daniel?", session=service.start(),
+            options=ConversationOptions(use_cache=False, persist=False),
+        )
+
+        self.assertTrue(result["answer"].startswith("Daniel Hirunrusme is a co-founder of GANG."), result["answer"])
+        self.assertIn("Offer letter [ssn withheld]", json.dumps(result, default=str))
+        self.assert_no_title_identifier(json.dumps(result, default=str))
+
+    def test_the_bundle_masks_titles_from_any_row_source(self):
+        # Rows need not come from the masking retriever (tests, subclasses);
+        # the bundle applies the same rule to titles as it does to excerpts.
+        plan = DeterministicPlanner(None).plan(QUESTION, PlanOverrides()).plan
+        rows = [
+            {"document_id": DOWNGRADED_ID, "title": self.TITLE, "sensitivity": "local-only",
+             "body": "The Qi2 certification restart affects the tax election filing deadline."},
+            {"document_id": NORMAL_ID, "title": f"Part {TITLE_SSN}", "sensitivity": "normal",
+             "body": NORMAL_BODY},
+        ]
+        bundle = build_bundle(QUESTION, rows, plan)
+        titles = {item.document_id: item.title for item in bundle.items}
+        self.assertEqual(titles[DOWNGRADED_ID], self.MASKED_TITLE)
+        # A document a person marked normal is shown as it is, like its excerpts.
+        self.assertEqual(titles[NORMAL_ID], f"Part {TITLE_SSN}")
+
+    def test_the_canonical_title_and_index_are_unchanged(self):
+        self.converse(use_ai=False)
+        self.assertIn(f"title: {self.TITLE}", self.path.read_text(encoding="utf-8"))
+        with sqlite3.connect(self.index().database_path) as connection:
+            (stored,) = connection.execute(
+                "SELECT title FROM documents WHERE document_id = ?", (DOWNGRADED_ID,)
+            ).fetchone()
+        self.assertEqual(stored, self.TITLE)
 
 
 if __name__ == "__main__":

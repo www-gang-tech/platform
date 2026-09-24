@@ -71,6 +71,10 @@ class AskOptions:
     model: Optional[str] = None
     premium: bool = False
     local_only: Optional[bool] = None
+    #: The user asked for local-only Ask for this question (`--local-only`),
+    #: rather than inheriting it from configuration or a server-wide policy.
+    #: Permits an evidence-only answer when the local model fails.
+    local_only_requested: bool = False
 
 
 class AskService:
@@ -236,6 +240,20 @@ class AskService:
             payload = synthesizer.synthesize(bundle)
         except SynthesisError as exc:
             self._record_provider_call("synthesis", synthesizer)
+            basis = disclosure.local_fallback_basis(
+                synthesizer, bundle, local_only=options.local_only_requested
+            )
+            if basis:
+                # No remote provider may take the local model's place, by
+                # the evidence or by the user's own --local-only. Show the
+                # evidence rather than abort; never try a remote provider.
+                answer = synthesis.deterministic_answer(
+                    bundle, reason=disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON
+                )
+                answer["answer"] = (
+                    f"{disclosure.LOCAL_FALLBACK_NOTICES[basis]}\n\n{answer['answer']}"
+                )
+                return answer, local_fallback_meta(provider_name, model, exc, basis)
             raise AskError(str(exc), provider_calls=self._provider_calls) from exc
         else:
             self._record_provider_call("synthesis", synthesizer)
@@ -392,6 +410,24 @@ class AskService:
             path.write_text(json.dumps(answer, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         except OSError:
             pass
+
+
+def local_fallback_meta(
+    provider_name: str, model: str, exc: BaseException, basis: str
+) -> Dict[str, Any]:
+    """Synthesis metadata for an evidence-only answer after a local model failed."""
+    return {
+        "mode": "deterministic",
+        "reason": disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON,
+        "cached": False,
+        "fallback_basis": basis,
+        "fallback_from": {
+            "provider": provider_name,
+            "model": model,
+            "status": "timeout" if _caused_by_timeout(exc) else "failed",
+            "error": str(exc),
+        },
+    }
 
 
 def _caused_by_timeout(exc: BaseException) -> bool:

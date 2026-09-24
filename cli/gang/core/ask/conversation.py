@@ -36,6 +36,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from core import sensitivity as sensitivity_module
 from core.ai_provider import ProviderError
 from core.entities.profiles import PREDICATE_PHRASES, EntityProfileService
 from core.facts import EvidenceFactService
@@ -62,7 +63,7 @@ from .evidence_packet import estimate_tokens, select_for_local_synthesis
 from .plan import DEFAULT_LIMIT
 from .planner import PlanOverrides
 from .research import AnthropicResearchDirector, ResearchLimits, ResearchLoop, ResearchResult
-from .service import AskError, AskOptions, AskService
+from .service import AskError, AskOptions, AskService, local_fallback_meta
 from .session import Session, SessionStore
 from .synthesis import SynthesisError
 from .timeline import build_timeline, to_payload as timeline_payload
@@ -95,6 +96,10 @@ class ConversationOptions:
     model: Optional[str] = None
     premium: bool = False
     local_only: Optional[bool] = None
+    #: The user asked for local-only Ask for this question (`--local-only`),
+    #: rather than inheriting it from configuration or a server-wide policy.
+    #: Permits an evidence-only answer when the local model fails.
+    local_only_requested: bool = False
     #: Who "I" and "me" are for this turn: the authenticated principal's name
     #: for the web service, the sole configured principal for the CLI. Only
     #: ever used to scope a first-person question; never a retrieval filter.
@@ -473,7 +478,9 @@ class ConversationService(AskService):
                         "text": claim["sentence"],
                         "document_ids": [entry["document_id"] for entry in evidence],
                         "quote": readable(best.get("excerpt") or ""),
-                        "source_label": _evidence_label(best),
+                        "source_label": _evidence_label(
+                            best, sensitivity=bodies[best["document_id"]].get("sensitivity")
+                        ),
                         "predicate": claim.get("predicate"),
                         "confidence": claim.get("confidence"),
                         "fact_ids": [entry.get("fact_id") for entry in evidence],
@@ -696,6 +703,9 @@ class ConversationService(AskService):
 
         remote = disclosure.applies(synthesizer)
         withheld: Dict[str, Any] = {}
+        # What `--no-ai` would have shown, kept for an evidence-only fallback
+        # if a local model that alone may see this evidence fails.
+        full_bundle, full_assessed = bundle, assessed
         if remote:
             # Restricted and local-only evidence leaves the context here,
             # before any packet selection or request building sees it. The
@@ -812,6 +822,22 @@ class ConversationService(AskService):
                 payload = synthesizer.synthesize(context)
         except SynthesisError as exc:
             self._record_provider_call("synthesis", synthesizer)
+            basis = disclosure.local_fallback_basis(
+                synthesizer, full_bundle, local_only=options.local_only_requested
+            )
+            if basis:
+                # No remote provider may take the local model's place, by
+                # the evidence or by the user's own --local-only. Show the
+                # evidence rather than abort; never try a remote provider.
+                answer = deterministic_conversation_answer(
+                    full_bundle,
+                    reason=disclosure.LOCAL_SYNTHESIS_UNAVAILABLE_REASON,
+                    intent=context.intent,
+                )
+                answer["answer"] = (
+                    f"{disclosure.LOCAL_FALLBACK_NOTICES[basis]}\n\n{answer['answer']}"
+                )
+                return answer, local_fallback_meta(provider_name, model, exc, basis), full_assessed
             raise AskError(str(exc), provider_calls=self._provider_calls) from exc
         else:
             self._record_provider_call("synthesis", synthesizer)
@@ -1209,12 +1235,17 @@ class ConversationService(AskService):
         }
 
 
-def _evidence_label(entry: Dict[str, Any]) -> str:
+def _evidence_label(entry: Dict[str, Any], *, sensitivity: Any = None) -> str:
     """Where a quoted fact came from, in words: "email signature in 'X'
-    (2026-02-12, an ordinary email)"."""
+    (2026-02-12, an ordinary email)". The title is masked like any other
+    display copy when its document is restricted or local-only."""
     rule = entry.get("rule") or ""
     lead = "email signature in" if rule == "signature-block" else "stated in"
-    title = readable(entry.get("document_title") or entry.get("document_id") or "")
+    title = readable(
+        sensitivity_module.mask_for_level(
+            entry.get("document_title") or entry.get("document_id") or "", sensitivity
+        )
+    )
     if len(title) > 70:
         title = title[:69].rstrip() + "…"
     details = [

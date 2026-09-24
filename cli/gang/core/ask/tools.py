@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from core import enrichment_state
+from core import enrichment_state, sensitivity
 from core.facts.model import quote_in_source
 
 from . import affiliation as affiliation_module
@@ -763,7 +763,8 @@ class ResearchTools:
                     "text": record["text"],
                     "document_id": verified[0],
                     "document_ids": verified,
-                    "title": primary.get("title") or record.get("document_title") or "",
+                    "title": primary.get("title")
+                    or sensitivity.mask_for_level(record.get("document_title") or "", primary.get("sensitivity")),
                     "date": record.get("date") or "",
                     "status": record.get("status") or "",
                     "context": record.get("context") or "",

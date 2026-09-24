@@ -2415,6 +2415,7 @@ def ask(
         model=model,
         premium=premium,
         local_only=local_only or None,
+        local_only_requested=local_only,
         principal_name=_local_principal_name(service),
     )
 
