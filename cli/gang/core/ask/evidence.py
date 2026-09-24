@@ -19,8 +19,8 @@ Citation IDs are assigned from the final rank order over *usable* evidence, so
 the same evidence set always produces the same numbering and an unreadable
 document can never be cited.
 
-Excerpts from a restricted or local-only document have any detected identifier
-value (an SSN, a routing number) replaced by a marker. The excerpt is a display
+Excerpts and titles from a restricted or local-only document have any detected
+identifier value (an SSN, a routing number) replaced by a marker. Each is a display
 copy that travels into answers, session snapshots, and caches; the value is
 almost never what a question is about, and the canonical document still holds
 it for anyone who opens the file.
@@ -385,7 +385,7 @@ def build_bundle(
             excluded.append(
                 ExcludedSource(
                     document_id=row["document_id"],
-                    title=row.get("title") or row["document_id"],
+                    title=_display_title(row),
                     type=row.get("type", ""),
                     source_type=row.get("source_type", ""),
                     updated=row.get("updated", ""),
@@ -411,7 +411,7 @@ def build_bundle(
                 # document has no citation id and cannot be cited.
                 citation_id=len(items) + 1,
                 document_id=row["document_id"],
-                title=row.get("title") or row["document_id"],
+                title=_display_title(row),
                 type=row.get("type", ""),
                 source_type=row.get("source_type", ""),
                 visibility=row.get("visibility", ""),
@@ -583,6 +583,12 @@ def _bounded_enrichment(value: Dict[str, Any]) -> Dict[str, Any]:
 
 def _sensitivity(row: Dict[str, Any]) -> str:
     return sensitivity_module.normalize_level(row.get("sensitivity")) or ""
+
+
+def _display_title(row: Dict[str, Any]) -> str:
+    """The title as shown, masked like an excerpt for a sensitive document."""
+    title = row.get("title") or row["document_id"]
+    return sensitivity_module.mask_for_level(title, row.get("sensitivity"))
 
 
 def _string(value: Any) -> str:

@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core import sensitivity as sensitivity_module
+
 from .plan import QueryPlan
 
 
@@ -343,7 +345,9 @@ class Retriever:
             "document_id": row["document_id"],
             "type": row["type"],
             "source_type": row["source_type"],
-            "title": row["title"],
+            # A display copy: a title can carry an identifier as easily as a
+            # body can. The index and the canonical document keep the value.
+            "title": sensitivity_module.mask_for_level(row["title"], row["sensitivity"]),
             "body": row["body"],
             "visibility": row["visibility"],
             "status": row["status"],
@@ -556,7 +560,7 @@ class Retriever:
         return [
             {
                 "document_id": row["document_id"],
-                "title": row["title"],
+                "title": sensitivity_module.mask_for_level(row["title"], row["sensitivity"]),
                 "type": row["type"],
                 "source_type": row["source_type"],
                 "created": row["created"],

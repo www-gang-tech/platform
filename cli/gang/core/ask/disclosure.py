@@ -21,11 +21,19 @@ Three kinds of material reach a model, and each is narrowed the same way:
 
 Nothing here edits a string. Material is kept or omitted; redacting text after
 it has been gathered into a remote context is precisely what this avoids.
+
+The boundary also decides what happens when the loopback model that was the
+only place such evidence could go is unavailable, times out, or errors. There
+is no second provider to try, so Ask answers evidence-only — the same
+deterministic listing `--no-ai` produces, under a notice saying synthesis did
+not happen — rather than aborting (`local_fallback_basis`). The same holds
+when the user explicitly asked for local-only Ask: they ruled out remote
+disclosure themselves, so there is equally nothing to fall back to.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence, Set
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
 from core import sensitivity
 from core.ai_provider import is_remote_provider
@@ -44,12 +52,59 @@ SENSITIVE_EVIDENCE_NOTICE = (
 
 SENSITIVE_EVIDENCE_REASON = "sensitive-evidence-local-only"
 
+#: Prepended by code when a loopback model was the only provider the evidence
+#: could reach and it failed, so the answer fell back to a local listing.
+LOCAL_SYNTHESIS_UNAVAILABLE_NOTICE = (
+    "Local synthesis was unavailable, so this response is evidence-only: nothing was "
+    "summarized. Some of this evidence is restricted or local-only, so it was not sent "
+    "to a remote AI provider instead. Here is the evidence GANG can safely show."
+)
+
+#: The same, when the evidence is ordinary but the user explicitly asked that
+#: nothing go to a remote provider.
+LOCAL_ONLY_SYNTHESIS_UNAVAILABLE_NOTICE = (
+    "Local synthesis was unavailable, so this response is evidence-only: nothing was "
+    "summarized. Remote AI providers were disabled for this question (local-only), so it "
+    "was not sent to one instead. Here is the evidence GANG can safely show."
+)
+
+LOCAL_SYNTHESIS_UNAVAILABLE_REASON = "local-synthesis-unavailable"
+
+#: Why an evidence-only fallback was allowed, recorded in synthesis metadata.
+SENSITIVE_EVIDENCE_BASIS = "sensitive-evidence"
+LOCAL_ONLY_REQUESTED_BASIS = "local-only-requested"
+
+LOCAL_FALLBACK_NOTICES = {
+    SENSITIVE_EVIDENCE_BASIS: LOCAL_SYNTHESIS_UNAVAILABLE_NOTICE,
+    LOCAL_ONLY_REQUESTED_BASIS: LOCAL_ONLY_SYNTHESIS_UNAVAILABLE_NOTICE,
+}
+
 _DROP = object()
 
 
 def applies(provider: Any) -> bool:
     """Whether contexts for ``provider`` must be narrowed."""
     return provider is not None and is_remote_provider(provider)
+
+
+def local_fallback_basis(provider: Any, bundle: Any, *, local_only: bool = False) -> Optional[str]:
+    """Why a failed ``provider`` call may degrade to an evidence-only answer, or ``None``.
+
+    Only a loopback provider qualifies, and only when no remote provider may
+    take its place: the evidence includes something no remote provider may
+    see, or the user explicitly asked for local-only Ask. Everywhere else a
+    failed call keeps its existing behavior.
+    """
+    if provider is None or applies(provider):
+        return None
+    if any(
+        not sensitivity.permits_remote(getattr(item, "sensitivity", None))
+        for item in getattr(bundle, "items", []) or []
+    ):
+        return SENSITIVE_EVIDENCE_BASIS
+    if local_only:
+        return LOCAL_ONLY_REQUESTED_BASIS
+    return None
 
 
 def referenced_document_ids(value: Any) -> Set[str]:

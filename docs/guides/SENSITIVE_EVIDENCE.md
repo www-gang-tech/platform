@@ -101,10 +101,44 @@ Deterministic answers and loopback local models use restricted and local-only
 evidence exactly as before. A fact stated only in a local-only document still
 answers "who is …?" with its citation.
 
-Excerpts from restricted or local-only documents replace detected identifier
-values with a marker, e.g. `social security number: [ssn withheld]`. These
-excerpts appear in answers, JSON results, session snapshots, and answer caches.
-The canonical document still holds the value for anyone who opens it.
+Excerpts and titles from restricted or local-only documents replace detected
+identifier values with a marker, e.g. `social security number: [ssn withheld]`
+or `Tax election [ssn withheld]`. These display copies appear in answers, JSON
+results, source lists, session snapshots, answer caches, and whatever a local
+model is given. The canonical document and the index still hold the value for
+anyone who opens them.
+
+### When the local model is unavailable
+
+A loopback model is the only provider restricted or local-only evidence may
+reach, so there is nothing to fall back to. If it is unavailable, times out, or
+errors while answering over such evidence, Ask does not abort and does not try
+a remote provider. It returns the same deterministic listing `--no-ai` produces
+— same sources, same citations, same masked excerpts — under a notice:
+
+```
+Local synthesis was unavailable, so this response is evidence-only: nothing was
+summarized. Some of this evidence is restricted or local-only, so it was not
+sent to a remote AI provider instead. Here is the evidence GANG can safely show.
+
+Found 3 matching document(s) in the private corpus:
+- Payroll onboarding packet — updated 2026-09-11 [2]
+…
+(answered deterministically: local-synthesis-unavailable)
+```
+
+The same applies when you pass `--local-only`, even if every source is
+`normal`: you ruled out remote disclosure yourself, so the notice says so
+instead. `local_only` from configuration, `GANG_LOCAL_ONLY`, or the web
+service's server-wide policy still blocks remote providers but does not change
+what a failed local call returns.
+
+JSON results carry `synthesis.reason: local-synthesis-unavailable`,
+`synthesis.fallback_basis` (`sensitive-evidence` or `local-only-requested`),
+and `synthesis.fallback_from` (provider, model, `timeout` or `failed`, and the
+provider error). If nothing usable was retrieved, the usual no-evidence answer
+is returned. Any other local failure over only `normal` evidence, and any
+remote provider failure, still reports the error as before.
 `gang search` prints no snippet for a local-only hit and points you to
 `gang sensitivity show` instead.
 

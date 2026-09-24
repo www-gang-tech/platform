@@ -510,6 +510,17 @@ def mask_identifiers(text: Any) -> str:
     return masked
 
 
+def mask_for_level(text: Any, level: Any) -> Any:
+    """``text`` masked when ``level`` is restricted or local-only, else unchanged.
+
+    The display-copy rule for anything read out of such a document — excerpts
+    and titles alike. Never applied to a canonical document.
+    """
+    if normalize_level(level) in (RESTRICTED, LOCAL_ONLY):
+        return mask_identifiers(text)
+    return text
+
+
 def contains_sensitive_identifier(text: Any) -> List[str]:
     """Detector names that fire on ``text``; empty when it is clean."""
     return [finding.detector for finding in detect(text)]

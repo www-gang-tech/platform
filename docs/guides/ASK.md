@@ -349,8 +349,11 @@ API keys never appear in a prompt, a log line, or an error message.
 
 Restricted and local-only documents never enter a remote provider's context.
 They are filtered out before the request is built, and deterministic and
-loopback-local answers still use them. See
-[SENSITIVE_EVIDENCE.md](SENSITIVE_EVIDENCE.md).
+loopback-local answers still use them, with detected identifiers masked in
+excerpts and titles. If the local model is unavailable, times out, or errors
+while answering over such evidence — or over any evidence with `--local-only` —
+Ask shows the evidence-only listing `--no-ai` would have produced instead of
+aborting, and never retries with a remote provider. See [SENSITIVE_EVIDENCE.md](SENSITIVE_EVIDENCE.md).
 
 ## Requirements
 
