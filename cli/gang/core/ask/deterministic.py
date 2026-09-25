@@ -16,6 +16,12 @@ description or from attendance. The route is chosen from the question's own
 shape before identity routing is considered, because "what does X need to
 do" also looks like "what does X do" to a looser reading — which is how it
 once ended up asking the canonical-description lookup for a task list.
+
+Current-work questions ("what is Daniel working on this week?") read the same
+assigned work, reduced to what is open and recent (``current_work.py``). This
+module routes them and renders the grouped list that answers them without a
+model; a single local synthesis call may replace that list with workstreams
+(``conversation.py``), rendered here too so both share one citation path.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from . import affiliation as affiliation_module
 from . import assignments as assignments_module
+from . import current_work as current_work_module
 from . import intent as intent_module
 from . import ledger as ledger_module
 from .plan import MAX_TEXT_QUERIES
@@ -141,6 +148,7 @@ def capability_routes(
     resolved_entities: Sequence[Dict[str, Any]] = (),
     ambiguities: Sequence[Dict[str, Any]] = (),
     self_identity: Optional[Dict[str, Any]] = None,
+    today: Optional[date] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Return deterministic primitive calls for a cleanly mapped question.
 
@@ -152,8 +160,26 @@ def capability_routes(
     for the web service, the sole configured principal for the CLI — as
     ``{"name": …, "entity_id": …}``. Without one, a first-person ownership
     question is answered by saying who it could not identify.
+
+    ``today`` anchors "current" and "this week" for a current-work question.
     """
     text = _fold(question)
+    if getattr(intent, "wants_current_work", False):
+        route = _assignment_route(
+            getattr(intent, "subject", ""),
+            plan,
+            resolved_entities=resolved_entities,
+            ambiguities=ambiguities,
+            self_identity=self_identity,
+            tool=current_work_module.CURRENT_WORK_TOOL,
+            key=current_work_module.CURRENT_WORK_KEY,
+            reason="current-work question routed to open, recently assigned work",
+            dated=False,
+        )
+        if route["tool"] == current_work_module.CURRENT_WORK_TOOL and today is not None:
+            route["arguments"]["today"] = today.isoformat()
+        return [route]
+
     if getattr(intent, "wants_assignments", False):
         return [
             _assignment_route(
@@ -228,6 +254,8 @@ def capability_answer(context: Any) -> Optional[Dict[str, Any]]:
     records = context.records or {}
     question = context.question or ""
 
+    if current_work_module.CURRENT_WORK_KEY in records:
+        return current_work_answer(records[current_work_module.CURRENT_WORK_KEY][0], context.bundle)
     if ASSIGNMENTS_KEY in records:
         return _assignments_answer(records[ASSIGNMENTS_KEY][0], context.bundle)
     if "participants" in records:
@@ -263,7 +291,8 @@ def answers_without_documents(context: Any) -> bool:
     rendering it as that would make a scoped absence look like a failed
     search.
     """
-    return bool((context.records or {}).get(ASSIGNMENTS_KEY))
+    records = context.records or {}
+    return bool(records.get(ASSIGNMENTS_KEY) or records.get(current_work_module.CURRENT_WORK_KEY))
 
 
 # ------------------------------------------------------------- assignments
@@ -276,6 +305,10 @@ def _assignment_route(
     resolved_entities: Sequence[Dict[str, Any]],
     ambiguities: Sequence[Dict[str, Any]],
     self_identity: Optional[Dict[str, Any]],
+    tool: str = "find_assignments",
+    key: str = ASSIGNMENTS_KEY,
+    reason: str = "ownership question routed to explicitly assigned work",
+    dated: bool = True,
 ) -> Dict[str, Any]:
     """Pin the question's person to a name or entity, then route to their tasks.
 
@@ -285,19 +318,19 @@ def _assignment_route(
     ambiguous name is reported rather than resolved to whichever candidate
     sorted first.
     """
-    reason = "ownership question routed to explicitly assigned work"
     arguments: Dict[str, Any] = {}
-    _date_bounds(arguments, plan)
-    _deadline_period_end(arguments, getattr(plan, "query", "") or "")
+    if dated:
+        _date_bounds(arguments, plan)
+        _deadline_period_end(arguments, getattr(plan, "query", "") or "")
 
     if assignments_module.is_first_person(subject):
         name = str((self_identity or {}).get("name") or "").strip()
         if not name:
-            return _unresolved_route(subject, "no-principal", reason=reason)
+            return _unresolved_route(subject, "no-principal", reason=reason, key=key)
         arguments["person"] = name
         if (self_identity or {}).get("entity_id"):
             arguments["entity_id"] = self_identity["entity_id"]
-        return {"tool": "find_assignments", "arguments": arguments, "key": ASSIGNMENTS_KEY, "reason": reason}
+        return {"tool": tool, "arguments": arguments, "key": key, "reason": reason}
 
     folded = _fold(subject)
     for item in ambiguities:
@@ -307,6 +340,7 @@ def _assignment_route(
                 "ambiguous",
                 candidates=[candidate.get("name", "") for candidate in item.get("candidates") or []],
                 reason=reason,
+                key=key,
             )
 
     arguments["person"] = subject
@@ -315,7 +349,7 @@ def _assignment_route(
         if text and text in folded and entity.get("entity_type") in ("person", None):
             arguments["entity_id"] = entity["entity_id"]
             break
-    return {"tool": "find_assignments", "arguments": arguments, "key": ASSIGNMENTS_KEY, "reason": reason}
+    return {"tool": tool, "arguments": arguments, "key": key, "reason": reason}
 
 
 def _deadline_period_end(arguments: Dict[str, Any], question: str) -> None:
@@ -339,11 +373,13 @@ def _deadline_period_end(arguments: Dict[str, Any], question: str) -> None:
     arguments["until"] = end.isoformat()
 
 
-def _unresolved_route(subject: str, why: str, *, candidates: Sequence[str] = (), reason: str) -> Dict[str, Any]:
+def _unresolved_route(
+    subject: str, why: str, *, candidates: Sequence[str] = (), reason: str, key: str = ASSIGNMENTS_KEY
+) -> Dict[str, Any]:
     return {
         "tool": UNRESOLVED_PERSON_TOOL,
         "arguments": {"subject": subject, "why": why, "candidates": list(candidates)},
-        "key": ASSIGNMENTS_KEY,
+        "key": key,
         "reason": reason,
     }
 
@@ -369,17 +405,9 @@ def _assignments_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, Any]:
     person = payload.get("person") or {}
     label = str(person.get("label") or "This person")
 
-    if payload.get("unresolved") == "no-principal":
-        return _empty_answer(
-            f"I can't tell who \"{label}\" is here: no principal identity is configured for "
-            "this session, so there is no one to scope the task list to. Ask with a name instead."
-        )
-    if payload.get("unresolved") == "ambiguous":
-        names = ", ".join(name for name in payload.get("candidates") or [] if name)
-        return _empty_answer(
-            f"\"{label}\" matches more than one person ({names}). "
-            "Name the one you mean and I'll list their tasks."
-        )
+    unresolved = _unresolved_answer(payload, label, scope="task list", ask="list their tasks")
+    if unresolved is not None:
+        return unresolved
 
     citation_by_doc = _citation_by_document(bundle)
     current: List[str] = []
@@ -424,6 +452,146 @@ def _assignments_answer(payload: Dict[str, Any], bundle: Any) -> Dict[str, Any]:
             "matched on that name as written in the evidence."
         )
     return _answer("\n".join(lines), claims, uncertainty=uncertainty, reason=ASSIGNMENTS_REASON)
+
+
+def _unresolved_answer(payload: Dict[str, Any], label: str, *, scope: str, ask: str) -> Optional[Dict[str, Any]]:
+    """The answer for a person who could not be pinned down, or ``None``."""
+    if payload.get("unresolved") == "no-principal":
+        return _empty_answer(
+            f"I can't tell who \"{label}\" is here: no principal identity is configured for "
+            f"this session, so there is no one to scope the {scope} to. Ask with a name instead."
+        )
+    if payload.get("unresolved") == "ambiguous":
+        names = ", ".join(name for name in payload.get("candidates") or [] if name)
+        return _empty_answer(
+            f"\"{label}\" matches more than one person ({names}). "
+            f"Name the one you mean and I'll {ask}."
+        )
+    return None
+
+
+# ------------------------------------------------------------ current work
+
+
+#: Standing caveat on every current-work answer, so a reader knows what the
+#: summary is — and is not — built from.
+CURRENT_WORK_BASIS = (
+    "Reconstructed from open work explicitly assigned to {label} in owner records, "
+    "schedules, meeting action items, and task email stated in the last {days} days. "
+    "Mentions, meeting invitations, and bulk mail are not counted as work."
+)
+
+
+def current_work_answer(
+    payload: Dict[str, Any],
+    bundle: Any,
+    *,
+    workstreams: Optional[Sequence[Dict[str, Any]]] = None,
+    note: str = "",
+) -> Dict[str, Any]:
+    """Render one person's current work, every line cited.
+
+    With ``workstreams`` — already validated against the packet by
+    ``current_work.validate`` — each is one cited line. Without them, the same
+    packet is listed item by item under a deterministic grouping. Either way
+    a line appears only if its documents made it into the evidence bundle.
+    """
+    person = payload.get("person") or {}
+    label = str(person.get("label") or "This person")
+    unresolved = _unresolved_answer(payload, label, scope="current work", ask="summarize their current work")
+    if unresolved is not None:
+        return unresolved
+
+    work = current_work_module.packet(payload, _citation_by_document(bundle))
+    items = work["items"]
+    if not items:
+        return _empty_answer(
+            f"I found no open, recently stated work explicitly assigned to {label} in the private "
+            "corpus. Being mentioned in, sent, or invited to something is not counted as work."
+        )
+
+    week = current_work_module.week_label(work)
+    lines = [f"{label} — current work" + (f" ({week})" if week else ""), ""]
+    claims: List[Dict[str, Any]] = []
+    covered: set = set()
+    unlisted = 0
+    if workstreams:
+        for stream in workstreams:
+            citations = list(stream.get("citations") or [])
+            if not citations:
+                continue
+            summary = str(stream.get("summary") or "").strip()
+            details = str(stream.get("details") or "").strip()
+            body = stream["title"] + (f": {summary}" if summary else "")
+            lines.append(f"- {body}{' — ' + details if details else ''}{_cite_text(citations)}")
+            claims.append(_claim(len(claims) + 1, "synthesis", body + (f" ({details})" if details else ""), citations))
+            covered.update(stream.get("item_ids") or [])
+        # Anything overdue or due this week that no workstream covered is
+        # listed, so a summary never hides it; the rest is counted.
+        remaining = [item for item in items if item["id"] not in covered]
+        pressing = [item for item in remaining if item.get("timing") in current_work_module.PRESSING]
+        unlisted = len(remaining) - len(pressing)
+        if pressing:
+            lines.extend(["", f"Also overdue or due this week ({len(pressing)}):"])
+            for item in pressing:
+                _current_item(item, label, lines, claims)
+    else:
+        groups = current_work_module.group_items(items)
+        for heading, members in groups:
+            if len(groups) > 1 or heading != current_work_module.OTHER_GROUP:
+                lines.append(heading)
+            for item in members:
+                _current_item(item, label, lines, claims)
+            lines.append("")
+        while lines and not lines[-1]:
+            lines.pop()
+
+    omitted = int((payload.get("excluded") or {}).get("omitted") or 0) + (unlisted if workstreams else 0)
+    if omitted:
+        lines.extend(["", f"{omitted} more open item(s) not shown."])
+    lines.extend(["", f"For the full assigned task list, ask: what does {label} need to do?"])
+
+    uncertainty = [
+        CURRENT_WORK_BASIS.format(label=label, days=current_work_module.RECENT_DAYS)
+    ]
+    if not person.get("resolved"):
+        uncertainty.append(
+            f"No canonical person record or verified alias matched \"{label}\"; work was "
+            "matched on that name as written in the evidence."
+        )
+    if note:
+        uncertainty.append(note)
+    return _answer(
+        "\n".join(lines),
+        claims,
+        uncertainty=" ".join(uncertainty),
+        reason=current_work_module.CURRENT_WORK_REASON if workstreams else current_work_module.DETERMINISTIC_REASON,
+    )
+
+
+def _current_item(item: Dict[str, Any], label: str, lines: List[str], claims: List[Dict[str, Any]]) -> None:
+    """One work item as a cited line, with its related context beneath it.
+
+    A related decision or meeting is its own claim on its own citation: it
+    is context for the work, not evidence that the work is assigned.
+    """
+    details = current_work_module.item_details(item)
+    lines.append(f"- {item['task']}{' — ' + details if details else ''}{_cite_text(item['citations'])}")
+    claims.append(
+        _claim(
+            len(claims) + 1,
+            "fact",
+            f"{item.get('owner') or label} is assigned: {item['task']}" + (f" ({details})" if details else ""),
+            item["citations"],
+        )
+    )
+    for kind, key, entries in (
+        ("decision", "text", item.get("decisions") or []),
+        ("meeting", "name", item.get("meetings") or []),
+    ):
+        for value in entries:
+            lines.append(f"    related {kind}: {value[key]}{_cite_text(value['citations'])}")
+            claims.append(_claim(len(claims) + 1, "fact", f"Related {kind}: {value[key]}", value["citations"]))
 
 
 def _assignment_details(item: Dict[str, Any]) -> str:

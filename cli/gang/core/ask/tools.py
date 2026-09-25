@@ -27,14 +27,17 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core import enrichment_state, sensitivity
 from core.facts.model import quote_in_source
+from core.source_classes import BULK, classify_source, senders_from_body
 
 from . import affiliation as affiliation_module
 from . import assignments as assignments_module
+from . import current_work as current_work_module
 from . import timeline as timeline_module
 from .plan import MAX_LIMIT, QueryPlanError, validate_plan
 from .retrieval import Retriever
@@ -250,6 +253,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
             Parameter("since", DATE, "Earliest deadline or evidence date to include (YYYY-MM-DD)."),
             Parameter("until", DATE, "Latest deadline or evidence date to include (YYYY-MM-DD)."),
             Parameter("limit", INTEGER, "Maximum tasks.", maximum=MAX_TOOL_RESULTS),
+        ),
+    ),
+    ToolSpec(
+        "find_current_work",
+        "What one person is working on now: their open, recently stated assigned work, "
+        "with related recent decisions and meetings as context. Never mentions or invitations.",
+        (
+            Parameter("person", STRING, "The person's name as written, if no entity id resolves.", required=True),
+            Parameter("entity_id", ID, "The person's canonical entity id, when one resolved."),
+            Parameter("today", DATE, "The day to measure 'current' and 'this week' from (YYYY-MM-DD)."),
         ),
     ),
     ToolSpec(
@@ -808,19 +821,7 @@ class ResearchTools:
         tasks cite.
         """
         person = self._assignment_person(values)
-        rows: List[Dict[str, Any]] = []
-        seen = set()
-        for plan in self._assignment_plans(person):
-            for row in self.retriever.retrieve(plan):
-                if row["document_id"] not in seen:
-                    seen.add(row["document_id"])
-                    rows.append(row)
-        # Structured action items live in enrichment, whether or not the body
-        # happens to mention the owner in a searchable way.
-        for row in self.retriever.enriched_documents(limit=50):
-            if row["document_id"] not in seen:
-                seen.add(row["document_id"])
-                rows.append(row)
+        rows = self._assignment_rows(person)
 
         everything = assignments_module.gather(
             rows,
@@ -862,6 +863,120 @@ class ResearchTools:
                 else "No task in the evidence is explicitly assigned to this person."
             ),
         )
+
+    def _tool_find_current_work(self, values: Dict[str, Any]) -> ToolResult:
+        """What one person is working on now. Deterministic.
+
+        The same assigned work ``find_assignments`` reads — owner records,
+        schedules, meeting action items, task email — from every source except
+        bulk mail, reduced to what is open and recently stated. Recent
+        decisions and calendar invitations are attached to an item only where
+        their words connect to it; neither is ever an item.
+        """
+        person = self._assignment_person(values)
+        today = date.fromisoformat(values["today"]) if values.get("today") else date.today()
+        rows = self._assignment_rows(person)
+        classes = self._source_classes(rows)
+        work_rows = [row for row in rows if classes.get(row["document_id"]) != BULK]
+        everything = assignments_module.gather(work_rows, person)
+        selection = current_work_module.select(everything, today=today, source_classes=classes)
+
+        since = (today - timedelta(days=current_work_module.RECENT_DAYS)).isoformat()
+        decisions = self._materialized_decisions({"since": since, "limit": MAX_LIMIT})
+        current_work_module.attach_decisions(selection.items, decisions.records if decisions else [])
+        current_work_module.attach_meetings(
+            selection.items,
+            [row for row in rows if (row.get("updated") or row.get("created") or "")[:10] >= since],
+        )
+
+        # Every item's primary source first, then corroboration, then the
+        # context, so the document bound never costs an item its citation.
+        cited: List[str] = []
+        items = selection.items
+        depth = max((len(item["document_ids"]) for item in items), default=0)
+        for index in range(depth):
+            for item in items:
+                if index < len(item["document_ids"]) and item["document_ids"][index] not in cited:
+                    cited.append(item["document_ids"][index])
+        for item in items:
+            for context in item["decisions"] + item["meetings"]:
+                for document_id in context.get("document_ids") or []:
+                    if document_id and document_id not in cited:
+                        cited.append(document_id)
+
+        week_start, week_end = current_work_module.week_of(today)
+        return ToolResult(
+            tool=current_work_module.CURRENT_WORK_TOOL,
+            arguments=values,
+            documents=self.retriever.documents(cited[: self.max_results]),
+            # Always one record: "nothing current is assigned to X" is an
+            # answer about X, not an absence of evidence.
+            records=[
+                {
+                    "person": person.to_dict(),
+                    "today": today.isoformat(),
+                    "week": {"start": week_start.isoformat(), "end": week_end.isoformat()},
+                    "items": items,
+                    "total_assigned": len(everything),
+                    "excluded": {
+                        **selection.counts(),
+                        "bulk_documents": sum(1 for row in rows if classes.get(row["document_id"]) == BULK),
+                    },
+                }
+            ],
+            note=(
+                "Open, recently stated work explicitly assigned to this person, from owner "
+                "records, schedules, meeting action items, and task email. Bulk mail, "
+                "newsletters, and invitations are not work items."
+                if items
+                else "No open, recently stated work in the evidence is explicitly assigned to this person."
+            ),
+        )
+
+    def _assignment_rows(self, person: "assignments_module.Person") -> List[Dict[str, Any]]:
+        """Every document that could assign this person work, read widely."""
+        rows: List[Dict[str, Any]] = []
+        seen = set()
+        for plan in self._assignment_plans(person):
+            for row in self.retriever.retrieve(plan):
+                if row["document_id"] not in seen:
+                    seen.add(row["document_id"])
+                    rows.append(row)
+        # Structured action items live in enrichment, whether or not the body
+        # happens to mention the owner in a searchable way.
+        for row in self.retriever.enriched_documents(limit=50):
+            if row["document_id"] not in seen:
+                seen.add(row["document_id"])
+                rows.append(row)
+        return rows
+
+    def _source_classes(self, rows: Sequence[Dict[str, Any]]) -> Dict[str, str]:
+        """Each row's source class: bulk mail, meeting notes, email, and so on.
+
+        Mail from an address or domain with a canonical record is
+        correspondence whatever boilerplate it carries, as everywhere else.
+        """
+        known_addresses = {
+            email for record in self.entities if getattr(record, "status", "active") == "active"
+            for email in getattr(record, "emails", []) or []
+        }
+        known_domains = {
+            domain for record in self.entities if getattr(record, "status", "active") == "active"
+            for domain in getattr(record, "domains", []) or []
+        }
+        classes: Dict[str, str] = {}
+        for row in rows:
+            body = str(row.get("body") or "")
+            classes[row["document_id"]] = classify_source(
+                title=row.get("title") or "",
+                source_type=row.get("source_type") or "",
+                document_type=row.get("type") or "",
+                senders=senders_from_body(body[:4000]),
+                body=body[:6000],
+                known_addresses=known_addresses,
+                known_domains=known_domains,
+            ).name
+        return classes
 
     def _assignment_person(self, values: Dict[str, Any]) -> "assignments_module.Person":
         entity_id = values.get("entity_id", "")

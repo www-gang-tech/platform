@@ -232,6 +232,17 @@ class ConversationSynthesizer:
             "max_tokens": 4000,
         }
 
+    def complete_json(self, request: Dict[str, Any], *, purpose: str) -> Dict[str, Any]:
+        """One request a capability built itself, such as current work.
+
+        The capability owns its prompt and validates what comes back; this
+        only routes it to the configured client.
+        """
+        try:
+            return self._client.complete_json(request, purpose=purpose)
+        except ProviderError as exc:
+            raise SynthesisError(str(exc)) from exc
+
     def synthesize(
         self, context: AnswerContext, *, request: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:

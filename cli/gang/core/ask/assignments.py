@@ -34,6 +34,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core import enrichment_state
@@ -72,7 +73,7 @@ _STATUS_WORDS: Tuple[Tuple[str, re.Pattern], ...] = (
     (SUPERSEDED, re.compile(r"\b(?:superseded|cancell?ed|dropped|obsolete|replaced|no\s+longer\s+needed|withdrawn)\b", re.I)),
     (DONE, re.compile(r"\b(?:done|complete|completed|closed|finished|resolved|delivered)\b", re.I)),
     (BLOCKED, re.compile(r"\b(?:blocked|delayed|dependent|at\s+risk|on\s+hold)\b", re.I)),
-    (IN_PROGRESS, re.compile(r"\b(?:in\s+progress|ongoing|underway|started|critical|near\s+completion)\b", re.I)),
+    (IN_PROGRESS, re.compile(r"\b(?:in\s+progress|ongoing|underway|(?<!not\s)started|critical|near\s+completion)\b", re.I)),
     (OPEN, re.compile(r"\b(?:open|not\s+started|pending|to\s*do|new(?:\s+responsibility)?|aligned)\b", re.I)),
 )
 
@@ -148,6 +149,24 @@ _FIELD = r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[
 _DUE_FIELD = re.compile(r"\b(?:Due|Deadline|Due\s+date)\s*:\s*(?P<value>[^|]{1,60}?)" + _FIELD)
 _STATUS_FIELD = re.compile(r"\bStatus\s*:\s*(?P<value>[^|]{1,40}?)" + _FIELD)
 
+#: Any owner field's value — names separated by ``/``, ``,``, ``&`` or
+#: "and" — whoever it names. Only used to find where the value ends, so the
+#: next row's task does not begin with the previous row's owners.
+_ANY_OWNER_LIST = re.compile(
+    r"\s*[A-Z][\w’'.-]*(?:[ \t]+[A-Z][\w’'.-]*){0,3}"
+    r"(?:\s*(?:/|,|&|\band\b)\s*[A-Z][\w’'.-]*(?:[ \t]+[A-Z][\w’'.-]*){0,3}){0,5}"
+)
+
+#: A schedule's own trailing note on a task: "— scheduled end Sep 18;
+#: baseline status In progress —". Its values are the row's deadline and
+#: status, not part of the task.
+_SCHEDULE_NOTE = re.compile(
+    r"\s*[—–-]\s*(?=scheduled\s+end|baseline\s+status)"
+    r"(?:scheduled\s+end\s+(?P<end>(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}|\d{4}-\d{2}-\d{2}))?"
+    r"\s*;?\s*(?:baseline\s+status\s*:?\s*(?P<status>[A-Za-z][A-Za-z /-]{1,30}?))?\s*[—–-]?\s*$",
+    re.I,
+)
+
 _BY_DEADLINE = re.compile(
     r"\bby\s+(?P<value>(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|today|tonight|"
     r"end\s+of\s+(?:day|week|month|quarter)|eod|eow|next\s+week|"
@@ -157,6 +176,8 @@ _BY_DEADLINE = re.compile(
 )
 
 _ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+_MONTH_WORD = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d"
 
 #: The header of a flattened owner table: "Owner Deliverable Deadline / Timing
 #: Status". Rows follow as "<owner> <deliverable> <timing> <status>".
@@ -470,7 +491,14 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
     """"WPC Qi Certification Owner: Daniel | Due: 2026-09-20 | Status: in progress"."""
     owners_after = re.compile(r"\s*" + _owner_list_pattern(name))
     results: List[Assignment] = []
+    # Where the previous owner field's value ended. In a flattened schedule
+    # ("… — Owner: Frank/Daniel [Vendor] Next task — Owner: Daniel") the next
+    # task starts there, not at the previous label.
+    floor = 0
     for label in _OWNER_LABEL.finditer(text):
+        previous_floor = floor
+        value = _ANY_OWNER_LIST.match(text, label.end())
+        floor = value.end() if value else label.end()
         owners_match = owners_after.match(text, label.end())
         if owners_match is None:
             continue
@@ -478,12 +506,20 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
         mine = [owner for owner in owners if _owner_matches(owner, person)]
         if not mine:
             continue
-        task = _clean_task(_segment_before(text, label.start()))
-        if len(task.split()) < 2:
-            continue
+        segment = _segment_before(text, label.start(), floor=previous_floor)
         tail = text[owners_match.end() : owners_match.end() + 240]
         due = _DUE_FIELD.search(tail)
         status = _STATUS_FIELD.search(tail)
+        deadline = due.group("value").strip() if due else ""
+        status_text = status.group("value").strip() if status else ""
+        note = _SCHEDULE_NOTE.search(segment)
+        if note and (note.group("end") or note.group("status")):
+            segment = segment[: note.start()]
+            deadline = deadline or (note.group("end") or "").strip()
+            status_text = status_text or (note.group("status") or "").strip()
+        task = _clean_task(segment)
+        if len(task.split()) < 2:
+            continue
         results.append(
             _assignment(
                 row,
@@ -491,8 +527,8 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
                 owner=mine[0],
                 co_owners=[owner for owner in owners if owner not in mine],
                 basis="owner-field",
-                deadline=due.group("value").strip() if due else "",
-                status_text=status.group("value").strip() if status else "",
+                deadline=deadline,
+                status_text=status_text,
                 excerpt=_short(f"{task} Owner: {owners_match.group(0).strip()}{' ' + tail[:120].strip() if tail.strip() else ''}"),
             )
         )
@@ -629,7 +665,9 @@ def _name_core(person: Person) -> str:
 
 
 def _owner_list_pattern(name: re.Pattern) -> str:
-    other = r"[A-Z][\w’'-]+(?:\s+[A-Z][\w’'-]+)?"
+    # A month after a name starts the next row's date ("Frank Sep 21:"); it
+    # is not a surname.
+    other = r"[A-Z][\w’'-]+(?:\s+(?!" + _MONTH_WORD + r")[A-Z][\w’'-]+)?"
     return r"(?:(?:" + other + r")\s*(?:/|,|&|and)\s*)*" + name.pattern + r"(?:\s*(?:/|,|&|and)\s*(?:" + other + r"))*"
 
 
@@ -653,8 +691,8 @@ def _owner_matches(owner: str, person: Person) -> bool:
     return False
 
 
-def _segment_before(text: str, position: int) -> str:
-    window = text[max(0, position - 300) : position]
+def _segment_before(text: str, position: int, *, floor: int = 0) -> str:
+    window = text[max(0, floor, position - 300) : position]
     starts = list(_SEGMENT_START.finditer(window))
     return window[starts[-1].end() :] if starts else window
 
@@ -672,6 +710,52 @@ def _sentence_end(text: str, position: int) -> int:
 
 def _sentence_around(text: str, start: int, end: int) -> str:
     return _short(text[_sentence_start(text, start) : _sentence_end(text, end) + 1])
+
+
+_MONTH_DAY = re.compile(
+    r"\b(?P<month>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?\b",
+    re.I,
+)
+_MONTHS = {name: index for index, name in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+
+
+def deadline_date(deadline: str, stated: str = "") -> Optional[date]:
+    """The calendar date a deadline names, or ``None`` when it names none.
+
+    Reads an ISO date, or a month and day ("Sep. 18 — Noon", "Before Sep 18
+    meeting"). A month and day takes its year from ``stated`` — the date of
+    the evidence that set it — and a deadline more than half a year before
+    that is read as next year's, so a December schedule's "Jan 10" is January
+    after it. "Near term" and "Ongoing" are not dates, and stay ``None``.
+    """
+    text = str(deadline or "")
+    iso = _ISO_DATE.search(text)
+    if iso:
+        try:
+            return date.fromisoformat(iso.group(1))
+        except ValueError:
+            return None
+    found = _MONTH_DAY.search(text)
+    if not found:
+        return None
+    try:
+        anchor = date.fromisoformat(str(stated or "")[:10])
+    except ValueError:
+        return None
+    try:
+        value = date(anchor.year, _MONTHS[found.group("month").casefold()], int(found.group("day")))
+    except ValueError:
+        return None
+    if (anchor - value).days > 183:
+        value = value.replace(year=value.year + 1)
+    elif (value - anchor).days > 183:
+        value = value.replace(year=value.year - 1)
+    return value
+
+
+def task_tokens(text: str) -> frozenset:
+    """A task's content words, as deduplication compares them."""
+    return _task_tokens(text)
 
 
 def _deadline_in(text: str) -> str:
