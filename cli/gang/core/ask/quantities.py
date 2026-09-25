@@ -55,7 +55,7 @@ _LABELLED = (
     r"serial(?:\s*(?:no\.?|number))?|model(?:\s*(?:no\.?|number))?|"
     r"part\s*(?:no\.?|number)?|lot\s*(?:no\.?|number)?|"
     r"(?:reference|ref|order|invoice|ticket)\s*(?:no\.?|number|#)?)"
-    r"\s*[:#]?\s*(?P<code>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"(?:\s*[:#]\s*|\s+)(?P<code>[A-Za-z0-9][A-Za-z0-9._-]*)"
 )
 
 _UUID = r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
