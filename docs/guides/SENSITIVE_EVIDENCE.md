@@ -103,10 +103,13 @@ answers "who is …?" with its citation.
 
 Every display copy of text from a restricted or local-only document replaces
 detected identifier values with a marker, e.g. `social security number: [ssn withheld]`
-or `Tax election [ssn withheld]`. That covers evidence excerpts and titles, and
-also research-tool snippets, research trace reasons, evidence-fact and profile
-quotes, decision and assignment text, and receipts — in answers, JSON results,
-source lists, sessions, answer caches, and whatever a local model is given.
+or `Tax election [ssn withheld]`. That covers evidence excerpts and titles,
+derived enrichment (the summary, decisions, action items, and open questions,
+including nested evidence excerpts), and also research-tool snippets, research
+trace reasons, evidence-fact and profile quotes, decision and assignment text,
+and receipts — in answers, JSON results, source lists, sessions, answer caches,
+and whatever a local model is given. Ids and hashes nested inside enrichment
+are left as written. The indexed enrichment payload is unchanged.
 
 Everything other than the evidence bundle goes through one sanitizer,
 `disclosure.sanitize_for_display`: any entry that cites a restricted or
