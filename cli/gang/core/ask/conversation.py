@@ -45,6 +45,7 @@ from core.source_classes import SOURCE_DESCRIPTIONS
 
 from . import affiliation as affiliation_module
 from . import authority as authority_module
+from . import current_work as current_work_module
 from . import deterministic as deterministic_module
 from . import disclosure
 from . import followup as followup_module
@@ -67,6 +68,7 @@ from .research import AnthropicResearchDirector, ResearchLimits, ResearchLoop, R
 from .service import AskError, AskOptions, AskService, local_fallback_meta
 from .session import Session, SessionStore
 from .synthesis import SynthesisError
+from .temporal import today as temporal_today
 from .timeline import build_timeline, to_payload as timeline_payload
 from .tools import ResearchTools, ToolError, ToolResult
 
@@ -240,12 +242,13 @@ class ConversationService(AskService):
             resolution.retrieval_text or text,
             overrides,
             AskOptions(
-                # Ownership, definition, and decision questions are answered
-                # by code-owned primitives that read their own evidence; a
-                # model-proposed plan would change nothing they do, and a
-                # factual answer must not cost a model call.
+                # Ownership, current-work, definition, and decision questions
+                # are answered by code-owned primitives that read their own
+                # evidence; a model-proposed plan would change nothing they
+                # do, and a factual answer must not cost a model call.
                 use_ai=options.use_ai
                 and not intent.wants_assignments
+                and not intent.wants_current_work
                 and not intent.wants_identity
                 and intent.policy != intent_module.DECISION,
                 provider=options.provider,
@@ -385,15 +388,17 @@ class ConversationService(AskService):
             ambiguities=planning.ambiguities,
             self_identity=(
                 self._self_identity(options.principal_name)
-                if options is not None and intent.wants_assignments
+                if options is not None and (intent.wants_assignments or intent.wants_current_work)
                 else None
             ),
+            today=temporal_today(self.clock),
         )
         if routes is None:
             return None
 
         if any(
-            route.get("tool") in ("canonical_entity_description", "find_decisions") for route in routes
+            route.get("tool") in ("canonical_entity_description", "find_decisions", current_work_module.CURRENT_WORK_TOOL)
+            for route in routes
         ):
             # Cheap when nothing changed: unchanged documents are recognized
             # by file stat and never re-read.
@@ -716,7 +721,9 @@ class ConversationService(AskService):
                 {"mode": "deterministic", "reason": reason, "cached": False},
                 assessed,
             )
-        if (context.intent.listing or planning.listing_question) and not context.intent.wants_assignments:
+        if (context.intent.listing or planning.listing_question) and not (
+            context.intent.wants_assignments or context.intent.wants_current_work
+        ):
             return (
                 deterministic_conversation_answer(
                     bundle, reason="listing-question", intent=context.intent
@@ -724,6 +731,8 @@ class ConversationService(AskService):
                 {"mode": "deterministic", "reason": "listing-question", "cached": False},
                 assessed,
             )
+        if current_work_module.CURRENT_WORK_KEY in (context.records or {}):
+            return (*self._current_work_answer(context, options), assessed)
         deterministic = deterministic_module.capability_answer(context)
         if deterministic is not None:
             return (
@@ -923,6 +932,97 @@ class ConversationService(AskService):
             },
             assessed,
         )
+
+    def _current_work_answer(self, context: AnswerContext, options):
+        """Current work: at most one local synthesis call, else the grouped list.
+
+        The packet is built from code-selected work items, never from raw
+        search results, and only a loopback model may see it: this capability
+        never sends anything to a remote provider, so neither sensitivity nor
+        ``--local-only`` has anything to fall back from. Whatever the model
+        returns is validated against the packet; if it fails, times out, or
+        nothing it says survives validation, the answer is the deterministic
+        grouped list of the same items.
+        """
+        payload = context.records[current_work_module.CURRENT_WORK_KEY][0]
+        work = current_work_module.packet(
+            payload, {item.document_id: item.citation_id for item in context.bundle.items}
+        )
+
+        def grouped(fallback: str, note: str = ""):
+            answer = deterministic_module.current_work_answer(payload, context.bundle, note=note)
+            meta = {
+                "mode": "deterministic",
+                "reason": answer.get("reason") or current_work_module.DETERMINISTIC_REASON,
+                "cached": False,
+                **({"fallback": fallback} if fallback else {}),
+            }
+            return answer, meta
+
+        if payload.get("unresolved") or not work["items"]:
+            return grouped("")
+        if not options.use_ai:
+            return grouped("ai-disabled")
+        synthesizer = self._conversation_synthesizer(options)
+        if synthesizer is None or disclosure.applies(synthesizer) or not hasattr(synthesizer, "complete_json"):
+            return grouped("no-local-model")
+
+        budget = getattr(synthesizer, "local_synthesis_budget", None)
+        request = current_work_module.build_request(work, think=bool(getattr(budget, "think", False)))
+        model = getattr(synthesizer, "model", "")
+        provider_name = getattr(synthesizer, "provider_name", "unknown")
+        key = hashlib.sha256(
+            json.dumps(
+                {
+                    "prompt": current_work_module.PROMPT_VERSION,
+                    "model": model,
+                    "request": request,
+                    "citations": {item["id"]: item["citations"] for item in work["items"]},
+                },
+                sort_keys=True,
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        meta = {
+            "mode": "ai",
+            "reason": current_work_module.CURRENT_WORK_REASON,
+            "provider": provider_name,
+            "model": model,
+            "api_cost": "$0",
+            "cached": False,
+            "current_work": {"items": len(work["items"])},
+        }
+        if options.use_cache:
+            cached = self._cache_read(key)
+            if cached is not None:
+                return cached, {**meta, "cached": True}
+
+        try:
+            raw = synthesizer.complete_json(request, purpose="gang ask current work")
+        except (SynthesisError, ProviderError) as exc:
+            self._record_provider_call("synthesis", synthesizer)
+            return grouped(
+                "local-synthesis-unavailable",
+                "Local synthesis was unavailable, so this is the deterministic grouped list "
+                f"of the same work items; no remote provider was tried. ({exc})",
+            )
+        self._record_provider_call("synthesis", synthesizer)
+
+        checked = current_work_module.validate(raw, work)
+        if not checked.workstreams:
+            answer, fallback_meta = grouped(
+                "local-synthesis-rejected",
+                "The local model's grouping did not survive validation against the work items, "
+                "so this is the deterministic grouped list of the same items.",
+            )
+            return answer, {**fallback_meta, "current_work": {"items": len(work["items"]), **checked.to_dict()}}
+
+        answer = deterministic_module.current_work_answer(
+            payload, context.bundle, workstreams=checked.workstreams
+        )
+        if options.use_cache:
+            self._cache_write(key, answer)
+        return answer, {**meta, "current_work": {"items": len(work["items"]), **checked.to_dict()}}
 
     def _display_sensitivity(self, document_ids):
         """Disclosure levels for `disclosure.sanitize_for_display`."""

@@ -36,6 +36,7 @@ EXPLAIN = "explain"
 DECISION = "decision"
 AFFILIATION = "affiliation"
 OWNERSHIP = "ownership"
+CURRENT_WORK = "current_work"
 REPORT = "report"
 ADVISORY = "advisory"
 PLAN = "plan"
@@ -59,6 +60,7 @@ POLICIES = (
     DECISION,
     AFFILIATION,
     OWNERSHIP,
+    CURRENT_WORK,
     REPORT,
     ADVISORY,
     PLAN,
@@ -90,6 +92,7 @@ POLICY_MODES = {
     DECISION: EVIDENCE,
     AFFILIATION: EVIDENCE,
     OWNERSHIP: EVIDENCE,
+    CURRENT_WORK: EVIDENCE,
     REPORT: EVIDENCE,
     DISCOVER: EVIDENCE,
     RECEIPTS: EVIDENCE,
@@ -179,7 +182,29 @@ _OWNERSHIP = _AnyOf(
         _POSSESSIVE
         + r"(?i:\s+(?:(?:open|current|outstanding|pending|remaining|upcoming|next)\s+)?"
         r"(?:action\s+items?|tasks?|to-?dos?|to-?do\s+list|deliverables?|assignments?|"
-        r"responsibilities|plate)\b)"
+        r"responsibilities)\b)"
+    ),
+)
+
+
+#: What someone is working on *now*: a workstream-level question, not a task
+#: list. "What is Daniel working on this week?" and "what's on my plate?" read
+#: the same assigned work as ownership does, then summarize it. Checked ahead
+#: of ownership. "What is Frank working on with Eliro?" is scoped to a topic
+#: and stays an ordinary lookup, and so does the historical "what has Daniel
+#: worked on?".
+_CURRENT_WORK = _AnyOf(
+    re.compile(
+        r"(?i:\bwhat(?:'s|’s|\s+is|\s+are|\s+am)\s+)" + _SUBJECT
+        + r"(?i:\s+(?:(?:currently|actually|really|mainly|mostly|primarily|still|now)\s+)?"
+        r"(?:working\s+on|focused\s+on|focusing\s+on|busy\s+with|up\s+to)\b)"
+        r"(?!\s+(?:with|for|at|about|regarding)\b)"
+    ),
+    re.compile(r"(?i:\bon\s+)" + _POSSESSIVE + r"(?i:\s+plate\b)"),
+    re.compile(
+        _POSSESSIVE
+        + r"(?i:\s+(?:(?:current|top|main|present)\s+)?"
+        r"(?:priorities|focus|focus\s+areas|workstreams?|work\s+streams?)\b)"
     ),
 )
 
@@ -266,6 +291,7 @@ _PATTERNS: Tuple[Tuple[str, Any], ...] = (
             re.IGNORECASE,
         ),
     ),
+    (CURRENT_WORK, _CURRENT_WORK),
     (OWNERSHIP, _OWNERSHIP),
     (
         AFFILIATION,
@@ -436,6 +462,13 @@ PEOPLE_POLICIES = frozenset({AFFILIATION})
 #: participation and never from an authored description (§ ownership).
 ASSIGNMENT_POLICIES = frozenset({OWNERSHIP})
 
+#: Policies answered from the same assigned work, reduced to what is open now
+#: and summarized by workstream (§ current work).
+CURRENT_WORK_POLICIES = frozenset({CURRENT_WORK})
+
+#: Policies whose ``subject`` is a person to resolve.
+PERSON_SUBJECT_POLICIES = ASSIGNMENT_POLICIES | CURRENT_WORK_POLICIES
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -446,7 +479,7 @@ class Intent:
     scenario: bool = False
     listing: bool = False
     matched: str = ""
-    #: Whom an ownership question is about, exactly as written ("Daniel",
+    #: Whom an ownership or current-work question is about, exactly as written ("Daniel",
     #: "I", "me"). Resolved to a person later, against canonical names and
     #: verified aliases; never guessed here.
     subject: str = ""
@@ -468,6 +501,11 @@ class Intent:
     def wants_assignments(self) -> bool:
         """Whether this question asks for the work assigned to one person."""
         return self.policy in ASSIGNMENT_POLICIES
+
+    @property
+    def wants_current_work(self) -> bool:
+        """Whether this question asks what one person is working on now."""
+        return self.policy in CURRENT_WORK_POLICIES
 
     @property
     def wants_identity(self) -> bool:
@@ -523,7 +561,7 @@ def _match_policy(text: str) -> Tuple[str, str, str]:
     for policy, pattern in _PATTERNS:
         found = pattern.search(text)
         if found:
-            subject = _subject_of(found) if policy == OWNERSHIP else ""
+            subject = _subject_of(found) if policy in PERSON_SUBJECT_POLICIES else ""
             return policy, found.group(0).strip(), subject
     return LOOKUP, "", ""
 
@@ -541,6 +579,7 @@ POLICY_DESCRIPTIONS = {
     DECISION: "Retrieve decisions, action items, and open questions structurally.",
     AFFILIATION: "Assemble who is involved, from participation signals rather than a roster.",
     OWNERSHIP: "List the work explicitly assigned to one person, from owners stated in the evidence.",
+    CURRENT_WORK: "Summarize one person's open, current assigned work by workstream.",
     REPORT: "Summarize a topic across the evidence found.",
     ADVISORY: "Recommend a course of action, grounded in cited facts.",
     PLAN: "Propose a concrete plan, grounded in cited facts.",

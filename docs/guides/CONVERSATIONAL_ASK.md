@@ -179,6 +179,7 @@ injection from re-aiming the answer.
 | `definition` | "What is GANG?" — answered from [authored identity](FOUNDATIONAL_KNOWLEDGE.md) first |
 | `affiliation` | "Who is on the team?" — assembled from participation signals |
 | `ownership` | "What does Daniel need to do?" — work explicitly assigned to one person |
+| `current_work` | "What is Daniel working on this week?" — that work, open and recent, by workstream |
 | `status` | "What's happening with certification?" |
 | `timeline` | "What changed with packaging this month?" |
 | `compare` | "Compare the September schedules." |
@@ -278,6 +279,45 @@ task stated in a meeting recap, a daily schedule, and a follow-up collapses
 into one cited line; the newest stated status wins, and completed or
 superseded work is listed apart from current work. No model is called.
 
+## What someone is working on now
+
+"What is Daniel working on this week?", "what's Frank focused on right now?",
+"what's on my plate?", and "what are my current priorities?" route to the
+`current_work` policy. It is not a recency search: the newest documents that
+mention a person are invitations, newsletters, and alerts, and being sent
+something is not working on it. "What is Frank working on *with Eliro*?" is
+scoped to a topic and stays an ordinary lookup.
+
+`find_current_work` reads the same assigned work `find_assignments` does, with
+the same reader, and keeps what is current:
+
+- **open** — completed and superseded work is left out;
+- **recently stated** — an item nobody restated in the last 21 days is history;
+- **not far off** — a not-yet-started item due more than two weeks after this
+  week (Monday–Sunday) is later work. Overdue work that is still open stays in.
+
+Documents classified as bulk mail — newsletters, marketing, receipts, system
+alerts, and calendar notifications — never contribute a work item, even when
+they are worded like one. Recent materialized decisions and calendar
+invitations are attached to an item only when their words connect to it, and
+are shown as related context under it, never as work.
+
+The selected items (at most 20) form a structured packet: task, category,
+status, deadline, timing, co-owners, related context. When a loopback local
+model is configured, **one** call groups the packet into four to eight
+workstreams. The model sees only the packet — no document text — and returns
+titles, one-line summaries, and item ids. Code then keeps only workstreams whose
+ids exist and whose words come from their items, derives each workstream's
+status, deadline, and citations from its items, and lists any overdue or
+due-this-week item the model left out (the rest are counted). If the model fails, times out, or nothing it says
+survives, the answer is the deterministic grouped list of the same packet. No
+remote provider is ever used for this capability, so restricted evidence and
+`--local-only` have nothing to fall back from. `--no-ai` returns the grouped
+list directly.
+
+"What does Daniel need to do?" still returns the full task list; the two answers
+read the same evidence.
+
 ---
 
 ## Research tools
@@ -290,7 +330,8 @@ search_documents          get_document              get_document_excerpt
 get_document_history      get_entity                get_entity_documents
 get_relationships         find_decisions            find_action_items
 find_open_questions       find_participants         find_assignments
-build_timeline            compare_documents         compare_document_versions
+find_current_work         build_timeline            compare_documents
+compare_document_versions
 ```
 
 Every tool is read-only, has a typed schema whose parameters are validated
