@@ -9,6 +9,8 @@
   --accent-soft: #fff;
   --warn: #000;
   --recommend: #fff;
+  --space: 8px;
+  --space-y: 4px;
 }
 
 * {
@@ -44,7 +46,7 @@ button {
   background: #fff;
   color: #000;
   min-height: 28px;
-  padding: 2px 8px;
+  padding: var(--space-y) var(--space);
   cursor: pointer;
 }
 
@@ -72,7 +74,7 @@ button:disabled {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 12px;
+  padding: var(--space);
   background: #fff;
 }
 
@@ -94,7 +96,7 @@ button:disabled {
 }
 
 h1 {
-  margin: 4px 0 10px;
+  margin: var(--space-y) 0;
   font-size: 14px;
   line-height: 1.3;
   letter-spacing: 0;
@@ -103,17 +105,19 @@ h1 {
 
 .connect-form {
   display: grid;
-  gap: 6px;
+  gap: var(--space-y);
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid #000;
   border-radius: 0;
   background: #fff;
   color: #000;
-  padding: 4px 6px;
+  padding: var(--space-y) var(--space);
+  font: inherit;
 }
 
 input[type="radio"] {
@@ -121,34 +125,48 @@ input[type="radio"] {
   margin: 0;
 }
 
-textarea {
-  resize: vertical;
-  min-height: 36px;
-  max-height: 120px;
+select {
+  width: auto;
+  min-height: 28px;
+  cursor: pointer;
 }
 
 .chat-view {
+  position: relative;
   height: 100vh;
   height: 100dvh;
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
   background: #fff;
   overflow: hidden;
   min-width: 0;
+  width: 100%;
 }
 
 .history {
-  border-right: 1px solid #000;
-  padding: 8px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: max(0px, calc(50% - 478px - 220px - 16px));
+  width: 220px;
+  padding: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-y);
   background: #fff;
-  height: 100%;
   overflow: auto;
+  z-index: 3;
 }
 
 .history-top {
   display: grid;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: var(--space-y);
+}
+
+.principal-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space);
+  margin: 0;
 }
 
 .principal {
@@ -156,81 +174,131 @@ textarea {
   font-weight: 700;
 }
 
-.quiet-button,
-.new-button,
-.session-delete {
-  background: #fff;
+.forget-device {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
   color: #000;
+  cursor: pointer;
+  display: none;
+}
+
+.principal-row:hover .forget-device,
+.principal-row:focus-within .forget-device {
+  display: inline;
 }
 
 .new-button {
+  background: #fff;
+  color: #000;
   width: 100%;
-  margin-bottom: 8px;
 }
 
 .session-list {
   display: grid;
-  gap: 4px;
+  gap: var(--space-y);
 }
 
 .session-item {
+  position: relative;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px;
-  border-top: 1px solid #000;
-  padding-top: 4px;
-}
-
-.session-select,
-.session-delete {
-  min-height: 24px;
-  padding: 2px 4px;
-  text-align: left;
+  gap: var(--space-y);
+  padding: var(--space-y) 0;
 }
 
 .session-select {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-y);
+  width: 100%;
   border: 0;
+  background: transparent;
+  padding: 0 48px 0 0;
+  min-height: 0;
+  text-align: left;
+  cursor: pointer;
 }
 
-.session-select.active {
-  color: #000;
+.session-title {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-select.active .session-title {
   font-weight: 700;
   text-decoration: underline;
 }
 
+.session-updated {
+  display: block;
+  margin: 0;
+}
+
+.session-delete {
+  position: absolute;
+  top: var(--space-y);
+  right: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  color: #000;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.session-item:hover .session-delete,
+.session-item:focus-within .session-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .conversation {
   min-width: 0;
-  max-width: 100%;
+  width: min(956px, 100%);
+  max-width: 956px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   background: #fff;
+  border-left: 1px solid #000;
+  border-right: 1px solid #000;
 }
 
 .thread {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 8px 12px 12px;
+  padding: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-y);
   overflow: auto;
   background: #fff;
 }
 
-.empty-note {
-  color: #000;
-  max-width: 620px;
+.message {
+  max-width: 100%;
   margin: 0;
 }
 
-.message {
-  max-width: 820px;
-  margin: 0 0 10px;
+.message.assistant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-y);
 }
 
 .message.user {
   font-size: 14px;
   border-left: 2px solid #000;
-  padding-left: 8px;
+  padding-left: var(--space);
 }
 
 .mode-label,
@@ -239,11 +307,11 @@ textarea {
   font: 700 14px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
   text-transform: uppercase;
-  margin: 0 0 2px;
+  margin: 0;
 }
 
 .answer-body {
-  margin: 4px 0 8px;
+  margin: 0;
   white-space: pre-wrap;
 }
 
@@ -251,15 +319,15 @@ textarea {
 .source-list,
 .status-list {
   list-style: none;
-  margin: 4px 0 8px;
+  margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: var(--space-y);
 }
 
 .claim {
   border-left: 2px solid #000;
-  padding-left: 8px;
+  padding-left: var(--space);
 }
 
 .claim.inference {
@@ -269,15 +337,18 @@ textarea {
 .recommendation {
   background: #fff;
   border: 1px solid #000;
-  padding: 6px;
-  margin: 6px 0;
+  padding: var(--space);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-y);
 }
 
 .status-block {
   border-top: 1px solid #000;
   border-bottom: 1px solid #000;
-  padding: 4px 0;
-  margin: 6px 0;
+  padding: var(--space-y) 0;
+  margin: 0;
 }
 
 .insufficient {
@@ -287,9 +358,9 @@ textarea {
 
 .source-list li {
   display: grid;
-  gap: 0;
+  gap: var(--space-y);
   border-top: 1px solid #000;
-  padding-top: 4px;
+  padding-top: var(--space-y);
 }
 
 .composer {
@@ -297,69 +368,66 @@ textarea {
   position: sticky;
   bottom: 0;
   z-index: 2;
-  border-top: 1px solid #000;
-  padding: 6px 8px;
+  padding: 0 var(--space) var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-y);
   background: #fff;
   min-width: 0;
   max-width: 100%;
 }
 
-.level-picker {
+.composer-box {
+  border: 1px solid #000;
+  padding: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  background: #fff;
+}
+
+.composer-box:focus-within {
+  outline: 1px solid #000;
+}
+
+.composer-box textarea {
+  width: 100%;
+  min-width: 0;
   border: 0;
   padding: 0;
-  margin: 0 0 4px;
+  resize: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 1.3em;
+  max-height: 40vh;
+  line-height: 1.3;
+}
+
+.composer-box textarea:focus {
+  outline: none;
+}
+
+.composer-actions {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space);
   min-width: 0;
+}
+
+.composer-actions select {
+  width: auto;
   max-width: 100%;
 }
 
-.level-picker legend {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-}
-
-.level-picker label {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  color: #000;
-  font: 14px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.level-picker span,
-.level-picker small {
-  color: #000;
-  font-weight: 400;
-}
-
-.level-picker span {
-  font-weight: 700;
-}
-
-.composer-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 6px;
-  align-items: end;
-  width: 100%;
-}
-
-.composer-row textarea {
-  width: 100%;
-  min-width: 0;
-}
-
-.composer-row button {
+.composer-actions button {
   width: max-content;
+  margin-left: auto;
 }
 
 .answer-status {
-  margin-top: 4px;
+  margin: 0;
 }
 
 .sr-only {
@@ -372,19 +440,24 @@ textarea {
 
 @media (max-width: 760px) {
   .chat-view {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
   .history {
+    position: relative;
+    left: auto;
+    width: 100%;
     height: auto;
     max-height: 28vh;
-    border-right: 0;
+    z-index: 1;
     border-bottom: 1px solid #000;
   }
 
   .conversation {
     min-height: 0;
+    flex: 1 1 auto;
+    border-left: 0;
   }
 
   .composer {
@@ -392,20 +465,11 @@ textarea {
     bottom: 0;
   }
 
-  .composer-row {
-    grid-template-columns: 1fr;
-  }
-
-  .composer-row button {
-    width: 100%;
-  }
-
   button {
     width: auto;
   }
 
-  .new-button,
-  .quiet-button {
+  .new-button {
     width: auto;
   }
 }

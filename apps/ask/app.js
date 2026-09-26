@@ -105,12 +105,23 @@
     state.busy = Boolean(value);
     nodes.sendButton.disabled = state.busy;
     nodes.questionInput.disabled = state.busy;
+    if (nodes.levelSelect) {
+      nodes.levelSelect.disabled = state.busy;
+    }
   }
 
   function selectedLevel() {
-    var checked = document.querySelector("input[name='level']:checked");
-    var level = checked ? checked.value : "normal";
+    var level = nodes.levelSelect ? nodes.levelSelect.value : "normal";
     return level === "fast" ? "fast" : "normal";
+  }
+
+  function resizeQuestionInput() {
+    var input = nodes.questionInput;
+    if (!input) {
+      return;
+    }
+    input.style.height = "0px";
+    input.style.height = input.scrollHeight + "px";
   }
 
   function buildAskPayload(question, sessionId, level) {
@@ -138,6 +149,7 @@
       thread: byId("thread"),
       composer: byId("composer"),
       questionInput: byId("question-input"),
+      levelSelect: byId("level-select"),
       sendButton: byId("send-button"),
       answerStatus: byId("answer-status")
     };
@@ -169,6 +181,9 @@
       event.preventDefault();
       submitQuestion();
     });
+
+    nodes.questionInput.addEventListener("input", resizeQuestionInput);
+    resizeQuestionInput();
 
     state.token = localStorage.getItem(TOKEN_KEY) || "";
     if (!state.token) {
@@ -217,15 +232,22 @@
       select.type = "button";
       select.dataset.sessionId = text(session.session_id);
       var title = text(array(session.active_topics)[0]) || "Conversation";
-      select.appendChild(el("span", "", title));
-      select.appendChild(el("span", "meta", sessionMeta(session)));
+      select.appendChild(el("span", "session-title", title));
+      var updated = relativeUpdated(session.updated);
+      if (updated) {
+        var stamp = el("span", "session-updated", updated);
+        stamp.title = text(session.updated);
+        select.appendChild(stamp);
+      }
       select.addEventListener("click", function () {
         loadSession(text(session.session_id));
       });
 
       var remove = el("button", "session-delete", "Delete");
       remove.type = "button";
-      remove.addEventListener("click", function () {
+      remove.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
         deleteSession(text(session.session_id));
       });
 
@@ -236,11 +258,24 @@
     markActiveSession();
   }
 
-  function sessionMeta(session) {
-    var turns = Number(session.turn_count || 0);
-    var label = turns === 1 ? "1 turn" : String(turns) + " turns";
-    var updated = text(session.updated);
-    return updated ? label + " · " + updated : label;
+  function relativeUpdated(value) {
+    var parsed = Date.parse(text(value));
+    if (!isFinite(parsed)) {
+      return "";
+    }
+    var seconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+    if (seconds < 60) {
+      return "now";
+    }
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return String(minutes) + "m";
+    }
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return String(hours) + "h";
+    }
+    return String(Math.floor(hours / 24)) + "d";
   }
 
   function markActiveSession() {
@@ -286,7 +321,6 @@
 
   function renderEmptyThread() {
     nodes.thread.replaceChildren();
-    nodes.thread.appendChild(el("p", "empty-note", "Ask a private corpus question. Answers stay grounded in cited evidence, and recommendations are separated from recorded facts."));
     setStatus("");
   }
 
@@ -321,11 +355,9 @@
     if (!question) {
       return;
     }
-    if (nodes.thread.querySelector(".empty-note")) {
-      nodes.thread.replaceChildren();
-    }
     appendUserMessage(question);
     nodes.questionInput.value = "";
+    resizeQuestionInput();
     setBusy(true);
     setStatus("Waiting...");
     api("/v1/ask", {

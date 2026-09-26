@@ -25,11 +25,10 @@
     <section id="chat-view" class="chat-view hidden" aria-label="GANG chat">
       <aside class="history" aria-label="Session history">
         <div class="history-top">
-          <div>
-            <p class="kicker">Signed in</p>
-            <p id="principal-name" class="principal"></p>
-          </div>
-          <button id="forget-device" class="quiet-button" type="button">Forget this device</button>
+          <p class="principal-row">
+            <span id="principal-name" class="principal"></span>
+            <button id="forget-device" class="forget-device" type="button">Forget this device</button>
+          </p>
         </div>
         <button id="new-conversation" class="new-button" type="button">New conversation</button>
         <nav id="session-list" class="session-list" aria-label="Conversations"></nav>
@@ -38,23 +37,17 @@
       <section class="conversation" aria-label="Conversation">
         <div id="thread" class="thread" aria-live="polite"></div>
         <form id="composer" class="composer">
-          <fieldset class="level-picker">
-            <legend>Response level</legend>
-            <label>
-              <input type="radio" name="level" value="fast">
-              <span>Fast</span>
-              <small>deterministic lookups</small>
-            </label>
-            <label>
-              <input type="radio" name="level" value="normal" checked>
-              <span>Normal</span>
-              <small>local synthesis</small>
-            </label>
-          </fieldset>
-          <div class="composer-row">
+          <div class="composer-box">
             <label class="sr-only" for="question-input">Message</label>
-            <textarea id="question-input" rows="2" placeholder="Ask GANG..." required></textarea>
-            <button id="send-button" type="submit">Send</button>
+            <textarea id="question-input" rows="1" placeholder="Ask GANG..." required></textarea>
+            <div class="composer-actions">
+              <label class="sr-only" for="level-select">Response level</label>
+              <select id="level-select" name="level">
+                <option value="fast">Fast</option>
+                <option value="normal" selected>Normal</option>
+              </select>
+              <button id="send-button" type="submit">Send</button>
+            </div>
           </div>
           <p id="answer-status" class="answer-status" role="status"></p>
         </form>
