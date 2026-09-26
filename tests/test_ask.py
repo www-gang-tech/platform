@@ -51,7 +51,7 @@ from core.ask.grounding import (
     is_unsupported_categorical_negative,
     soften_unsupported_negatives,
 )
-from core.ask.plan import MAX_LIMIT
+from core.ask.plan import MAX_LIMIT, SLICE_LIMIT
 from core.ask.synthesis import INSUFFICIENT_EVIDENCE, AnthropicAnswerSynthesizer
 from core.entities import EntityService
 from core.private_index import PrivateKnowledgeIndex
@@ -448,9 +448,108 @@ class RetrievalTests(AskTestCase):
         )
         self.assertEqual(len(requested["sources"]), 3)
 
+    def test_entity_year_slice_retrieves_every_matching_document(self):
+        company = self.entities().create("company", "Acme Legal")
+        in_window = []
+        for index in range(28):
+            source_type = "gmail-thread" if index % 2 == 0 else "gmail-attachment"
+            folder = "emails" if source_type == "gmail-thread" else "documents"
+            doc_id = f"01a0ddf1-7f14-7b41-a4e3-f4dbd6a39{index:03d}"
+            in_window.append(doc_id)
+            write_markdown(
+                self.home / f"vault/{folder}/acme-{index}.md",
+                {
+                    "id": doc_id,
+                    "type": "knowledge",
+                    "source_type": source_type,
+                    "title": f"Acme Legal {'invoice' if index % 3 == 0 else 'email'} {index}",
+                    "visibility": "private",
+                    "status": "active",
+                    "created": f"2026-{(index % 9) + 1:02d}-15",
+                    "updated": f"2026-{(index % 9) + 1:02d}-15",
+                    "entity_refs": [
+                        {
+                            "entity_id": company.id,
+                            "entity_type": "company",
+                            "label": "Acme Legal",
+                        }
+                    ],
+                },
+                f"Acme Legal correspondence {index}. Invoice payment discussion.\n",
+            )
+        prior_year = []
+        for index in range(3):
+            doc_id = f"01a0ddf1-7f14-7b41-a4e3-f4dbd6a38{index:03d}"
+            prior_year.append(doc_id)
+            write_markdown(
+                self.home / f"vault/emails/acme-2025-{index}.md",
+                {
+                    "id": doc_id,
+                    "type": "knowledge",
+                    "source_type": "gmail-thread",
+                    "title": f"Acme Legal 2025 thread {index}",
+                    "visibility": "private",
+                    "status": "active",
+                    "created": "2025-12-15",
+                    "updated": "2025-12-15",
+                    "entity_refs": [
+                        {
+                            "entity_id": company.id,
+                            "entity_type": "company",
+                            "label": "Acme Legal",
+                        }
+                    ],
+                },
+                f"Acme Legal 2025 correspondence {index}. Invoice payment discussion.\n",
+            )
+        unrelated = []
+        for index in range(5):
+            doc_id = f"01a0ddf1-7f14-7b41-a4e3-f4dbd6a37{index:03d}"
+            unrelated.append(doc_id)
+            write_markdown(
+                self.home / f"vault/documents/other-invoice-{index}.md",
+                {
+                    "id": doc_id,
+                    "type": "knowledge",
+                    "source_type": "gmail-attachment",
+                    "title": f"Other vendor invoice {index}",
+                    "visibility": "private",
+                    "status": "active",
+                    "created": "2026-06-15",
+                    "updated": "2026-06-15",
+                },
+                "Invoice payment from Other Vendor for unrelated work.\n",
+            )
+        self.build_index()
+
+        result = self.ask("How much have we paid Acme Legal since 2026?")
+        ids = {item["document_id"] for item in result["sources"]}
+
+        self.assertEqual(result["plan"]["limit"], SLICE_LIMIT)
+        self.assertEqual(result["plan"]["order"], "recency")
+        self.assertEqual(ids, set(in_window))
+        self.assertTrue(set(prior_year).isdisjoint(ids))
+        self.assertTrue(set(unrelated).isdisjoint(ids))
+        self.assertEqual(
+            {item["source_type"] for item in result["sources"]},
+            {"gmail-thread", "gmail-attachment"},
+        )
+
     def test_limit_is_clamped_so_no_plan_can_request_the_whole_vault(self):
         plan = validate_plan({"query": "everything", "limit": 5000})
         self.assertEqual(plan.limit, MAX_LIMIT)
+
+    def test_entity_date_slice_is_capped_at_the_slice_not_the_open_search_limit(self):
+        plan = validate_plan(
+            {
+                "query": "everything about Acme from 2026",
+                "entity_ids": ["01a0bbf1-7f14-7b41-a4e3-f4dbd6a37b01"],
+                "date_range": {"field": "updated", "start": "2026-01-01", "end": ""},
+                "limit": 5000,
+            }
+        )
+        self.assertEqual(plan.limit, SLICE_LIMIT)
+        self.assertTrue(plan.is_scoped_slice)
 
     def test_excerpts_are_bounded_rather_than_whole_documents(self):
         write_markdown(
@@ -477,6 +576,25 @@ class RetrievalTests(AskTestCase):
         for excerpt in item["excerpts"]:
             self.assertLessEqual(len(excerpt), 400)
         self.assertNotIn("body", item)
+
+    def test_gmail_excerpts_skip_thread_metadata_and_reach_the_amount(self):
+        from core.ask.evidence import extract_excerpts
+
+        body = (
+            "# Dorf Nelson Invoice\n\n"
+            "## Thread Metadata\n\n"
+            "- Participants: Jennifer Nelson Flynn, Daniel\n"
+            "- Gmail thread ID: abc\n\n"
+            "## Messages\n\n"
+            "### Message 1\n\n"
+            "Dorf Nelson & Zauderer LLP\n\n"
+            "Total due\n\n"
+            "$8,320.00\n\n"
+            "Payment due upon receipt.\n"
+        )
+        joined = " ".join(extract_excerpts(body, ["dorf", "nelson", "payment"]))
+        self.assertIn("$8,320.00", joined)
+        self.assertNotIn("Jennifer Nelson Flynn", joined)
 
     def test_weak_single_term_matches_lose_to_entity_matches(self):
         frank, eliro, _ = self.seed_entities()
@@ -591,6 +709,24 @@ class TemporalTests(AskTestCase):
         self.assertEqual(
             resolve_question_range("What happened before 2026-09-05?", clock=self.CLOCK),
             {"field": "updated", "start": "", "end": "2026-09-05"},
+        )
+
+    def test_year_only_since_and_in_resolve(self):
+        self.assertEqual(
+            resolve_question_range("How much have we paid Dorf Nelson since 2026?", clock=self.CLOCK),
+            {"field": "updated", "start": "2026-01-01", "end": ""},
+        )
+        self.assertEqual(
+            resolve_question_range("What changed in 2026?", clock=self.CLOCK),
+            {"field": "updated", "start": "2026-01-01", "end": "2026-09-20"},
+        )
+        self.assertEqual(
+            resolve_question_range("What happened before 2026?", clock=self.CLOCK),
+            {"field": "updated", "start": "", "end": "2026-12-31"},
+        )
+        self.assertEqual(
+            resolve_question_range("What changed since 2026-08?", clock=self.CLOCK),
+            {"field": "updated", "start": "2026-08-01", "end": ""},
         )
 
     def test_questions_without_temporal_language_get_no_range(self):
@@ -1066,6 +1202,38 @@ class QueryPlanTests(AskTestCase):
         planning = DeterministicPlanner().plan('What did we decide about "mounting plate tooling"?')
         self.assertIn("mounting plate tooling", planning.plan.text_queries)
         self.assertEqual(planning.plan.text_queries[0], "mounting plate tooling")
+
+    def test_how_much_paid_plans_a_year_window_and_invoice_terms(self):
+        planning = DeterministicPlanner(clock=date(2026, 9, 20)).plan(
+            "How much have we paid Dorf Nelson since 2026?"
+        )
+        self.assertEqual(
+            planning.plan.date_range.to_dict(),
+            {"field": "updated", "start": "2026-01-01", "end": ""},
+        )
+        terms = [term.lower() for term in planning.plan.text_queries]
+        self.assertIn("paid", terms)
+        self.assertIn("dorf nelson", terms)
+        self.assertIn("invoice", terms)
+        self.assertIn("payment", terms)
+        self.assertNotIn("much", terms)
+        self.assertNotIn("since", terms)
+        self.assertNotIn("2026", terms)
+        self.assertEqual(planning.plan.limit, 16)
+
+    def test_resolved_entity_and_year_takes_the_whole_slice(self):
+        company = self.entities().create("company", "Acme Legal")
+        planning = DeterministicPlanner(
+            resolver=self.entities().resolver(), clock=date(2026, 9, 20)
+        ).plan("How much have we paid Acme Legal since 2026?")
+        self.assertEqual(planning.plan.entity_ids, [company.id])
+        self.assertEqual(
+            planning.plan.date_range.to_dict(),
+            {"field": "updated", "start": "2026-01-01", "end": ""},
+        )
+        self.assertEqual(planning.plan.limit, SLICE_LIMIT)
+        self.assertEqual(planning.plan.order, "recency")
+        self.assertTrue(planning.plan.is_scoped_slice)
 
 
 # ================================================================= safety

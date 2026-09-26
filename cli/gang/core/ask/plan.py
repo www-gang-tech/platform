@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 
 PLAN_VERSION = "1"
@@ -43,9 +43,14 @@ ORDERS = ("relevance", "recency")
 
 VISIBILITIES = ("private", "public")
 
-#: A bounded evidence set is the point. 8 by default, never more than 25.
+#: Open-corpus searches stay small so a loose question cannot dump the vault.
 DEFAULT_LIMIT = 8
 MAX_LIMIT = 25
+
+#: An entity plus an explicit date window is already a slice, not a ranking
+#: problem. Return every matching document in that window, up to the same cap
+#: a single retrieval pass already uses (`PASS_LIMIT` in retrieval.py).
+SLICE_LIMIT = 200
 
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ENTITY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
@@ -127,6 +132,11 @@ class QueryPlan:
             or (self.date_range and not self.date_range.empty)
         )
 
+    @property
+    def is_scoped_slice(self) -> bool:
+        """Named entity inside an explicit date window — enumerate, don't rank-cut."""
+        return is_scoped_slice(self.entity_ids, self.date_range)
+
 
 def validate_plan(value: Any) -> QueryPlan:
     """Schema-validate an untrusted plan object into a `QueryPlan`."""
@@ -165,7 +175,7 @@ def validate_plan(value: Any) -> QueryPlan:
         date_range=_date_range(value.get("date_range")),
         enrichment_status=_enrichment_status(value.get("enrichment_status")),
         order=order,
-        limit=_limit(value.get("limit")),
+        limit=_limit(value.get("limit"), cap=_limit_cap(value)),
     )
 
 
@@ -289,12 +299,34 @@ def _enrichment_status(value: Any) -> List[str]:
     return result
 
 
-def _limit(value: Any) -> int:
+def is_scoped_slice(entity_ids: Optional[Sequence[str]], date_range: Any) -> bool:
+    """True when retrieval can enumerate a named entity inside a date window.
+
+    "Dorf Nelson from 2026" is that kind of question: the bound is the slice
+    itself (every invoice, thread, attachment in the window), not a top-k
+    ranking cut. An open search with no entity still cannot request the vault.
+    """
+    if not entity_ids:
+        return False
+    if isinstance(date_range, DateRange):
+        return not date_range.empty
+    if isinstance(date_range, dict):
+        return bool(date_range.get("start") or date_range.get("end"))
+    return False
+
+
+def _limit_cap(value: Dict[str, Any]) -> int:
+    if is_scoped_slice(value.get("entity_ids") or [], value.get("date_range")):
+        return SLICE_LIMIT
+    return MAX_LIMIT
+
+
+def _limit(value: Any, *, cap: int = MAX_LIMIT) -> int:
     if value is None:
         return DEFAULT_LIMIT
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise QueryPlanError("limit must be a number")
-    return max(1, min(int(value), MAX_LIMIT))
+    return max(1, min(int(value), cap))
 
 
 def _text(value: Any) -> str:

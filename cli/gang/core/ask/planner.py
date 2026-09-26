@@ -26,10 +26,13 @@ from core.entities.resolver import AMBIGUOUS, RESOLVED, EntityResolver
 from . import temporal
 from .plan import (
     DEFAULT_LIMIT,
+    MAX_LIMIT,
     MAX_TEXT_QUERIES,
+    SLICE_LIMIT,
     QueryPlan,
     QueryPlanError,
     RelationshipFilter,
+    is_scoped_slice,
     validate_plan,
 )
 
@@ -40,9 +43,9 @@ STOPWORDS = frozenset(
     """
     a about all am an and any are as at be been being but by can could did do does
     doing done for from get got had has have how i if in into is it its just me
-    my of on or our ours out over please so some tell than that the their
-    them then there these they this those to told us was we were what when where
-    which who whom why will with would you your
+    many much my of on or our ours out over please since so some tell than that
+    the their them then there these they this those to told us was we were what
+    when where which who whom why will with would you your
     """.split()
 ) | frozenset(
     # Words that describe the *request* rather than its subject. In a corpus
@@ -64,6 +67,18 @@ _LISTING_PATTERN = re.compile(
 
 _QUOTED_PATTERN = re.compile(r"[\"“”']([^\"“”']{2,120})[\"“”']")
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9'._@-]*")
+
+#: "How much have we paid X" is a money question. The verb `paid` does not
+#: appear on Clio invoices (`Payment`, `Invoice`), so retrieval has to look
+#: for those nouns or the packet is all correspondence that happened to say
+#: "Nelson".
+_PAYMENT_QUESTION = re.compile(
+    r"\bhow\s+much\b.{0,80}\b(?:paid|pay|spent|owe[ds]?)\b"
+    r"|\b(?:paid|pay|spent|owe[ds]?)\b.{0,80}\bhow\s+much\b",
+    re.IGNORECASE,
+)
+_PAYMENT_TERMS = ("invoice", "payment")
+PAYMENT_EVIDENCE_LIMIT = 16
 
 MAX_NGRAM = 4
 MAX_CATALOG_ENTITIES = 120
@@ -121,13 +136,26 @@ class DeterministicPlanner:
         resolved, ambiguities, consumed = self._resolve_names(question)
         entity_ids = _unique(list(overrides.entity_ids) + [item["entity_id"] for item in resolved])
 
+        date_range = self._date_range(question, overrides)
+        skip = consumed | {phrase.lower() for phrase in quoted}
+        if date_range:
+            skip |= {term.lower() for term in temporal.consumed_temporal_terms(question)}
+
         text_queries = list(quoted)
-        for term in _content_terms(question, skip=consumed | {phrase.lower() for phrase in quoted}):
+        for term in _content_terms(question, skip=skip):
             if term not in text_queries:
                 text_queries.append(term)
+        for phrase in _proper_noun_phrases(question, skip=skip):
+            if phrase not in text_queries:
+                text_queries.append(phrase)
+        if _PAYMENT_QUESTION.search(question):
+            existing = {term.lower() for term in text_queries}
+            for term in _PAYMENT_TERMS:
+                if term not in existing:
+                    text_queries.append(term)
+                    existing.add(term)
         text_queries = text_queries[:MAX_TEXT_QUERIES]
 
-        date_range = self._date_range(question, overrides)
         notes: List[str] = []
         if date_range:
             notes.append(
@@ -145,8 +173,10 @@ class DeterministicPlanner:
                 "source_types": list(overrides.source_types),
                 "visibility": overrides.visibility,
                 "date_range": date_range,
-                "order": overrides.order or ("recency" if _wants_recency(question) else "relevance"),
-                "limit": overrides.limit,
+                "order": overrides.order or _plan_order(question, entity_ids, date_range),
+                "limit": _plan_limit(
+                    question, overrides.limit, entity_ids=entity_ids, date_range=date_range
+                ),
             }
         )
 
@@ -440,10 +470,74 @@ def _content_terms(question: str, *, skip: set) -> List[str]:
     return terms
 
 
+def _proper_noun_phrases(question: str, *, skip: set) -> List[str]:
+    """Keep capitalized runs as phrases so 'Dorf Nelson' is searched as one.
+
+    Unigrams of a proper name collide with other people who share a token
+    (Jennifer *Nelson* Flynn). A quoted FTS phrase does not.
+    """
+    tokens = _TOKEN_PATTERN.findall(question)
+    phrases: List[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token[:1].isupper() and token.lower() not in STOPWORDS:
+            end = index + 1
+            while (
+                end < len(tokens)
+                and tokens[end][:1].isupper()
+                and tokens[end].lower() not in STOPWORDS
+            ):
+                end += 1
+            if end - index >= 2:
+                phrase = " ".join(tokens[index:end])
+                if phrase.lower() not in skip and phrase not in phrases:
+                    phrases.append(phrase)
+            index = end
+        else:
+            index += 1
+    return phrases
+
+
 def _wants_recency(question: str) -> bool:
     return bool(
         re.search(r"\b(recent|recently|latest|newest|lately|this week|this month|today)\b", question, re.IGNORECASE)
     )
+
+
+def _plan_order(
+    question: str,
+    entity_ids: Sequence[str],
+    date_range: Optional[Dict[str, str]],
+) -> str:
+    if is_scoped_slice(entity_ids, date_range):
+        return "recency"
+    if _wants_recency(question):
+        return "recency"
+    return "relevance"
+
+
+def _plan_limit(
+    question: str,
+    requested: int,
+    *,
+    entity_ids: Sequence[str],
+    date_range: Optional[Dict[str, str]],
+) -> int:
+    """Pick a retrieval window that matches how the question is scoped.
+
+    A named entity inside an explicit date range is a slice to enumerate —
+    every invoice, thread, and attachment in that window — not a top-k ranking
+    problem. Payment questions without a resolved entity still get a modest
+    bump so one Clio PDF is not crowded out by notification mail.
+    """
+    if requested != DEFAULT_LIMIT:
+        return requested
+    if is_scoped_slice(entity_ids, date_range):
+        return SLICE_LIMIT
+    if _PAYMENT_QUESTION.search(question):
+        return min(PAYMENT_EVIDENCE_LIMIT, MAX_LIMIT)
+    return requested
 
 
 def _unique(values: Sequence[str]) -> List[str]:
