@@ -548,16 +548,13 @@ def validate(payload: Any, work: Mapping[str, Any]) -> Validation:
 
     A workstream survives when it names at least one real item not already
     claimed, has a title, and its words (and any number in them) come from
-    the packet. Its citations are its items' citations, never the model's.
+    the items it covers — not from some other item in the packet. A title
+    made only of summarizing vocabulary ("current work", "ongoing tasks")
+    says nothing those items said, and is dropped. Its citations are its
+    items' citations, never the model's.
     """
     result = Validation()
     items = {item["id"]: item for item in work.get("items") or []}
-    vocabulary = set()
-    for item in items.values():
-        vocabulary |= _grounding_tokens(_item_text(item))
-    digits = set()
-    for item in items.values():
-        digits.update(_DIGITS.findall(_item_text(item)))
 
     entries = payload.get("workstreams") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
@@ -581,18 +578,22 @@ def validate(payload: Any, work: Mapping[str, Any]) -> Validation:
         if not ids:
             result.rejected.append({"title": title, "reason": "names no unclaimed item in the packet"})
             continue
+        covered = [items[key] for key in ids]
+        vocabulary: set = set()
+        digits: set = set()
+        for item in covered:
+            text = _item_text(item)
+            vocabulary |= _grounding_tokens(text)
+            digits.update(_DIGITS.findall(text))
         words = _grounding_tokens(f"{title} {summary}") - _SUMMARY_STEMS
-        if words:
-            share = len(words & vocabulary) / len(words)
-            if share < GROUNDED_SHARE:
-                result.rejected.append({"title": title, "reason": "uses words its items do not"})
-                continue
+        if not words or len(words & vocabulary) / len(words) < GROUNDED_SHARE:
+            result.rejected.append({"title": title, "reason": "uses words its items do not"})
+            continue
         stray = [value for value in _DIGITS.findall(f"{title} {summary}") if value not in digits]
         if stray:
             result.rejected.append({"title": title, "reason": "states a number its items do not"})
             continue
         claimed.update(ids)
-        covered = [items[key] for key in ids]
         result.workstreams.append(
             {
                 "title": title,

@@ -365,6 +365,13 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(overdue["timing"], current_work_module.OVERDUE)
         self.assertEqual(friday["timing"], current_work_module.DUE_THIS_WEEK)
 
+    def test_not_yet_started_and_due_later_is_not_this_weeks_work(self):
+        selection = self.select(
+            _assignment("Hire the project manager", status="Not yet started", deadline="2026-11-20"),
+        )
+        self.assertEqual(selection.items, [])
+        self.assertEqual(selection.later, 1)
+
     def test_work_stated_only_in_bulk_mail_is_never_current(self):
         selection = self.select(
             _assignment("RSVP for the members preview", document_id="newsletter"),
@@ -388,8 +395,22 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(assignments_module.deadline_date("2026-09-04 (OVERDUE)", ""), date(2026, 9, 4))
         self.assertEqual(assignments_module.deadline_date("Before Sep 18 meeting", "2026-09-16"), date(2026, 9, 18))
         self.assertEqual(assignments_module.deadline_date("Jan 10", "2026-12-01"), date(2027, 1, 10))
+        # A month later in the same year stays there, even more than half a year out.
+        self.assertEqual(assignments_module.deadline_date("Sep 18", "2026-01-15"), date(2026, 9, 18))
+        self.assertEqual(assignments_module.deadline_date("Aug 1", "2026-01-15"), date(2026, 8, 1))
+        # Feb 29 cannot move into the following non-leap year.
+        self.assertEqual(assignments_module.deadline_date("Feb 29", "2028-09-01"), date(2028, 2, 29))
         self.assertIsNone(assignments_module.deadline_date("Near term", "2026-09-16"))
         self.assertIsNone(assignments_module.deadline_date("Sep 18", ""))
+
+    def test_a_future_month_is_not_already_overdue(self):
+        stated = "2026-01-15"
+        selection = current_work_module.select(
+            [_assignment("Launch the packaging proof", status="not started", deadline="Sep 18", stated=stated)],
+            today=date(2026, 1, 20),
+        )
+        self.assertEqual(selection.items, [])
+        self.assertEqual(selection.later, 1)
 
 
 class ScheduleReaderTests(unittest.TestCase):
@@ -425,7 +446,33 @@ class ScheduleReaderTests(unittest.TestCase):
 
     def test_not_started_is_open_not_in_progress(self):
         self.assertEqual(assignments_module.normalize_status("Not started"), assignments_module.OPEN)
+        self.assertEqual(assignments_module.normalize_status("not  started"), assignments_module.OPEN)
+        self.assertEqual(assignments_module.normalize_status("Not yet started"), assignments_module.OPEN)
         self.assertEqual(assignments_module.normalize_status("Started"), assignments_module.IN_PROGRESS)
+        self.assertEqual(assignments_module.normalize_status("in progress"), assignments_module.IN_PROGRESS)
+
+    def test_a_title_case_task_is_not_swallowed_as_the_previous_owners(self):
+        body = (
+            "[Vendor] Meet with CE — scheduled end Sep 18; baseline status In progress — Owner: Frank/Daniel "
+            "Finalize Qi Certification — scheduled end Sep 20; baseline status In progress — Owner: Daniel "
+            "[Marketing] Postcard mailing — scheduled end Oct 15; baseline status Not started — Owner: Creative Engineering"
+        )
+        row = {"document_id": "gantt", "title": "Gantt", "body": body, "updated": "2026-09-18"}
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+        tasks = {item.task: item for item in assignments_module.gather([row], person)}
+
+        self.assertIn("[Vendor] Meet with CE", tasks)
+        self.assertIn("Finalize Qi Certification", tasks)
+        self.assertEqual(tasks["Finalize Qi Certification"].deadline, "Sep 20")
+        self.assertEqual(tasks["Finalize Qi Certification"].status, assignments_module.IN_PROGRESS)
+        self.assertFalse(any(task.startswith("Frank") or "Finalize" in (tasks[task].co_owners or []) for task in tasks))
+        self.assertNotIn("Postcard mailing", tasks)
+
+    def test_a_different_surname_in_an_owner_field_is_not_this_person(self):
+        body = "Renew the filing Owner: Daniel Smith | Due: 2026-09-20 | Status: open"
+        row = {"document_id": "gantt", "title": "Gantt", "body": body, "updated": "2026-09-18"}
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+        self.assertEqual(assignments_module.gather([row], person), [])
 
 
 # =============================================================== validation
@@ -462,6 +509,22 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(checked.workstreams[1]["citations"], [1, 2])
         self.assertEqual(checked.workstreams[0]["details"], "in progress; overdue — was due Sep 20")
         self.assertEqual(checked.workstreams[1]["details"], "open; due Sep 25")
+
+    def test_wording_must_come_from_the_items_the_workstream_covers(self):
+        checked = current_work_module.validate(
+            {"workstreams": [
+                # Words that exist in the packet, but only on a different item.
+                {"title": "WPC Qi certification", "summary": "Resubmit certification with four PTx subsystems.",
+                 "item_ids": ["w2"]},
+                {"title": "Current work", "summary": "Ongoing tasks and remaining items.", "item_ids": ["w3"]},
+            ]},
+            self.WORK,
+        )
+        self.assertEqual(checked.workstreams, [])
+        self.assertEqual(
+            [entry["reason"] for entry in checked.rejected],
+            ["uses words its items do not", "uses words its items do not"],
+        )
 
     def test_invented_work_unknown_ids_and_stray_numbers_are_rejected(self):
         checked = current_work_module.validate(
