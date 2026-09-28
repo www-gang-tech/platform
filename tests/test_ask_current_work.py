@@ -365,6 +365,21 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(overdue["timing"], current_work_module.OVERDUE)
         self.assertEqual(friday["timing"], current_work_module.DUE_THIS_WEEK)
 
+    def test_negated_completion_stays_open_and_a_negated_block_is_not_active(self):
+        open_item = self.select(
+            _assignment("File the trademark", status="not complete", deadline="2026-09-25"),
+        )
+        self.assertEqual([item["task"] for item in open_item.items], ["File the trademark"])
+        self.assertEqual(open_item.closed, 0)
+        self.assertEqual(open_item.items[0]["status"], assignments_module.OPEN)
+
+        later = self.select(
+            _assignment("Wait on the vendor", status="not blocked", deadline="2026-11-20"),
+            _assignment("Ship the cancelled spare", status="not cancelled", deadline="2026-11-20"),
+        )
+        self.assertEqual(later.items, [])
+        self.assertEqual(later.counts(), {"closed": 0, "stale": 0, "later": 2, "omitted": 0})
+
     def test_work_stated_only_in_bulk_mail_is_never_current(self):
         selection = self.select(
             _assignment("RSVP for the members preview", document_id="newsletter"),
@@ -426,6 +441,96 @@ class ScheduleReaderTests(unittest.TestCase):
     def test_not_started_is_open_not_in_progress(self):
         self.assertEqual(assignments_module.normalize_status("Not started"), assignments_module.OPEN)
         self.assertEqual(assignments_module.normalize_status("Started"), assignments_module.IN_PROGRESS)
+
+    def test_a_negated_status_is_not_the_state_it_denies(self):
+        for wording in (
+            "not complete",
+            "not completed",
+            "not done",
+            "not closed",
+            "not finished",
+            "not resolved",
+            "not delivered",
+            "not yet done",
+            "not fully complete",
+            "not cancelled",
+            "not canceled",
+            "not dropped",
+            "not superseded",
+            "Not yet started",
+        ):
+            with self.subTest(wording=wording):
+                self.assertEqual(assignments_module.normalize_status(wording), assignments_module.OPEN)
+        self.assertEqual(assignments_module.normalize_status("not in progress"), "")
+        self.assertEqual(assignments_module.normalize_status("not blocked"), "")
+        self.assertEqual(assignments_module.normalize_status("incomplete"), "")
+        self.assertEqual(assignments_module.normalize_status("done but not delivered"), assignments_module.DONE)
+        self.assertEqual(assignments_module.normalize_status("not done but delivered"), assignments_module.DONE)
+        self.assertEqual(assignments_module.normalize_status("cancelled"), assignments_module.SUPERSEDED)
+        self.assertEqual(assignments_module.normalize_status("blocked"), assignments_module.BLOCKED)
+        self.assertEqual(assignments_module.normalize_status("in progress"), assignments_module.IN_PROGRESS)
+
+    def test_a_due_date_does_not_become_the_next_task(self):
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+
+        def tasks_for(body):
+            row = {"document_id": "gantt", "title": "Gantt", "body": body, "updated": "2026-09-16"}
+            return {item.task: item for item in assignments_module.gather([row], person)}
+
+        same_owner = tasks_for(
+            "Finalize the Qi certification Owner: Daniel | Due: Sep 18 "
+            "Hire the project manager Owner: Daniel | Due: Nov 20 | Status: not started"
+        )
+        self.assertEqual(
+            set(same_owner),
+            {"Finalize the Qi certification", "Hire the project manager"},
+        )
+        self.assertEqual(same_owner["Finalize the Qi certification"].deadline, "Sep 18")
+        self.assertEqual(same_owner["Hire the project manager"].deadline, "Nov 20")
+        self.assertEqual(same_owner["Hire the project manager"].status, assignments_module.OPEN)
+
+        clock_note = tasks_for(
+            "Finalize the Qi certification Owner: Daniel | Due: Sep. 18 — Noon "
+            "Hire the project manager Owner: Daniel | Due: Friday | Status: open"
+        )
+        self.assertEqual(
+            set(clock_note),
+            {"Finalize the Qi certification", "Hire the project manager"},
+        )
+        self.assertEqual(clock_note["Finalize the Qi certification"].deadline, "Sep. 18 — Noon")
+        self.assertEqual(clock_note["Hire the project manager"].deadline, "Friday")
+
+        other_owner = tasks_for(
+            "Postcard mailing Owner: Creative Engineering | Due: Oct 15 "
+            "Hire the project manager Owner: Daniel | Due: 2026-09-04 (OVERDUE) | Status: in progress"
+        )
+        self.assertEqual(set(other_owner), {"Hire the project manager"})
+        self.assertEqual(other_owner["Hire the project manager"].deadline, "2026-09-04 (OVERDUE)")
+        self.assertEqual(other_owner["Hire the project manager"].status, assignments_module.IN_PROGRESS)
+
+    def test_a_date_inside_the_deliverable_is_not_the_timing_cell(self):
+        body = (
+            "Deliverables / Action Items Owner Deliverable Deadline / Timing Status "
+            "Daniel Submit Sep 18 prototype photos Near term In Progress "
+            "Daniel Finalize the Weekly status report Ongoing Open "
+            "Daniel Draft integrated Master Gantt Chart through mid-2027 Sep. 18 — Noon In Progress "
+            "------------------------------"
+        )
+        row = {"document_id": "minutes", "title": "Minutes", "body": body, "updated": "2026-09-16"}
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+        tasks = {item.task: item for item in assignments_module.gather([row], person)}
+
+        self.assertEqual(
+            tasks["Submit Sep 18 prototype photos"].deadline,
+            "Near term",
+        )
+        self.assertEqual(tasks["Submit Sep 18 prototype photos"].status, assignments_module.IN_PROGRESS)
+        self.assertEqual(tasks["Finalize the Weekly status report"].deadline, "Ongoing")
+        self.assertEqual(tasks["Finalize the Weekly status report"].status, assignments_module.OPEN)
+        self.assertEqual(
+            tasks["Draft integrated Master Gantt Chart through mid-2027"].deadline,
+            "Sep. 18 — Noon",
+        )
 
 
 # =============================================================== validation
