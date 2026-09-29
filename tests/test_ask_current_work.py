@@ -391,6 +391,58 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(assignments_module.deadline_date("Near term", "2026-09-16"))
         self.assertIsNone(assignments_module.deadline_date("Sep 18", ""))
 
+    def test_slash_dates_and_explicit_years_stay_on_that_calendar_day(self):
+        # A numeric date is a date. A month and day that already names its
+        # year uses that year, including when the schedule was written in
+        # another year.
+        self.assertEqual(assignments_module.deadline_date("9/18/2026", "2026-09-01"), date(2026, 9, 18))
+        self.assertEqual(assignments_module.deadline_date("09/04/26", "2026-01-15"), date(2026, 9, 4))
+        self.assertEqual(assignments_module.deadline_date("Before 9/18/2026 meeting", "2026-09-01"), date(2026, 9, 18))
+        self.assertEqual(assignments_module.deadline_date("9/25", "2026-09-22"), date(2026, 9, 25))
+        self.assertEqual(assignments_module.deadline_date("1/10", "2026-12-01"), date(2027, 1, 10))
+        self.assertEqual(assignments_module.deadline_date("Sep 18, 2026", "2026-01-15"), date(2026, 9, 18))
+        self.assertEqual(assignments_module.deadline_date("September 18th, 2026", "2025-12-01"), date(2026, 9, 18))
+        self.assertEqual(assignments_module.deadline_date("January 15, 2027", "2026-03-01"), date(2027, 1, 15))
+        self.assertEqual(assignments_module.deadline_date("Sep 18, 2025", "2026-09-16"), date(2025, 9, 18))
+        self.assertEqual(assignments_module.deadline_date("Dec 1, 2026", "2026-03-01"), date(2026, 12, 1))
+        self.assertIsNone(assignments_module.deadline_date("2/31/2026", "2026-09-01"))
+        self.assertIsNone(assignments_module.deadline_date("13/1/2026", "2026-09-01"))
+        self.assertIsNone(assignments_module.deadline_date("2/29/2027", "2026-09-01"))
+        self.assertEqual(assignments_module.deadline_date("2/29/2028", "2026-09-01"), date(2028, 2, 29))
+
+    def test_a_future_explicit_date_is_not_already_overdue(self):
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+        prose = {
+            "document_id": "note",
+            "title": "Note",
+            "body": "Daniel will file the trademark by September 18th, 2026.",
+            "updated": "2026-01-15",
+        }
+        [filed] = assignments_module.gather([prose], person)
+        self.assertEqual(filed.deadline, "September 18th, 2026")
+        later = current_work_module.select([filed], today=date(2026, 1, 20))
+        self.assertEqual(later.items, [])
+        self.assertEqual(later.later, 1)
+
+        row = {
+            "document_id": "gantt",
+            "title": "Gantt",
+            "body": (
+                "1. File the trademark Owner: Daniel | Due: 9/25/2026 | Status: not started\n"
+                "2. Hire the project manager Owner: Daniel | Due: 11/20/2026 | Status: not started\n"
+                "3. Confirm the asset list Owner: Daniel | Due: 09/04/26 | Status: in progress\n"
+            ),
+            "updated": "2026-09-22",
+        }
+        tasks = {item.task: item for item in assignments_module.gather([row], person)}
+        selection = current_work_module.select(list(tasks.values()), today=TODAY)
+        by_task = {item["task"]: item for item in selection.items}
+        self.assertEqual(by_task["File the trademark"]["due"], "2026-09-25")
+        self.assertEqual(by_task["File the trademark"]["timing"], current_work_module.DUE_THIS_WEEK)
+        self.assertEqual(by_task["Confirm the asset list"]["timing"], current_work_module.OVERDUE)
+        self.assertNotIn("Hire the project manager", by_task)
+        self.assertEqual(selection.later, 1)
+
 
 class ScheduleReaderTests(unittest.TestCase):
     """The owner-field reader on a flattened schedule of record."""
