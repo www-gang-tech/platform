@@ -1,79 +1,28 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    
-    <title>Sitemap - {{ site_title }}</title>
-    <meta name="description" content="Complete sitemap of all pages, posts, projects, and products">
-    <link rel="canonical" href="{{ site_url }}/sitemap/">
-    
-    <link rel="stylesheet" href="/assets/style.css">
-</head>
-<body>
-    {% include "partials/header.html" %}
-    
-    <nav aria-label="Breadcrumb" class="breadcrumb">
-        <ol>
-            <li><a href="/">Home</a></li>
-            <li><span aria-current="page">Sitemap</span></li>
-        </ol>
-    </nav>
-    
-    <main>
-        <h1>Sitemap</h1>
-        <p>Complete index of all content on this site.</p>
-        
-        {% if pages %}
-        <section>
-            <h2>Pages</h2>
-            <ul class="unstyled">
-                {% for page in pages %}
-                <li><a href="{{ page.url }}">{{ page.title }}</a></li>
-                {% endfor %}
-            </ul>
-        </section>
-        {% endif %}
-        
-        {% if posts %}
-        <section style="margin-top: 2rem;">
-            <h2>Posts</h2>
-            <ul class="unstyled">
-                {% for post in posts %}
-                <li>
-                    <a href="{{ post.url }}">{{ post.title }}</a>
-                    {% if post.date %}<span style="color: var(--color-muted); font-size: 0.9rem;"> · {{ post.date }}</span>{% endif %}
-                </li>
-                {% endfor %}
-            </ul>
-        </section>
-        {% endif %}
-        
-        {% if projects %}
-        <section style="margin-top: 2rem;">
-            <h2>Projects</h2>
-            <ul class="unstyled">
-                {% for project in projects %}
-                <li><a href="{{ project.url }}">{{ project.title }}</a></li>
-                {% endfor %}
-            </ul>
-        </section>
-        {% endif %}
-        
-        {% if products %}
-        <section style="margin-top: 2rem;">
-            <h2>Products</h2>
-            <ul class="unstyled">
-                {% for product in products %}
-                <li><a href="/products/{{ product._meta.slug or product._meta.handle }}/">{{ product.name }}</a></li>
-                {% endfor %}
-            </ul>
-        </section>
-        {% endif %}
-    </main>
-    
-    {% include "partials/footer.html" %}
-</body>
-</html>
+{% extends "base.html" %}
 
+{% block content %}
+<h1>Sitemap</h1>
+<p>Public URLs for crawlers and agents. Machine-readable copies: <a href="/sitemap.xml">sitemap.xml</a>, <a href="/llms.txt">llms.txt</a>, and <a href="/agentmap.json">agentmap.json</a>.</p>
+
+{% for section in sections %}
+<section>
+    <h2>{{ section.title }}</h2>
+    <ul>
+        {% for item in section.links %}
+        <li><a href="{{ item.url }}">{{ item.title }}</a></li>
+        {% endfor %}
+    </ul>
+</section>
+{% endfor %}
+
+{% if products %}
+<section>
+    <h2>Products</h2>
+    <ul>
+        {% for product in products %}
+        <li><a href="/products/{{ product._meta.slug or product._meta.handle }}/">{{ product.name }}</a></li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+{% endblock %}

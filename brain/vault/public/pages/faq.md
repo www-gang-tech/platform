@@ -13,7 +13,7 @@ jsonld: {}
 seo:
   description: null
   title: null
-summary: Common questions about the GANG platform
+summary: Answers about the studio, the public files, and what this site is not.
 ---
 
 
@@ -23,20 +23,15 @@ summary: Common questions about the GANG platform
 
 ### What is GANG?
 
-GANG is an AI-first static publishing platform that prioritizes accessibility, performance, and machine legibility. We build the smallest possible website that guarantees these core principles, then add only features that measurably improve comprehension, trust, or conversion.
+GANG is a small studio. It makes charging objects and publishes research that can be shown without exposing private working material. This website is the public cut of that work, written as Markdown and released through git. See [About](/about/).
 
 ### Who is GANG for?
 
-GANG is designed for content creators, publishers, and businesses who want:
-- Lightning-fast websites
-- Perfect accessibility scores
-- SEO and AI optimization
-- E-commerce integration
-- Complete control over their content
+Readers who want the object, the notes behind it, or both. It is not a general publishing product, and it is not a shop until there is a finished SKU with claims we can support.
 
 ### Is GANG open source?
 
-Yes! GANG is open source and available on [GitHub](https://github.com/www-gang-tech/platform).
+Public code is on [GitHub](https://github.com/www-gang-tech/platform). The private brain stays private.
 
 ## Technical Questions
 

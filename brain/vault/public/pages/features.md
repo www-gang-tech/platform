@@ -5,7 +5,8 @@ title: Features
 created: '2025-10-21'
 updated: '2025-10-21'
 visibility: public
-status: published
+status: draft
+noindex: true
 url: /pages/features/
 date: '2025-10-21'
 summary: Complete list of GANG platform features and capabilities

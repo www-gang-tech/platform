@@ -1018,7 +1018,7 @@ class PrivacyTests(EntityTestCase):
         config = yaml.safe_load((ROOT / "gang.config.yml").read_text())
         documents = load_public_content(config, source="vault", root_path=ROOT)
 
-        self.assertEqual(len(documents), 9)
+        self.assertEqual(len(documents), 19)
         haystack = "\n".join(
             document.body + yaml.safe_dump(document.frontmatter, sort_keys=False)
             for document in documents

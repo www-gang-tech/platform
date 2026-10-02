@@ -4,55 +4,67 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GANG Ask</title>
+  <link rel="stylesheet" href="/shell.css">
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
-<body>
-  <main class="shell">
-    <section id="connect-view" class="connect-view" aria-labelledby="connect-title">
-      <div class="connect-panel">
-        <p class="kicker">GANG private Ask</p>
-        <h1 id="connect-title">Connect this device</h1>
-        <form id="connect-form" class="connect-form">
-          <label for="token-input">Invite or device token</label>
-          <input id="token-input" name="token" type="password" autocomplete="off" spellcheck="false" required>
-          <button type="submit">Connect</button>
-        </form>
-        <p id="connect-error" class="form-error" role="alert"></p>
+<body class="ask-app">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <div class="site-shell">
+    <header class="site-header" role="banner">
+      <nav class="site-nav" role="navigation" aria-label="Main navigation">
+        <ul>
+          <li><a class="site-wordmark" href="/">GANG</a></li>
+        </ul>
+      </nav>
+    </header>
+    <div id="chat-aside" class="history">
+      <div class="history-top">
+        <p class="principal-row">
+          <span id="principal-name" class="principal"></span>
+          <button id="forget-device" class="forget-device" type="button">Forget this device</button>
+        </p>
       </div>
-    </section>
-
-    <section id="chat-view" class="chat-view hidden" aria-label="GANG chat">
-      <aside class="history" aria-label="Session history">
-        <div class="history-top">
-          <p class="principal-row">
-            <span id="principal-name" class="principal"></span>
-            <button id="forget-device" class="forget-device" type="button">Forget this device</button>
-          </p>
-        </div>
-        <button id="new-conversation" class="new-button" type="button">New conversation</button>
-        <nav id="session-list" class="session-list" aria-label="Conversations"></nav>
-      </aside>
-
-      <section class="conversation" aria-label="Conversation">
-        <div id="thread" class="thread" aria-live="polite"></div>
-        <form id="composer" class="composer">
-          <div class="composer-box">
-            <label class="sr-only" for="question-input">Message</label>
-            <textarea id="question-input" rows="1" placeholder="Ask GANG..." required></textarea>
-            <div class="composer-actions">
-              <label class="sr-only" for="level-select">Response level</label>
-              <select id="level-select" name="level">
-                <option value="fast">Fast</option>
-                <option value="normal" selected>Normal</option>
-              </select>
-              <button id="send-button" type="submit">Send</button>
-            </div>
+      <button id="new-conversation" class="new-button" type="button">New conversation</button>
+      <nav id="session-list" class="session-list" aria-label="Conversations"></nav>
+    </div>
+    <div class="site-main">
+      <main id="content" tabindex="-1">
+        <section id="connect-view" class="connect-view" aria-labelledby="connect-title">
+          <div class="connect-panel">
+            <p class="kicker">GANG private Ask</p>
+            <h1 id="connect-title">Connect this device</h1>
+            <form id="connect-form" class="connect-form">
+              <label for="token-input">Invite or device token</label>
+              <input id="token-input" name="token" type="password" autocomplete="off" spellcheck="false" required>
+              <button type="submit">Connect</button>
+            </form>
+            <p id="connect-error" class="form-error" role="alert"></p>
           </div>
-          <p id="answer-status" class="answer-status" role="status"></p>
-        </form>
-      </section>
-    </section>
-  </main>
+        </section>
+
+        <section id="chat-view" class="chat-view hidden" aria-label="GANG chat">
+          <section class="conversation" aria-label="Conversation">
+            <div id="thread" class="thread" aria-live="polite"></div>
+            <form id="composer" class="composer">
+              <div class="composer-box">
+                <label class="sr-only" for="question-input">Message</label>
+                <textarea id="question-input" rows="1" placeholder="Ask GANG..." required></textarea>
+                <div class="composer-actions">
+                  <label class="sr-only" for="level-select">Response level</label>
+                  <select id="level-select" name="level">
+                    <option value="fast">Fast</option>
+                    <option value="normal" selected>Normal</option>
+                  </select>
+                  <button id="send-button" type="submit">Send</button>
+                </div>
+              </div>
+              <p id="answer-status" class="answer-status" role="status"></p>
+            </form>
+          </section>
+        </section>
+      </main>
+    </div>
+  </div>
 </body>
 </html>

@@ -19,16 +19,38 @@ import yaml
 
 PUBLIC_TYPES = {
     "articles": "post",
+    "guides": "guide",
+    "journal": "journal",
     "newsletters": "newsletter",
+    "objects": "object",
     "pages": "page",
     "posts": "post",
     "projects": "project",
+    "research": "research",
 }
 TYPE_TO_COLLECTION = {
+    "guide": "guides",
+    "journal": "journal",
     "newsletter": "newsletters",
+    "object": "objects",
     "page": "pages",
     "post": "posts",
     "project": "projects",
+    "research": "research",
+}
+LIST_ROUTES = {
+    "/",
+    "/cart/",
+    "/guides/",
+    "/journal/",
+    "/newsletters/",
+    "/objects/",
+    "/posts/",
+    "/products/",
+    "/projects/",
+    "/research/",
+    "/search/",
+    "/studio/",
 }
 PRIVATE_PATTERNS = (
     re.compile(r"\bcontent/", re.IGNORECASE),
@@ -82,12 +104,19 @@ class PublicDocument:
             "url": self.url,
             "title": self.title,
             "summary": self.summary,
-            "date": self.date,
+            "date": self.date or self.created,
             "type": self.collection,
             "document_type": self.type,
             "content_html": content_html,
             "tags": self.tags,
             "slug": self.slug,
+            "status": self.status,
+            "now": self.frontmatter.get("now"),
+            "next": self.frontmatter.get("next"),
+            "learned": self.frontmatter.get("learned"),
+            "related": self.frontmatter.get("related") or [],
+            "revision_notes": self.frontmatter.get("revision_notes") or [],
+            "stage": self.frontmatter.get("stage"),
         }
 
 
@@ -132,6 +161,7 @@ def load_public_content(
     config: Dict[str, Any],
     source: str = "vault",
     root_path: Path = Path("."),
+    include_drafts: bool = False,
 ) -> List[PublicDocument]:
     """Load and validate the public document collection."""
     if source not in {"legacy", "vault"}:
@@ -146,17 +176,29 @@ def load_public_content(
     if not source_root.exists():
         raise PublicContentError(f"Public content source does not exist: {source_root}")
 
-    documents = [_load_markdown_file(path, source_root, source) for path in _iter_public_markdown(source_root)]
+    documents = [
+        _load_markdown_file(path, source_root, source, include_drafts=include_drafts)
+        for path in _iter_public_markdown(source_root)
+    ]
     documents = [doc for doc in documents if doc is not None]
-    validate_public_documents(documents, source=source)
+    validate_public_documents(documents, source=source, include_drafts=include_drafts)
     return sorted(documents, key=lambda item: (item.collection, item.slug))
 
 
-def validate_public_documents(documents: List[PublicDocument], source: str = "vault") -> None:
+def validate_public_documents(
+    documents: List[PublicDocument],
+    source: str = "vault",
+    include_drafts: bool = False,
+) -> None:
     errors: List[str] = []
     urls = {}
 
     for doc in documents:
+        published = doc.status == "published" and doc.visibility == "public"
+        if not include_drafts and not published:
+            errors.append(f"{doc.source_path}: unpublished documents cannot enter a production collection")
+            continue
+
         if doc.url in urls:
             errors.append(f"Duplicate public URL {doc.url}: {urls[doc.url]} and {doc.source_path}")
         urls[doc.url] = doc.source_path
@@ -165,34 +207,42 @@ def validate_public_documents(documents: List[PublicDocument], source: str = "va
             errors.append(f"{doc.source_path}: url must be an absolute slash path ending in /")
         if not doc.title:
             errors.append(f"{doc.source_path}: title is required")
-        if doc.visibility != "public":
-            errors.append(f"{doc.source_path}: visibility must be public")
-        if doc.status != "published":
-            errors.append(f"{doc.source_path}: status must be published")
-        if source == "vault" and not doc.created:
-            errors.append(f"{doc.source_path}: created date is required")
 
-        if source == "vault":
-            if not doc.id or not is_uuidv7(doc.id):
-                errors.append(f"{doc.source_path}: id must be a UUIDv7")
-            if "migration_source" in doc.frontmatter or "source_path" in doc.frontmatter:
-                errors.append(f"{doc.source_path}: migration provenance must not be public frontmatter")
-            for private_field in ("entity_refs", "entity_relationships"):
-                if private_field in doc.frontmatter:
-                    errors.append(
-                        f"{doc.source_path}: private entity references must not be public frontmatter"
-                    )
+        if published:
+            if doc.visibility != "public":
+                errors.append(f"{doc.source_path}: visibility must be public")
+            if doc.status != "published":
+                errors.append(f"{doc.source_path}: status must be published")
+            if source == "vault" and not doc.created:
+                errors.append(f"{doc.source_path}: created date is required")
+            if source == "vault":
+                if not doc.id or not is_uuidv7(doc.id):
+                    errors.append(f"{doc.source_path}: id must be a UUIDv7")
+                if "migration_source" in doc.frontmatter or "source_path" in doc.frontmatter:
+                    errors.append(f"{doc.source_path}: migration provenance must not be public frontmatter")
+                for private_field in ("entity_refs", "entity_relationships"):
+                    if private_field in doc.frontmatter:
+                        errors.append(
+                            f"{doc.source_path}: private entity references must not be public frontmatter"
+                        )
+                for private_field in ("source_mapping", "private_sources"):
+                    if private_field in doc.frontmatter:
+                        errors.append(
+                            f"{doc.source_path}: private source mappings must not be public frontmatter"
+                        )
 
-        haystack = "\n".join([doc.body, yaml.safe_dump(doc.frontmatter, sort_keys=False)])
-        for pattern in PRIVATE_PATTERNS:
-            if pattern.search(haystack):
-                errors.append(f"{doc.source_path}: private or legacy source reference found")
-        for pattern in SECRET_PATTERNS:
-            if pattern.search(haystack):
-                errors.append(f"{doc.source_path}: possible secret found")
+            haystack = "\n".join([doc.body, yaml.safe_dump(doc.frontmatter, sort_keys=False)])
+            for pattern in PRIVATE_PATTERNS:
+                if pattern.search(haystack):
+                    errors.append(f"{doc.source_path}: private or legacy source reference found")
+            for pattern in SECRET_PATTERNS:
+                if pattern.search(haystack):
+                    errors.append(f"{doc.source_path}: possible secret found")
 
-    allowed_internal = set(urls) | {"/", "/posts/", "/projects/", "/newsletters/", "/products/", "/cart/"}
+    allowed_internal = set(urls) | set(LIST_ROUTES)
     for doc in documents:
+        if doc.status != "published" and not include_drafts:
+            continue
         for target in _internal_links(doc.body):
             if target not in allowed_internal:
                 errors.append(f"{doc.source_path}: broken internal link {target}")
@@ -208,7 +258,12 @@ def _iter_public_markdown(source_root: Path) -> Iterable[Path]:
             yield from sorted(category_dir.glob("*.md"))
 
 
-def _load_markdown_file(path: Path, source_root: Path, source: str) -> Optional[PublicDocument]:
+def _load_markdown_file(
+    path: Path,
+    source_root: Path,
+    source: str,
+    include_drafts: bool = False,
+) -> Optional[PublicDocument]:
     text = path.read_text()
     frontmatter, body = parse_markdown(text)
 
@@ -221,7 +276,7 @@ def _load_markdown_file(path: Path, source_root: Path, source: str) -> Optional[
     status = str(frontmatter.get("status", "published"))
     visibility = str(frontmatter.get("visibility", "public" if status == "published" else "private"))
 
-    if status != "published" or visibility != "public":
+    if not include_drafts and (status != "published" or visibility != "public"):
         return None
 
     url = frontmatter.get("url") or _legacy_url(collection, slug)

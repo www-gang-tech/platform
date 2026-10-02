@@ -85,12 +85,17 @@ class Stage3ChatTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'<script src="/app.js" defer></script>', response.data)
+        self.assertIn(b'<link rel="stylesheet" href="/shell.css">', response.data)
         self.assertEqual(response.headers["Content-Security-Policy"], CSP_HEADER)
         self.assertIn("script-src 'self';", response.headers["Content-Security-Policy"])
         self.assertIn("connect-src 'self';", response.headers["Content-Security-Policy"])
 
+        css = self.app().test_client().get("/shell.css")
+        self.assertEqual(css.status_code, 200)
+        self.assertIn(b".site-shell", css.data)
+
     def test_static_assets_have_no_external_origins_or_inline_html_script(self):
-        for relative in ("apps/ask/index.html", "apps/ask/app.js", "apps/ask/style.css"):
+        for relative in ("apps/ask/index.html", "apps/ask/app.js", "apps/ask/style.css", "public/shell.css"):
             text = (ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(relative=relative):
                 self.assertNotIn("http://", text)

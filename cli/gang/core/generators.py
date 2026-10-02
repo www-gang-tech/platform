@@ -4,8 +4,9 @@ Generate sitemap.xml, robots.txt, feed.json, etc.
 """
 
 import json
+import re
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom import minidom
@@ -17,47 +18,87 @@ class OutputGenerators:
         self.site_url = self.site.get('url', 'https://example.com')
     
     def generate_sitemap(self, pages: List[Dict[str, Any]]) -> str:
-        """Generate sitemap.xml"""
-        urlset = Element('urlset')
-        urlset.set('xmlns', 'http://www.sitemaps.org/schemas/sitemap/0.9')
-        
+        """Generate sitemap.xml with unique locs and W3C lastmod dates."""
+        urlset = Element("urlset")
+        urlset.set("xmlns", "http://www.sitemaps.org/schemas/sitemap/0.9")
+        seen = set()
         for page in pages:
-            url = SubElement(urlset, 'url')
-            
-            loc = SubElement(url, 'loc')
-            loc.text = f"{self.site_url}{page['url']}"
-            
-            if page.get('date'):
-                lastmod = SubElement(url, 'lastmod')
-                date_val = page['date']
-                if not isinstance(date_val, str):
-                    date_val = str(date_val)
-                lastmod.text = date_val
-            
-            # Priority based on page type
-            priority = SubElement(url, 'priority')
-            if page['url'] == '/':
-                priority.text = '1.0'
-            elif page.get('type') == 'post':
-                priority.text = '0.8'
-            else:
-                priority.text = '0.6'
-            
-            changefreq = SubElement(url, 'changefreq')
-            changefreq.text = 'weekly'
-        
-        # Pretty print XML
-        xml_str = tostring(urlset, encoding='unicode')
-        dom = minidom.parseString(xml_str)
-        return dom.toprettyxml(indent="  ")
-    
-    def generate_robots(self) -> str:
-        """Generate robots.txt"""
+            loc_path = page.get("url") or "/"
+            if not loc_path.startswith("/"):
+                loc_path = "/" + loc_path
+            if loc_path in seen:
+                continue
+            seen.add(loc_path)
+            url = SubElement(urlset, "url")
+            loc = SubElement(url, "loc")
+            loc.text = f"{self.site_url.rstrip('/')}{loc_path}"
+            lastmod = _w3c_date(page.get("date") or page.get("updated") or page.get("lastmod"))
+            if lastmod:
+                node = SubElement(url, "lastmod")
+                node.text = lastmod
+            priority = SubElement(url, "priority")
+            priority.text = _sitemap_priority(loc_path, page.get("type"))
+            changefreq = SubElement(url, "changefreq")
+            changefreq.text = _sitemap_changefreq(loc_path, page.get("type"))
+        xml_str = tostring(urlset, encoding="unicode")
+        return minidom.parseString(xml_str).toprettyxml(indent="  ")
+
+    def generate_robots(self, preview: bool = False) -> str:
+        if preview:
+            return """User-agent: *
+Disallow: /
+"""
+        base = self.site_url.rstrip("/")
         return f"""User-agent: *
 Allow: /
 
-Sitemap: {self.site_url}/sitemap.xml
+Sitemap: {base}/sitemap.xml
+
+# Answer engines / agents: {base}/llms.txt {base}/agentmap.json {base}/feed.json
 """
+
+    def generate_llms_txt(self, pages: List[Dict[str, Any]]) -> str:
+        """Plain-text map for answer engines (https://llmstxt.org)."""
+        title = self.site.get("title", "Site")
+        description = self.site.get("description", "")
+        base = self.site_url.rstrip("/")
+        lines = [
+            f"# {title}",
+            f"> {description}",
+            "",
+            "Public studio site. Private lab notes and source mappings are not published.",
+            "",
+            "## Primary navigation",
+            f"- [Home]({base}/)",
+            f"- [Studio]({base}/studio/)",
+            f"- [About]({base}/about/)",
+            f"- [Objects]({base}/objects/)",
+            f"- [Research]({base}/research/)",
+            f"- [Journal]({base}/journal/)",
+            f"- [Team]({base}/team/)",
+            f"- [FAQ]({base}/pages/faq/)",
+            f"- [Privacy Policy]({base}/pages/privacy/)",
+            f"- [Terms & Conditions]({base}/pages/terms/)",
+            f"- [Contact]({base}/pages/contact/)",
+            f"- [Cart]({base}/cart/)",
+            "",
+            "## All public URLs",
+        ]
+        for page in sorted(pages, key=lambda item: item.get("url") or ""):
+            path = page.get("url") or "/"
+            name = page.get("title") or path
+            lines.append(f"- [{name}]({base}{path})")
+        lines.extend(
+            [
+                "",
+                "## Machine-readable",
+                f"- Sitemap: {base}/sitemap.xml",
+                f"- HTML sitemap: {base}/sitemap/",
+                f"- AgentMap: {base}/agentmap.json",
+                f"- JSON Feed: {base}/feed.json",
+            ]
+        )
+        return "\n".join(lines) + "\n"
     
     def generate_feed_json(self, posts: List[Dict[str, Any]]) -> str:
         """Generate JSON Feed (https://jsonfeed.org)"""
@@ -106,8 +147,15 @@ Sitemap: {self.site_url}/sitemap.xml
             "navigation": self.config.get('nav', {}).get('main', []),
             "feeds": [
                 {"type": "json", "url": f"{self.site_url}/feed.json"},
-                {"type": "sitemap", "url": f"{self.site_url}/sitemap.xml"}
-            ]
+                {"type": "sitemap", "url": f"{self.site_url}/sitemap.xml"},
+            ],
+            "endpoints": {
+                "sitemap": f"{self.site_url.rstrip('/')}/sitemap.xml",
+                "htmlSitemap": f"{self.site_url.rstrip('/')}/sitemap/",
+                "llmsTxt": f"{self.site_url.rstrip('/')}/llms.txt",
+                "agentmap": f"{self.site_url.rstrip('/')}/agentmap.json",
+                "feed": f"{self.site_url.rstrip('/')}/feed.json",
+            },
         }
         
         # Add content types
@@ -119,22 +167,48 @@ Sitemap: {self.site_url}/sitemap.xml
             })
         
         return json.dumps(agentmap, indent=2)
-    
-    def generate_all(self, dist_path: Path, pages: List[Dict[str, Any]], posts: List[Dict[str, Any]]):
+
+    def generate_all(self, dist_path: Path, pages: List[Dict[str, Any]], posts: List[Dict[str, Any]], preview: bool = False):
         """Generate all output files"""
-        # Sitemap (pages already includes all content, don't add posts again)
         sitemap_xml = self.generate_sitemap(pages)
-        (dist_path / 'sitemap.xml').write_text(sitemap_xml)
-        
-        # Robots
-        robots_txt = self.generate_robots()
-        (dist_path / 'robots.txt').write_text(robots_txt)
-        
-        # JSON Feed
+        (dist_path / "sitemap.xml").write_text(sitemap_xml)
+
+        robots_txt = self.generate_robots(preview=preview)
+        (dist_path / "robots.txt").write_text(robots_txt)
+
         feed_json = self.generate_feed_json(posts)
-        (dist_path / 'feed.json').write_text(feed_json)
-        
-        # Agentmap
+        (dist_path / "feed.json").write_text(feed_json)
+
         agentmap_json = self.generate_agentmap()
-        (dist_path / 'agentmap.json').write_text(agentmap_json)
+        (dist_path / "agentmap.json").write_text(agentmap_json)
+        (dist_path / "llms.txt").write_text(self.generate_llms_txt(pages))
+
+
+def _w3c_date(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    match = re.match(r"(\d{4}-\d{2}-\d{2})", str(value))
+    return match.group(1) if match else None
+
+
+def _sitemap_priority(url: str, type_name: Any) -> str:
+    if url == "/":
+        return "1.0"
+    if url in {"/objects/", "/research/", "/journal/", "/studio/", "/about/", "/team/", "/pages/faq/", "/pages/contact/", "/pages/privacy/", "/pages/terms/"}:
+        return "0.9"
+    if url == "/cart/" or url == "/search/":
+        return "0.4"
+    if type_name in {"objects", "research", "journal", "object"}:
+        return "0.8"
+    return "0.6"
+
+
+def _sitemap_changefreq(url: str, type_name: Any) -> str:
+    if url == "/":
+        return "weekly"
+    if url.endswith("/") and url.count("/") == 2:
+        return "weekly"
+    if type_name in {"objects", "research", "journal"}:
+        return "monthly"
+    return "monthly"
 

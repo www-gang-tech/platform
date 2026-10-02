@@ -5,7 +5,8 @@ title: Qi2 Launch
 created: '2025-10-12'
 updated: '2025-10-12'
 visibility: public
-status: published
+status: draft
+noindex: true
 url: /newsletters/qi2-launch-newsletter/
 canonical_url: https://example.com/posts/qi2-launch/
 date: '2025-10-12'

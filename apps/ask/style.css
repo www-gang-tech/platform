@@ -6,9 +6,6 @@
   --muted: #000;
   --rule: #000;
   --accent: #000;
-  --accent-soft: #fff;
-  --warn: #000;
-  --recommend: #fff;
   --space: 8px;
   --space-y: 4px;
 }
@@ -22,13 +19,6 @@ body {
   height: 100%;
 }
 
-body {
-  margin: 0;
-  background: #fff;
-  color: #000;
-  font: 14px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
 button,
 input,
 textarea,
@@ -38,7 +28,7 @@ p,
 label,
 legend {
   font: inherit;
-  color: #000;
+  color: inherit;
 }
 
 button {
@@ -55,26 +45,57 @@ button:disabled {
   opacity: .6;
 }
 
-:focus {
-  outline: 1px solid #000;
+button:focus,
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #000;
+  outline-offset: 2px;
 }
 
 .hidden {
   display: none !important;
 }
 
-.shell {
-  min-height: 100vh;
-  min-height: 100dvh;
-  background: #fff;
+body:has(#chat-view.hidden) #chat-aside {
+  display: none;
+}
+
+.ask-app .site-main {
+  min-height: 0;
+}
+
+.ask-app .site-main > main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ask-app .site-sidebar .history,
+.ask-app .history {
+  position: static;
+  left: auto;
+  width: 100%;
+  max-width: var(--page-width, 956px);
+  margin: 0 auto;
+  padding: 0 var(--page-margin, 16px);
+  gap: var(--space-y);
 }
 
 .connect-view {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: var(--space);
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 0;
   background: #fff;
 }
 
@@ -90,15 +111,13 @@ button:disabled {
 .claim-cites,
 .note {
   color: #000;
-  font: 14px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  letter-spacing: 0;
   margin: 0;
 }
 
 h1 {
   margin: var(--space-y) 0;
-  font-size: 14px;
-  line-height: 1.3;
+  font-size: 1em;
+  line-height: 1.55;
   letter-spacing: 0;
   font-weight: 700;
 }
@@ -133,27 +152,23 @@ select {
 
 .chat-view {
   position: relative;
-  height: 100vh;
-  height: 100dvh;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
   background: #fff;
   overflow: hidden;
   min-width: 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .history {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: max(0px, calc(50% - 478px - 220px - 16px));
-  width: 220px;
-  padding: var(--space);
   display: flex;
   flex-direction: column;
   gap: var(--space-y);
   background: #fff;
   overflow: auto;
-  z-index: 3;
 }
 
 .history-top {
@@ -230,8 +245,10 @@ select {
 }
 
 .session-select.active .session-title {
-  font-weight: 700;
+  font-weight: 400;
   text-decoration: underline;
+  text-decoration-thickness: var(--underline-thickness, 1px);
+  text-underline-offset: var(--underline-offset, 1px);
 }
 
 .session-updated {
@@ -261,22 +278,21 @@ select {
 
 .conversation {
   min-width: 0;
-  width: min(956px, 100%);
-  max-width: 956px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   background: #fff;
-  border-left: 1px solid #000;
-  border-right: 1px solid #000;
+  border: none;
 }
 
 .thread {
   flex: 1 1 auto;
   min-height: 0;
-  padding: var(--space);
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-y);
@@ -296,7 +312,6 @@ select {
 }
 
 .message.user {
-  font-size: 14px;
   border-left: 2px solid #000;
   padding-left: var(--space);
 }
@@ -304,9 +319,9 @@ select {
 .mode-label,
 .section-title {
   color: #000;
-  font: 700 14px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
   margin: 0;
 }
 
@@ -330,10 +345,6 @@ select {
   padding-left: var(--space);
 }
 
-.claim.inference {
-  border-color: #000;
-}
-
 .recommendation {
   background: #fff;
   border: 1px solid #000;
@@ -345,10 +356,9 @@ select {
 }
 
 .status-block {
-  border-top: 1px solid #000;
-  border-bottom: 1px solid #000;
   padding: var(--space-y) 0;
   margin: 0;
+  border: none;
 }
 
 .insufficient {
@@ -359,7 +369,6 @@ select {
 .source-list li {
   display: grid;
   gap: var(--space-y);
-  border-top: 1px solid #000;
   padding-top: var(--space-y);
 }
 
@@ -368,7 +377,7 @@ select {
   position: sticky;
   bottom: 0;
   z-index: 2;
-  padding: 0 var(--space) var(--space);
+  padding: 0 0 var(--space);
   display: flex;
   flex-direction: column;
   gap: var(--space-y);
@@ -399,9 +408,9 @@ select {
   resize: none;
   overflow-x: hidden;
   overflow-y: auto;
-  min-height: 1.3em;
+  min-height: 1.55em;
   max-height: 40vh;
-  line-height: 1.3;
+  line-height: 1.55;
 }
 
 .composer-box textarea:focus {
@@ -451,13 +460,12 @@ select {
     height: auto;
     max-height: 28vh;
     z-index: 1;
-    border-bottom: 1px solid #000;
   }
 
   .conversation {
     min-height: 0;
     flex: 1 1 auto;
-    border-left: 0;
+    border: none;
   }
 
   .composer {

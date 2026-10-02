@@ -161,18 +161,16 @@ nav:
   main:
     - label: "Home"
       path: "/"
-    - label: "Posts"
-      path: "/posts"
-    - label: "Projects"
-      path: "/projects"
-    - label: "Products"
-      path: "/products"
-    - label: "Newsletters"
-      path: "/newsletters"
+    - label: "Studio"
+      path: "/studio/"
     - label: "About"
-      path: "/pages/about"
-    - label: "Contact"
-      path: "/pages/contact"
+      path: "/about/"
+    - label: "Objects"
+      path: "/objects/"
+    - label: "Research"
+      path: "/research/"
+    - label: "Journal"
+      path: "/journal/"
       
 # Image derivatives
 images:

@@ -1,63 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; font-src 'self'; connect-src 'self' http://localhost:8000; base-uri 'self'; form-action 'self' https:;">
-    
-    <title>Shopping Cart - GANG</title>
-    <meta name="description" content="Your shopping cart">
-    <link rel="canonical" href="http://localhost:8000/cart/">
-    
-    <link rel="stylesheet" href="/assets/style.css">
-</head>
-<body>
-    {% include "partials/header.html" %}
-    
-    <nav aria-label="Breadcrumb" class="breadcrumb">
-        <ol>
-            <li><a href="/">Home</a></li>
-            <li><span aria-current="page">Cart</span></li>
-        </ol>
-    </nav>
-    
-    <main style="max-width: 900px; margin: 0 auto;">
-        <h1>Cart</h1>
-        
-        <!-- Empty cart message -->
-        <div id="cart-empty" style="display: none; text-align: center; padding: 3rem 0;">
-            <p style="font-size: 1.2rem; color: var(--color-muted); margin-bottom: 1rem;">Your cart is empty</p>
-            <a href="/products/" class="button">Continue Shopping</a>
-        </div>
-        
-        <!-- Cart items -->
-        <div id="cart-items"></div>
-        
-        <!-- Cart summary -->
-        <div id="cart-summary" style="display: none; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--color-border);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h2>Subtotal:</h2>
-                <p id="cart-subtotal" style="font-size: 1.5rem; font-weight: 600;">$0.00</p>
-            </div>
-            
-            <p style="color: var(--color-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-                Shipping and taxes calculated at checkout
-            </p>
-            
-            <button onclick="proceedToCheckout()" class="button" style="width: 100%;">
-                Proceed to Checkout →
-            </button>
-            
-            <p style="text-align: center; margin-top: 1rem;">
-                <a href="/products/">Continue Shopping</a>
-            </p>
-        </div>
-    </main>
-    
-    {% include 'partials/footer.html' %}
-    
-    <!-- Cart functionality -->
-    <script src="/assets/cart.js"></script>
-</body>
-</html>
+{% extends "base.html" %}
 
+{% block content %}
+<h1>Cart</h1>
+
+<div id="cart-empty" style="display: none;">
+    <p>Your cart is empty</p>
+    <a href="/objects/">Continue shopping</a>
+</div>
+
+<div id="cart-items"></div>
+
+<div id="cart-summary" style="display: none;">
+    <h2>Subtotal:</h2>
+    <p id="cart-subtotal">$0.00</p>
+    <p>Shipping and taxes calculated at checkout</p>
+    <button type="button" onclick="proceedToCheckout()" class="button">Proceed to checkout</button>
+    <p><a href="/objects/">Continue shopping</a></p>
+</div>
+{% endblock %}

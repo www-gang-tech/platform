@@ -59,7 +59,7 @@ CSP_HEADER = (
     "base-uri 'none'; "
     "frame-ancestors 'none';"
 )
-ASK_STATIC_FILES = {"app.js", "style.css"}
+ASK_STATIC_FILES = {"app.js", "style.css", "shell.css"}
 
 FILTER_FIELDS = {
     "document_types",
@@ -537,7 +537,7 @@ def create_app(
 
     @app.before_request
     def _authenticate():
-        if request.path in {"/", "/healthz", "/app.js", "/style.css"}:
+        if request.path in {"/", "/healthz", "/app.js", "/style.css", "/shell.css"}:
             return None
         principal = _resolve_authorization(
             request.headers.get("Authorization", ""),
@@ -734,7 +734,10 @@ def _principal_directory_for(
 
 def _ask_app_path(filename: str) -> Path:
     repo_root = Path(__file__).resolve().parents[4]
-    path = repo_root / "apps" / "ask" / filename
+    if filename == "shell.css":
+        path = repo_root / "public" / "shell.css"
+    else:
+        path = repo_root / "apps" / "ask" / filename
     if not path.exists():
         raise HTTPConfigError("Ask frontend asset is missing")
     return path

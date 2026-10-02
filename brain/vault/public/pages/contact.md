@@ -13,11 +13,13 @@ jsonld: {}
 seo:
   description: null
   title: null
-summary: Get in touch with the GANG team
+summary: Write to the studio. Saving a page locally does not send mail.
+related:
+  - /about/
+  - /team/
+  - /studio/
 ---
 
-
-# Contact
 
 ## Offline
 
@@ -45,6 +47,6 @@ Monday - Friday: 9:00 AM - 5:00 PM (EST)
 
 ## Contribute
 
+Public code: [github.com/www-gang-tech/platform](https://github.com/www-gang-tech/platform).
 
-
-- **Website:** [github.com/www-gang-tech/platform](https://github.com/www-gang-tech/platform)
+[About](/about/) and [Team](/team/) describe the studio. Do not use these addresses for unpublished specifications or private source maps.

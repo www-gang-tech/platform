@@ -5,7 +5,8 @@ title: 'Design System Rebuild: Accessibility-First Foundations'
 created: '2025-04-15'
 updated: '2025-04-15'
 visibility: public
-status: published
+status: draft
+noindex: true
 url: /projects/design-system-rebuild/
 date: '2025-04-15'
 featured: true

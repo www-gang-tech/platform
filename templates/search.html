@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="editorial">
+    <header class="editorial-header listing-header">
+        <h1 id="search-heading">Search</h1>
+        <p class="listing-kicker">Search public pages.</p>
+    </header>
+    <form class="site-search-form" role="search" action="/search/" method="get">
+        <label class="listing-search-label" for="site-search-input">Search</label>
+        <input id="site-search-input" type="search" name="q" value="{{ query | default('') }}" autocomplete="off" spellcheck="false" aria-labelledby="search-heading">
+    </form>
+    <ul class="index-list" id="search-results">
+        {% for item in items %}
+        {% include "partials/index_entry.html" %}
+        {% endfor %}
+    </ul>
+    <p id="search-empty" hidden>No matching pages.</p>
+</article>
+<script>
+(function () {
+  var input = document.getElementById("site-search-input");
+  var items = document.querySelectorAll("#search-results .index-entry");
+  var empty = document.getElementById("search-empty");
+  function filter() {
+    var q = (input && input.value || "").trim().toLowerCase();
+    var shown = 0;
+    items.forEach(function (item) {
+      var hay = item.getAttribute("data-search") || "";
+      var match = !q || hay.indexOf(q) !== -1;
+      item.hidden = !match;
+      if (match) shown += 1;
+    });
+    if (empty) empty.hidden = shown !== 0;
+  }
+  if (input) {
+    input.addEventListener("input", filter);
+    if (input.value) filter();
+  }
+})();
+</script>
+{% endblock %}

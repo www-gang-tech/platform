@@ -1,0 +1,12 @@
+<li class="index-entry"{% if item.title or item.summary %} data-search="{{ (item.title or '') | lower }} {{ (item.summary or '') | lower }}"{% endif %}>
+    <span class="index-entry-thumb" aria-hidden="true"></span>
+    <div class="index-entry-body">
+        <h2><a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a></h2>
+        {% if item.date %}
+        <p><time class="index-entry-date" datetime="{{ item.date }}">{{ item.date | formatdate('long') }}</time></p>
+        {% endif %}
+        {% if item.summary %}
+        <p>{{ item.summary }}</p>
+        {% endif %}
+    </div>
+</li>

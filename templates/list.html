@@ -1,22 +1,18 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="index-layout">
-    <h1>{{ page_title }}</h1>
+<div class="index-layout listing">
+    <header class="listing-header">
+        <h1>{{ page_title }}</h1>
+        {% if description %}
+        <p class="listing-kicker">{{ description }}</p>
+        {% endif %}
+    </header>
 
     {% if items %}
     <ul class="index-list">
         {% for item in items %}
-        <li class="index-entry">
-            <a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a>
-            <span class="index-entry-meta">
-                {% if item.date %}
-                    <time datetime="{{ item.date }}">{{ item.date_formatted }}</time>
-                {% else %}
-                    —
-                {% endif %}
-            </span>
-        </li>
+        {% include "partials/index_entry.html" %}
         {% endfor %}
     </ul>
     {% else %}
@@ -24,4 +20,3 @@
     {% endif %}
 </div>
 {% endblock %}
-

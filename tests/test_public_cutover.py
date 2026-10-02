@@ -15,6 +15,26 @@ from core.content_loader import PublicContentError, load_public_content
 
 
 EXPECTED_PUBLIC_URLS = {
+    "/",
+    "/about/",
+    "/journal/editorial-prototype/",
+    "/journal/everyday-charging/",
+    "/journal/from-evidence-to-article/",
+    "/journal/magnetic-alignment/",
+    "/journal/travel-charging/",
+    "/objects/charger/",
+    "/pages/contact/",
+    "/pages/faq/",
+    "/pages/privacy/",
+    "/pages/terms/",
+    "/pages/wcag-conformance/",
+    "/research/alignment-not-wattage/",
+    "/research/qi2-magnetic-power-profile/",
+    "/studio/",
+    "/team/",
+}
+
+LEGACY_PUBLIC_URLS = {
     "/newsletters/qi2-launch-newsletter/",
     "/pages/about/",
     "/pages/contact/",
@@ -47,14 +67,26 @@ def test_all_current_public_urls_have_canonical_vault_documents():
     docs = load_public_content(repo_config(), source="vault", root_path=ROOT)
 
     assert {doc.url for doc in docs} == EXPECTED_PUBLIC_URLS
-    assert len(docs) == 9
+    assert "/journal/charger-alignment-draft/" not in {doc.url for doc in docs}
+    assert "/pages/ok-rm-brief/" not in {doc.url for doc in docs}
 
 
-def test_legacy_and_vault_public_urls_match_before_cutover():
+def test_legacy_public_urls_remain_the_migrated_set():
     legacy = {doc.url for doc in load_public_content(repo_config(), source="legacy", root_path=ROOT)}
     vault = {doc.url for doc in load_public_content(repo_config(), source="vault", root_path=ROOT)}
 
-    assert legacy == vault == EXPECTED_PUBLIC_URLS
+    assert legacy == LEGACY_PUBLIC_URLS
+    retired_from_public = {
+        "/pages/about/",
+        "/pages/features/",
+        "/pages/manifesto/",
+        "/newsletters/qi2-launch-newsletter/",
+        "/posts/qi2-launch/",
+        "/projects/design-system-rebuild/",
+    }
+    assert LEGACY_PUBLIC_URLS - retired_from_public <= vault
+    assert "/about/" in vault
+    assert "/pages/about/" not in vault
 
 
 def test_canonical_vault_documents_have_required_public_contract_fields():
@@ -103,6 +135,27 @@ def test_missing_vault_source_does_not_fall_back_to_legacy(tmp_path):
 
     with pytest.raises(PublicContentError):
         load_public_content(config, source="vault", root_path=tmp_path)
+
+
+def test_preview_includes_drafts_and_production_does_not():
+    production = {doc.url for doc in load_public_content(repo_config(), source="vault", root_path=ROOT)}
+    preview = {
+        doc.url
+        for doc in load_public_content(repo_config(), source="vault", root_path=ROOT, include_drafts=True)
+    }
+
+    assert "/journal/charger-alignment-draft/" not in production
+    assert "/pages/ok-rm-brief/" not in production
+    assert "/pages/features/" not in production
+    assert "/journal/charger-alignment-draft/" in preview
+    assert "/pages/ok-rm-brief/" in preview
+    assert "/pages/features/" in preview
+
+
+def test_build_preview_flag_exists():
+    cli_module = load_cli_module()
+    preview_param = next(param for param in cli_module.build.params if param.name == "preview")
+    assert preview_param.is_flag
 
 
 def test_build_defaults_to_vault_and_keeps_explicit_legacy_rollback():

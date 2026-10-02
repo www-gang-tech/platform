@@ -387,15 +387,14 @@
     
     <div class="main">
         <div class="toolbar">
-            <button onclick="validateAndSave()">📤 Publish</button>
-            <button onclick="saveContent()">💾 Save Draft</button>
-            <button onclick="validateHeadings()">✓ Check Headings</button>
-            <button onclick="showRenameSlugModal()" id="renameSlugBtn" disabled>🔄 Rename Slug</button>
-            <button onclick="showRedirectsPanel()">🔀 Redirects</button>
-            <button onclick="syncProducts()">🛒 Sync Products</button>
-            <button onclick="buildSite()">🔨 Build</button>
-            <button onclick="runOptimize()">🤖 Optimize</button>
-            <button class="mode-toggle" onclick="toggleEditorMode()">🔄 Toggle Mode</button>
+            <button id="saveBtn" onclick="saveContent()" disabled>Save</button>
+            <button onclick="validateHeadings()">Check headings</button>
+            <button onclick="showRenameSlugModal()" id="renameSlugBtn" disabled>Rename slug</button>
+            <button onclick="showRedirectsPanel()">Redirects</button>
+            <button onclick="syncProducts()">Sync products</button>
+            <button onclick="buildSite()">Build locally</button>
+            <button onclick="runOptimize()">Optimize</button>
+            <button class="mode-toggle" onclick="toggleEditorMode()">Toggle mode</button>
             <span class="status" id="status"></span>
         </div>
         
@@ -466,7 +465,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeValidationModal()">Close</button>
-                <button class="btn-primary" id="publishAnywayBtn" onclick="forcePublish()" style="display: none;">Publish Anyway</button>
+                <button class="btn-primary" id="publishAnywayBtn" onclick="forcePublish()" style="display: none;">Save anyway</button>
             </div>
         </div>
     </div>
@@ -476,8 +475,10 @@
     
     <script>
         let currentFile = null;
+        let currentRevision = null;
         let editor = null;
         let validationPassed = false;
+        let pendingBody = null;
         
         // Initialize Toast UI Editor
         function initEditor() {
@@ -534,13 +535,19 @@
                 files.forEach(file => {
                     const item = document.createElement('div');
                     item.className = 'content-item';
+                    item.dataset.path = file.path;
                     item.innerHTML = `
-                        <div class="content-item-name">${file.name}</div>
-                        <div class="content-item-type">${file.type}</div>
+                        <div class="content-item-name">${file.title || file.name}</div>
+                        <div class="content-item-type">${file.type}${file.draft ? ' · draft' : ''}</div>
                     `;
                     item.onclick = () => loadFile(file.path);
                     listEl.appendChild(item);
                 });
+
+                const preferred = files.find(file => file.path === 'pages/home.md') || files[0];
+                if (preferred) {
+                    await loadFile(preferred.path);
+                }
             } catch (e) {
                 console.error('Failed to load content list:', e);
                 listEl.innerHTML = `<div class="loading" style="color: #ff6b6b;">Error: ${e.message}<br><br>Check browser console for details</div>`;
@@ -553,21 +560,28 @@
             
             try {
                 const response = await fetch(`/api/content/${path}`);
-                const content = await response.text();
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.error || 'Failed to load');
+                }
                 
-                currentFile = path;
-                editor.setMarkdown(content);
+                currentFile = payload.path;
+                currentRevision = payload.revision;
+                pendingBody = payload.body;
+                editor.setMarkdown(payload.body);
                 
-                // Update active state
+                if (!payload.visual_safe && editor.isWysiwygMode()) {
+                    editor.changeMode('markdown', true);
+                    document.getElementById('status').textContent = `Markdown mode (visual editor would not preserve this file): ${payload.path}`;
+                } else {
+                    document.getElementById('status').textContent = `Editing body: ${payload.path}`;
+                }
+                
                 document.querySelectorAll('.content-item').forEach(item => {
-                    item.classList.remove('active');
+                    item.classList.toggle('active', item.dataset.path === payload.path);
                 });
-                event.target.closest('.content-item').classList.add('active');
-                
-                // Enable rename button when a file is loaded
                 document.getElementById('renameSlugBtn').disabled = false;
-                
-                document.getElementById('status').textContent = `Editing: ${path}`;
+                document.getElementById('saveBtn').disabled = false;
             } catch (e) {
                 console.error('Failed to load file:', e);
                 document.getElementById('status').textContent = `Error loading file: ${e.message}`;
@@ -692,48 +706,56 @@
             if (result.valid) {
                 closeValidationModal();
                 await saveContent();
-                document.getElementById('status').textContent = '📤 Published successfully!';
+                document.getElementById('status').textContent = 'Saved';
             } else {
                 // Modal is already shown, user must fix or choose "Publish Anyway"
-                document.getElementById('status').textContent = '⚠️ Fix heading errors before publishing';
+                document.getElementById('status').textContent = 'Fix heading errors before save, or save anyway';
             }
         }
         
         // Force publish without validation
         async function forcePublish() {
-            if (confirm('Are you sure you want to publish with heading errors? This may impact accessibility and SEO.')) {
+            if (confirm('Save with heading errors? This does not deploy the site.')) {
                 closeValidationModal();
                 await saveContent();
-                document.getElementById('status').textContent = '📤 Published (with warnings)';
+                document.getElementById('status').textContent = 'Saved with heading warnings';
             }
         }
         
         async function saveContent() {
             if (!editor || !currentFile) {
-                alert('No file is currently open');
+                document.getElementById('status').textContent = 'Choose a file in the sidebar, then save.';
                 return;
             }
             
             try {
-                const markdown = editor.getMarkdown();
+                const body = editor.getMarkdown();
+                pendingBody = body;
                 
                 const response = await fetch(`/api/content/${currentFile}`, {
                     method: 'PUT',
                     headers: {
-                        'Content-Type': 'text/plain',
+                        'Content-Type': 'application/json',
+                        'If-Match': currentRevision || '',
                     },
-                    body: markdown
+                    body: JSON.stringify({ revision: currentRevision, body })
                 });
                 
-                if (response.ok) {
-                    document.getElementById('status').textContent = '✓ Saved successfully';
-                    setTimeout(() => {
-                        document.getElementById('status').textContent = `Editing: ${currentFile}`;
-                    }, 2000);
-                } else {
-                    const result = await response.json();
-                    throw new Error(result.message || 'Failed to save');
+                const result = await response.json();
+                if (response.status === 409) {
+                    document.getElementById('status').textContent = result.message || 'Conflict: file changed elsewhere. Your text is still in the editor.';
+                    currentRevision = result.revision;
+                    alert((result.message || 'Conflict') + '\n\nYour unsaved body is still in the editor. Reload only if you want to discard it.');
+                    return;
                 }
+                if (!response.ok) {
+                    throw new Error(result.error || result.message || 'Failed to save');
+                }
+                currentRevision = result.revision;
+                document.getElementById('status').textContent = 'Saved working file (not committed)';
+                setTimeout(() => {
+                    document.getElementById('status').textContent = `Editing body: ${currentFile}`;
+                }, 2000);
             } catch (e) {
                 console.error('Failed to save:', e);
                 alert(`Failed to save: ${e.message}`);
@@ -742,7 +764,7 @@
         
         // Build site
         function buildSite() {
-            alert('Run "gang build" in terminal to build the site');
+            alert('Save already wrote the working Markdown. Run "gang build" in a terminal for a production build, or use "gang serve" for local preview. Neither command is run by this button, and nothing is committed or deployed from Studio.');
         }
         
         // Run optimize

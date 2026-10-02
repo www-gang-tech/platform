@@ -2,7 +2,8 @@
 id: 0199da90-c200-7056-ac0b-6f1d82bd2f41
 type: post
 visibility: public
-status: published
+status: draft
+noindex: true
 url: /posts/qi2-launch/
 jsonld: {}
 seo:
