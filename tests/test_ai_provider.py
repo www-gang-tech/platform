@@ -1,7 +1,9 @@
 import json
 import os
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 from urllib.error import URLError
@@ -9,7 +11,14 @@ from urllib.error import URLError
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
-from core.ai_provider import AIConfig, ConfiguredAIClient, OllamaClient, ProviderError, ProviderTimeoutError
+from core.ai_provider import (
+    AIConfig,
+    ConfiguredAIClient,
+    OllamaClient,
+    ProviderError,
+    ProviderTimeoutError,
+    is_loopback_endpoint,
+)
 
 
 class FakeResponse:
@@ -166,6 +175,57 @@ class AIProviderTests(unittest.TestCase):
         self.assertEqual(client.telemetry["status"], "timeout")
         self.assertEqual(client.telemetry["provider"], "ollama")
         self.assertIn("elapsed_seconds", client.telemetry)
+
+    def test_loopback_is_an_address_not_a_hostname_prefix(self):
+        self.assertTrue(is_loopback_endpoint("http://127.0.0.1:11434"))
+        self.assertTrue(is_loopback_endpoint("http://127.0.0.2:11434"))
+        self.assertTrue(is_loopback_endpoint("http://[::1]:11434"))
+        self.assertTrue(is_loopback_endpoint("http://[::ffff:127.0.0.1]:11434"))
+        self.assertTrue(is_loopback_endpoint("http://localhost.:11434"))
+        self.assertFalse(is_loopback_endpoint("http://127.0.0.1.evil.example:11434"))
+        self.assertFalse(is_loopback_endpoint("http://127.evil.example:11434"))
+        self.assertFalse(is_loopback_endpoint("http://10.0.0.5:11434"))
+        self.assertFalse(is_loopback_endpoint("http://gpu.example:11434"))
+
+    def test_ollama_does_not_follow_redirects_or_use_proxies(self):
+        contacted = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                contacted.append(self.path)
+                body = json.dumps({"message": {"content": "{}"}}).encode("utf-8")
+                if self.path == "/api/chat":
+                    self.send_response(302)
+                    self.send_header("Location", "http://127.0.0.1:9/stolen")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+
+        client = OllamaClient(endpoint=f"http://127.0.0.1:{port}", timeout=2)
+        with mock.patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9"}):
+            with self.assertRaises(ProviderError) as raised:
+                client.complete_json(
+                    {"system": "s", "messages": [{"role": "user", "content": "u"}], "max_tokens": 20},
+                    purpose="test",
+                )
+
+        self.assertIn("redirect", str(raised.exception).lower())
+        self.assertEqual(contacted, ["/api/chat"])
 
     def test_malformed_ollama_response_fails_cleanly(self):
         with mock.patch(
