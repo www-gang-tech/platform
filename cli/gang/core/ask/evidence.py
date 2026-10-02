@@ -19,11 +19,15 @@ Citation IDs are assigned from the final rank order over *usable* evidence, so
 the same evidence set always produces the same numbering and an unreadable
 document can never be cited.
 
-Excerpts and titles from a restricted or local-only document have any detected
-identifier value (an SSN, a routing number) replaced by a marker. Each is a display
-copy that travels into answers, session snapshots, and caches; the value is
-almost never what a question is about, and the canonical document still holds
-it for anyone who opens the file.
+Excerpts, titles, and derived enrichment from a restricted or local-only
+document have any detected identifier value (an SSN, a routing number) replaced
+by a marker. Enrichment includes the summary and each decision, action item,
+and open question, nested evidence excerpts included. Ids and hashes inside
+those structures are left as written, so provenance still points at the
+document. Each of these is a display copy that travels into answers, session
+snapshots, caches, and the local model's context; the value is almost never
+what a question is about, and the canonical document and the index still hold
+it for anyone who opens them.
 
 A bundle bound for a remote provider is a narrower copy
 (`EvidenceBundle.for_remote_provider`): restricted and local-only items are
@@ -38,7 +42,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from core import enrichment_state, sensitivity as sensitivity_module
 
@@ -423,7 +427,7 @@ def build_bundle(
                 relationships=relationships,
                 excerpts=excerpts,
                 enrichment_status=row.get("enrichment_status") or enrichment_state.NONE,
-                enrichment=_bounded_enrichment(row.get("enrichment") or {}),
+                enrichment=_bounded_enrichment(row.get("enrichment") or {}, level=level),
                 content_trust=row.get("content_trust") or "trusted",
                 signals=dict(row.get("signals") or {}),
                 sensitivity=level,
@@ -569,16 +573,46 @@ def _relationships(values: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return result
 
 
-def _bounded_enrichment(value: Dict[str, Any]) -> Dict[str, Any]:
+def _bounded_enrichment(value: Dict[str, Any], *, level: str = "") -> Dict[str, Any]:
+    """Derived enrichment included with an evidence item.
+
+    For a restricted or local-only document the copy is masked before it is
+    truncated, so a summary cut at the character budget cannot leave a partial
+    identifier behind. The mapping passed in is not modified: the index row
+    keeps the original text.
+    """
     payload: Dict[str, Any] = {}
     summary = value.get("summary")
     if isinstance(summary, str) and summary.strip():
-        payload["summary"] = _truncate(summary.strip(), EXCERPT_CHARS)
+        payload["summary"] = summary.strip()
     for field_name in ("decisions", "action_items", "unresolved_questions"):
         items = value.get(field_name)
         if isinstance(items, list) and items:
-            payload[field_name] = items[:MAX_ENRICHMENT_ITEMS]
+            payload[field_name] = list(items[:MAX_ENRICHMENT_ITEMS])
+    if level in (sensitivity_module.RESTRICTED, sensitivity_module.LOCAL_ONLY):
+        payload = _mask_display_tree(payload)
+    if isinstance(payload.get("summary"), str):
+        payload["summary"] = _truncate(payload["summary"], EXCERPT_CHARS)
     return payload
+
+
+def _mask_display_tree(value: Any) -> Any:
+    """Mask identifier values in nested enrichment, leaving provenance fields."""
+    if isinstance(value, Mapping):
+        return {
+            key: child if _provenance_field(str(key)) else _mask_display_tree(child)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [_mask_display_tree(child) for child in value]
+    if isinstance(value, str):
+        return sensitivity_module.mask_identifiers(value)
+    return value
+
+
+def _provenance_field(name: str) -> bool:
+    """Ids and hashes point at a record. They are not prose and are not rewritten."""
+    return name == "id" or name.endswith(("_id", "_ids", "hash"))
 
 
 def _sensitivity(row: Dict[str, Any]) -> str:
