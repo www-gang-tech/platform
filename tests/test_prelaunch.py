@@ -1,4 +1,5 @@
 """The public site keeps the editorial markdown shell. Copy can change; chrome cannot."""
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -72,6 +73,31 @@ def test_updates_page_is_markdown_with_email_request(tmp_path):
     assert "You're on the list" not in soup.get_text()
 
 
+def test_search_keeps_query_and_section_from_the_address(tmp_path):
+    dist = _render(tmp_path)
+    search = (dist / "search/index.html").read_text()
+    journal = (dist / "journal/index.html").read_text()
+
+    assert "URLSearchParams" in search
+    assert "params.get(\"q\")" in search
+    assert "data-section=" in search
+    assert 'name="section"' in journal
+    assert 'value="journal"' in journal
+
+
+def test_json_feed_includes_journal_and_skips_standalone_pages(tmp_path):
+    dist = _render(tmp_path)
+    feed = json.loads((dist / "feed.json").read_text())
+    urls = {item["url"] for item in feed["items"]}
+
+    assert "https://gang.tech/journal/a-place-for-charging/" in urls
+    assert "https://gang.tech/research/alignment-not-wattage/" in urls
+    assert "https://gang.tech/objects/charger/" in urls
+    assert "https://gang.tech/pages/faq/" not in urls
+    assert "https://gang.tech/about/" not in urls
+    assert feed["items"][0]["date_published"] >= feed["items"][-1]["date_published"]
+
+
 def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     dist = _render(tmp_path, preview=False)
     home = (dist / "index.html").read_text()
@@ -86,3 +112,6 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert 'src="/assets/images/gang-hero.jpg"' in home
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+    assert 'href="/studio.html"' not in home
+    assert 'href="https://instagram.com/gang__tech"' in home
+    assert 'href="http://instagram.com/gang__tech"' not in home

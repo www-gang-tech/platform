@@ -16,6 +16,7 @@
         <label class="listing-search-label" for="listing-search-input">Search {{ page_title }}</label>
         <div class="listing-search-row">
             <input id="listing-search-input" type="search" name="q" autocomplete="off" spellcheck="false">
+            <input type="hidden" name="section" value="{{ content_type }}">
             <button type="submit">Show results</button>
         </div>
     </form>

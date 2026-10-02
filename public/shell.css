@@ -111,7 +111,6 @@ main#content:focus-visible,
 .site-wordmark,
 .site-nav a,
 .site-search,
-.site-login,
 .site-cart-link {
   display: inline;
   width: auto;
@@ -134,7 +133,6 @@ main#content:focus-visible,
 .site-wordmark:hover,
 .site-search:hover,
 .site-search[aria-current="page"],
-.site-login:hover,
 .site-cart-link:hover,
 .site-footer nav a:hover,
 .site-footer nav a[aria-current="page"] {

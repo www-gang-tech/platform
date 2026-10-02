@@ -5612,21 +5612,17 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             js_savings = ((js_original - js_minified) / js_original * 100) if js_original > 0 else 0
             click.echo(f"🗜️  Minified {len(js_files)} JS file(s) ({js_savings:.1f}% reduction)")
         
-        # Minify CSS
+        # Minify CSS. Quoted values keep their spaces (nav separators).
+        from core.asset_minify import minify_css
         css_files = [f for f in dist_path.rglob('*.css')]
         css_original = 0
         css_minified = 0
         for css_file in css_files:
             css_content = css_file.read_text()
             css_original += len(css_content)
-            # Remove comments
-            css_content = re.sub(r'/\*.*?\*/', '', css_content, flags=re.DOTALL)
-            # Remove extra whitespace
-            css_content = re.sub(r'\s+', ' ', css_content)
-            # Remove spaces around special characters
-            css_content = re.sub(r'\s*([{}:;,])\s*', r'\1', css_content)
-            css_minified += len(css_content.strip())
-            css_file.write_text(css_content.strip())
+            css_content = minify_css(css_content)
+            css_minified += len(css_content)
+            css_file.write_text(css_content)
         
         if css_files:
             css_savings = ((css_original - css_minified) / css_original * 100) if css_original > 0 else 0
