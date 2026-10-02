@@ -1,209 +1,54 @@
 ---
-id: 01a0b9db-c0af-7285-a93b-8501e0e1c0de
+id: 01a0fa4d-fe27-7232-b176-6dba3f2a74bc
 type: page
-title: Frequently Asked Questions
-created: '2025-10-12'
-updated: '2025-10-12'
+title: Questions about GANG
+summary: Answers to common questions about GANG 4-in-1, its four charging zones, wireless charging, installation information, and launch updates.
+created: '2026-10-01'
+updated: '2026-10-01'
 visibility: public
 status: published
 url: /pages/faq/
-author: GANG Team
-date: '2025-10-12'
-jsonld: {}
-seo:
-  description: null
-  title: null
-summary: Common questions about the GANG platform
+related:
+  - /objects/charger/
+  - /pages/compatibility/
+  - /pages/setup/
+  - /pages/contact/
 ---
 
-
-# Frequently Asked Questions
-
-## General Questions
+## Product
 
 ### What is GANG?
 
-GANG is an AI-first static publishing platform that prioritizes accessibility, performance, and machine legibility. We build the smallest possible website that guarantees these core principles, then add only features that measurably improve comprehension, trust, or conversion.
+GANG is a consumer hardware company focused on wireless charging. Our first product is a wall-mounted charging hub with four charging zones.
 
-### Who is GANG for?
+### What does 4-in-1 mean?
 
-GANG is designed for content creators, publishers, and businesses who want:
-- Lightning-fast websites
-- Perfect accessibility scores
-- SEO and AI optimization
-- E-commerce integration
-- Complete control over their content
+Four wireless charging zones in one hub. It describes the number of zones; supported devices will be listed in the [compatibility](/pages/compatibility/) guide.
 
-### Is GANG open source?
+### Which devices will it charge?
 
-Yes! GANG is open source and available on [GitHub](https://github.com/www-gang-tech/platform).
+The final supported-device list is being developed. Check the [compatibility page](/pages/compatibility/) for the information available before ordering.
 
-## Technical Questions
+### Does it have USB-C charging ports?
 
-### What technologies does GANG use?
+No. GANG 4-in-1 is designed for wireless charging.
 
-- **Backend:** Python with Click CLI
-- **Templates:** Jinja2
-- **Content:** Markdown with YAML frontmatter
-- **Frontend:** Semantic HTML5, modern CSS, minimal JavaScript
-- **Build:** Static site generation
+### Does the hub need power?
 
-### What are the performance budgets?
+Yes. Wireless charging describes the connection to your device. The hub itself still needs a power connection.
 
-- **HTML:** ≤30KB per page
-- **CSS:** ≤10KB (currently ~9KB minified)
-- **JavaScript:** ≤10KB (currently ~6KB minified)
-- **Lighthouse Scores:** Performance ≥95, Accessibility ≥98, Best Practices 100, SEO 100
+## Setup and availability
 
-### Does GANG require JavaScript?
+### How is it installed?
 
-No! All core functionality works without JavaScript. JavaScript is used only for progressive enhancement:
-- Shopping cart state management
-- Product variant switching
-- Real-time form updates
+The product is designed for wall mounting. The complete installation requirements and [setup](/pages/setup/) guide will be published before orders open.
 
-### What accessibility standards does GANG follow?
+### When will it be available?
 
-GANG is fully conformant with **WCAG 2.2 Level AA**. This includes:
-- Semantic HTML structure
-- Proper heading hierarchy
-- Keyboard navigation
-- Screen reader support
-- Color contrast compliance
-- Focus indicators
-- Alt text for images
+[Join launch updates](/updates/) for availability news. A shipping date has not been announced here.
 
-## Content & Publishing
+### Can I ask about a commercial space?
 
-### How do I create content?
+Yes. Contact us with the type of space, location, approximate quantity, and timing.
 
-Content is written in Markdown with YAML frontmatter:
-
-```markdown
----
-title: My Article
-date: 2025-10-12
-author: Your Name
-category: Tutorial
-tags: [Web Development, Accessibility]
----
-
-# My Article
-
-Your content here...
-```
-
-### Can I schedule content?
-
-Yes! Use the `publish_date` field in frontmatter:
-
-```yaml
----
-title: Future Post
-publish_date: 2025-12-01
----
-```
-
-Run `gang build` and only published content will appear.
-
-### How does the taxonomy system work?
-
-GANG uses a Notion-style hierarchical taxonomy:
-- **Categories:** Product → Font, Tutorial → Development
-- **Tags:** Open Source, Typography, SEO
-- **Commands:** `gang taxonomy list`, `gang taxonomy add-category`
-
-## E-commerce
-
-### What platforms does GANG support?
-
-Currently:
-- **Shopify** (fully integrated)
-- **Stripe** (planned)
-- **Gumroad** (planned)
-
-### How does the shopping cart work?
-
-- **Storage:** localStorage (client-side)
-- **Add to Cart:** Form submission with JavaScript enhancement
-- **Checkout:** Direct to Shopify checkout
-- **No server required:** Fully static
-
-### Can I track inventory?
-
-Yes! GANG syncs with Shopify's inventory system and shows real-time stock status on product pages.
-
-## SEO & AI
-
-### How is GANG optimized for AI?
-
-- **AgentMap.json:** Machine-readable site navigation
-- **JSON-LD:** Structured data on every page
-- **Content API:** JSON endpoints for all content
-- **Semantic HTML:** Proper document structure
-- **RSS Feed:** JSON Feed format
-
-### What structured data does GANG include?
-
-- **Articles:** Blog posts with author, date, tags
-- **Products:** Full product schema with variants
-- **Organization:** Company information
-- **Breadcrumbs:** Navigation hierarchy
-- **CollectionPage:** Category and list pages
-
-## Performance
-
-### How fast is GANG?
-
-- **First Contentful Paint:** <1s
-- **Time to Interactive:** <2s
-- **Total Page Weight:** <30KB (HTML + CSS + JS)
-- **Lighthouse Performance:** 95-100
-
-### What optimizations does GANG use?
-
-- **HTML Minification:** ~18% reduction
-- **CSS Minification:** ~35% reduction
-- **JavaScript Minification:** ~41% reduction
-- **Resource Hints:** Preload, preconnect
-- **Deferred Scripts:** Non-blocking JavaScript
-- **Image Optimization:** AVIF/WebP with fallbacks
-
-## Support
-
-### How do I get help?
-
-- **Documentation:** Check our [GitHub repository](https://github.com/www-gang-tech/platform)
-- **Issues:** Report bugs on GitHub
-- **Email:** support@gang.tech
-- **Community:** Join our discussions
-
-### Can I contribute?
-
-Absolutely! We welcome contributions:
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
-4. Follow our code style and accessibility guidelines
-
-## Pricing
-
-### Is GANG free?
-
-Yes! GANG is open source and free to use. You only pay for:
-- Hosting (Cloudflare Pages, Netlify, etc.)
-- Optional services (Shopify, Klaviyo, etc.)
-- Media storage (Cloudflare R2, S3, etc.)
-
-### What are the hosting costs?
-
-Typical costs:
-- **Cloudflare Pages:** Free tier available
-- **Cloudflare R2:** $0.015/GB/month
-- **Domain:** ~$10-15/year
-
-For most sites: **<$5/month total**
-
----
-
-*Have more questions? [Contact us](/pages/contact/)*
+[Contact GANG](/pages/contact/)

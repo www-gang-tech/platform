@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set breadcrumbs = [{"url": "/", "label": "Home"}, {"label": "Search", "current": true}] %}
+{% include "partials/breadcrumb.html" %}
+<article class="editorial">
+    <header class="editorial-header listing-header">
+        <h1 id="search-heading">Search</h1>
+        <p class="listing-kicker">Search public pages.</p>
+    </header>
+    <form class="site-search-form listing-search" role="search" action="/search/" method="get">
+        <label class="listing-search-label" for="site-search-input">Search</label>
+        <div class="listing-search-row">
+            <input id="site-search-input" type="search" name="q" value="{{ query | default('') }}" autocomplete="off" spellcheck="false" aria-labelledby="search-heading">
+            <button type="submit">Show results</button>
+        </div>
+    </form>
+    <p class="listing-range" id="search-range"></p>
+    <ul class="index-list" id="search-results">
+        {% for item in items %}
+        <li class="index-entry" data-search="{{ (item.title or '') | lower }} {{ (item.summary or '') | lower }}">
+            <a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a>
+            {% if item.summary %}
+            <p>{{ item.summary }}</p>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    <p id="search-empty" hidden>No matching pages.</p>
+</article>
+<script>
+(function () {
+  var input = document.getElementById("site-search-input");
+  var items = document.querySelectorAll("#search-results .index-entry");
+  var empty = document.getElementById("search-empty");
+  function filter() {
+    var q = (input && input.value || "").trim().toLowerCase();
+    var shown = 0;
+    items.forEach(function (item) {
+      var hay = item.getAttribute("data-search") || "";
+      var match = !q || hay.indexOf(q) !== -1;
+      item.hidden = !match;
+      if (match) shown += 1;
+    });
+    if (empty) empty.hidden = shown !== 0;
+    var range = document.getElementById("search-range");
+    if (range) {
+      range.textContent = shown ? ("This is page 1, displaying results 1–" + shown + ".") : "";
+    }
+  }
+  if (input) {
+    input.addEventListener("input", filter);
+    if (input.value) filter();
+  }
+})();
+</script>
+{% endblock %}

@@ -1,50 +1,44 @@
 ---
-id: 01a0b9db-c0ae-72b9-9963-f049a34b765d
+id: 01a0fa4d-fe28-7807-afcf-3f8ab84fd8c2
 type: page
-title: Contact
-created: '2025-10-12'
-updated: '2025-10-12'
+title: Contact GANG
+summary: For product questions, press, retail, and projects.
+created: '2026-10-01'
+updated: '2026-10-01'
 visibility: public
 status: published
 url: /pages/contact/
-author: GANG Team
-date: '2025-10-12'
-jsonld: {}
-seo:
-  description: null
-  title: null
-summary: Get in touch with the GANG team
+related:
+  - /about/
+  - /team/
+  - /studio/
+  - /updates/
 ---
 
+## Product questions
 
-# Contact
+For help with the product, setup, or compatibility, email [info@gang.tech](mailto:info@gang.tech).
 
-## Offline
+Include your device model and case for compatibility questions, or a few details about the space you have in mind.
 
-**Gang Tech, LLC**<br />
-228 Park Ave S<br />
-PMB 400205<br />
-New York, New York<br />10003-1502 US
+## Press
 
-## Online
+For product information and images, [send a press enquiry](mailto:info@gang.tech?subject=Press%20enquiry).
 
-### Inquiries
-- **General:** [info@gang.tech](mailto:info@gang.tech)
-- **Support:** [support@gang.tech](mailto:support@gang.tech)
-- **Press:** [press@gang.tech](mailto:press@gang.tech)
-- **Response Time:** Within 24-48 hours
+## Retail and projects
 
-### Social Media
-- **GitHub:** [@www-gang-tech](https://github.com/www-gang-tech)
-- **Instagram:** [@gang__tech](https://instagram.com/gang__tech)
-- **Twitter:** [@gang__tech](https://twitter.com/gang__tech)
+Introduce your store or share the project, location, approximate quantity, and timing.
 
-## Office Hours
+[Start a conversation](mailto:info@gang.tech?subject=Retail%20and%20projects)
 
-Monday - Friday: 9:00 AM - 5:00 PM (EST)
+## Address
 
-## Contribute
+Gang Tech, LLC  
+228 Park Ave S  
+PMB 400205  
+New York, New York  
+10003-1502 US
 
+## Follow GANG
 
-
-- **Website:** [github.com/www-gang-tech/platform](https://github.com/www-gang-tech/platform)
+[Instagram](https://instagram.com/gang__tech) · [Launch updates](/updates/)

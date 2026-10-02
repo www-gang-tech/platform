@@ -1,27 +1,43 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="index-layout">
-    <h1>{{ page_title }}</h1>
+{% set breadcrumbs = [{"url": "/", "label": "Home"}, {"label": page_title, "current": true}] %}
+{% include "partials/breadcrumb.html" %}
+
+<div class="index-layout listing">
+    <header class="listing-header">
+        <h1>{{ page_title }}</h1>
+        {% if description %}
+        <p class="listing-kicker">{{ description }}</p>
+        {% endif %}
+    </header>
+
+    <form class="site-search-form listing-search" role="search" action="/search/" method="get">
+        <label class="listing-search-label" for="listing-search-input">Search {{ page_title }}</label>
+        <div class="listing-search-row">
+            <input id="listing-search-input" type="search" name="q" autocomplete="off" spellcheck="false">
+            <button type="submit">Show results</button>
+        </div>
+    </form>
 
     {% if items %}
+    <p class="listing-range">This is page 1, displaying results 1–{{ items|length }}.</p>
     <ul class="index-list">
         {% for item in items %}
         <li class="index-entry">
-            <a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a>
-            <span class="index-entry-meta">
-                {% if item.date %}
-                    <time datetime="{{ item.date }}">{{ item.date_formatted }}</time>
-                {% else %}
-                    —
-                {% endif %}
-            </span>
+            <h2><a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a></h2>
+            {% if item.date %}
+            <p><time class="index-entry-date" datetime="{{ item.date }}">{{ item.date | formatdate('news') }}</time></p>
+            {% endif %}
+            {% if item.summary %}
+            <p>{{ item.summary }}</p>
+            {% endif %}
         </li>
         {% endfor %}
     </ul>
+    <p class="listing-feed">Related feed. <a href="/feed.json">Subscribe to the JSON feed</a>.</p>
     {% else %}
     <p>No {{ content_type }} found.</p>
     {% endif %}
 </div>
 {% endblock %}
-

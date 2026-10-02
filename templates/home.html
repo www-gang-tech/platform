@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<article class="editorial home">
+    <figure class="home-hero">
+        <img src="/assets/images/gang-hero.jpg" width="1080" height="1080" alt="Night brick facade with a person standing at a desk in a lit window.">
+    </figure>
+    <header class="editorial-header">
+        <h1>{{ title }}</h1>
+        {% if description %}
+        <p class="editorial-lede">{{ description }}</p>
+        {% endif %}
+        {% if preview %}
+        <p class="draft-note" role="status">Local preview. Public release still goes through git review.</p>
+        {% endif %}
+    </header>
+
+    <div class="markdown-body">
+        {{ content | safe }}
+    </div>
+
+    {% if now or next or learned %}
+    <section class="status-block" aria-label="Now, next, learned">
+        <h2>Now / Next / Learned</h2>
+        {% if now %}<p><strong>Now.</strong> {{ now }}</p>{% endif %}
+        {% if next %}<p><strong>Next.</strong> {{ next }}</p>{% endif %}
+        {% if learned %}<p><strong>Learned.</strong> {{ learned }}</p>{% endif %}
+    </section>
+    {% endif %}
+
+    <nav class="section-index" aria-label="Sections">
+        <ul>
+            <li><a href="/about/">About</a></li>
+            <li><a href="/studio/">Studio</a></li>
+            <li><a href="/objects/">Objects</a></li>
+            <li><a href="/research/">Research</a></li>
+            <li><a href="/journal/">Journal</a></li>
+        </ul>
+    </nav>
+</article>
+{% endblock %}
