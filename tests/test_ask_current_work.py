@@ -391,6 +391,24 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(assignments_module.deadline_date("Near term", "2026-09-16"))
         self.assertIsNone(assignments_module.deadline_date("Sep 18", ""))
 
+    def test_an_abbreviated_due_field_is_overdue_when_that_day_has_passed(self):
+        stated = "2026-09-16"
+        row = {
+            "document_id": "sched",
+            "title": "Schedule",
+            "body": "1. Meet on Sep. 18 about the launch Owner: Daniel | Due: Sep. 18 — Noon | Status: open",
+            "updated": stated,
+        }
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+        found = assignments_module.gather([row], person)
+        self.assertEqual(found[0].deadline, "Sep. 18 — Noon")
+        selection = current_work_module.select(
+            found, today=TODAY, source_classes={"sched": "correspondence"}
+        )
+        self.assertEqual(selection.items[0]["due"], "2026-09-18")
+        self.assertEqual(selection.items[0]["timing"], current_work_module.OVERDUE)
+        self.assertEqual(selection.items[0]["task"], "Meet on Sep. 18 about the launch")
+
 
 class ScheduleReaderTests(unittest.TestCase):
     """The owner-field reader on a flattened schedule of record."""
