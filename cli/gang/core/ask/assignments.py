@@ -171,7 +171,8 @@ _BY_DEADLINE = re.compile(
     r"\bby\s+(?P<value>(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|today|tonight|"
     r"end\s+of\s+(?:day|week|month|quarter)|eod|eow|next\s+week|"
     r"\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?|"
-    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?)\b",
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?"
+    r"(?:\s*,\s*\d{4})?)\b",
     re.I,
 )
 
@@ -713,19 +714,41 @@ def _sentence_around(text: str, start: int, end: int) -> str:
 
 
 _MONTH_DAY = re.compile(
-    r"\b(?P<month>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?\b",
+    r"\b(?P<month>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?"
+    r"(?:(?:,|\s)\s*(?P<year>\d{4}))?\b",
     re.I,
 )
+#: A numeric month/day, optionally with a two- or four-digit year: "9/18/2026",
+#: "09/04/26", "9/25". A trailing slash or digit is a different token
+#: ("9/18/20261", "1/2/3"), not a date with its year cut off.
+_SLASH_DATE = re.compile(
+    r"\b(?P<month>0?[1-9]|1[0-2])/(?P<day>0?[1-9]|[12]\d|3[01])(?:/(?P<year>\d{4}|\d{2}))?(?!/|\d)"
+)
 _MONTHS = {name: index for index, name in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+
+
+def _safe_date(year: int, month: int, day: int) -> Optional[date]:
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _explicit_year(raw: str) -> int:
+    """A deadline's own year. Two digits are this century ("09/04/26")."""
+    year = int(raw)
+    return year + 2000 if year < 100 else year
 
 
 def deadline_date(deadline: str, stated: str = "") -> Optional[date]:
     """The calendar date a deadline names, or ``None`` when it names none.
 
-    Reads an ISO date, or a month and day ("Sep. 18 — Noon", "Before Sep 18
-    meeting"). A month and day takes its year from ``stated`` — the date of
-    the evidence that set it — and a deadline more than half a year before
-    that is read as next year's, so a December schedule's "Jan 10" is January
+    Reads an ISO date, a numeric month/day ("9/18/2026", "09/04/26"), or a
+    month and day ("Sep. 18 — Noon", "Before Sep 18 meeting"). A month and
+    day that names its year ("Sep 18, 2026", "September 18th, 2026") uses
+    that year. Otherwise the year comes from ``stated`` — the date of the
+    evidence that set it — and a deadline more than half a year before that
+    is read as next year's, so a December schedule's "Jan 10" is January
     after it. "Near term" and "Ongoing" are not dates, and stay ``None``.
     """
     text = str(deadline or "")
@@ -736,15 +759,31 @@ def deadline_date(deadline: str, stated: str = "") -> Optional[date]:
         except ValueError:
             return None
     found = _MONTH_DAY.search(text)
-    if not found:
+    slash = _SLASH_DATE.search(text)
+    if found and found.group("year"):
+        return _safe_date(
+            int(found.group("year")),
+            _MONTHS[found.group("month").casefold()],
+            int(found.group("day")),
+        )
+    if slash and slash.group("year"):
+        return _safe_date(
+            _explicit_year(slash.group("year")),
+            int(slash.group("month")),
+            int(slash.group("day")),
+        )
+    if found:
+        month, day = _MONTHS[found.group("month").casefold()], int(found.group("day"))
+    elif slash:
+        month, day = int(slash.group("month")), int(slash.group("day"))
+    else:
         return None
     try:
         anchor = date.fromisoformat(str(stated or "")[:10])
     except ValueError:
         return None
-    try:
-        value = date(anchor.year, _MONTHS[found.group("month").casefold()], int(found.group("day")))
-    except ValueError:
+    value = _safe_date(anchor.year, month, day)
+    if value is None:
         return None
     if (anchor - value).days > 183:
         value = value.replace(year=value.year + 1)
