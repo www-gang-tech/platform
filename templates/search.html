@@ -12,13 +12,14 @@
         <label class="listing-search-label" for="site-search-input">Search</label>
         <div class="listing-search-row">
             <input id="site-search-input" type="search" name="q" value="{{ query | default('') }}" autocomplete="off" spellcheck="false" aria-labelledby="search-heading">
+            <input type="hidden" name="section" id="search-section" value="">
             <button type="submit">Show results</button>
         </div>
     </form>
     <p class="listing-range" id="search-range"></p>
     <ul class="index-list" id="search-results">
         {% for item in items %}
-        <li class="index-entry" data-search="{{ (item.title or '') | lower }} {{ (item.summary or '') | lower }}">
+        <li class="index-entry" data-section="{{ item.type or '' }}" data-search="{{ (item.title or '') | lower }} {{ (item.summary or '') | lower }}">
             <a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a>
             {% if item.summary %}
             <p>{{ item.summary }}</p>
@@ -31,14 +32,25 @@
 <script>
 (function () {
   var input = document.getElementById("site-search-input");
+  var sectionInput = document.getElementById("search-section");
   var items = document.querySelectorAll("#search-results .index-entry");
   var empty = document.getElementById("search-empty");
+  var params = new URLSearchParams(window.location.search);
+  var section = (params.get("section") || "").trim().toLowerCase();
+  if (input && !input.value && params.get("q")) {
+    input.value = params.get("q");
+  }
+  if (sectionInput) {
+    if (section) sectionInput.value = section;
+    else sectionInput.disabled = true;
+  }
   function filter() {
     var q = (input && input.value || "").trim().toLowerCase();
     var shown = 0;
     items.forEach(function (item) {
       var hay = item.getAttribute("data-search") || "";
-      var match = !q || hay.indexOf(q) !== -1;
+      var itemSection = (item.getAttribute("data-section") || "").toLowerCase();
+      var match = (!q || hay.indexOf(q) !== -1) && (!section || itemSection === section);
       item.hidden = !match;
       if (match) shown += 1;
     });
@@ -48,10 +60,8 @@
       range.textContent = shown ? ("This is page 1, displaying results 1–" + shown + ".") : "";
     }
   }
-  if (input) {
-    input.addEventListener("input", filter);
-    if (input.value) filter();
-  }
+  if (input) input.addEventListener("input", filter);
+  filter();
 })();
 </script>
 {% endblock %}

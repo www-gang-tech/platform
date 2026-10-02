@@ -14,6 +14,17 @@ from .faq_accordion import faq_html_to_accordion
 from .generators import OutputGenerators
 from .templates import TemplateEngine
 
+# Dated public documents. Standalone pages (about, FAQ, contact) are not posts.
+FEED_COLLECTIONS = (
+    "journal",
+    "research",
+    "objects",
+    "posts",
+    "projects",
+    "newsletters",
+    "guides",
+)
+
 SECTION_INDEXES = (
     ("objects", "Objects", "Objects in development and in use."),
     ("research", "Research", "Notes that can be checked against primary sources."),
@@ -197,8 +208,16 @@ def write_markdown_pages(
         sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     if not any(item.get("url") == "/search/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/search/", "title": "Search", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
-    generators.generate_all(dist_path, sitemap_pages, grouped.get("posts", []), preview=preview)
+    generators.generate_all(dist_path, sitemap_pages, feed_documents(grouped), preview=preview)
     return grouped
+
+
+def feed_documents(grouped: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Journal, research, and other dated documents. The posts collection is legacy."""
+    items: List[Dict[str, Any]] = []
+    for key in FEED_COLLECTIONS:
+        items.extend(grouped.get(key) or [])
+    return sorted(items, key=lambda item: str(item.get("date") or ""), reverse=True)
 
 
 def _write_section_indexes(
