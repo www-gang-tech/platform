@@ -5,7 +5,8 @@ title: Manifesto
 created: '2025-01-11'
 updated: '2025-01-11'
 visibility: public
-status: published
+status: draft
+noindex: true
 url: /pages/manifesto/
 summary: 'Our principles for building the web: semantic, accessible, fast, and AI-first'
 date: '2025-01-11'
@@ -142,4 +143,4 @@ Build the web we deserve.
 
 **Start building:** `pip install gang-cli && gang init`
 
-**Read more:** [Documentation](/pages/about/) · [GitHub](https://github.com/www-gang-tech/platform)
+**Read more:** [About](/about/) · [GitHub](https://github.com/www-gang-tech/platform)

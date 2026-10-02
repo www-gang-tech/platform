@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<nav aria-label="Breadcrumb" class="breadcrumb">
+    <ol>
+        <li><a href="/">Home</a></li>
+        {% if category and category != 'pages' %}
+        <li><a href="/{{ category }}/">{{ category | capitalize }}</a></li>
+        {% endif %}
+        <li><span aria-current="page">{{ title }}</span></li>
+    </ol>
+</nav>
+<article class="editorial">
+    <header class="editorial-header">
+        {% if stage %}
+        <p>{{ stage }}</p>
+        {% endif %}
+        <h1>{{ title }}</h1>
+        {% if description %}
+        <p class="editorial-lede">{{ description }}</p>
+        {% endif %}
+        {% if date %}
+        <p><time datetime="{{ date }}">{{ date_formatted }}</time></p>
+        {% endif %}
+        {% if preview and document_status and document_status != 'published' %}
+        <p class="draft-note" role="status">Draft — included in local preview only.</p>
+        {% endif %}
+    </header>
+
+    <div class="markdown-body">
+        {{ content | safe }}
+    </div>
+
+    {% if now or next or learned %}
+    <section class="status-block" aria-label="Now, next, learned">
+        <h2>Now / Next / Learned</h2>
+        {% if now %}<p><strong>Now.</strong> {{ now }}</p>{% endif %}
+        {% if next %}<p><strong>Next.</strong> {{ next }}</p>{% endif %}
+        {% if learned %}<p><strong>Learned.</strong> {{ learned }}</p>{% endif %}
+    </section>
+    {% endif %}
+
+    {% if revision_notes %}
+    <section class="revision-notes" aria-label="Revision notes">
+        <h2>Revision notes</h2>
+        <ol>
+            {% for note in revision_notes %}
+            <li>
+                {% if note.date %}<time datetime="{{ note.date }}">{{ note.date }}</time> — {% endif %}
+                {{ note.note or note }}
+            </li>
+            {% endfor %}
+        </ol>
+    </section>
+    {% endif %}
+
+    {% if related %}
+    <aside class="related" aria-label="Related">
+        <h2>Related</h2>
+        <ul>
+            {% for item in related %}
+            <li><a href="{{ item.url }}">{{ item.title }}</a></li>
+            {% endfor %}
+        </ul>
+    </aside>
+    {% endif %}
+</article>
+{% endblock %}

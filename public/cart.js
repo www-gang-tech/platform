@@ -28,7 +28,13 @@
         const badges = document.querySelectorAll('.cart-count');
         badges.forEach(badge => {
             badge.textContent = count;
-            badge.style.display = count > 0 ? 'inline-block' : 'none';
+            if (!badge.closest('.site-cart')) {
+                badge.style.display = count > 0 ? 'inline-block' : 'none';
+            }
+        });
+        document.querySelectorAll('.site-cart-link').forEach(link => {
+            const noun = count === 1 ? 'item' : 'items';
+            link.setAttribute('aria-label', `Cart, ${count} ${noun}`);
         });
     }
     

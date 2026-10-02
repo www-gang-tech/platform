@@ -4,8 +4,8 @@ version: "1.0"
 # Site metadata
 site:
   title: "GANG"
-  url: "https://gang-platform.dev"
-  description: "A new protocol for intentional living expressed through crafted objects and open source research."
+  url: "https://gang.tech"
+  description: "A studio for charging objects and public notes, published from files the authors still own."
   language: "en"
   
 # Build settings
@@ -161,19 +161,17 @@ nav:
   main:
     - label: "Home"
       path: "/"
-    - label: "Posts"
-      path: "/posts"
-    - label: "Projects"
-      path: "/projects"
-    - label: "Products"
-      path: "/products"
-    - label: "Newsletters"
-      path: "/newsletters"
+    - label: "Studio"
+      path: "/studio/"
     - label: "About"
-      path: "/pages/about"
-    - label: "Contact"
-      path: "/pages/contact"
-      
+      path: "/about/"
+    - label: "Objects"
+      path: "/objects/"
+    - label: "Research"
+      path: "/research/"
+    - label: "Journal"
+      path: "/journal/"
+
 # Image derivatives
 images:
   formats: ["avif", "webp"]

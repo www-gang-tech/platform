@@ -3,7 +3,7 @@
 {% block content %}
 <article itemscope itemtype="https://schema.org/{{ jsonld_type or 'CreativeWork' }}">
   <header>
-    <p class="kicker">{{ type|upper }} · <time datetime="{{ date }}" itemprop="datePublished">{{ date_formatted }}</time></p>
+    <p class="kicker">{{ type }} · <time datetime="{{ date }}" itemprop="datePublished">{{ date_formatted }}</time></p>
     
     {% if title %}
     <h1 itemprop="headline name">{{ title }}</h1>
