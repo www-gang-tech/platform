@@ -149,6 +149,18 @@ _FIELD = r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[
 _DUE_FIELD = re.compile(r"\b(?:Due|Deadline|Due\s+date)\s*:\s*(?P<value>[^|]{1,60}?)" + _FIELD)
 _STATUS_FIELD = re.compile(r"\bStatus\s*:\s*(?P<value>[^|]{1,40}?)" + _FIELD)
 
+#: The status words themselves. The field pattern above ends at the next
+#: ``Owner:`` label, so "Status: in progress Hire the project manager Owner:"
+#: would otherwise swallow the next task. Longer phrases are listed first.
+_STATUS_PHRASE = re.compile(
+    r"not(?:\s+\w+){0,3}\s+started|not\s+complete[d]?|in\s+progress|near\s+completion|"
+    r"on\s+hold|at\s+risk|new(?:\s+responsibility)?|to\s*do|no\s+longer\s+needed|"
+    r"superseded|cancell?ed|dropped|obsolete|replaced|withdrawn|"
+    r"completed|complete|finished|resolved|delivered|blocked|delayed|dependent|"
+    r"ongoing|underway|started|critical|pending|closed|aligned|open|done",
+    re.I,
+)
+
 #: Any owner field's value — names separated by ``/``, ``,``, ``&`` or
 #: "and" — whoever it names. Only used to find where the value ends, so the
 #: next row's task does not begin with the previous row's owners.
@@ -487,6 +499,23 @@ def _obligation_task(obligation: str, task: str) -> str:
     return task
 
 
+def _bounded_status(match: Optional[re.Match]) -> Tuple[str, Optional[int]]:
+    """The status phrase, and where it ends inside the tail after the owner.
+
+    ``None`` for the end means the value was not a known status phrase, so
+    the caller leaves the next-task boundary where it was.
+    """
+    if match is None:
+        return "", None
+    raw = match.group("value")
+    body = raw.lstrip()
+    phrase = _STATUS_PHRASE.match(body)
+    if phrase is None:
+        return raw.strip(), None
+    leading = len(raw) - len(body)
+    return body[: phrase.end()].strip(), match.start("value") + leading + phrase.end()
+
+
 def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Pattern) -> List[Assignment]:
     """"WPC Qi Certification Owner: Daniel | Due: 2026-09-20 | Status: in progress"."""
     owners_after = re.compile(r"\s*" + _owner_list_pattern(name))
@@ -502,16 +531,20 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
         owners_match = owners_after.match(text, label.end())
         if owners_match is None:
             continue
+        tail = text[owners_match.end() : owners_match.end() + 240]
+        due = _DUE_FIELD.search(tail)
+        status = _STATUS_FIELD.search(tail)
+        deadline = due.group("value").strip() if due else ""
+        status_text, status_end = _bounded_status(status)
+        # The next task starts after this row's status wording, not after the
+        # colon that introduces it and not inside the following task.
+        if status_end is not None:
+            floor = max(floor, owners_match.end() + status_end)
         owners = _split_owners(owners_match.group(0))
         mine = [owner for owner in owners if _owner_matches(owner, person)]
         if not mine:
             continue
         segment = _segment_before(text, label.start(), floor=previous_floor)
-        tail = text[owners_match.end() : owners_match.end() + 240]
-        due = _DUE_FIELD.search(tail)
-        status = _STATUS_FIELD.search(tail)
-        deadline = due.group("value").strip() if due else ""
-        status_text = status.group("value").strip() if status else ""
         note = _SCHEDULE_NOTE.search(segment)
         if note and (note.group("end") or note.group("status")):
             segment = segment[: note.start()]
@@ -881,12 +914,26 @@ def _copy(item: Assignment) -> Assignment:
     return Assignment(**{**item.__dict__, "co_owners": list(item.co_owners), "document_ids": list(item.document_ids), "titles": list(item.titles)})
 
 
+def _resolved_deadline(item: Assignment) -> str:
+    """The deadline as ``YYYY-MM-DD``, or ``""`` when it does not name a date.
+
+    Month-and-day wording ("Sep 18", "Before Sep 18 meeting") is a date, not
+    only an ISO stamp. The year comes from the evidence that stated it.
+    """
+    resolved = deadline_date(item.deadline, item.date)
+    return resolved.isoformat() if resolved else ""
+
+
 def _within(item: Assignment, since: str, until: str) -> bool:
-    """Date scoping reads the deadline when the source gives one as a date."""
+    """Date scoping reads the deadline when the source gives one as a date.
+
+    A window such as "this week" follows that deadline. A schedule line due
+    "Nov 20" stays out of this week even when the email arrived today, and a
+    line due "Sep 18" stays in even when the schedule was written earlier.
+    """
     if not since and not until:
         return True
-    match = _ISO_DATE.search(item.deadline or "")
-    anchor = match.group(1) if match else item.date
+    anchor = _resolved_deadline(item) or item.date
     if not anchor:
         return False
     if since and anchor < since[:10]:
@@ -898,11 +945,11 @@ def _within(item: Assignment, since: str, until: str) -> bool:
 
 def _order(item: Assignment):
     """Current work first; dated deadlines soonest first; then newest evidence."""
-    match = _ISO_DATE.search(item.deadline or "")
+    due = _resolved_deadline(item)
     return (
         item.closed,
-        0 if match else 1,
-        match.group(1) if match else "",
+        0 if due else 1,
+        due,
         _negated(item.date),
     )
 
