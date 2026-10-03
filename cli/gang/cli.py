@@ -5147,7 +5147,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.optimizer import AIOptimizer
         from core.build_profiler import BuildProfiler
         from core.content_loader import PublicContentError, load_public_content
-        from core.site_build import write_html_sitemap, write_markdown_pages, default_jsonld
+        from core.site_build import write_html_sitemap, write_markdown_pages
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
@@ -5156,7 +5156,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.optimizer import AIOptimizer
         from core.build_profiler import BuildProfiler
         from core.content_loader import PublicContentError, load_public_content
-        from core.site_build import write_html_sitemap, write_markdown_pages, default_jsonld
+        from core.site_build import write_html_sitemap, write_markdown_pages
     
     # Initialize profiler
     profiler = BuildProfiler() if profile else None
@@ -5479,45 +5479,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
                 (pdp_dir / 'index.html').write_text(pdp_html)
             
             click.echo(f"✅ Generated product pages (PLP + {len(products)} PDPs)")
-            
-            # Generate cart page
-            cart_dir = dist_path / 'cart'
-            cart_dir.mkdir(parents=True, exist_ok=True)
-            
-            build_time = datetime.now()
-            build_time_formatted = build_time.strftime('%B %d, %Y at %I:%M %p')
-            build_time_iso = build_time.isoformat()
-            
-            cart_template = jinja_env.get_template('cart.html')
-            cart_canonical = f"{config['site']['url'].rstrip('/')}/cart/"
-            cart_html = cart_template.render(
-                lang=config['site']['language'],
-                year=datetime.now().year,
-                site_title=config['site']['title'],
-                title='Cart',
-                lighthouse_scores=True,
-                build_time=build_time_formatted,
-                build_time_iso=build_time_iso,
-                description=config['site']['description'],
-                canonical_url=cart_canonical,
-                current_path='/cart/',
-                noindex=preview,
-                preview=preview,
-                jsonld=default_jsonld(
-                    config,
-                    title='Cart',
-                    url=cart_canonical,
-                    description=config['site']['description'],
-                ),
-                page_type='cart',
-                category='commerce',
-                slug='cart',
-                user_authenticated=False,
-            )
-            (cart_dir / 'index.html').write_text(cart_html)
-            
-            click.echo("🛒 Generated cart page")
-            
+
             write_html_sitemap(
                 config,
                 grouped,

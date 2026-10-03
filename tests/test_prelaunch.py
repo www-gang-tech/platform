@@ -56,6 +56,9 @@ def test_pages_use_markdown_shell_not_retail_layout(tmp_path):
     assert "25 W" not in charger
     assert "Qi2 certified" not in charger
     assert "Add to bag" not in charger
+    assert 'src="/assets/images/gang-4-in-1-prototype.jpg"' in charger
+    assert 'width="768"' in charger
+    assert 'height="1024"' in charger
 
 
 def test_updates_page_is_markdown_with_email_request(tmp_path):
@@ -86,3 +89,18 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert 'src="/assets/images/gang-hero.jpg"' in home
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+
+
+def test_header_cart_link_has_a_page_and_an_empty_state(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+    cart = (dist / "cart" / "index.html").read_text()
+    sitemap = (dist / "sitemap.xml").read_text()
+
+    assert 'href="/cart/"' in home
+    assert "Your cart is empty" in cart
+    assert 'id="cart-empty" style="display: none;"' not in cart
+    assert 'href="/objects/"' in cart
+    assert "https://gang.tech/cart/" in sitemap
+    assert "__PAGE_SIZE__" not in cart
+    assert cart.count("<h1") == 1
