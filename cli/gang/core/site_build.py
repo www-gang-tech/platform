@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import markdown
 
@@ -106,6 +107,7 @@ def write_markdown_pages(
     for document in documents:
         content_html = md.convert(document.body)
         md.reset()
+        content_html = add_intrinsic_image_size(content_html, dist_path)
         if process_external_links:
             content_html = process_external_links(content_html)
         if document.url == "/pages/faq/":
@@ -197,6 +199,8 @@ def write_markdown_pages(
         sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     if not any(item.get("url") == "/search/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/search/", "title": "Search", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
+    if not any(item.get("url") == "/cart/" for item in sitemap_pages):
+        sitemap_pages.append({"url": "/cart/", "title": "Cart", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     generators.generate_all(dist_path, sitemap_pages, grouped.get("posts", []), preview=preview)
     return grouped
 
@@ -281,6 +285,14 @@ def _write_section_indexes(
     write_search_page(
         config,
         grouped,
+        dist_path,
+        template_engine,
+        preview=preview,
+        editor_mode=editor_mode,
+        live_reload_html=live_reload_html,
+    )
+    write_cart_page(
+        config,
         dist_path,
         template_engine,
         preview=preview,
@@ -408,6 +420,57 @@ def write_search_page(
     output.write_text(html)
 
 
+def write_cart_page(
+    config: Dict[str, Any],
+    dist_path: Path,
+    template_engine: TemplateEngine,
+    *,
+    preview: bool,
+    editor_mode: bool = False,
+    live_reload_html: str = "",
+) -> None:
+    """Publish /cart/ even when no products are configured.
+
+    The header links here on every page. Product generation is skipped when
+    the catalog is empty, which used to leave that link as a 404.
+    """
+    build_time = datetime.now()
+    canonical_url = f"{config['site']['url'].rstrip('/')}/cart/"
+    description = "Items saved in this browser."
+    context = {
+        "site_title": config["site"]["title"],
+        "lang": config["site"]["language"],
+        "year": datetime.now().year,
+        "navigation": config.get("nav", {}).get("main", []),
+        "user_authenticated": editor_mode,
+        "noindex": preview,
+        "preview": preview,
+        "comments": [],
+        "title": "Cart",
+        "description": description,
+        "canonical_url": canonical_url,
+        "current_path": "/cart/",
+        "jsonld": default_jsonld(
+            config,
+            title="Cart",
+            url=canonical_url,
+            description=description,
+        ),
+        "build_time": build_time.strftime("%B %d, %Y at %I:%M %p"),
+        "build_time_iso": build_time.isoformat(),
+        "page_type": "cart",
+        "category": "commerce",
+        "slug": "cart",
+    }
+    html = template_engine.render("cart.html", context)
+    if live_reload_html:
+        html = _inject(html, live_reload_html)
+    html = stamp_page_size(html)
+    output = output_file_for_url(dist_path, "/cart/")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(html)
+
+
 def default_jsonld(config: Dict[str, Any], *, title: str, url: str, description: str, page_type: str = "WebPage") -> Dict[str, Any]:
     site_url = config["site"]["url"].rstrip("/")
     return {
@@ -428,6 +491,79 @@ def default_jsonld(config: Dict[str, Any], *, title: str, url: str, description:
             },
         ],
     }
+
+
+_IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+
+
+def add_intrinsic_image_size(html: str, dist_path: Path) -> str:
+    """Add width and height to local images so layout does not jump after load."""
+
+    def replace(match: re.Match) -> str:
+        tag = match.group(0)
+        has_width = re.search(r"\bwidth\s*=", tag, re.I)
+        has_height = re.search(r"\bheight\s*=", tag, re.I)
+        if has_width and has_height:
+            return tag
+        src_match = re.search(r"""\bsrc\s*=\s*["']([^"']+)["']""", tag, re.I)
+        if not src_match:
+            return tag
+        src = src_match.group(1)
+        if not src.startswith("/assets/") or src.startswith("//"):
+            return tag
+        size = _local_image_size(dist_path, src)
+        if size is None:
+            return tag
+        width, height = size
+        extra_parts = []
+        if not has_width:
+            extra_parts.append(f'width="{width}"')
+        if not has_height:
+            extra_parts.append(f'height="{height}"')
+        extra = " " + " ".join(extra_parts)
+        if tag.endswith("/>"):
+            return tag[:-2].rstrip() + extra + " />"
+        return tag[:-1] + extra + ">"
+
+    return _IMG_TAG.sub(replace, html)
+
+
+def _local_image_size(dist_path: Path, src: str) -> Optional[Tuple[int, int]]:
+    root = dist_path.resolve()
+    candidate = (root / src.lstrip("/")).resolve()
+    if not candidate.is_relative_to(root) or not candidate.is_file():
+        return None
+    data = candidate.read_bytes()
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data.startswith(b"\xff\xd8"):
+        return _jpeg_size(data)
+    return None
+
+
+def _jpeg_size(data: bytes) -> Optional[Tuple[int, int]]:
+    index = 2
+    while index + 8 < len(data):
+        if data[index] != 0xFF:
+            index += 1
+            continue
+        marker = data[index + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            height = int.from_bytes(data[index + 5 : index + 7], "big")
+            width = int.from_bytes(data[index + 7 : index + 9], "big")
+            if width and height:
+                return width, height
+            return None
+        if marker in (0xD8, 0xD9):
+            index += 2
+            continue
+        if index + 4 > len(data):
+            return None
+        segment = int.from_bytes(data[index + 2 : index + 4], "big")
+        if segment < 2:
+            return None
+        index += 2 + segment
+    return None
 
 
 def stamp_page_size(html: str, placeholder: str = "__PAGE_SIZE__") -> str:
