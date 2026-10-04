@@ -169,3 +169,47 @@ def test_build_defaults_to_vault_and_keeps_explicit_legacy_rollback():
 
     assert source_param.default == "vault"
     assert set(source_param.type.choices) == {"vault", "legacy"}
+
+
+class _Indexer:
+    def _clean_markdown(self, body):
+        return body
+
+
+def test_discovery_files_only_advertise_urls_the_build_writes():
+    cli_module = load_cli_module()
+    config = repo_config()
+    docs = load_public_content(config, source="vault", root_path=ROOT)
+    site = "https://gang.tech"
+
+    agentmap = cli_module.generate_agentmap_from_documents(config, site, docs)
+    content_api = cli_module.generate_content_api_from_documents(site, docs)
+    search_index = cli_module.build_search_index_from_documents(docs, _Indexer())
+
+    def api_urls(value):
+        found = []
+        if isinstance(value, dict):
+            for item in value.values():
+                found.extend(api_urls(item))
+        elif isinstance(value, list):
+            for item in value:
+                found.extend(api_urls(item))
+        elif isinstance(value, str) and "/api/" in value:
+            found.append(value)
+        return found
+
+    assert agentmap["endpoints"]["search"] == f"{site}/search-index.json"
+    assert agentmap["search"]["endpoint"] == f"{site}/search-index.json"
+    assert "parameters" not in agentmap["search"]
+    assert api_urls(agentmap) == [f"{site}/api/content.json"]
+    assert api_urls(content_api) == []
+    journal = next(item for item in agentmap["contentTypes"] if item["type"] == "journal")
+    pages = next(item for item in agentmap["contentTypes"] if item["type"] == "pages")
+    assert journal["url"] == f"{site}/journal/"
+    assert "url" not in pages
+    assert all(item["url"] != f"{site}/pages/" for item in agentmap["navigation"]["main"])
+
+    everyday = next(item for item in content_api["items"] if item["url"].endswith("/journal/everyday-charging/"))
+    indexed = next(item for item in search_index["documents"] if item["url"] == "/journal/everyday-charging/")
+    assert everyday["date"] == "2026-09-30"
+    assert indexed["date"] == "2026-09-30"
