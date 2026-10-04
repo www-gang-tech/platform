@@ -23,6 +23,7 @@
   # XSS protection for legacy browsers
   X-XSS-Protection: 1; mode=block
 
-# Cache static assets for 1 year (immutable with hashed filenames)
+# Filenames under /assets/ are not content-hashed. A year-long immutable
+# cache would keep replaced CSS, JS, and images after a new deploy.
 /assets/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=3600, must-revalidate

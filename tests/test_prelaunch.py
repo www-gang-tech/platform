@@ -86,3 +86,29 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert 'src="/assets/images/gang-hero.jpg"' in home
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+    assert "font-awesome" not in home
+    assert not (dist / "posts" / "index.html").exists()
+    assert not (dist / "projects" / "index.html").exists()
+    assert not (dist / "newsletters" / "index.html").exists()
+    assert not (dist / "guides" / "index.html").exists()
+    journal = (dist / "journal" / "index.html").read_text()
+    assert "<h1>Journal</h1>" in journal
+    assert "No posts found" not in journal
+
+
+def test_host_headers_are_published_at_the_site_root(tmp_path):
+    from core.site_build import publish_host_files
+
+    public = tmp_path / "public"
+    public.mkdir()
+    (public / "_headers").write_text("/*\n  X-Frame-Options: DENY\n")
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "assets" / "_headers").write_text("stale\n")
+
+    publish_host_files(public, dist)
+
+    assert (dist / "_headers").read_text() == "/*\n  X-Frame-Options: DENY\n"
+    assert not (dist / "assets" / "_headers").exists()
+    cache = next(line for line in (ROOT / "public" / "_headers").read_text().splitlines() if "Cache-Control" in line)
+    assert "immutable" not in cache

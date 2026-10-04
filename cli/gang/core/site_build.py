@@ -20,10 +20,29 @@ SECTION_INDEXES = (
     ("journal", "Journal", "Development notes and charging guides."),
     ("guides", "Guides", "Practical charging notes."),
     ("studio", "Studio", "How this studio publishes."),
-    ("posts", "Journal", "Writing."),
+    ("posts", "Posts", "Posts."),
     ("projects", "Projects", "Projects."),
     ("newsletters", "Newsletters", "Newsletters."),
 )
+
+# Studio is one document, not a generated index. Pages live at their own URLs.
+GENERATED_INDEX_COLLECTIONS = {key for key, _label, _intro in SECTION_INDEXES if key != "studio"}
+
+
+def collection_index_path(collection: str, documents: List[PublicDocument]) -> Optional[str]:
+    """Return a collection index path only when the build emits that page.
+
+    Empty legacy collections stay unpublished. ``pages`` has no single index:
+    About, Team, and the home page are not ``/pages/``.
+    """
+    list_url = f"/{collection}/"
+    if any(getattr(document, "url", None) == list_url for document in documents):
+        return list_url
+    if collection not in GENERATED_INDEX_COLLECTIONS:
+        return None
+    if not any(getattr(document, "collection", None) == collection for document in documents):
+        return None
+    return list_url
 
 
 def output_file_for_url(dist_path: Path, url: str) -> Path:
@@ -237,6 +256,8 @@ def _write_section_indexes(
             continue
         # Studio is a single page, not a generated index, unless no studio page exists.
         if collection == "studio":
+            continue
+        if not items:
             continue
         list_url = f"/{collection}/"
         if any(item["url"] == list_url for item in grouped["all"]):
@@ -452,3 +473,21 @@ def _inject(html: str, snippet: str) -> str:
     if "</body>" in html:
         return html.replace("</body>", snippet + "</body>")
     return html + snippet
+
+
+def publish_host_files(public_path: Path, dist_path: Path) -> None:
+    """Put host config at the publish root.
+
+    Cloudflare Pages and Netlify read ``_headers`` from the output root.
+    Copying ``public/`` onto ``/assets/`` leaves that file at
+    ``/assets/_headers``, where it is never applied.
+    """
+    dist_path.mkdir(parents=True, exist_ok=True)
+    for name in ("_headers",):
+        source = public_path / name
+        if not source.is_file():
+            continue
+        (dist_path / name).write_text(source.read_text())
+        copied = dist_path / "assets" / name
+        if copied.is_file():
+            copied.unlink()

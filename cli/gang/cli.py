@@ -5296,6 +5296,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         else:
             click.echo("📦 Copying public assets...")
             shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+        from core.site_build import publish_host_files
+        publish_host_files(public_path, dist_path)
     
     click.echo(f"📝 Processing {len(public_documents)} validated public document(s)...")
     editor_mode = os.environ.get('EDITOR_MODE', '').lower() == 'true'
@@ -5712,7 +5714,7 @@ def build_search_index_from_documents(public_documents, indexer):
             "tags": document.tags,
             "content": clean_text[:500],
             "searchable": searchable.lower(),
-            "date": document.date or "",
+            "date": document.date or document.created or "",
         })
 
     return {
@@ -5723,23 +5725,23 @@ def build_search_index_from_documents(public_documents, indexer):
 
 
 def generate_agentmap_from_documents(config, site_url, public_documents, products=None):
+    from core.site_build import collection_index_path
+
     site_url = site_url.rstrip("/")
     by_category = {}
     for document in public_documents:
         by_category.setdefault(document.collection, []).append({
             "slug": document.slug,
             "url": f"{site_url}{document.url}",
-            "apiEndpoint": f"{site_url}/api/{document.collection}/{document.slug}.json",
         })
 
-    content_types = [
-        {
-            "type": category,
-            "url": f"{site_url}/{category}/",
-            "apiEndpoint": f"{site_url}/api/{category}.json",
-        }
-        for category in sorted(by_category)
-    ]
+    content_types = []
+    for category in sorted(by_category):
+        entry = {"type": category}
+        index_path = collection_index_path(category, public_documents)
+        if index_path:
+            entry["url"] = f"{site_url}{index_path}"
+        content_types.append(entry)
 
     agentmap = {
         "@context": "https://schema.org",
@@ -5751,9 +5753,9 @@ def generate_agentmap_from_documents(config, site_url, public_documents, product
         "description": config.get("site", {}).get("description", ""),
         "capabilities": ["read", "search"] + (["purchase"] if products else []),
         "endpoints": {
-            "api": f"{site_url}/api/",
             "content": f"{site_url}/api/content.json",
-            "search": f"{site_url}/api/search.json",
+            "search": f"{site_url}/search-index.json",
+            "searchPage": f"{site_url}/search/",
             "sitemap": f"{site_url}/sitemap.xml",
             "htmlSitemap": f"{site_url}/sitemap/",
             "llmsTxt": f"{site_url}/llms.txt",
@@ -5775,15 +5777,15 @@ def generate_agentmap_from_documents(config, site_url, public_documents, product
             "main": [
                 {"label": item["type"].title(), "url": item["url"], "type": item["type"]}
                 for item in content_types
+                if item.get("url")
             ],
             "content": by_category,
         },
         "contentTypes": content_types,
         "search": {
-            "endpoint": f"{site_url}/api/search.json",
+            "endpoint": f"{site_url}/search-index.json",
             "method": "GET",
-            "parameters": ["q", "category", "limit"],
-            "description": "Full-text search across all validated public content",
+            "description": "Static JSON index of public pages. Match against title, description, and content.",
         },
     }
 
@@ -5811,12 +5813,11 @@ def generate_content_api_from_documents(site_url, public_documents):
                 "id": document.id,
                 "title": document.title,
                 "url": f"{site_url}{document.url}",
-                "apiEndpoint": f"{site_url}/api/{document.collection}/{document.slug}.json",
                 "category": document.collection,
                 "type": document.type,
                 "slug": document.slug,
                 "summary": document.summary,
-                "date": document.date or "",
+                "date": document.date or document.created or "",
                 "tags": document.tags,
             }
             for document in public_documents
@@ -7426,6 +7427,8 @@ def serve(ctx, port, host):
 
                 if public_path.exists():
                     shutil.copytree(public_path, dist_path / 'assets', dirs_exist_ok=True)
+                    from core.site_build import publish_host_files
+                    publish_host_files(public_path, dist_path)
 
                 documents = load_public_content(
                     config,
