@@ -4,7 +4,7 @@ type: page
 title: Everyday objects deserve attention.
 summary: GANG is a consumer hardware company focused on wireless charging.
 created: '2026-10-01'
-updated: '2026-10-01'
+updated: '2026-10-03'
 visibility: public
 status: published
 url: /about/
@@ -35,4 +35,4 @@ The name comes from electrical gang boxes and the idea of devices charging toget
 
 A shared interest in useful technology and thoughtful design.
 
-[Explore GANG 4-in-1](/objects/charger/)
+[Explore GANG–1](/objects/charger/)

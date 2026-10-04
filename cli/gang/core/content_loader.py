@@ -180,7 +180,15 @@ def load_public_content(
         for path in _iter_public_markdown(source_root)
     ]
     documents = [doc for doc in documents if doc is not None]
-    validate_public_documents(documents, source=source, include_drafts=include_drafts)
+    public_path = (root_path / config.get("build", {}).get("public", "public")).resolve()
+    asset_urls = {
+        f"/assets/{path.relative_to(public_path).as_posix()}"
+        for path in public_path.rglob("*")
+        if path.is_file() and path.resolve().is_relative_to(public_path)
+    }
+    validate_public_documents(
+        documents, source=source, include_drafts=include_drafts, asset_urls=asset_urls
+    )
     return sorted(documents, key=lambda item: (item.collection, item.slug))
 
 
@@ -188,6 +196,7 @@ def validate_public_documents(
     documents: List[PublicDocument],
     source: str = "vault",
     include_drafts: bool = False,
+    asset_urls: Iterable[str] = (),
 ) -> None:
     errors: List[str] = []
     urls = {}
@@ -238,7 +247,7 @@ def validate_public_documents(
                 if pattern.search(haystack):
                     errors.append(f"{doc.source_path}: possible secret found")
 
-    allowed_internal = set(urls) | set(LIST_ROUTES)
+    allowed_internal = set(urls) | set(LIST_ROUTES) | set(asset_urls)
     for doc in documents:
         if doc.status != "published" and not include_drafts:
             continue
@@ -312,7 +321,7 @@ def _internal_links(body: str) -> List[str]:
         if not target.startswith("/") or target.startswith("//"):
             continue
         target = target.split("#", 1)[0].split("?", 1)[0]
-        if not target.endswith("/"):
+        if not target.startswith("/assets/") and not target.endswith("/"):
             target = f"{target}/"
         links.append(target)
     return links

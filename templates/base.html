@@ -29,6 +29,7 @@
     <link rel="preload" href="/assets/editor.css" as="style">
     <link rel="stylesheet" href="/assets/editor.css">
     {% endif %}
+    {% include "partials/typography.html" %}
 </head>
 <body data-page-type="{{ page_type|default('page') }}" data-category="{{ category|default('') }}" data-slug="{{ slug|default('') }}">
     <a class="skip-link" href="#content">Skip to content</a>
@@ -53,8 +54,6 @@
     <script src="/assets/editor-bundle.js" defer></script>
     {% endif %}
     
-    <!-- Comments System (progressive enhancement) -->
-    <script src="/assets/comments.js" defer></script>
-    <script src="/assets/cart.js" defer></script>
+    {% block page_scripts %}{% endblock %}
 </body>
 </html>

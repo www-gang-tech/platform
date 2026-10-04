@@ -9,11 +9,11 @@ Use one clear topic per page. The homepage introduces GANG as a hardware brand; 
 | Page | Primary intent | Language to use naturally |
 | --- | --- | --- |
 | Home | Understand the brand and first product | GANG, wireless charging, wall-mounted charging hub |
-| Product | Evaluate this product | GANG 4-in-1, wall-mounted wireless charger, four charging zones |
+| Product | Evaluate this product | GANG–1, wall-mounted wireless charger, four charging zones |
 | About | Learn who makes it and why | GANG hardware, industrial design, wireless charging |
 | Compatibility | Determine whether it fits a device and case | GANG device compatibility, magnetic attachment, case requirements |
 | Setup | Understand placement and installation | GANG setup, wall mounting, power connection |
-| FAQ | Resolve remaining questions | GANG 4-in-1 questions |
+| FAQ | Resolve remaining questions | GANG–1 questions |
 | Journal | Explore the brand's design thinking | charging in the home, product design |
 | Trade | Enquire about a specific project | GANG trade, retail enquiries, charging for shared spaces |
 
@@ -78,7 +78,7 @@ The draft deliberately avoids converting development plans into customer promise
 
 | Input | Reason / copy affected |
 | --- | --- |
-| Retail name: GANG 4-in-1 or GANG–1 | Product entity and specification sheet differ; affects every product reference and URL |
+| Retail name: resolved as GANG–1 | Owner confirmed on October 3, 2026; public references use GANG–1 and retain `/objects/charger/` |
 | Final materials/finish | June sheet specifies zinc; September notes discuss aluminum and possible zinc; affects detail captions and specs |
 | Dimensions, weight, configuration | A final sale specification was not established by the reviewed material |
 | Final standard, certified model, and certification status | The reviewed WPC correspondence records an application in progress; a certified subsystem does not establish a certified finished product |
@@ -93,6 +93,8 @@ The draft deliberately avoids converting development plans into customer promise
 | Approved product imagery and rights | No final retail image library was present in this checkout |
 
 The main prelaunch story can move forward while those inputs are completed. Do not show approval labels or internal uncertainty tables in the customer journey; use the concise development state supplied in the copy.
+
+October 3 update: the owner supplied the specification sheet for website integration. Current development specifications, materials, box contents, and the sheet's device listings are now public. Production confirmation, test results, and certification are still distinct from those stated specifications. The published Markdown takes precedence over the earlier copy drafts in this directory.
 
 ## Implementation acceptance checks
 

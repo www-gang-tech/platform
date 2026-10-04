@@ -2,9 +2,9 @@
 id: 01a0fa4d-fe27-7232-b176-6dba3f2a74bc
 type: page
 title: Questions about GANG
-summary: Answers to common questions about GANG 4-in-1, its four charging zones, wireless charging, installation information, and launch updates.
+summary: Charging output, devices and cases, materials, power requirements, box contents, and availability for GANG–1.
 created: '2026-10-01'
-updated: '2026-10-01'
+updated: '2026-10-03'
 visibility: public
 status: published
 url: /pages/faq/
@@ -21,23 +21,35 @@ related:
 
 GANG is a consumer hardware company focused on wireless charging. Our first product is a wall-mounted charging hub with four charging zones.
 
-### What does 4-in-1 mean?
+### How many charging zones does GANG–1 have?
 
-Four wireless charging zones in one hub. It describes the number of zones; supported devices will be listed in the [compatibility](/pages/compatibility/) guide.
+Four wireless charging zones in one hub. Each zone is specified for up to 25 W. Check the [compatibility](/pages/compatibility/) guide for listed devices and case requirements.
+
+### What do 25 W and 160 W refer to?
+
+The specification lists up to 25 W of wireless output per zone and a 160 W integrated power supply. The power-supply rating is not the wireless output to a device. Charging rate depends on the device and charging conditions.
 
 ### Which devices will it charge?
 
-The final supported-device list is being developed. Check the [compatibility page](/pages/compatibility/) for the information available before ordering.
+The sheet lists MagSafe-enabled iPhones, selected Samsung Galaxy and Google Pixel models, other Qi2.0+ Android devices, and wireless accessories. Some require a magnetic case. The [compatibility page](/pages/compatibility/) gives the named models and conditions for vertical use.
+
+### What is it made from?
+
+The specification lists an injection-moulded TPU front and a die-cast, milled zinc back.
 
 ### Does it have USB-C charging ports?
 
-No. GANG 4-in-1 is designed for wireless charging.
+No. GANG–1 is designed for wireless charging.
 
 ### Does the hub need power?
 
-Yes. Wireless charging describes the connection to your device. The hub itself still needs a power connection.
+Yes. The hub has a 120 V input and a 160 W integrated power supply. A 4 ft extension cord is included. Wireless charging describes the connection from the hub to your device.
 
 ## Setup and availability
+
+### What comes in the box?
+
+The specification lists one hub, one 4 ft extension cord, two outlet plates, one screwdriver, two drywall screws, and four square screws. See [setup and placement](/pages/setup/) for details.
 
 ### How is it installed?
 

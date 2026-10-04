@@ -1,4 +1,4 @@
-"""The public site keeps the editorial markdown shell. Copy can change; chrome cannot."""
+"""Public editorial pages share a shell and make the prelaunch state clear."""
 import shutil
 import sys
 from pathlib import Path
@@ -48,12 +48,17 @@ def test_pages_use_markdown_shell_not_retail_layout(tmp_path):
         assert "retail.css" not in html
         assert "layout-home" not in html
         assert "hero-image" not in html
+        assert '/assets/cart.js' not in html
+        assert '/assets/comments.js' not in html
 
     assert "Power has a place." in home
-    assert "Public writing starts as a file." in studio
+    assert "Frank Godchaux and Daniel Hirunrusme" in studio
+    assert "A memory for the practice" in studio
     assert "In development" in charger
-    assert "GANG 4-in-1" in charger
-    assert "25 W" not in charger
+    assert "GANG–1" in charger
+    assert "Up to 25 W per zone" in charger
+    assert "160 W" in charger
+    assert 'href="/assets/documents/gang-specifications.pdf"' in charger
     assert "Qi2 certified" not in charger
     assert "Add to bag" not in charger
 
@@ -83,6 +88,10 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert not (dist / "journal/charger-alignment-draft/index.html").exists()
     assert 'href="/studio/"' in home
     assert 'href="/objects/"' in home
-    assert 'src="/assets/images/gang-hero.jpg"' in home
+    assert 'src="/assets/images/gang-4-in-1-prototype.jpg"' in home
+    nav = BeautifulSoup(home, "html.parser").select_one(".site-header")
+    assert nav.find("a", href="/updates/")
+    assert not nav.find("a", href="/cart/")
+    assert not nav.find("a", href="/studio.html")
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home

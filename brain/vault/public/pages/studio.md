@@ -5,17 +5,42 @@ visibility: public
 status: published
 url: /studio/
 title: Studio
-summary: How this studio writes, reviews, and releases public pages.
+summary: People, objects, and a growing record of the work.
 created: '2026-09-30'
-updated: '2026-09-30'
+updated: '2026-10-03'
 related:
   - /
   - /about/
-  - /team/
-  - /journal/editorial-prototype/
-  - /journal/from-evidence-to-article/
+  - /objects/charger/
+  - /journal/a-place-for-charging/
+  - /research/alignment-not-wattage/
+now: GANG–1 is in development. The prototype, current specifications, and the thinking around it are collected here.
+next: Complete the installation guide and confirm final device and case compatibility before orders open.
+learned: Moving charging to the wall makes device fit, placement, and access to power part of the design.
 ---
 
-Public writing starts as a file. Anyone on the team can create Markdown in the website directory, or ask an agent to draft it. Studio lists those files as they appear; there is no import step. The visual editor changes the body of a page. Identifiers, URLs, dates, and other frontmatter stay in the file header. If a document contains tables, code, or HTML the visual editor cannot round-trip, Studio opens it as Markdown.
+## Frank Godchaux and Daniel Hirunrusme
 
-Saving writes the working file. It does not commit, push, or deploy. A published URL changes for readers only after the usual git review and production build. Private evidence stays in the private brain. Public articles may be revised from that evidence, but the mapping of sources is not published.
+GANG was founded around a shared interest in useful technology and thoughtful design. We give everyday objects our attention: how they work, how they feel, and where they belong.
+
+Our first product is a wall-mounted wireless charging hub. It begins with a question about daily life: where should charging happen?
+
+[Read why we began at the wall](/journal/a-place-for-charging/).
+
+## The object and the questions around it
+
+The prototype gives an idea a physical form. Four circular charging zones share one surface. That arrangement brings questions of placement, fit, and use into view.
+
+The research asks how a device meets its charger. The writing considers the object in the room. Each offers a different way to understand the same work.
+
+[See the prototype](/objects/charger/) and [the research behind alignment](/research/alignment-not-wattage/).
+
+## A memory for the practice
+
+We keep a living archive of conversations, research, and decisions. Sources stay connected to what they tell us. AI helps us search and draw connections; we decide what represents the work and what is ready to share.
+
+This website is a selection from that ongoing record. Private conversations stay private. Public notes give an idea room to develop, and meaningful revisions record how our understanding changes.
+
+## In touch
+
+For questions about the object, the studio, or a possible collaboration, [write to us](/pages/contact/). For occasional product news and design notes, [follow the work](/updates/).

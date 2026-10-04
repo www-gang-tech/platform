@@ -2,9 +2,9 @@
 id: 01a0fa4d-fe1f-74e7-b93f-9880e562c2e4
 type: page
 title: Power has a place.
-summary: A wall-mounted wireless charging hub with four charging zones. Designed for the spaces we share.
+summary: GANG makes technology for the spaces we live in. We begin with charging.
 created: '2026-10-01'
-updated: '2026-10-01'
+updated: '2026-10-03'
 visibility: public
 status: published
 url: /
@@ -15,26 +15,26 @@ related:
   - /updates/
 ---
 
-Explore [GANG 4-in-1](/objects/charger/), or [request launch updates](/updates/).
+## Object / GANG–1
 
-## Charging, off the counter.
+A wall-mounted wireless charging hub with four zones rated up to 25 W each. One shared place for compatible devices, with more room left on the counter. In development.
 
-Bring charging onto the wall. Leave more room for everything else.
+[Explore the object](/objects/charger/)
 
-[See the design](/objects/charger/)
+## Research / A place to align
 
-## Four places to recharge.
+Charging depends on where a device meets its charger. Our alignment note looks at the role of magnets in making that placement repeatable, and the questions that remain for the product.
 
-One shared place for compatible devices. At home. At work. Within reach.
+[Read the research behind alignment](/research/alignment-not-wattage/)
 
-[Check compatibility](/pages/compatibility/)
+## Journal / Why the wall?
 
-## Everyday objects deserve attention.
+The room is part of the design. A closer look at the prototype, the decision to bring charging off the counter, and what that asks of the object.
 
-GANG makes technology for the spaces we live in. We begin with charging.
+[Follow the design story](/journal/a-place-for-charging/)
 
-[About GANG](/about/)
+## An ongoing practice
 
-Follow what comes next. Product news, design notes, and launch updates from GANG.
+Objects, research, and writing develop together. The studio keeps a record of the work and shares selected parts here.
 
-[Get updates](/updates/)
+[Meet the studio](/studio/) · [Follow the work](/updates/)

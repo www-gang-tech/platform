@@ -142,6 +142,27 @@ def test_missing_vault_source_does_not_fall_back_to_legacy(tmp_path):
         load_public_content(config, source="vault", root_path=tmp_path)
 
 
+@pytest.mark.parametrize("target,valid", [
+    ("/assets/documents/specification.pdf#page=1", True),
+    ("/assets/documents/missing.pdf", False),
+    ("/assets/../../private.pdf", False),
+])
+def test_download_links_require_an_existing_public_asset(tmp_path, target, valid):
+    write(
+        tmp_path / "brain/vault/public/pages/product.md",
+        "---\nid: 0199da90-c200-7056-ac0b-6f1d82bd2f41\ntype: page\ntitle: Product\n"
+        "created: '2026-10-03'\nvisibility: public\nstatus: published\nurl: /pages/product/\n"
+        f"---\n[Download specifications]({target})",
+    )
+    write(tmp_path / "public/documents/specification.pdf", "%PDF-1.4")
+    write(tmp_path / "private.pdf", "private")
+    if valid:
+        assert len(load_public_content(repo_config(), root_path=tmp_path)) == 1
+    else:
+        with pytest.raises(PublicContentError, match="broken internal link"):
+            load_public_content(repo_config(), root_path=tmp_path)
+
+
 def test_preview_includes_drafts_and_production_does_not():
     production = {doc.url for doc in load_public_content(repo_config(), source="vault", root_path=ROOT)}
     preview = {

@@ -12,10 +12,9 @@
                 <li><a href="/pages/contact/"{% if path == '/pages/contact/' %} aria-current="page"{% endif %}>Contact</a></li>
             </ul>
         </nav>
-        <nav class="site-cart" aria-label="Account and cart">
+        <nav class="site-actions" aria-label="Search and updates">
             <a class="site-search" href="/search/"{% if current_path == '/search/' %} aria-current="page"{% endif %}>Search</a>
-            <a class="site-login" href="/studio.html">Login</a>
-            <a class="site-cart-link" href="/cart/"{% if current_path == '/cart/' %} aria-current="page"{% endif %} aria-label="Cart, 0 items">Cart (<span class="cart-count">0</span>)</a>
+            <a href="/updates/"{% if current_path == '/updates/' %} aria-current="page"{% endif %}>Follow the work</a>
         </nav>
     </div>
 </header>

@@ -1,0 +1,26 @@
+@font-face {
+  font-family: "AMB Dual Mono";
+  src: url("/assets/fonts/AMBDualMono-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* One typographic scale across content, navigation, and native controls.
+   Override legacy component and inline styles; preserve icon-font glyphs. */
+html,
+body,
+body *:not([class*="fa-"]),
+body *:not([class*="fa-"])::before,
+body *:not([class*="fa-"])::after,
+input::placeholder,
+textarea::placeholder,
+::file-selector-button {
+  font-family: "AMB Dual Mono", monospace !important;
+  font-size: 16px !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  line-height: 20px !important;
+  letter-spacing: 0 !important;
+  font-synthesis: none;
+}

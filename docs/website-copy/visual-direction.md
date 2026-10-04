@@ -14,11 +14,11 @@ HOME
 │                  PRODUCT IN THE ROOM                      │
 │                  dominant opening image                   │
 │                                                           │
-│ GANG 4-in-1                                                │
+│ GANG–1                                                │
 │ Power has a place.                                         │
 │ A wall-mounted wireless charging hub with four             │
 │ charging zones. Designed for the spaces we share.           │
-│ Explore GANG 4-in-1                     Get launch updates  │
+│ Explore GANG–1                     Get launch updates  │
 ├───────────────────────────────────────────────────────────┤
 │                  WALL / COUNTER CONTEXT                    │
 │ Charging, off the counter.                                 │
@@ -56,18 +56,18 @@ These are briefs for assets to create, not descriptions of assets already suppli
 
 | ID | Asset / purpose | Framing | Proposed caption | Example alt text |
 | --- | --- | --- | --- | --- |
-| V01 | Home hero: understand the object in seconds | Room context, wall installation, one verified compatible phone; desktop and separate mobile composition | GANG 4-in-1. Wall-mounted wireless charging. | GANG 4-in-1 mounted on a wall with a phone attached. |
-| V02 | Form: see all four zones | Clean front elevation, product alone | Four charging zones. | Front view of GANG 4-in-1 showing four charging zones. |
-| V03 | Placement: see the space it leaves | Wider view including the counter and power context | Charging, off the counter. | GANG 4-in-1 mounted above a counter. |
-| V04 | Interaction: explain magnetic attachment | Brief real demonstration or verified product animation | A place to recharge. | A compatible phone attached to a GANG 4-in-1 charging zone. |
-| V05 | Scale: understand dimensions | Side view and measured drawing from approved CAD | Considered from every side. | Side profile of GANG 4-in-1. |
-| V06 | Detail: establish material quality | Macro of actual production surface and junction | A closer look. | Close-up of the surface and edge of GANG 4-in-1. |
-| V07 | Rear and connection: explain how power reaches it | Accurate rear view, with approved labels | The connection behind the object. | Rear view of GANG 4-in-1 showing its power connection. |
-| V08 | Setup: resolve installation questions | Continuous, understandable demonstration of release hardware | Find its place. | GANG 4-in-1 mounting components arranged for installation. |
-| V09 | Box contents: remove purchase uncertainty | Overhead inventory; every included item visible | In the box. | GANG 4-in-1 with its included mounting accessories. |
+| V01 | Home hero: understand the object in seconds | Room context, wall installation, one verified compatible phone; desktop and separate mobile composition | GANG–1. Wall-mounted wireless charging. | GANG–1 mounted on a wall with a phone attached. |
+| V02 | Form: see all four zones | Clean front elevation, product alone | Four charging zones. | Front view of GANG–1 showing four charging zones. |
+| V03 | Placement: see the space it leaves | Wider view including the counter and power context | Charging, off the counter. | GANG–1 mounted above a counter. |
+| V04 | Interaction: explain magnetic attachment | Brief real demonstration or verified product animation | A place to recharge. | A compatible phone attached to a GANG–1 charging zone. |
+| V05 | Scale: understand dimensions | Side view and measured drawing from approved CAD | Considered from every side. | Side profile of GANG–1. |
+| V06 | Detail: establish material quality | Macro of actual production surface and junction | A closer look. | Close-up of the surface and edge of GANG–1. |
+| V07 | Rear and connection: explain how power reaches it | Accurate rear view, with approved labels | The connection behind the object. | Rear view of GANG–1 showing its power connection. |
+| V08 | Setup: resolve installation questions | Continuous, understandable demonstration of release hardware | Find its place. | GANG–1 mounting components arranged for installation. |
+| V09 | Box contents: remove purchase uncertainty | Overhead inventory; every included item visible | In the box. | GANG–1 with its included mounting accessories. |
 | V10 | About / Journal: show the work | Genuine studio, prototype, or design-document photograph | From the studio. | Rewrite to describe the actual subject and activity. |
 | V11 | Trade: help someone imagine a relevant space | Actual installation or clearly labeled concept | A place in your project. | Rewrite for the actual room and configuration. |
-| V12 | Social preview: identify the product when shared | Uncluttered product view; no unsupported feature badges | GANG 4-in-1 | GANG 4-in-1 wireless charging hub. |
+| V12 | Social preview: identify the product when shared | Uncluttered product view; no unsupported feature badges | GANG–1 | GANG–1 wireless charging hub. |
 
 Show four devices together only after confirming that the pictured devices, cases, orientation, spacing, and simultaneous operation are valid. Do not make an attractive photograph function as an unsupported compatibility claim.
 

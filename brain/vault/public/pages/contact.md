@@ -4,7 +4,7 @@ type: page
 title: Contact GANG
 summary: For product questions, press, retail, and projects.
 created: '2026-10-01'
-updated: '2026-10-01'
+updated: '2026-10-03'
 visibility: public
 status: published
 url: /pages/contact/
@@ -29,7 +29,7 @@ For product information and images, [send a press enquiry](mailto:info@gang.tech
 
 Introduce your store or share the project, location, approximate quantity, and timing.
 
-[Start a conversation](mailto:info@gang.tech?subject=Retail%20and%20projects)
+[Start a conversation with sales](mailto:sales@gang.tech?subject=Retail%20and%20projects)
 
 ## Address
 

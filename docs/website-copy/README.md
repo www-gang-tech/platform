@@ -24,11 +24,11 @@ The consistent direction is a consumer hardware company beginning with wireless 
 ## Working decisions
 
 - **Prelaunch is confirmed by the owner.** The site focuses on product discovery and launch updates. Purchase copy is provided separately for activation when ordering opens.
-- **GANG 4-in-1 is a working product name.** It is the canonical product record's name. A specification sheet also uses GANG–1. Settle the retail name before URLs and packaging are finalized; update all occurrences together.
-- **Use “four charging zones” to explain the name.** “4-in-1” alone may suggest a phone/watch/earbuds combination. The draft does not imply Apple Watch charging.
+- **GANG–1 is the confirmed public product name.** The owner selected the specification sheet's name on October 3, 2026. The existing `/objects/charger/` URL stays in place.
+- **Use “four charging zones” to explain the format.** The website does not imply Apple Watch charging.
 - **Lead with the object in a room.** Follow with what it is, how it is used, and what fits. Keep the product category in visible text.
 - **Publish one product story.** With one established product, the main navigation can point directly to it instead of an almost empty catalog.
-- **Keep technical facts exact.** Charging speeds, supported models, materials, dimensions, box contents, certifications, pricing, installation steps, and commercial policies require final release data. Specific gaps are listed in the publishing guide.
+- **Keep technical facts exact.** The supplied specification sheet now supports development specifications, device listings, materials, and box contents. It does not establish final product certification, measured charging times, price, or installation instructions. See [Integration notes](INTEGRATION.md) for the source and publication decisions.
 
 ## Voice
 
@@ -39,7 +39,7 @@ Use short, complete sentences. Name the object and the action. One idea per visu
 | A wall-mounted wireless charging hub with four charging zones. | The ultimate all-in-one charging solution. |
 | Charging, off the counter. | Revolutionize your space. |
 | Check device compatibility. | Works with everything. |
-| Explore GANG 4-in-1. | Discover the future. |
+| Explore GANG–1. | Discover the future. |
 | Join launch updates. | Claim exclusive VIP access. |
 
 “Luxury” describes the creative standard; it need not appear in customer copy. Express value through the actual object and the quality of information. Avoid invented scarcity, unearned superlatives, competitor comparisons, and unsupported durability or sustainability promises.

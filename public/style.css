@@ -1576,6 +1576,115 @@ b, strong {
     max-width: 100%;
   }
 
+  .home-opening {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    align-items: center;
+    gap: 48px;
+    margin: 24px 0 64px;
+  }
+
+  .site-main .home-opening h1 {
+    font-size: clamp(2rem, 4vw, 3.2rem);
+    font-weight: 400;
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    margin: 32px 0 24px;
+  }
+
+  .home-opening .editorial-lede {
+    max-width: 30ch;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .home-opening .home-invitation {
+    margin-top: 32px;
+    line-height: 1.8;
+  }
+
+  .home-hero {
+    margin: 0;
+  }
+
+  .home-hero figcaption {
+    margin-top: 12px;
+    line-height: 1.5;
+  }
+
+  .home > .markdown-body {
+    max-width: 620px;
+  }
+
+  .home > .markdown-body h2 {
+    border-top: 1px solid #d8d8d8;
+    padding-top: 20px;
+    margin-top: 40px;
+  }
+
+  .home > .markdown-body p {
+    line-height: 1.55;
+  }
+
+  .home .markdown-body a,
+  .home-invitation a,
+  body[data-slug="charger"] .markdown-body a,
+  body[data-slug="compatibility"] .markdown-body a,
+  body[data-slug="setup"] .markdown-body a,
+  body[data-slug="press"] .markdown-body a,
+  body[data-slug="studio"] .markdown-body a,
+  body[data-slug="a-place-for-charging"] .markdown-body a {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  body[data-slug="compatibility"] .markdown-body table {
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  body[data-slug="compatibility"] .markdown-body th,
+  body[data-slug="compatibility"] .markdown-body td {
+    padding: 8px;
+    overflow-wrap: anywhere;
+  }
+
+  body[data-slug="a-place-for-charging"] .markdown-body,
+  body[data-slug="studio"] .markdown-body {
+    max-width: 680px;
+  }
+
+  body[data-slug="a-place-for-charging"] .markdown-body p,
+  body[data-slug="studio"] .markdown-body p {
+    line-height: 1.6;
+  }
+
+  body[data-slug="a-place-for-charging"] .markdown-body img {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    aspect-ratio: 3 / 4;
+    margin-top: 28px;
+  }
+
+  @media (max-width: 600px) {
+    .home-opening {
+      grid-template-columns: 1fr;
+      gap: 28px;
+      margin: 20px 0 40px;
+    }
+
+    .site-main .home-opening h1 {
+      margin-top: 20px;
+    }
+
+    .home-opening .editorial-lede {
+      max-width: 36ch;
+    }
+  }
+
   .editorial-header {
     margin-bottom: 0;
   }
@@ -1773,5 +1882,3 @@ b, strong {
     margin-inline: 0;
     padding-inline-start: 1.25em;
   }
-
-  

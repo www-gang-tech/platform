@@ -2,18 +2,25 @@
 
 {% block content %}
 <article class="editorial home">
-    <figure class="home-hero">
-        <img src="/assets/images/gang-hero.jpg" width="1080" height="1080" alt="Night brick facade with a person standing at a desk in a lit window.">
-    </figure>
+    <div class="home-opening">
     <header class="editorial-header">
+        <p class="home-kicker">Objects / Research / Journal</p>
         <h1>{{ title }}</h1>
         {% if description %}
         <p class="editorial-lede">{{ description }}</p>
         {% endif %}
+        <p class="home-invitation"><a href="/objects/charger/">Explore GANG–1</a><br><a href="/studio/">Visit the studio</a></p>
         {% if preview %}
         <p class="draft-note" role="status">Local preview. Public release still goes through git review.</p>
         {% endif %}
     </header>
+    <figure class="home-hero">
+        <a href="/objects/charger/">
+            <img src="/assets/images/gang-4-in-1-prototype.jpg" width="768" height="1024" fetchpriority="high" alt="GANG–1 prototype with four circular charging zones on a dark rectangular surface.">
+        </a>
+        <figcaption>GANG–1 / Wall-mounted wireless charging.<br>Prototype shown resting on a surface. In development.</figcaption>
+    </figure>
+    </div>
 
     <div class="markdown-body">
         {{ content | safe }}
@@ -28,14 +35,5 @@
     </section>
     {% endif %}
 
-    <nav class="section-index" aria-label="Sections">
-        <ul>
-            <li><a href="/about/">About</a></li>
-            <li><a href="/studio/">Studio</a></li>
-            <li><a href="/objects/">Objects</a></li>
-            <li><a href="/research/">Research</a></li>
-            <li><a href="/journal/">Journal</a></li>
-        </ul>
-    </nav>
 </article>
 {% endblock %}

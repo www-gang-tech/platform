@@ -1,5 +1,7 @@
 # GANG — page copy
 
+October 3 implementation note: the website now uses the owner-confirmed name GANG–1 and the supplied specification sheet. The canonical pages in `brain/vault/public/` contain current product details, compatibility, setup, and FAQ copy. The earlier editorial draft below remains a planning reference.
+
 Draft for editorial and design review. “Customer copy” blocks contain proposed website language. Notes, tables of missing release data, and visual instructions are for the team. Primary navigation: **Product · About · Journal · Support**. The logo links home. Use **Get updates** before launch; add **Bag** when ordering opens.
 
 ## 01 / Home
@@ -10,13 +12,13 @@ Draft for editorial and design review. “Customer copy” blocks contain propos
 
 ### Customer copy
 
-**Eyebrow:** GANG 4-in-1
+**Eyebrow:** GANG–1
 
 **H1: Power has a place.**
 
 A wall-mounted wireless charging hub with four charging zones. Designed for the spaces we share.
 
-**Primary CTA:** Explore GANG 4-in-1  
+**Primary CTA:** Explore GANG–1\
 **Secondary CTA:** Get launch updates
 
 **H2: Charging, off the counter.**
@@ -53,7 +55,7 @@ Use four substantial visual moments, with the last line functioning as the globa
 
 ### Customer copy
 
-**H1: GANG 4-in-1**
+**H1: GANG–1**
 
 Wall-mounted wireless charging. Four charging zones. One considered object.
 
@@ -89,7 +91,7 @@ Consider where you charge, the space around the product, and access to power. St
 
 | Detail | Description |
 | --- | --- |
-| Product | GANG 4-in-1 |
+| Product | GANG–1 |
 | Format | Wall-mounted wireless charging hub |
 | Charging zones | Four |
 | Charging connection | Wireless; no USB-C charging ports |
@@ -171,7 +173,7 @@ The name comes from electrical gang boxes and the idea of devices charging toget
 
 A shared interest in useful technology and thoughtful design.
 
-**CTA:** Explore GANG 4-in-1
+**CTA:** Explore GANG–1
 
 ## 04 / Journal
 
@@ -210,7 +212,7 @@ A room is shaped by small decisions. Where a light falls. Where a chair sits. Wh
 
 Charging needs a place, too.
 
-With GANG 4-in-1, we began at the wall. Four wireless charging zones become one object, giving compatible devices a shared place to recharge.
+With GANG–1, we began at the wall. Four wireless charging zones become one object, giving compatible devices a shared place to recharge.
 
 **H2: The room is part of the design.**
 
@@ -224,7 +226,7 @@ The idea is simple: bring charging together and move it off the counter.
 
 The details need to be equally clear. Which devices fit. Where the hub can be installed. How it connects to power. Those answers belong alongside the photographs.
 
-**CTA:** Explore GANG 4-in-1
+**CTA:** Explore GANG–1
 
 ## 06 / Journal: What belongs in the room
 
@@ -266,7 +268,7 @@ We begin with something familiar. Then give it our attention.
 
 **H1: Support**
 
-Find the information you need about GANG 4-in-1.
+Find the information you need about GANG–1.
 
 **Device compatibility**  
 Check what to look for in your device and case.  
@@ -299,7 +301,7 @@ Add **Orders and shipping**, **Returns**, **Warranty**, and **Manual and safety 
 
 The right fit starts with your device and case.
 
-GANG 4-in-1 is being developed for magnetic wireless charging. The final list of supported devices and cases will be published before orders open.
+GANG–1 is being developed for magnetic wireless charging. The final list of supported devices and cases will be published before orders open.
 
 **H2: Check the model.**
 
@@ -338,7 +340,7 @@ Change the introduction to: **“Find your device and case below before ordering
 
 **H1: Find its place.**
 
-GANG 4-in-1 is designed to bring wireless charging onto the wall.
+GANG–1 is designed to bring wireless charging onto the wall.
 
 Installation requirements and the complete setup guide will be published before orders open.
 
@@ -354,7 +356,7 @@ Tell us about the space you have in mind.
 
 ### Launch replacement
 
-**H1: Set up GANG 4-in-1**  
+**H1: Set up GANG–1**\
 **Intro:** Follow the guide for your product and mounting configuration. Read the installation and safety instructions before you begin.
 
 **Section labels:** Before you begin · What you need · Installation · First charge · Care · Troubleshooting
@@ -386,7 +388,7 @@ Four wireless charging zones in one hub. It describes the number of zones; suppo
 The final supported-device list is being developed. Check the compatibility page for the information available before ordering.
 
 **H2: Does it have USB-C charging ports?**  
-No. GANG 4-in-1 is designed for wireless charging.
+No. GANG–1 is designed for wireless charging.
 
 **H2: Does the hub need power?**  
 Yes. Wireless charging describes the connection to your device. The hub itself still needs a power connection.
@@ -474,7 +476,7 @@ Product information, images, and enquiries.
 
 **H2: About GANG**
 
-GANG is a consumer hardware company founded by Frank Godchaux and Daniel Hirunrusme. Beginning with wireless charging, the company brings thoughtful industrial design to technology used in the home and workplace. Its first product, GANG 4-in-1, is a wall-mounted wireless charging hub with four charging zones.
+GANG is a consumer hardware company founded by Frank Godchaux and Daniel Hirunrusme. Beginning with wireless charging, the company brings thoughtful industrial design to technology used in the home and workplace. Its first product, GANG–1, is a wall-mounted wireless charging hub with four charging zones.
 
 **H2: Images and product information**
 
@@ -619,14 +621,14 @@ Place the applicable, adopted policy beneath each introduction. Supply the corre
 **H1: Your bag**
 
 **Empty:** Your bag is empty.  
-**Empty CTA:** Explore GANG 4-in-1
+**Empty CTA:** Explore GANG–1
 
 **Line-item labels:** Product · Finish · Quantity · Price  
 **Actions:** Update quantity · Remove  
 **Summary labels:** Subtotal · Shipping · Tax · Total  
 **Primary CTA:** Continue to checkout
 
-**Added confirmation:** GANG 4-in-1 added to your bag.  
+**Added confirmation:** GANG–1 added to your bag.\
 **Confirmation actions:** View bag · Continue exploring
 
 **Out of stock:** Currently unavailable.  
@@ -657,7 +659,7 @@ The page may have moved, or the address may be incorrect.
 
 **Brand line:** Considered objects. Everyday use.
 
-**Product:** GANG 4-in-1 · Compatibility · Setup  
+**Product:** GANG–1 · Compatibility · Setup\
 **Company:** About · Journal · Contact · Trade · Press  
 **Support, when available:** FAQ · Shipping and returns · Warranty  
 **Utility:** Privacy · Terms · Accessibility
