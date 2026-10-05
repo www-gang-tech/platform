@@ -32,7 +32,7 @@ class OutputGenerators:
             url = SubElement(urlset, "url")
             loc = SubElement(url, "loc")
             loc.text = f"{self.site_url.rstrip('/')}{loc_path}"
-            lastmod = _w3c_date(page.get("date") or page.get("updated") or page.get("lastmod"))
+            lastmod = _w3c_date(page.get("updated") or page.get("date") or page.get("lastmod"))
             if lastmod:
                 node = SubElement(url, "lastmod")
                 node.text = lastmod

@@ -142,17 +142,25 @@ def test_missing_vault_source_does_not_fall_back_to_legacy(tmp_path):
         load_public_content(config, source="vault", root_path=tmp_path)
 
 
-@pytest.mark.parametrize("target,valid", [
-    ("/assets/documents/specification.pdf#page=1", True),
-    ("/assets/documents/missing.pdf", False),
-    ("/assets/../../private.pdf", False),
+@pytest.mark.parametrize("target,valid,image", [
+    ("/assets/documents/specification.pdf#page=1", True, False),
+    ("/assets/documents/missing.pdf", False, False),
+    ("/assets/../../private.pdf", False, False),
+    ("</assets/../../private.pdf>", False, False),
+    ("< /assets/../../private.pdf >", False, False),
+    ("/assets/%2e%2e/%2e%2e/private.pdf", False, False),
+    ("/assets/documents/../documents/specification.pdf", True, False),
+    ("/assets/documents/specification.pdf/", False, False),
+    ("/assets/documents/specification.pdf", True, True),
+    ("/assets/documents/missing.pdf", False, True),
 ])
-def test_download_links_require_an_existing_public_asset(tmp_path, target, valid):
+def test_download_links_require_an_existing_public_asset(tmp_path, target, valid, image):
+    label = f"![{target}]({target})" if image else f"[Download specifications]({target})"
     write(
         tmp_path / "brain/vault/public/pages/product.md",
         "---\nid: 0199da90-c200-7056-ac0b-6f1d82bd2f41\ntype: page\ntitle: Product\n"
         "created: '2026-10-03'\nvisibility: public\nstatus: published\nurl: /pages/product/\n"
-        f"---\n[Download specifications]({target})",
+        f"---\n{label}",
     )
     write(tmp_path / "public/documents/specification.pdf", "%PDF-1.4")
     write(tmp_path / "private.pdf", "private")
