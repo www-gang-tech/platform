@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import unquote
 
 import yaml
 
@@ -60,6 +61,7 @@ SECRET_PATTERNS = (
     re.compile(r"\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"]{12,}", re.IGNORECASE),
 )
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 
 class PublicContentError(Exception):
@@ -116,6 +118,7 @@ class PublicDocument:
             "related": self.frontmatter.get("related") or [],
             "revision_notes": self.frontmatter.get("revision_notes") or [],
             "stage": self.frontmatter.get("stage"),
+            "updated": self.updated,
         }
 
 
@@ -314,14 +317,54 @@ def _legacy_url(collection: str, slug: str) -> str:
     return f"/{collection}/{slug}/"
 
 
+def _link_destination(raw: str) -> str:
+    """Return the URL from a Markdown destination, including angle-bracket form."""
+    text = raw.strip()
+    if text.startswith("<"):
+        end = text.find(">")
+        if end != -1:
+            return text[1:end].strip()
+    return text.split()[0].strip() if text else ""
+
+
+def _normalize_internal_target(raw: str) -> Optional[str]:
+    """Normalize an internal link for the allowlist.
+
+    Angle-bracket destinations, percent-encoding, and ``.``/``..`` segments are
+    resolved before the target is compared with a page or a public file. A path
+    that climbs above the site root cannot match an allowed URL.
+    """
+    destination = _link_destination(raw)
+    if not destination.startswith("/") or destination.startswith("//"):
+        return None
+    path = unquote(destination.split("#", 1)[0].split("?", 1)[0])
+    if not path.startswith("/"):
+        return None
+    preserve_trailing_slash = path.endswith("/") and path != "/"
+    segments: List[str] = []
+    for segment in path.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if not segments:
+                # Climbed above the site root. Keep a target the allowlist cannot match.
+                return "/../"
+            segments.pop()
+            continue
+        segments.append(segment)
+    normalized = "/" + "/".join(segments)
+    if preserve_trailing_slash and normalized != "/":
+        normalized = f"{normalized}/"
+    if normalized != "/" and not normalized.startswith("/assets/") and not normalized.endswith("/"):
+        normalized = f"{normalized}/"
+    return normalized
+
+
 def _internal_links(body: str) -> List[str]:
     links: List[str] = []
-    for match in LINK_RE.finditer(body):
-        target = match.group(1).split()[0].strip()
-        if not target.startswith("/") or target.startswith("//"):
-            continue
-        target = target.split("#", 1)[0].split("?", 1)[0]
-        if not target.startswith("/assets/") and not target.endswith("/"):
-            target = f"{target}/"
-        links.append(target)
+    for pattern in (LINK_RE, IMAGE_RE):
+        for match in pattern.finditer(body):
+            target = _normalize_internal_target(match.group(1))
+            if target:
+                links.append(target)
     return links

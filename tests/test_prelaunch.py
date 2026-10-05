@@ -1,4 +1,5 @@
 """Public editorial pages share a shell and make the prelaunch state clear."""
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -95,3 +96,21 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert not nav.find("a", href="/studio.html")
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+
+
+def test_sitemap_lastmod_follows_the_revision_date(tmp_path):
+    dist = _render(tmp_path)
+    xml = (dist / "sitemap.xml").read_text()
+
+    def lastmod(path):
+        match = re.search(
+            rf"<loc>https://gang\.tech{re.escape(path)}</loc>\s*<lastmod>([^<]+)</lastmod>",
+            xml,
+        )
+        assert match, path
+        return match.group(1)
+
+    assert lastmod("/objects/charger/") == "2026-10-03"
+    assert lastmod("/journal/a-place-for-charging/") == "2026-10-03"
+    assert lastmod("/studio/") == "2026-10-03"
+    assert lastmod("/journal/what-belongs-in-the-room/") == "2026-10-01"
