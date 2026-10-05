@@ -98,6 +98,16 @@ class PublicDocument:
         return tags if isinstance(tags, list) else []
 
     def to_page_data(self, content_html: str = "") -> Dict[str, Any]:
+        image = ""
+        image_alt = ""
+        markdown_image = re.search(r"!\[([^\]]*)\]\(([^)\s]+)", self.body)
+        if markdown_image:
+            image_alt = markdown_image.group(1)
+            image = markdown_image.group(2)
+        else:
+            html_image = re.search(r'<img[^>]+src="([^"]+)"', content_html or "", re.I)
+            if html_image:
+                image = html_image.group(1)
         return {
             "id": self.id,
             "url": self.url,
@@ -116,6 +126,8 @@ class PublicDocument:
             "related": self.frontmatter.get("related") or [],
             "revision_notes": self.frontmatter.get("revision_notes") or [],
             "stage": self.frontmatter.get("stage"),
+            "image": image,
+            "image_alt": image_alt,
         }
 
 

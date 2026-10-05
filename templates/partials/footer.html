@@ -1,12 +1,14 @@
 <div class="site-end">
+    <p class="page-meta">Page size: <span>{{ page_size | default('__PAGE_SIZE__') }}</span></p>
     <footer class="site-footer">
-        <nav aria-label="Footer">
-            <a href="/">Home</a>
+        <p class="footer-line">
+            <span class="footer-copy">&copy; {{ year }}</span>
+            <a href="/pages/privacy/">Privacy</a>
+            <a href="/pages/terms/">Terms</a>
             <a href="/pages/contact/">Contact</a>
             <a href="/pages/faq/">FAQ</a>
             <a href="/sitemap/">Sitemap</a>
             <a href="http://instagram.com/gang__tech">Instagram</a>
-        </nav>
+        </p>
     </footer>
-    <p class="footer-copy">&copy; {{ year }} {{ site_title }}</p>
 </div>

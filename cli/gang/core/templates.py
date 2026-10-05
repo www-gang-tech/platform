@@ -19,6 +19,16 @@ class TemplateEngine:
         
         # Add custom filters
         self.env.filters['formatdate'] = self._format_date
+        self.env.filters['listingdate'] = self._listing_date
+
+    def _masthead_context(self) -> Dict[str, Any]:
+        now = datetime.now()
+        weekdays = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        return {
+            "today_short": f"{weekdays[now.weekday()]} {months[now.month - 1]} {now.day}",
+            "today_iso": now.date().isoformat(),
+        }
     
     def _parse_date(self, value):
         if isinstance(value, datetime):
@@ -40,14 +50,29 @@ class TemplateEngine:
         if format in ("long", "%B %d, %Y", "%B %-d, %Y"):
             return f"{date_obj.strftime('%B')} {date_obj.day}, {date_obj.year}"
         return date_obj.strftime(format)
+
+    def _listing_date(self, date_str: str) -> str:
+        date_obj = self._parse_date(date_str)
+        if date_obj is None:
+            return ""
+        day = date_obj.date()
+        today = datetime.now().date()
+        delta = (today - day).days
+        if delta == 0:
+            return "Today"
+        if delta == 1:
+            return "Yesterday"
+        weekdays = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        return f"{weekdays[day.weekday()]} {months[day.month - 1]} {day.day:02d}"
     
     def render(self, template_name: str, context: Dict[str, Any]) -> str:
         """Render a template with context"""
         template = self.env.get_template(template_name)
-        return template.render(**context)
+        return template.render(**{**self._masthead_context(), **context})
     
     def render_string(self, template_string: str, context: Dict[str, Any]) -> str:
         """Render a template string with context"""
         template = self.env.from_string(template_string)
-        return template.render(**context)
+        return template.render(**{**self._masthead_context(), **context})
 

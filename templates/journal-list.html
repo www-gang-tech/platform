@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="visually-hidden">{{ page_title }}</h1>
+{% if items %}
+<table class="journal-table">
+    <thead>
+        <tr>
+            <th scope="col">ID</th>
+            <th scope="col">Date <span aria-hidden="true">▼</span></th>
+            <th scope="col">Type</th>
+            <th scope="col">Name</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% set prev = namespace(date='') %}
+        {% set total = items|length %}
+        {% for item in items %}
+        {% set label = item.date | listingdate %}
+        <tr>
+            <td><code>{{ "%04d"|format(total - loop.index0) }}</code></td>
+            <td>{% if label != prev.date %}<time datetime="{{ item.date }}">{{ label }}</time>{% endif %}</td>
+            <td>{{ (item.type or content_type or 'Journal') | capitalize }}</td>
+            <td><a href="{{ item.url }}">{{ item.title }}</a></td>
+        </tr>
+        {% set prev.date = label %}
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No {{ content_type }} found.</p>
+{% endif %}
+{% endblock %}

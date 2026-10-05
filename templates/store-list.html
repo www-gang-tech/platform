@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="visually-hidden">{{ page_title }}</h1>
+{% if items %}
+<ul class="store-grid">
+    {% for item in items %}
+    <li>
+        <a href="{{ item.url }}">
+            {% if item.image %}
+            <img src="{{ item.image }}" alt="{{ item.image_alt or item.title }}" width="768" height="1024">
+            {% endif %}
+            <span class="store-grid-title">{{ item.title }}</span>
+            {% if item.stage %}<span class="store-grid-stage">{{ item.stage }}</span>{% endif %}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>No objects found.</p>
+{% endif %}
+{% endblock %}

@@ -51,7 +51,9 @@ def test_pages_use_markdown_shell_not_retail_layout(tmp_path):
         assert '/assets/cart.js' not in html
         assert '/assets/comments.js' not in html
 
-    assert "Power has a place." in home
+    assert "GANG" in home
+    assert "Crafted tools for intentional living" in home
+    assert "GANG 100W MagSafe Wall Charger" in home
     assert "Frank Godchaux and Daniel Hirunrusme" in studio
     assert "A memory for the practice" in studio
     assert "In development" in charger
@@ -90,8 +92,30 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert 'href="/objects/"' in home
     assert 'src="/assets/images/gang-4-in-1-prototype.jpg"' in home
     nav = BeautifulSoup(home, "html.parser").select_one(".site-header")
+    assert "Store" in nav.find("a", href="/objects/").get_text()
+    assert "Information" in nav.find("a", href="/studio/").get_text()
+    assert "Journal" in nav.find("a", href="/journal/").get_text()
+    assert "Projects" in nav.find("a", href="/projects/").get_text()
+    assert nav.find("a", href="/objects/", string="Objects") is None
+    assert nav.find("a", href="/about/", string="Philosophy") is None
+    assert nav.find("a", href="/cart/")
     assert nav.find("a", href="/updates/")
-    assert not nav.find("a", href="/cart/")
+    assert "Subscribe" in nav.get_text()
+    assert "Cart" in nav.get_text()
+    assert nav.select_one(".site-masthead-date") is None
     assert not nav.find("a", href="/studio.html")
+    assert "grid-template-columns: 1fr 1.2fr" not in (ROOT / "public" / "style.css").read_text()
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+
+
+def test_store_index_is_a_four_column_grid(tmp_path):
+    dist = _render(tmp_path)
+    store = (dist / "objects/index.html").read_text()
+    css = (ROOT / "public" / "style.css").read_text()
+    soup = BeautifulSoup(store, "html.parser")
+    grid = soup.select_one(".store-grid")
+    assert grid is not None
+    assert grid.find("a", href="/objects/charger/")
+    assert "repeat(4, 1fr)" in css
+    assert "repeat(2, 1fr)" in css

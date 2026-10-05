@@ -6,21 +6,91 @@
   font-display: swap;
 }
 
-/* One typographic scale across content, navigation, and native controls.
-   Override legacy component and inline styles; preserve icon-font glyphs. */
 html,
 body,
-body *:not([class*="fa-"]),
-body *:not([class*="fa-"])::before,
-body *:not([class*="fa-"])::after,
-input::placeholder,
-textarea::placeholder,
-::file-selector-button {
-  font-family: "AMB Dual Mono", monospace !important;
+.markdown-body {
+  font-family: Helvetica, Arial, Verdana, sans-serif !important;
   font-size: 16px !important;
   font-weight: 400 !important;
   font-style: normal !important;
   line-height: 20px !important;
-  letter-spacing: 0 !important;
+  letter-spacing: 0.12px !important;
   font-synthesis: none;
+}
+
+body *:not([class*="fa-"]),
+body *:not([class*="fa-"])::before,
+body *:not([class*="fa-"])::after,
+.markdown-body *:not([class*="fa-"]),
+input::placeholder,
+textarea::placeholder,
+::file-selector-button {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  font-style: inherit !important;
+  line-height: inherit !important;
+  letter-spacing: inherit !important;
+}
+
+a,
+.site-nav a,
+.site-actions a,
+.site-footer nav a,
+.site-cart-link,
+.site-search,
+.site-login {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover:not(.skip-link),
+a:focus:not(.skip-link),
+.site-nav a:hover,
+.site-actions a:hover,
+.site-footer nav a:hover,
+.site-cart-link:hover,
+.site-search:hover,
+.site-login:hover,
+.site-wordmark:hover,
+.markdown-body a:hover,
+.home-invitation a:hover,
+.index-entry-title:hover,
+.site-icon-btn:hover,
+.site-icons a:hover {
+  color: rgb(0, 0, 255) !important;
+  text-decoration: none;
+}
+
+a[aria-current="page"]:not(.site-wordmark),
+.site-nav a[aria-current="page"]:not(.site-wordmark),
+.site-actions a[aria-current="page"],
+.site-footer nav a[aria-current="page"],
+.footer-line a[aria-current="page"] {
+  color: rgb(0, 0, 255);
+  text-decoration: none;
+}
+
+a:focus-visible,
+.site-icon-btn:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+.skip-link,
+.skip-link:hover,
+.skip-link:focus {
+  color: inherit;
+}
+
+.site-wordmark,
+.site-wordmark[aria-current="page"] {
+  color: inherit !important;
+  text-decoration: none !important;
+}
+
+.site-wordmark:hover,
+.site-wordmark[aria-current="page"]:hover {
+  color: rgb(0, 0, 255) !important;
+  text-decoration: none !important;
 }

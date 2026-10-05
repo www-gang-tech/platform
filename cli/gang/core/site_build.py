@@ -15,7 +15,7 @@ from .generators import OutputGenerators
 from .templates import TemplateEngine
 
 SECTION_INDEXES = (
-    ("objects", "Objects", "Objects in development and in use."),
+    ("objects", "Store", "Objects in development and in use."),
     ("research", "Research", "Notes that can be checked against primary sources."),
     ("journal", "Journal", "Development notes and charging guides."),
     ("guides", "Guides", "Practical charging notes."),
@@ -198,6 +198,14 @@ def write_markdown_pages(
     if not any(item.get("url") == "/search/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/search/", "title": "Search", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     generators.generate_all(dist_path, sitemap_pages, grouped.get("posts", []), preview=preview)
+    write_cart_page(
+        config,
+        dist_path,
+        template_engine,
+        preview=preview,
+        editor_mode=editor_mode,
+        live_reload_html=live_reload_html,
+    )
     return grouped
 
 
@@ -261,7 +269,8 @@ def _write_section_indexes(
             "category": collection,
             "slug": collection,
         }
-        html = template_engine.render("list.html", context)
+        template_name = "journal-list.html" if collection == "journal" else "store-list.html" if collection == "objects" else "list.html"
+        html = template_engine.render(template_name, context)
         if live_reload_html:
             html = _inject(html, live_reload_html)
         html = stamp_page_size(html)
@@ -352,6 +361,51 @@ def write_html_sitemap(
         html = _inject(html, live_reload_html)
     html = stamp_page_size(html)
     output = output_file_for_url(dist_path, "/sitemap/")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(html)
+
+
+def write_cart_page(
+    config: Dict[str, Any],
+    dist_path: Path,
+    template_engine: TemplateEngine,
+    *,
+    preview: bool,
+    editor_mode: bool = False,
+    live_reload_html: str = "",
+) -> None:
+    build_time = datetime.now()
+    canonical_url = f"{config['site']['url'].rstrip('/')}/cart/"
+    context = {
+        "site_title": config["site"]["title"],
+        "lang": config["site"]["language"],
+        "year": datetime.now().year,
+        "navigation": config.get("nav", {}).get("main", []),
+        "user_authenticated": editor_mode,
+        "noindex": preview,
+        "preview": preview,
+        "comments": [],
+        "title": "Cart",
+        "description": "Your cart.",
+        "canonical_url": canonical_url,
+        "current_path": "/cart/",
+        "jsonld": default_jsonld(
+            config,
+            title="Cart",
+            url=canonical_url,
+            description="Your cart.",
+        ),
+        "build_time": build_time.strftime("%B %d, %Y at %I:%M %p"),
+        "build_time_iso": build_time.isoformat(),
+        "page_type": "cart",
+        "category": "commerce",
+        "slug": "cart",
+    }
+    html = template_engine.render("cart.html", context)
+    if live_reload_html:
+        html = _inject(html, live_reload_html)
+    html = stamp_page_size(html)
+    output = output_file_for_url(dist_path, "/cart/")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(html)
 

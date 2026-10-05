@@ -1,26 +1,17 @@
 {% extends "base.html" %}
 
 {% block content %}
-<nav aria-label="Breadcrumb" class="breadcrumb">
-    <ol>
-        <li><a href="/">Home</a></li>
-        {% if category and category != 'pages' %}
-        <li><a href="/{{ category }}/">{{ category | capitalize }}</a></li>
-        {% endif %}
-        <li><span aria-current="page">{{ title }}</span></li>
-    </ol>
-</nav>
 <article class="editorial">
     <header class="editorial-header">
         {% if stage %}
         <p>{{ stage }}</p>
         {% endif %}
         <h1>{{ title }}</h1>
+        {% if date %}
+        <p><time datetime="{{ date }}">{{ date | formatdate('%m.%d.%y') }}</time></p>
+        {% endif %}
         {% if description %}
         <p class="editorial-lede">{{ description }}</p>
-        {% endif %}
-        {% if date %}
-        <p><time datetime="{{ date }}">{{ date_formatted }}</time></p>
         {% endif %}
         {% if preview and document_status and document_status != 'published' %}
         <p class="draft-note" role="status">Draft — included in local preview only.</p>

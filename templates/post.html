@@ -8,7 +8,7 @@
         <h1 itemprop="headline">{{ title }}</h1>
         {% if date %}
         <p>
-            <time datetime="{{ date }}" itemprop="datePublished">{{ date_formatted }}</time>
+            <time datetime="{{ date }}" itemprop="datePublished">{{ date | formatdate('%m.%d.%y') }}</time>
             {% if tags %}
             <span aria-label="Tags">
                 {% for tag in tags %}

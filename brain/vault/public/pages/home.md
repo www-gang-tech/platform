@@ -1,10 +1,10 @@
 ---
 id: 01a0fa4d-fe1f-74e7-b93f-9880e562c2e4
 type: page
-title: Power has a place.
-summary: GANG makes technology for the spaces we live in. We begin with charging.
+title: GANG
+summary: Crafted tools for intentional living.
 created: '2026-10-01'
-updated: '2026-10-03'
+updated: '2026-10-05'
 visibility: public
 status: published
 url: /
@@ -12,29 +12,72 @@ related:
   - /objects/charger/
   - /about/
   - /studio/
-  - /updates/
+  - /journal/
 ---
 
-## Object / GANG–1
+## 1. Crafted tools for intentional living
 
-A wall-mounted wireless charging hub with four zones rated up to 25 W each. One shared place for compatible devices, with more room left on the counter. In development.
+![GANG–1 prototype with four circular charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
 
-[Explore the object](/objects/charger/)
+Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
 
-## Research / A place to align
+[Learn more](/objects/)
 
-Charging depends on where a device meets its charger. Our alignment note looks at the role of magnets in making that placement repeatable, and the questions that remain for the product.
+## 2. GANG 100W MagSafe Wall Charger
 
-[Read the research behind alignment](/research/alignment-not-wattage/)
+![GANG–1 prototype shown as a wall-mounted charging surface.](/assets/images/gang-hero.jpg)
 
-## Journal / Why the wall?
+A single, considered charging surface for the devices you use every day—designed to live out in the open, without cable sprawl. It features 4-Qi2 fast-charging coils that were custom-built for our device.
 
-The room is part of the design. A closer look at the prototype, the decision to bring charging off the counter, and what that asks of the object.
+[Learn more](/objects/charger/)
 
-[Follow the design story](/journal/a-place-for-charging/)
+$200 USD, All parts included for installation
 
-## An ongoing practice
+## 3. GANG Typeface
 
-Objects, research, and writing develop together. The studio keeps a record of the work and shares selected parts here.
+![GANG type and object, shown together.](/assets/images/gang-4-in-1-prototype.jpg)
 
-[Meet the studio](/studio/) · [Follow the work](/updates/)
+Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
+
+[Learn more](/about/)
+
+## 4. Press
+
+- Wallpaper*, October 2026 — “GANG puts charging on the wall.”
+- Dezeen, October 2026 — “A four-zone MagSafe charger designed as furniture.”
+- The Verge, September 2026 — “Fewer cables, one considered surface.”
+- Monocle, September 2026 — “Hardware with the temperament of a publishing house.”
+
+## 5. FAQ
+
+**What is GANG?**
+GANG is a small collective building tools for a more intentional digital life. Our first object is a wall-mounted wireless charger.
+
+**How many charging zones does it have?**
+Four Qi2 fast-charging coils, built for the devices you use every day.
+
+**When will it be available?**
+Join [launch updates](/updates/) for availability. A shipping date has not been announced.
+
+[More questions](/pages/faq/)
+
+## 6. Latest posts
+
+- [A place for charging](/journal/a-place-for-charging/)
+- [From evidence to a public article](/journal/from-evidence-to-article/)
+- [What belongs in the room](/journal/what-belongs-in-the-room/)
+- [Everyday charging](/journal/everyday-charging/)
+
+[Journal](/journal/)
+
+## 7. Philosophy
+
+GANG is a small, focused collective building tools for a more intentional digital life. Our work spans hardware, software, and publishing, all designed to reduce noise, encourage presence, and prioritize what matters. We believe in restraint, clarity, and making fewer things, better.
+
+[Read more](/about/)
+
+## 8. Gallery
+
+![GANG–1 prototype, four charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
+
+![GANG–1 prototype, front view.](/assets/images/gang-hero.jpg)

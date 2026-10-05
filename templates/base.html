@@ -39,9 +39,6 @@
             <main role="main" id="content" tabindex="-1">
                 {% block content %}{% endblock %}
             </main>
-            <p class="page-meta">
-                Page size: <span>{{ page_size | default('__PAGE_SIZE__') }}</span>
-            </p>
         </div>
         {% include "partials/footer.html" %}
     </div>
