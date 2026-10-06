@@ -1,6 +1,7 @@
 """Public editorial pages share a shell and make the prelaunch state clear."""
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -12,6 +13,7 @@ sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
 from core.content_loader import load_public_content
 from core.site_build import write_markdown_pages
+from core.templates import TemplateEngine
 
 
 def _config():
@@ -107,6 +109,20 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "grid-template-columns: 1fr 1.2fr" not in (ROOT / "public" / "style.css").read_text()
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+    home_soup = BeautifulSoup(home, "html.parser")
+    assert home_soup.title.get_text(strip=True) == "GANG"
+    footer = home_soup.select_one("footer")
+    assert footer.find("a", href="/pages/contact/")
+    assert footer.find("a", href="/pages/faq/")
+    assert footer.find("a", href="/pages/privacy/") is None
+    assert footer.find("a", href="/pages/terms/") is None
+    instagram = footer.find("a", string="Instagram")
+    assert instagram["href"] == "https://instagram.com/gang__tech"
+    assert "noopener" in instagram.get("rel", [])
+    assert "noreferrer" in instagram.get("rel", [])
+    for item in _config()["nav"]["main"]:
+        link = nav.find("a", href=item["path"])
+        assert link is not None and item["label"] in link.get_text()
 
 
 def test_store_index_is_a_four_column_grid(tmp_path):
@@ -119,3 +135,53 @@ def test_store_index_is_a_four_column_grid(tmp_path):
     assert grid.find("a", href="/objects/charger/")
     assert "repeat(4, 1fr)" in css
     assert "repeat(2, 1fr)" in css
+
+
+def test_journal_keeps_a_date_on_every_row(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "journal/index.html").read_text(), "html.parser")
+    rows = soup.select(".journal-table tbody tr")
+    assert len(rows) >= 2
+    dated = []
+    for row in rows:
+        stamp = row.find("time")
+        assert stamp is not None
+        assert stamp.get("datetime")
+        assert stamp.get_text(strip=True)
+        assert stamp.get_text(strip=True) not in {"Today", "Yesterday"}
+        dated.append(stamp)
+    repeated = [stamp for stamp in dated if "visually-hidden" in (stamp.get("class") or [])]
+    assert repeated
+    assert any(stamp["datetime"] == "2026-10-01" for stamp in repeated)
+
+
+def test_listing_dates_stay_calendar_dates():
+    engine = TemplateEngine(ROOT / "templates")
+    today = datetime.now().date()
+    assert engine._listing_date(today.isoformat()) not in {"Today", "Yesterday"}
+    assert engine._listing_date("2026-10-01").startswith("Thu Oct 01")
+    previous_year = today.replace(year=today.year - 1)
+    assert str(previous_year.year) in engine._listing_date(previous_year.isoformat())
+
+
+def test_cart_empty_state_is_visible_without_javascript(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "cart/index.html").read_text(), "html.parser")
+    empty = soup.select_one("#cart-empty")
+    assert empty is not None
+    assert "display: none" not in (empty.get("style") or "")
+    assert "Your cart is empty" in empty.get_text()
+    summary = soup.select_one("#cart-summary")
+    assert summary is not None
+    assert "display: none" in (summary.get("style") or "")
+
+
+def test_machine_readable_nav_matches_the_header(tmp_path):
+    dist = _render(tmp_path)
+    llms = (dist / "llms.txt").read_text().split("## All public URLs", 1)[0]
+    assert "[Store](https://gang.tech/objects/)" in llms
+    assert "[Information](https://gang.tech/studio/)" in llms
+    assert "[Projects](https://gang.tech/projects/)" in llms
+    assert "[Subscribe](https://gang.tech/updates/)" in llms
+    assert "[Cart](https://gang.tech/cart/)" in llms
+    assert "[Objects](" not in llms

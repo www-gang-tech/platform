@@ -13,17 +13,18 @@
         </tr>
     </thead>
     <tbody>
-        {% set prev = namespace(date='') %}
+        {% set prev = namespace(day='') %}
         {% set total = items|length %}
         {% for item in items %}
+        {% set day = (item.date or '')[:10] %}
         {% set label = item.date | listingdate %}
         <tr>
             <td><code>{{ "%04d"|format(total - loop.index0) }}</code></td>
-            <td>{% if label != prev.date %}<time datetime="{{ item.date }}">{{ label }}</time>{% endif %}</td>
+            <td>{% if item.date %}<time datetime="{{ day }}"{% if day == prev.day %} class="visually-hidden"{% endif %}>{{ label }}</time>{% endif %}</td>
             <td>{{ (item.type or content_type or 'Journal') | capitalize }}</td>
             <td><a href="{{ item.url }}">{{ item.title }}</a></td>
         </tr>
-        {% set prev.date = label %}
+        {% set prev.day = day %}
         {% endfor %}
     </tbody>
 </table>

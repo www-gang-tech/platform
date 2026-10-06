@@ -56,15 +56,14 @@ class TemplateEngine:
         if date_obj is None:
             return ""
         day = date_obj.date()
-        today = datetime.now().date()
-        delta = (today - day).days
-        if delta == 0:
-            return "Today"
-        if delta == 1:
-            return "Yesterday"
         weekdays = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-        return f"{weekdays[day.weekday()]} {months[day.month - 1]} {day.day:02d}"
+        label = f"{weekdays[day.weekday()]} {months[day.month - 1]} {day.day:02d}"
+        # A static page cannot keep "Today" accurate after the build, and a
+        # prior year needs its year or it collides with the same month and day.
+        if day.year != datetime.now().year:
+            label = f"{label} {day.year}"
+        return label
     
     def render(self, template_name: str, context: Dict[str, Any]) -> str:
         """Render a template with context"""
