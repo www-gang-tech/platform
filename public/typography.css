@@ -1,11 +1,3 @@
-@font-face {
-  font-family: "AMB Dual Mono";
-  src: url("/assets/fonts/AMBDualMono-Regular.otf") format("opentype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 html,
 body,
 .markdown-body {
@@ -63,7 +55,9 @@ a:focus:not(.skip-link),
 }
 
 a[aria-current="page"]:not(.site-wordmark),
+a.is-section:not(.site-wordmark),
 .site-nav a[aria-current="page"]:not(.site-wordmark),
+.site-nav a.is-section:not(.site-wordmark),
 .site-actions a[aria-current="page"],
 .site-footer nav a[aria-current="page"],
 .footer-line a[aria-current="page"] {

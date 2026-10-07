@@ -4,13 +4,16 @@
 Text is laid out on a forced character grid; box-drawing characters are drawn
 as vector line segments rather than glyphs so corners and joins are seamless.
 """
+import os
 import re
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = "/Users/danielhirunrusme/Documents/gang-platform/docs/architecture/HOW_IT_WORKS.md"
-OUT_DIR = "/Users/danielhirunrusme/Documents/gang-platform/docs/architecture"
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "docs" / "architecture" / "HOW_IT_WORKS.md"
+OUT_DIR = Path(os.environ.get("GANG_DIAGRAM_OUT", ROOT / "docs" / "architecture"))
 
-MENLO = "/System/Library/Fonts/Menlo.ttc"
 SIZE = 22
 PAD = 60
 GUTTER = 10          # character cells between columns
@@ -23,8 +26,39 @@ C_TITLE = (8, 9, 11)
 C_DIM = (122, 128, 137)
 C_RULE = (228, 231, 235)
 
-regular = ImageFont.truetype(MENLO, SIZE, index=0)
-bold = ImageFont.truetype(MENLO, SIZE, index=1)
+def _font_pair():
+    """Menlo on macOS; a bundled-free monospace face everywhere else."""
+    candidates = [
+        ("/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Menlo.ttc", 0, 1),
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+            0,
+            0,
+        ),
+        (
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+            0,
+            0,
+        ),
+        (
+            "/usr/share/fonts/truetype/macos/JetBrainsMono-Regular.ttf",
+            "/usr/share/fonts/truetype/macos/JetBrainsMono-Bold.ttf",
+            0,
+            0,
+        ),
+    ]
+    for regular_path, bold_path, regular_index, bold_index in candidates:
+        if Path(regular_path).is_file() and Path(bold_path).is_file():
+            return (
+                ImageFont.truetype(regular_path, SIZE, index=regular_index),
+                ImageFont.truetype(bold_path, SIZE, index=bold_index),
+            )
+    raise SystemExit("render_diagram.py needs a monospace font (Menlo or DejaVu Sans Mono)")
+
+
+regular, bold = _font_pair()
 CW = regular.getlength("M")
 CH = round(SIZE * 1.21)
 
@@ -39,8 +73,15 @@ SEGMENTS = {
 }
 TRIANGLES = {"▼", "▶"}
 
-md = open(SRC, encoding="utf-8").read()
-lines = re.search(r"```\n(.*?)\n```", md, re.S).group(1).split("\n")
+def diagram_lines(markdown: str):
+    match = re.search(r"```\n(.*?)\n```", markdown, re.S)
+    if not match:
+        raise SystemExit(f"no fenced diagram in {SRC}")
+    return match.group(1).split("\n")
+
+
+md = SRC.read_text(encoding="utf-8")
+lines = diagram_lines(md)
 
 TITLE_RE = re.compile(r"^\(\d\)")
 
@@ -106,15 +147,20 @@ def render(columns, path, caption):
     print(f"{path}  {width}x{height}")
 
 
-render([lines], f"{OUT_DIR}/how-it-works.png",
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+render([lines], str(OUT_DIR / "how-it-works.png"),
        "GANG Platform — system architecture, end to end")
 
 arrows = [i for i, l in enumerate(lines) if l.strip() == "▼"]
-split = min(arrows, key=lambda i: abs(i - len(lines) / 2))
+if arrows:
+    split = min(arrows, key=lambda i: abs(i - len(lines) / 2))
+else:
+    split = max(len(lines) // 2, 1)
 left, right = lines[:split + 1], lines[split + 1:]
 pad_to = max(len(left), len(right))
 left += [""] * (pad_to - len(left))
 right += [""] * (pad_to - len(right))
 
-render([left, right], f"{OUT_DIR}/how-it-works-wide.png",
+render([left, right], str(OUT_DIR / "how-it-works-wide.png"),
        "GANG Platform — system architecture, end to end   (left column first, then right)")
