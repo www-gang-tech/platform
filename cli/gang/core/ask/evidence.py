@@ -462,11 +462,32 @@ def readable_excerpts(
     return [], assess_text_quality(body)
 
 
+_MESSAGES_HEADING = re.compile(r"^##\s+Messages\b", re.MULTILINE)
+_MESSAGE_ONE = re.compile(r"(?:^|\n)(?:###\s+)?Message\s+1\b", re.IGNORECASE)
+
+
+def _excerpt_source_text(body: str) -> str:
+    """Prefer the message bodies of a Gmail thread over its metadata block.
+
+    Canonical email documents open with title + participant lists. The first
+    hit for a firm name is therefore the header, and a 320-character window
+    never reaches 'Total due $8,320.00' further down. The title is already
+    on the evidence item; excerpts should come from what was written.
+    """
+    text = body or ""
+    match = _MESSAGES_HEADING.search(text) or _MESSAGE_ONE.search(text)
+    if match:
+        rest = text[match.start() :].strip()
+        if rest:
+            return rest
+    return text
+
+
 def extract_excerpts(
     body: str, terms: Sequence[str], *, max_excerpts: int = MAX_EXCERPTS
 ) -> List[str]:
     """Bounded windows of the canonical body around the question's own terms."""
-    text = re.sub(r"\s+", " ", body or "").strip()
+    text = re.sub(r"\s+", " ", _excerpt_source_text(body)).strip()
     if not text:
         return []
     if not terms:

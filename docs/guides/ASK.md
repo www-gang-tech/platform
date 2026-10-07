@@ -10,7 +10,7 @@ deterministic query planning      ← exact names, quoted phrases, real dates
     ↓
 FTS + metadata + entity + relationship retrieval
     ↓
-bounded evidence set              ← 5–10 canonical documents
+bounded evidence set              ← 8 by default; the whole entity+date slice
     ↓
 synthesis
     ↓
@@ -106,9 +106,18 @@ crowd out the ones that actually mention Frank.
 ## Temporal questions
 
 `today`, `yesterday`, `this week`, `last week`, `this month`, `last month`,
-`last 30 days`, `since DATE`, and `before DATE` resolve to an explicit range
-*before* retrieval, so the window cannot drift between planning and synthesis.
-Weeks start Monday; ranges are inclusive.
+`last 30 days`, `since DATE`, `since 2026`, `in 2026`, `from 2026`, and
+`before DATE` resolve to an explicit range *before* retrieval, so the window
+cannot drift between planning and synthesis. A year or year-month is enough;
+`YYYY-MM-DD` is not required. Weeks start Monday; ranges are inclusive.
+
+When that range is paired with a resolved entity — "Dorf Nelson from 2026",
+"how much have we paid Acme Legal since 2026" — retrieval enumerates the
+slice rather than rank-cutting it to eight or twenty-five documents. Every
+invoice, email thread, and attachment that mentions the entity inside the
+window is a candidate, newest first, up to the same cap a single retrieval
+pass already uses. An open search with no entity still cannot request the
+whole vault.
 
 ```bash
 gang ask "What moved last week?"

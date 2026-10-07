@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core import sensitivity as sensitivity_module
 
-from .plan import QueryPlan
+from .plan import QueryPlan, is_scoped_slice
 
 
 #: BM25 rank for a document that never matched full-text at all. Real bm25()
@@ -194,7 +194,8 @@ class Retriever:
             FROM document_entity_mentions m
             JOIN documents d ON d.document_id = m.document_id
             WHERE m.entity_id IN ({placeholders}){where}
-            ORDER BY m.document_id ASC, m.entity_id ASC
+            GROUP BY m.document_id, m.entity_id
+            ORDER BY {_recency_expression("d")} DESC, m.document_id ASC, m.entity_id ASC
             LIMIT ?
             """,
             [*plan.entity_ids, *params, PASS_LIMIT],
@@ -722,6 +723,18 @@ def _prune_weak_text_only(plan: QueryPlan, candidates: Dict[str, Candidate]) -> 
         item.entity_matches or item.relationship_matches for item in candidates.values()
     ):
         return candidates
+
+    # A named entity in a date window is membership, not ranking: keep every
+    # document that mentions the entity (or a relationship to it). Loose FTS
+    # hits — other vendors' invoices that happened to say "payment" — must
+    # not pad the slice.
+    if is_scoped_slice(plan.entity_ids, plan.date_range):
+        kept = {
+            document_id: item
+            for document_id, item in candidates.items()
+            if item.entity_matches or item.relationship_matches
+        }
+        return kept or candidates
 
     kept = {
         document_id: item

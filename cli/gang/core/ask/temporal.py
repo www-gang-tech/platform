@@ -19,6 +19,11 @@ ISO_DATE = "%Y-%m-%d"
 
 _DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
+#: A date the questioner wrote: day, month, or year. Year-only forms are how
+#: people actually ask "since 2026" / "in 2026"; requiring YYYY-MM-DD left
+#: those questions with no range at all.
+_DATE_ATOM = r"(\d{4}-\d{2}-\d{2}|\d{4}-\d{2}|\d{4})"
+
 #: Phrases whose meaning is fixed relative to "today". Longest match wins.
 _RELATIVE_PHRASES = (
     "today",
@@ -33,11 +38,13 @@ _RELATIVE_PHRASES = (
 )
 
 _SINCE_PATTERN = re.compile(
-    r"\b(?:since|after|from)\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE
+    rf"\b(?:since|after|from)\s+{_DATE_ATOM}\b", re.IGNORECASE
 )
 _BEFORE_PATTERN = re.compile(
-    r"\b(?:before|until|up to|through)\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE
+    rf"\b(?:before|until|up to|through)\s+{_DATE_ATOM}\b", re.IGNORECASE
 )
+_IN_YEAR_PATTERN = re.compile(r"\b(?:in|during)\s+(\d{4})\b", re.IGNORECASE)
+_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9'._@-]*")
 _LAST_N_PATTERN = re.compile(
     r"\b(?:in\s+the\s+)?(?:last|past)\s+(\d{1,4})\s*(day|days|week|weeks|month|months)\b",
     re.IGNORECASE,
@@ -67,9 +74,14 @@ def resolve_question_range(question: str, *, clock: Optional[date] = None) -> Op
     before = _BEFORE_PATTERN.search(question)
     if since or before:
         return _range(
-            _parse_date(since.group(1)) if since else None,
-            _parse_date(before.group(1)) if before else None,
+            _parse_date_atom(since.group(1), role="start") if since else None,
+            _parse_date_atom(before.group(1), role="end") if before else None,
         )
+
+    in_year = _IN_YEAR_PATTERN.search(question)
+    if in_year:
+        year = _parse_date_atom(in_year.group(1), role="start")
+        return _range(year, min(now, date(year.year, 12, 31)))
 
     window = _LAST_N_PATTERN.search(text)
     if window:
@@ -81,6 +93,23 @@ def resolve_question_range(question: str, *, clock: Optional[date] = None) -> Op
             return _range(start, end)
 
     return None
+
+
+def consumed_temporal_terms(question: str) -> set:
+    """Tokens that built the date range, so they are not also searched as text.
+
+    "since 2026" is a window, not a request to FTS-match the words "since" and
+    "2026" — those two terms were ranking 2025 mail that happened to say
+    "since we last spoke".
+    """
+    if resolve_question_range(question) is None:
+        return set()
+    terms: set = set()
+    for pattern in (_SINCE_PATTERN, _BEFORE_PATTERN, _IN_YEAR_PATTERN):
+        match = pattern.search(question or "")
+        if match:
+            terms.update(token.lower() for token in _TOKEN_PATTERN.findall(match.group(0)))
+    return terms
 
 
 def resolve_bound(value: str, *, clock: Optional[date] = None) -> str:
@@ -172,6 +201,36 @@ def _parse_date(text: str) -> date:
         return datetime.strptime(text, ISO_DATE).date()
     except ValueError as exc:
         raise TemporalError(f"Could not parse date {text!r}") from exc
+
+
+def _parse_date_atom(text: str, *, role: str) -> date:
+    """Turn a day, month, or year atom into a bound.
+
+    ``since 2026`` starts at 1 January. ``before 2026`` ends at 31 December
+    2025's successor year-end — the atom itself is the year 2026, so the
+    *end* bound is 2026-12-31. Callers that mean "until the year begins"
+    should write ``before 2026-01-01``.
+    """
+    value = (text or "").strip()
+    if _DATE_PATTERN.fullmatch(value):
+        return _parse_date(value)
+    month = re.fullmatch(r"(\d{4})-(\d{2})", value)
+    if month:
+        year, month_n = int(month.group(1)), int(month.group(2))
+        if not 1 <= month_n <= 12:
+            raise TemporalError(f"Could not parse date {text!r}")
+        if role == "end":
+            return date(year, month_n, _days_in_month(year, month_n))
+        return date(year, month_n, 1)
+    year_match = re.fullmatch(r"(\d{4})", value)
+    if year_match:
+        year = int(year_match.group(1))
+        if year < 1900 or year > 2100:
+            raise TemporalError(f"Could not parse date {text!r}")
+        if role == "end":
+            return date(year, 12, 31)
+        return date(year, 1, 1)
+    raise TemporalError(f"Could not parse date {text!r}")
 
 
 def _range(start: Optional[date], end: Optional[date]) -> Dict[str, str]:
