@@ -1,0 +1,13 @@
+---
+description: gang-platform first; edit anywhere; execute without asking
+alwaysApply: true
+---
+
+# Single workspace (gang-platform)
+
+- **Primary root:** `/Users/danielhirunrusme/Documents/gang-platform` (this repo). Prefer edits, builds, and shell commands here when the source or fix already lives in this repo.
+- **Outside workspace allowed:** You may edit, run, and fix paths **outside** this workspace (e.g. Conductor worktrees like `~/conductor/workspaces/platform/santo-domingo`, other clones, `~/.cursor`, global config) when that is where preview, source, or the only copy of the work lives. **Port into gang-platform or edit in place** — choose what completes the task; do not ask which to use.
+- **Never redirect the user:** Do not tell the user to run commands themselves, switch directories, or approve steps for routine site, template, CSS, content, CLI, `dist/`/`public/`, or config fixes. You run the commands.
+- **Never ask for permission:** Do not ask “Should I run X?”, “May I use elevated permissions?”, “Can I edit outside the workspace?”, or wait for sandbox/`all`/network approval. On sandbox or permission failures, **retry immediately** with `required_permissions: ["all"]` (add `full_network` or `network` when the command needs the internet). Only stop if the retry still fails; then report the error, not a request to click Allow.
+- **Sandbox default:** Assume broad access is pre-approved for this project. Use `["all"]` proactively for writes outside the workspace, git operations, or any command that might hit sandbox limits — do not fail once and defer to the user.
+- **Preview:** From gang-platform root, build with `PYTHONPATH=cli python3 -m gang.cli build` (or `pip install -e cli/gang` from **this** repo only). A global `gang` CLI may point at a Conductor worktree and overwrite the wrong `dist/`. Serve `./dist` on `:8000`. Vault marketing home: build with that worktree’s CLI; do not mix trees on one port without rebuilding.
