@@ -173,6 +173,7 @@ main#content:focus-visible,
 }
 
 .site-nav a[aria-current="page"]:not(.site-wordmark),
+.site-nav a.is-section:not(.site-wordmark),
 .site-search[aria-current="page"],
 .site-footer nav a[aria-current="page"],
 .site-actions a[aria-current="page"] {

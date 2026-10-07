@@ -24,7 +24,7 @@ def run_crawl_smoke(dist_path: Path, *, preview: bool = False) -> List[str]:
     if not sitemap.exists():
         errors.append("missing sitemap.xml")
     else:
-        errors.extend(_check_sitemap_xml(sitemap, preview=preview))
+        errors.extend(_check_sitemap_xml(sitemap, preview=preview, dist_path=dist_path))
 
     if not preview:
         robots = dist_path / "robots.txt"
@@ -53,6 +53,8 @@ def run_crawl_smoke(dist_path: Path, *, preview: bool = False) -> List[str]:
         html_sitemap = dist_path / "sitemap" / "index.html"
         if not html_sitemap.exists():
             errors.append("missing HTML sitemap at /sitemap/")
+        else:
+            errors.extend(_check_html_sitemap(html_sitemap, dist_path))
 
     for html_path in sorted(dist_path.rglob("*.html")):
         html = html_path.read_text(errors="replace")
@@ -64,7 +66,47 @@ def run_crawl_smoke(dist_path: Path, *, preview: bool = False) -> List[str]:
     return errors
 
 
-def _check_sitemap_xml(path: Path, *, preview: bool) -> List[str]:
+def _published_url(rel: str) -> str:
+    if rel in {"", "index.html"}:
+        return "/"
+    if rel.endswith("/index.html"):
+        return "/" + rel[: -len("index.html")]
+    return "/" + rel
+
+
+def _loc_path(loc: str) -> str:
+    path = urlparse(loc).path or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    if path != "/" and not path.endswith("/"):
+        path = f"{path}/"
+    return path
+
+
+def _check_html_sitemap(path: Path, dist_path: Path) -> List[str]:
+    errors: List[str] = []
+    soup = BeautifulSoup(path.read_text(errors="replace"), "html.parser")
+    main = soup.find("main")
+    hrefs = {a.get("href") for a in (main.find_all("a") if main else [])}
+    required = []
+    if (dist_path / "index.html").exists():
+        required.append("/")
+    for url, folder in (
+        ("/objects/", "objects"),
+        ("/journal/", "journal"),
+        ("/research/", "research"),
+        ("/cart/", "cart"),
+        ("/search/", "search"),
+    ):
+        if (dist_path / folder / "index.html").exists():
+            required.append(url)
+    missing = [url for url in required if url not in hrefs]
+    if missing:
+        errors.append("HTML sitemap omits published " + ", ".join(missing))
+    return errors
+
+
+def _check_sitemap_xml(path: Path, *, preview: bool, dist_path: Path | None = None) -> List[str]:
     errors: List[str] = []
     try:
         root = ET.parse(path).getroot()
@@ -78,6 +120,14 @@ def _check_sitemap_xml(path: Path, *, preview: bool) -> List[str]:
         return ["sitemap.xml has no <loc> entries"]
     if len(locs) != len(set(locs)):
         errors.append("sitemap.xml contains duplicate <loc> values")
+    paths = {_loc_path(loc) for loc in locs}
+    if dist_path is not None:
+        for url, marker in (
+            ("/cart/", dist_path / "cart" / "index.html"),
+            ("/search/", dist_path / "search" / "index.html"),
+        ):
+            if marker.exists() and url not in paths:
+                errors.append(f"sitemap.xml omits published {url}")
     homes = [loc for loc in locs if urlparse(loc).path in ("", "/")]
     if not homes:
         errors.append("sitemap.xml should include the site home URL")
@@ -124,6 +174,11 @@ def _check_shell_page(html: str, rel: str, *, preview: bool) -> List[str]:
     currents = soup.select("nav[aria-label] a[aria-current='page']")
     if len(currents) > 1:
         errors.append(prefix + "more than one aria-current=page in main nav")
+    page_url = _published_url(rel)
+    for current in currents:
+        href = current.get("href") or ""
+        if href != page_url:
+            errors.append(prefix + f"aria-current=page points at {href}, not {page_url}")
 
     if POSITIVE_TABINDEX.search(html):
         errors.append(prefix + "positive tabindex is not allowed (breaks natural tab order)")

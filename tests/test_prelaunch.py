@@ -109,6 +109,42 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_nav_current_page_is_the_open_url(tmp_path):
+    dist = _render(tmp_path)
+    article = BeautifulSoup((dist / "journal/everyday-charging/index.html").read_text(), "html.parser")
+    nav = article.select_one("nav.site-nav")
+    journal = nav.find("a", href="/journal/")
+    assert journal.get("aria-current") is None
+    assert "is-section" in (journal.get("class") or [])
+    charger = BeautifulSoup((dist / "objects/charger/index.html").read_text(), "html.parser")
+    store = charger.select_one("nav.site-nav").find("a", href="/objects/")
+    assert store.get("aria-current") is None
+    assert "is-section" in (store.get("class") or [])
+    journal_index = BeautifulSoup((dist / "journal/index.html").read_text(), "html.parser")
+    current = journal_index.select_one("nav.site-nav").find("a", href="/journal/")
+    assert current.get("aria-current") == "page"
+    assert "is-section" not in (current.get("class") or [])
+
+
+def test_sitemap_lists_home_indexes_cart_and_search(tmp_path):
+    dist = _render(tmp_path)
+    html = BeautifulSoup((dist / "sitemap/index.html").read_text(), "html.parser")
+    hrefs = {a.get("href") for a in html.select("main a")}
+    for url in ("/", "/objects/", "/journal/", "/research/", "/cart/", "/search/"):
+        assert url in hrefs
+    xml = (dist / "sitemap.xml").read_text()
+    assert "https://gang.tech/cart/" in xml
+    assert "https://gang.tech/" in xml
+    assert xml.count("https://gang.tech/cart/") == 1
+
+
+def test_pages_do_not_preload_an_unused_font(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+    assert "AMBDualMono" not in home
+    assert "AMB Dual Mono" not in (ROOT / "public" / "typography.css").read_text()
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()

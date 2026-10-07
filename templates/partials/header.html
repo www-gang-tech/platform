@@ -3,10 +3,10 @@
     <div class="site-header-bar">
         <nav class="site-nav" role="navigation" aria-label="Main navigation">
             <a class="site-wordmark" href="/"{% if path == '/' %} aria-current="page"{% endif %}>GANG</a>
-            <a href="/objects/"{% if path.startswith('/objects/') %} aria-current="page"{% endif %}>Store</a>
-            <a href="/studio/"{% if path.startswith('/studio/') %} aria-current="page"{% endif %}>Information</a>
-            <a href="/journal/"{% if path.startswith('/journal/') %} aria-current="page"{% endif %}>Journal</a>
-            <a href="/projects/"{% if path.startswith('/projects/') %} aria-current="page"{% endif %}>Projects</a>
+            <a href="/objects/"{% if path == '/objects/' %} aria-current="page"{% elif path.startswith('/objects/') %} class="is-section"{% endif %}>Store</a>
+            <a href="/studio/"{% if path == '/studio/' %} aria-current="page"{% elif path.startswith('/studio/') %} class="is-section"{% endif %}>Information</a>
+            <a href="/journal/"{% if path == '/journal/' %} aria-current="page"{% elif path.startswith('/journal/') %} class="is-section"{% endif %}>Journal</a>
+            <a href="/projects/"{% if path == '/projects/' %} aria-current="page"{% elif path.startswith('/projects/') %} class="is-section"{% endif %}>Projects</a>
         </nav>
         <div class="site-header-end">
             <nav class="site-icons" aria-label="Sections" hidden>

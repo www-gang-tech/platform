@@ -197,6 +197,8 @@ def write_markdown_pages(
         sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     if not any(item.get("url") == "/search/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/search/", "title": "Search", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
+    if not any(item.get("url") == "/cart/" for item in sitemap_pages):
+        sitemap_pages.append({"url": "/cart/", "title": "Cart", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     generators.generate_all(dist_path, sitemap_pages, grouped.get("posts", []), preview=preview)
     write_cart_page(
         config,
@@ -299,16 +301,44 @@ def _write_section_indexes(
 
 
 def html_sitemap_sections(grouped: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Public URLs for the HTML sitemap.
+
+    Section indexes (Store, Journal, Research) are published pages, as are
+    Home, Cart, and Search. Listing only child documents left those URLs out.
+    """
     sections: List[Dict[str, Any]] = []
+    published_indexes = {"/", "/cart/", "/search/"}
+    for key, _label, _intro in SECTION_INDEXES:
+        if grouped.get(key):
+            published_indexes.add(f"/{key}/")
+    site_links = [
+        link
+        for link in (
+            {"url": "/", "title": "Home"},
+            {"url": "/objects/", "title": "Store"},
+            {"url": "/journal/", "title": "Journal"},
+            {"url": "/research/", "title": "Research"},
+            {"url": "/cart/", "title": "Cart"},
+            {"url": "/search/", "title": "Search"},
+        )
+        if link["url"] in published_indexes
+    ]
+    sections.append({"title": "Site", "links": site_links})
+    listed = {link["url"] for link in site_links}
+
     for key, label, _intro in SECTION_INDEXES:
         if key == "studio":
             continue
-        items = grouped.get(key) or []
+        items = [item for item in (grouped.get(key) or []) if item.get("url") not in listed]
         if items:
             sections.append(
                 {"title": label, "links": sorted(items, key=lambda item: (item.get("title") or "").lower())}
             )
-    pages = [item for item in (grouped.get("pages") or []) if item.get("url") not in {"/", None}]
+    pages = [
+        item
+        for item in (grouped.get("pages") or [])
+        if item.get("url") not in listed and item.get("url") is not None
+    ]
     if pages:
         sections.append(
             {"title": "Pages", "links": sorted(pages, key=lambda item: (item.get("title") or "").lower())}
