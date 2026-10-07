@@ -2,6 +2,7 @@ Metadata-Version: 2.4
 Name: gang-cli
 Version: 1.0.0
 Requires-Dist: click>=8.0.0
+Requires-Dist: flask>=3.0.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: markdown>=3.4.0
 Requires-Dist: jinja2>=3.1.0
@@ -11,4 +12,6 @@ Requires-Dist: pillow>=10.0.0
 Requires-Dist: requests>=2.31.0
 Requires-Dist: watchdog>=3.0.0
 Requires-Dist: boto3>=1.28.0
+Requires-Dist: google-auth-oauthlib>=1.2.0
+Requires-Dist: google-api-python-client>=2.100.0
 Dynamic: requires-dist

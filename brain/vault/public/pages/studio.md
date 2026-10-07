@@ -4,43 +4,40 @@ type: page
 visibility: public
 status: published
 url: /studio/
-title: Studio
-summary: People, objects, and a growing record of the work.
-created: '2026-09-30'
-updated: '2026-10-03'
-related:
-  - /
-  - /about/
-  - /objects/charger/
-  - /journal/a-place-for-charging/
-  - /research/alignment-not-wattage/
-now: GANG–1 is in development. The prototype, current specifications, and the thinking around it are collected here.
-next: Complete the installation guide and confirm final device and case compatibility before orders open.
-learned: Moving charging to the wall makes device fit, placement, and access to power part of the design.
+title: Information
+summary: GANG is a collective of designers, engineers and supporters based in NYC. In a world of noise we aim to provide clarity through everyday tools. The first of these is our 100W GANG MagSafe Multicharger that leans into wireless charging as a standard while also having a hub to put your devices in timeout.
+created: '2026-10-03'
+hide_editorial_lede: true
+hide_editorial_date: true
+updated: '2026-10-06'
 ---
 
-## Frank Godchaux and Daniel Hirunrusme
+GANG is a collective of designers, engineers and supporters based in NYC. In a world of noise we aim to provide clarity through everyday tools. The first of these is our 100W GANG MagSafe Multicharger that leans into wireless charging as a standard while also having a hub to put your devices in timeout.
 
-GANG was founded around a shared interest in useful technology and thoughtful design. We give everyday objects our attention: how they work, how they feel, and where they belong.
+## Team
 
-Our first product is a wall-mounted wireless charging hub. It begins with a question about daily life: where should charging happen?
+Founders  
+Daniel Hirunrusme & Frank Godchaux
 
-[Read why we began at the wall](/journal/a-place-for-charging/).
+Industrial design  
+Aaron Lehman
 
-## The object and the questions around it
+Mechanical engineering  
+Creative Engineering
 
-The prototype gives an idea a physical form. Four circular charging zones share one surface. That arrangement brings questions of placement, fit, and use into view.
+Brand & art direction  
+OK-RM
 
-The research asks how a device meets its charger. The writing considers the object in the room. Each offers a different way to understand the same work.
+Type design  
+Wei Huang
 
-[See the prototype](/objects/charger/) and [the research behind alignment](/research/alignment-not-wattage/).
+CGI  
+Jonaton Salomonsson
 
-## A memory for the practice
+## Contact
 
-We keep a living archive of conversations, research, and decisions. Sources stay connected to what they tell us. AI helps us search and draw connections; we decide what represents the work and what is ready to share.
+Email  
+[hello@gang.tech](mailto:hello@gang.tech)
 
-This website is a selection from that ongoing record. Private conversations stay private. Public notes give an idea room to develop, and meaningful revisions record how our understanding changes.
-
-## In touch
-
-For questions about the object, the studio, or a possible collaboration, [write to us](/pages/contact/). For occasional product news and design notes, [follow the work](/updates/).
+Location  
+Brooklyn, New York

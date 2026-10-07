@@ -1,6 +1,9 @@
 ---
 id: 01a0fa4d-fe24-7ded-8066-511917e8555a
 type: journal
+listing_type: News
+listing_image: /assets/images/gang-hero.jpg
+listing_image_alt: GANG–1 prototype shown as a wall-mounted charging surface.
 title: A place for charging
 summary: The prototype, the decision to move charging off the counter, and the questions that follow.
 created: '2026-10-01'

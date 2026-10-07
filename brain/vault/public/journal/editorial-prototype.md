@@ -1,6 +1,7 @@
 ---
 id: 01a0f4d6-fd45-799f-ad07-3ae219d23d7d
 type: journal
+listing_type: Update
 visibility: public
 status: published
 url: /journal/editorial-prototype/

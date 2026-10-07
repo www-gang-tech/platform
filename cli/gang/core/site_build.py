@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -73,6 +74,130 @@ def resolve_related(document: PublicDocument, by_url: Dict[str, PublicDocument])
     return related
 
 
+
+def wrap_home_text_groups(html: str) -> str:
+    """Wrap each run of home headings, paragraphs, and lists between images.
+
+    The first child of each group is a sticky white spacer the height of the
+    header. Image blocks stay outside the group, so the spacer scrolls away
+    with the text and does not paint over the next image.
+    """
+    from html.parser import HTMLParser
+
+    _VOID = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+
+    class _Blocks(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.parts = []
+            self._buf = []
+            self._depth = 0
+
+        def handle_starttag(self, tag, attrs):
+            text = self.get_starttag_text()
+            if tag in _VOID:
+                if self._depth == 0:
+                    self.parts.append(text)
+                else:
+                    self._buf.append(text)
+                return
+            self._depth += 1
+            self._buf.append(text)
+
+        def handle_endtag(self, tag):
+            self._buf.append(f"</{tag}>")
+            self._depth -= 1
+            if self._depth == 0:
+                self.parts.append("".join(self._buf))
+                self._buf = []
+
+        def handle_startendtag(self, tag, attrs):
+            text = self.get_starttag_text()
+            if self._depth == 0:
+                self.parts.append(text)
+            else:
+                self._buf.append(text)
+
+        def handle_data(self, data):
+            if self._depth == 0:
+                if data.strip():
+                    self.parts.append(data)
+            else:
+                self._buf.append(data)
+
+        def handle_entityref(self, name):
+            self.handle_data(f"&{name};")
+
+        def handle_charref(self, name):
+            self.handle_data(f"&#{name};")
+
+    def is_image_block(fragment: str) -> bool:
+        lowered = fragment.lower()
+        if "<img" not in lowered:
+            return False
+        if lowered.lstrip().startswith("<figure"):
+            return True
+        text = re.sub(r"<[^>]+>", "", fragment)
+        text = text.replace("&nbsp;", "").replace("\xa0", "")
+        return text.strip() == ""
+
+    def is_preserved_home_block(fragment: str) -> bool:
+        stripped = fragment.lstrip()
+        if is_image_block(fragment):
+            return True
+        if stripped.startswith("<section") and "home-credits" in stripped.split(">", 1)[0]:
+            return True
+        if not stripped.startswith("<div"):
+            return False
+        opening = stripped.split(">", 1)[0]
+        return bool(re.search(r'\bclass="[^"]*\bhome-text\b', opening))
+
+    parser = _Blocks()
+    parser.feed(html)
+    parser.close()
+    if parser._buf:
+        parser.parts.append("".join(parser._buf))
+        parser._buf = []
+    out = []
+    group = []
+
+    def flush():
+        if not group:
+            return
+        inner = "".join(group)
+        out.append(
+            '<div class="home-text">'
+            f"{inner}</div>"
+        )
+        group.clear()
+
+    for part in parser.parts:
+        if is_preserved_home_block(part):
+            flush()
+            out.append(part)
+        else:
+            group.append(part)
+    flush()
+    return "".join(out)
+
+
 def write_markdown_pages(
     config: Dict[str, Any],
     documents: List[PublicDocument],
@@ -110,6 +235,8 @@ def write_markdown_pages(
             content_html = process_external_links(content_html)
         if document.url == "/pages/faq/":
             content_html = faq_html_to_accordion(content_html)
+        if document.url == "/":
+            content_html = wrap_home_text_groups(content_html)
 
         related = resolve_related(document, by_url)
         noindex = preview or document.status != "published" or bool(document.frontmatter.get("noindex"))
@@ -153,6 +280,8 @@ def write_markdown_pages(
             "revision_notes": document.frontmatter.get("revision_notes") or [],
             "stage": document.frontmatter.get("stage"),
             "source_path": document.source_path.as_posix(),
+            "hide_editorial_lede": bool(document.frontmatter.get("hide_editorial_lede")),
+            "hide_editorial_date": bool(document.frontmatter.get("hide_editorial_date")),
         }
 
         template_name = template_for_document(document)
@@ -268,6 +397,7 @@ def _write_section_indexes(
             "page_type": collection,
             "category": collection,
             "slug": collection,
+            "journal_list_mode": (config.get("site") or {}).get("journal_list_mode", "grid") if collection == "journal" else None,
         }
         template_name = "journal-list.html" if collection == "journal" else "store-list.html" if collection == "objects" else "list.html"
         html = template_engine.render(template_name, context)

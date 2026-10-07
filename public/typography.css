@@ -1,7 +1,19 @@
 @font-face {
   font-family: "AMB Dual Mono";
-  src: url("/assets/fonts/AMBDualMono-Regular.otf") format("opentype");
-  font-weight: 400;
+  src: url("/assets/fonts/AMBDualMono-Medium.woff2?v=2") format("woff2"),
+       url("/assets/fonts/AMBDualMono-Medium.woff?v=2") format("woff"),
+       url("/assets/fonts/AMBDualMono-Medium.otf?v=2") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "AMB Dual Mono";
+  src: url("/assets/fonts/AMBDualMono-Bold.woff2") format("woff2"),
+       url("/assets/fonts/AMBDualMono-Bold.woff") format("woff"),
+       url("/assets/fonts/AMBDualMono-Bold.otf") format("opentype");
+  font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
@@ -63,12 +75,14 @@ a:focus:not(.skip-link),
 }
 
 a[aria-current="page"]:not(.site-wordmark),
-.site-nav a[aria-current="page"]:not(.site-wordmark),
-.site-actions a[aria-current="page"],
 .site-footer nav a[aria-current="page"],
 .footer-line a[aria-current="page"] {
   color: rgb(0, 0, 255);
   text-decoration: none;
+}
+
+.site-header-bar a[aria-current="page"]:not(.site-wordmark) {
+  color: rgb(0, 0, 255);
 }
 
 a:focus-visible,
@@ -93,4 +107,156 @@ a:focus-visible,
 .site-wordmark[aria-current="page"]:hover {
   color: rgb(0, 0, 255) !important;
   text-decoration: none !important;
+}
+
+.site-header-bar,
+.site-header-bar a,
+.site-header-bar .site-header-date {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 16px !important;
+}
+
+.site-end,
+.site-end :not([class*="fa-"]) {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 16px !important;
+}
+
+
+.site-main table.journal-table,
+.site-main table.journal-table :not([class*="fa-"]) {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+}
+
+.site-header-bar,
+.site-header-bar :not([class*="fa-"]),
+.site-header-bar :not([class*="fa-"])::placeholder {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 16px !important;
+  color: inherit;
+}
+
+.site-header input,
+.site-header button,
+.site-header label {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 16px !important;
+  color: inherit;
+}
+
+.site-header input,
+.site-header button {
+  margin: 0;
+  padding: 0 !important;
+  border: none !important;
+  border-width: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #000;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.site-header input {
+  width: 16ch;
+  min-width: 0;
+  max-width: 24ch;
+  field-sizing: content;
+}
+
+.site-header input:focus-visible,
+.site-header button:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+.site-header-bar a:active,
+.site-header-bar a[aria-current="page"]:active {
+  color: #000 !important;
+}
+
+.site-main,
+.site-main :not([class*="fa-"]) {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 16px !important;
+}
+
+.site-main table.journal-table,
+.site-main table.journal-table th,
+.site-main table.journal-table td,
+.site-main table.journal-table a,
+.site-main table.journal-table code,
+.site-main table.journal-table :not([class*="fa-"]) {
+  line-height: 1.5 !important;
+}
+
+.site-main .listing-header h1,
+.site-main h1,
+.site-main h2,
+.site-main h3,
+.site-main h4,
+.site-main h5,
+.site-main h6 {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 16px !important;
+}
+
+.site-main article.editorial,
+.site-main article.editorial :not([class*="fa-"]) {
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+}
+
+/* Editorial + home: serif body (after .site-main h1 mono lock above). */
+html body .site-main article.markdown-body.home,
+html body .site-main article.markdown-body.home h1,
+html body .site-main article.markdown-body.home h2,
+html body .site-main article.markdown-body.home h3,
+html body .site-main article.markdown-body.home h4,
+html body .site-main article.markdown-body.home h5,
+html body .site-main article.markdown-body.home h6,
+html body .site-main article.markdown-body.home p,
+html body .site-main article.markdown-body.home li,
+html body .site-main article.markdown-body.home a,
+html body .site-main article.markdown-body.home div,
+html body .site-main article.markdown-body.home ol,
+html body .site-main article.markdown-body.home ul,
+html body .site-main article.markdown-body.home figcaption,
+html body .site-main article.editorial,
+html body .site-main article.editorial h1,
+html body .site-main article.editorial h2,
+html body .site-main article.editorial h3,
+html body .site-main article.editorial h4,
+html body .site-main article.editorial h5,
+html body .site-main article.editorial h6,
+html body .site-main article.editorial p,
+html body .site-main article.editorial li,
+html body .site-main article.editorial a,
+html body .site-main article.editorial div,
+html body .site-main article.editorial ol,
+html body .site-main article.editorial ul,
+html body .site-main article.editorial figcaption {
+  font-family: "Times New Roman", Times, serif !important;
+  font-weight: 400 !important;
+  font-size: 20px !important;
+  line-height: 23px !important;
+  letter-spacing: 0.25px !important;
 }

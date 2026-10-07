@@ -1,24 +1,28 @@
 {% set path = current_path|default('') %}
+{% if path == '/cart/' %}
 <header class="site-header" role="banner">
     <div class="site-header-bar">
-        <nav class="site-nav" role="navigation" aria-label="Main navigation">
-            <a class="site-wordmark" href="/"{% if path == '/' %} aria-current="page"{% endif %}>GANG</a>
-            <a href="/objects/"{% if path.startswith('/objects/') %} aria-current="page"{% endif %}>Store</a>
-            <a href="/studio/"{% if path.startswith('/studio/') %} aria-current="page"{% endif %}>Information</a>
-            <a href="/journal/"{% if path.startswith('/journal/') %} aria-current="page"{% endif %}>Journal</a>
-            <a href="/projects/"{% if path.startswith('/projects/') %} aria-current="page"{% endif %}>Projects</a>
-        </nav>
-        <div class="site-header-end">
-            <nav class="site-icons" aria-label="Sections" hidden>
-                <a href="/objects/" aria-label="Store">{% include "partials/icons/icon-1.svg" %}</a>
-                <a href="/studio/" aria-label="Information">{% include "partials/icons/icon-2.svg" %}</a>
-                <a href="/journal/" aria-label="Journal">{% include "partials/icons/icon-3.svg" %}</a>
-                <a href="/projects/" aria-label="Projects">{% include "partials/icons/icon-4.svg" %}</a>
-            </nav>
-            <nav class="site-actions" aria-label="Subscribe and cart">
-                <a href="/updates/"{% if path == '/updates/' %} aria-current="page"{% endif %}>Subscribe</a>
-                <a class="site-cart-link" href="/cart/"{% if path == '/cart/' %} aria-current="page"{% endif %}>Cart</a>
-            </nav>
+        <div class="site-header-brand">
+            <h1 class="site-wordmark"><a href="/">Cart</a></h1>
         </div>
+        <a class="cart-close" href="/">Close</a>
     </div>
 </header>
+{% else %}
+<header class="site-header" role="banner">
+    <div class="site-header-bar">
+        <div class="site-header-brand">
+            <a class="site-wordmark" href="/"{% if path == '/' %} aria-current="page"{% endif %}>GANG</a>
+        </div>
+        <nav class="site-icons" aria-label="Sections" hidden>
+            <a href="/objects/" aria-label="Store">{% include "partials/icons/icon-1.svg" %}</a>
+            <a href="/studio/" aria-label="Information">{% include "partials/icons/icon-2.svg" %}</a>
+            <a href="/journal/" aria-label="Journal">{% include "partials/icons/icon-3.svg" %}</a>
+            <a href="/projects/" aria-label="Projects">{% include "partials/icons/icon-4.svg" %}</a>
+        </nav>
+        <nav class="site-nav" role="navigation" aria-label="Main navigation">
+            <a href="/objects/"{% if path.startswith('/objects/') %} aria-current="page"{% endif %}>Store</a><span class="nav-sep" aria-hidden="true">&nbsp;&nbsp;&nbsp;&nbsp;</span><a href="/studio/"{% if path.startswith('/studio/') %} aria-current="page"{% endif %}>Information</a><span class="nav-sep" aria-hidden="true">&nbsp;&nbsp;&nbsp;&nbsp;</span><a href="/journal/"{% if path.startswith('/journal/') %} aria-current="page"{% endif %}>Journal</a><span class="nav-sep" aria-hidden="true">&nbsp;&nbsp;&nbsp;&nbsp;</span><a href="/projects/"{% if path.startswith('/projects/') %} aria-current="page"{% endif %}>Projects</a><span class="nav-sep" aria-hidden="true">&nbsp;&nbsp;&nbsp;&nbsp;</span><a class="site-cart-link" href="/cart/"{% if path == '/cart/' %} aria-current="page"{% endif %}>Cart</a>
+        </nav>
+    </div>
+</header>
+{% endif %}

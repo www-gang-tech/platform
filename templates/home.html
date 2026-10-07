@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="nav-width-measure" aria-hidden="true"><span>Store</span><span>Information</span><span>Journal</span><span>Projects</span><span>Contact</span></div>
 <article class="markdown-body home">
-    <h1>{{ title }}</h1>
-    {% if preview %}
-    <p class="draft-note" role="status">Local preview. Public release still goes through git review.</p>
-    {% endif %}
+    <div class="home-text">
+        <h1>{{ title }}</h1>
+        {% if preview %}
+        <p class="draft-note" role="status">Local preview. Public release still goes through git review.</p>
+        {% endif %}
+    </div>
     {{ content | safe }}
 </article>
 {% endblock %}

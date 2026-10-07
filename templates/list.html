@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% if content_type == "projects" %}
+<div class="projects-nav-measure" aria-hidden="true"><span>Store</span><span>Information</span><span>Journal</span><span>Projects</span><span>Contact</span></div>
+{% endif %}
 <div class="index-layout listing">
     <header class="listing-header">
         <h1>{{ page_title }}</h1>
-        {% if description %}
+        {% if description and content_type != "projects" %}
         <p class="listing-kicker">{{ description }}</p>
         {% endif %}
     </header>
 
+    {% if content_type != "projects" %}
     <form class="site-search-form listing-search" role="search" action="/search/" method="get">
         <label class="listing-search-label" for="listing-search-input">Search {{ page_title }}</label>
         <div class="listing-search-row">
@@ -16,6 +20,7 @@
             <button type="submit">Show results</button>
         </div>
     </form>
+    {% endif %}
 
     {% if items %}
     <p class="listing-range">This is page 1, displaying results 1–{{ items|length }}.</p>
@@ -33,7 +38,7 @@
         {% endfor %}
     </ul>
     <p class="listing-feed">Related feed. <a href="/feed.json">Subscribe to the JSON feed</a>.</p>
-    {% else %}
+    {% elif content_type != "projects" %}
     <p>No {{ content_type }} found.</p>
     {% endif %}
 </div>

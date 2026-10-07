@@ -1,6 +1,7 @@
 ---
 id: 01a0fa4d-fe24-75f0-8264-70b40bc5d3a2
 type: journal
+listing_type: Update
 title: What belongs in the room
 summary: Our approach to the technology we live with.
 created: '2026-10-01'

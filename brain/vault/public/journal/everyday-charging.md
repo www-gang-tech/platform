@@ -1,6 +1,7 @@
 ---
 id: 01a0f4d6-fd45-7e26-a4f9-298a8a1611d4
 type: journal
+listing_type: Benchmark
 visibility: public
 status: published
 url: /journal/everyday-charging/

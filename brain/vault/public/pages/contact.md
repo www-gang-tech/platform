@@ -1,9 +1,9 @@
 ---
 id: 01a0fa4d-fe28-7807-afcf-3f8ab84fd8c2
 type: page
-title: Contact GANG
+title: Contact
 summary: For product questions, press, retail, and projects.
-created: '2026-10-01'
+created: '2026-10-03'
 updated: '2026-10-03'
 visibility: public
 status: published
@@ -15,7 +15,7 @@ related:
   - /updates/
 ---
 
-## Product questions
+## Inquiries
 
 For help with the product, setup, or compatibility, email [info@gang.tech](mailto:info@gang.tech).
 

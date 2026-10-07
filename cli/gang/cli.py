@@ -5623,8 +5623,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             css_content = re.sub(r'/\*.*?\*/', '', css_content, flags=re.DOTALL)
             # Remove extra whitespace
             css_content = re.sub(r'\s+', ' ', css_content)
-            # Remove spaces around special characters
-            css_content = re.sub(r'\s*([{}:;,])\s*', r'\1', css_content)
+            # Remove spaces around braces/commas/semicolons only — not ':' (breaks `.foo :not(...)`).
+            css_content = re.sub(r'\s*([{};,])\s*', r'\1', css_content)
             css_minified += len(css_content.strip())
             css_file.write_text(css_content.strip())
         

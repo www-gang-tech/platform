@@ -8,10 +8,14 @@
     <li>
         <a href="{{ item.url }}">
             {% if item.image %}
-            <img src="{{ item.image }}" alt="{{ item.image_alt or item.title }}" width="768" height="1024">
+            <img src="{{ item.image }}" alt="{{ item.image_alt or item.title }}"{% if 'gang-1-square.jpg' in item.image %} class="store-grid-square" width="1013" height="1024"{% else %} width="768" height="1024"{% endif %}>
             {% endif %}
+            {% if item.store_card %}
+            <span class="store-grid-card">{% for line in item.store_card.rstrip().split('\n') %}{% if not loop.first %}<br>{% endif %}{{ line }}{% endfor %}</span>
+            {% else %}
             <span class="store-grid-title">{{ item.title }}</span>
             {% if item.stage %}<span class="store-grid-stage">{{ item.stage }}</span>{% endif %}
+            {% endif %}
         </a>
     </li>
     {% endfor %}

@@ -20,6 +20,8 @@
     max-height: none;
     overscroll-behavior: none;
     font-size: 16px;
+    -webkit-font-smoothing: subpixel-antialiased;
+    -moz-osx-font-smoothing: auto;
   }
 
   body {
@@ -469,7 +471,8 @@ b, strong {
     border: 0;
     color: inherit;
     line-height: 20px;
-    text-align: left;
+    text-align: center;
+    width: 100%;
   }
 
   .site-main h1:first-child,
@@ -491,7 +494,9 @@ b, strong {
   .site-main .faq-panel > ul,
   .site-main .faq-panel > ol,
   .site-main .related ul,
-  .site-main .section-index ul {
+  .site-main .section-index ul,
+  .site-main article .home-text > ul,
+  .site-main article .home-text > ol {
     list-style-position: outside;
     margin-inline-start: 0;
     padding-inline-start: 1.25em;
@@ -1602,7 +1607,7 @@ b, strong {
     font-weight: 400;
     line-height: 20px;
     letter-spacing: 0.12px;
-    margin: 0 0 16px;
+    text-align: center;
   }
 
   .home-opening .editorial-lede {
@@ -1643,9 +1648,28 @@ b, strong {
     height: auto;
   }
 
+  /* Home images fill the article, which is the same width as the main nav. */
+  article.markdown-body.home > p:has(> img[src*="gang-device-table"]) {
+    box-sizing: border-box;
+    width: auto;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  article.markdown-body.home > p:has(> img[src*="gang-device-table"]) > img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
   .home > .markdown-body h2,
   .markdown-body.home h2 {
-    margin-top: 16px;
     padding-top: 0;
     border-top: 0;
   }
@@ -1932,7 +1956,7 @@ b, strong {
   .journal-table {
     display: table;
     width: 100%;
-    max-width: 100%;
+    margin-inline: auto;
     overflow: visible;
     border-collapse: collapse;
     border-spacing: 0;
@@ -1940,7 +1964,7 @@ b, strong {
 
   .journal-table th,
   .journal-table td {
-    padding: 0 16px 0 0;
+    padding: 0 4ch 0 0;
     text-align: left;
     font-weight: 400;
     vertical-align: baseline;
@@ -1957,10 +1981,89 @@ b, strong {
     white-space: nowrap;
   }
 
+  .journal-table th:first-child,
+  .journal-table td:first-child {
+    padding-left: 0;
+  }
+
   .journal-table th:last-child,
   .journal-table td:last-child {
     padding-right: 0;
     width: 100%;
+  }
+
+  .site-main table.journal-table code {
+    background: transparent;
+    background-color: transparent;
+    padding-inline: 0;
+  }
+
+  .journal-table tbody tr {
+    position: relative;
+  }
+
+  .journal-table tbody td a::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+  }
+
+  .journal-table tbody tr:hover,
+  .journal-table tbody tr:hover a,
+  .journal-table tbody tr:hover code,
+  .journal-table tbody tr:hover time {
+    color: rgb(0, 0, 255);
+  }
+
+
+  .journal-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+  }
+
+  .journal-grid li {
+    margin: 0;
+    padding: 0;
+  }
+
+  .journal-grid a {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .journal-grid img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+  }
+
+  .journal-grid-title,
+  .journal-grid-type {
+    display: block;
+  }
+
+  .site-main .journal-grid .journal-grid-type {
+    font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+    font-weight: 500 !important;
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+  }
+
+  @media (max-width: 720px) {
+    .journal-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
 
   .store-grid {
@@ -1993,9 +2096,23 @@ b, strong {
     object-fit: cover;
   }
 
+  .store-grid img.store-grid-square {
+    aspect-ratio: 1 / 1;
+    height: auto;
+    object-fit: cover;
+  }
+
   .store-grid-title,
   .store-grid-stage {
     display: block;
+  }
+
+  .site-main .store-grid .store-grid-card {
+    display: block;
+    font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+    font-weight: 500 !important;
+    font-size: 16px !important;
+    line-height: 1.5 !important;
   }
 
   @media (max-width: 720px) {
@@ -2003,4 +2120,430 @@ b, strong {
       grid-template-columns: repeat(2, 1fr);
     }
   }
+
+
+/* Site end / footer chrome — three line breaks above copyright + nav */
+.site-end {
+  margin-top: 3em;
+}
+
+.site-end .page-meta {
+  line-height: 1.625 !important;
+  margin: 0;
+  text-align: left;
+}
+.site-end .page-meta + .page-meta { margin-top: 0; }
+.site-end > p.page-meta + p.page-meta { margin-bottom: 0; }
+.site-end .site-footer { margin-top: 0; }
+.site-footer .footer-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 16px;
+  line-height: var(--site-chrome-nav-line-height, 1);
+  margin: 0;
+  text-align: left;
+}
+.site-footer .footer-line + .footer-line {
+  margin-top: 1em;
+}
+.site-footer .footer-nav {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 23.2265625px;
+}
+.site-end > .site-footer > .footer-year { margin-top: 28px; margin-bottom: 28px; }
+
+
+/* 16px type reads at 1.5 (24px). Wins the later 16px !important locks on .site-main, headings, header, and footer. */
+html body .site-main :not([class*="fa-"]),
+html body .site-end :not([class*="fa-"]),
+html body .site-main h1,
+html body .site-main h2,
+html body .site-main h3,
+html body .site-main h4,
+html body .site-main h5,
+html body .site-main h6,
+html body:not([data-slug="subscribe"]):not([data-slug="cart"]) .site-header-bar .site-nav a,
+html body:not([data-slug="subscribe"]):not([data-slug="cart"]) .site-header-bar a.site-wordmark,
+html body:not([data-slug="subscribe"]):not([data-slug="cart"]) .site-header-bar .site-nav .nav-sep {
+  line-height: var(--site-chrome-nav-line-height) !important;
+}
+
+/* Home article is a centered 600px column. */
+body[data-slug="home"] .site-main > main#content {
+  display: block;
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+}
+
+body[data-slug="home"] .nav-width-measure {
+  grid-area: 1 / 1;
+  display: flex;
+  gap: 4ch;
+  width: max-content;
+  height: 0;
+  max-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: "AMB Dual Mono", ui-monospace, monospace !important;
+  font-weight: 500 !important;
+  font-size: 16px !important;
+  letter-spacing: 0.12px;
+}
+
+body[data-slug="home"] article.markdown-body.home {
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+body[data-slug="home"] article.markdown-body.home > .home-text,
+body[data-slug="home"] article.markdown-body.home > p {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  box-sizing: border-box;
+}
+
+body[data-slug="home"] article.markdown-body.home img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+
+/* Home text groups. */
+body[data-slug="home"] .home-text {
+  display: block;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+html body .site-main article.markdown-body.home .home-text > ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+  margin-inline-start: 0;
+  padding-inline-start: 1.25em;
+  overflow: visible;
+}
+
+html body .site-main article.markdown-body.home .home-text > ol > li {
+  display: list-item;
+  list-style-position: outside;
+  margin-inline-start: -1.25em;
+  padding-inline-start: 0;
+}
+
+html body[data-slug="home"] .site-main article.markdown-body.home .home-text > ol a {
+  color: #0000ee;
+  text-decoration: none;
+}
+
+html body[data-slug="home"] .site-main article.markdown-body.home .home-text > ol a:hover {
+  color: #0000ee;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html body[data-slug="home"] .site-main article.markdown-body.home .home-text > ol:first-of-type li {
+  color: #0000ee;
+}
+
+html body[data-slug="studio"] .site-main article.editorial .markdown-body > h2:first-of-type {
+  margin-top: 2em !important;
+}
+
+
+
+/* Journal index: table mode capped; grid is full width. */
+body[data-slug="journal"] .site-main > main#content:has(.journal-table) {
+  max-width: 1200px;
+  width: 100%;
+  margin-inline: auto;
+}
+body[data-slug="journal"] .site-main > main#content:has(.journal-grid) {
+  max-width: none;
+  width: 100%;
+  margin-inline: 0;
+  align-self: stretch;
+}
+
+/* Footer line layout; type size uses --site-chrome-nav-* (same as header nav in shell.css). */
+html body .site-end {
+  align-items: flex-start;
+  padding-left: 28px;
+}
+html body .site-end > p.page-meta,
+html body .site-end > p.page-meta :not([class*="fa-"]),
+html body .site-end > .site-footer > .footer-year,
+html body .site-end > .site-footer .footer-nav .footer-year,
+html body .site-end > .site-footer > .footer-line,
+html body .site-end > .site-footer .footer-nav,
+html body .site-end > .site-footer .footer-nav .footer-year,
+html body .site-end > .site-footer .footer-nav a {
+  font-family: var(--site-chrome-nav-font) !important;
+  font-size: var(--site-chrome-nav-size) !important;
+  letter-spacing: var(--site-chrome-nav-tracking) !important;
+  line-height: var(--site-chrome-nav-line-height, 1) !important;
+  text-align: left;
+}
+html body .site-end > .site-footer > .footer-line {
+  justify-content: flex-start;
+}
+html body .site-end > .site-footer .footer-nav {
+  justify-content: flex-start;
+}
+html body .site-end > .site-footer .footer-nav .footer-year {
+  flex: none;
+  margin: 0;
+  padding: 0;
+}
+html body .site-end > .site-footer .footer-nav {
+  align-items: baseline;
+  gap: 23.2265625px;
+}
+html body .site-end > .site-footer .footer-nav a {
+  margin: 0;
+  padding: 0;
+}
+html body .site-end > p.page-meta,
+html body .site-end > p.page-meta :not([class*="fa-"]) {
+  font-size: 13px !important;
+  line-height: 20px !important;
+  margin-bottom: 24px;
+}
+
+
+/* Shared Times New Roman: 20px type on a 23px line, 0.25px tracking. */
+html body .site-main article.markdown-body.home,
+html body .site-main article.markdown-body.home :not([class*="fa-"]),
+html body .site-main article.editorial,
+html body .site-main article.editorial :not([class*="fa-"]) {
+  font-family: "Times New Roman", Times, serif !important;
+  font-size: 20px !important;
+  line-height: 23px !important;
+  letter-spacing: 0.25px !important;
+}
+
+/* Article headings: h1 leaves two em blank lines; later headings leave one. h2 stays left. */
+html body .site-main h2 {
+  text-align: left;
+}
+
+html body .site-main h1,
+html body .site-main article h1,
+html body .site-main .editorial-header h1 {
+  text-align: center;
+}
+
+html body[data-slug="home"] .site-main article.markdown-body.home h2 {
+  text-align: center;
+}
+
+html body .site-main article.editorial .markdown-body h2 {
+  text-align: center;
+  text-transform: none;
+  font-variant: normal;
+}
+
+html body[data-slug="home"] .site-main article.markdown-body.home .home-text > ol + h2 {
+  margin-top: 3em !important;
+}
+
+html body .site-main article h1 {
+  margin-top: 0 !important;
+  margin-bottom: 2em !important;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+html body .site-main article h2,
+html body .site-main article h3,
+html body .site-main article h4,
+html body .site-main article h5,
+html body .site-main article h6 {
+  margin-bottom: 1em !important;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Caption under the home table photograph only. Beats the article Times lock. */
+html body .site-main article.markdown-body.home > figure.home-photo {
+  margin-top: 1em;
+  margin-bottom: 2em;
+  margin-inline: 0;
+  padding: 0;
+}
+html body .site-main article.markdown-body.home > figure.home-photo > a {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+html body .site-main article.markdown-body.home > figure.home-photo > a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+html body .site-main article.markdown-body.home > figure.home-photo > a > img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+}
+/* Three line breaks after copy before a figure or full-width image. */
+html body .site-main article .home-text:has(> p) + figure,
+html body .site-main article .home-text:has(> p) + p:has(> img),
+html body .site-main article .home-text.home-lines-tight + p:has(> img),
+html body .site-main article p:has(+ figure) {
+  margin-top: 3em !important;
+}
+html body .site-main article .home-text:has(> p):has(+ figure),
+html body .site-main article .home-text:has(> p):has(+ p:has(> img)) {
+  margin-bottom: 0 !important;
+}
+
+/* Double block spacing below figures (default prose gap is 1em via sibling margin-top). */
+html body .site-main article figure {
+  margin-bottom: 2em;
+}
+
+
+
+/* Home manifesto lines: no gap between consecutive statements. */
+html body .site-main article .home-text.home-lines-tight > p {
+  margin-top: 1em !important;
+  margin-bottom: 0 !important;
+}
+html body .site-main article .home-text.home-lines-tight > p:first-child {
+  margin-top: 0 !important;
+}
+
+/* Home credits: same small type as site-end page meta. */
+html body .site-main article.markdown-body.home > .home-credits,
+html body .site-main article.markdown-body.home > .home-credits :not([class*="fa-"]) {
+  font-family: Helvetica, Arial, sans-serif !important;
+  font-size: 13px !important;
+  line-height: 20px !important;
+  letter-spacing: 0.25px !important;
+  text-align: left;
+}
+html body .site-main article.markdown-body.home > .home-credits {
+  margin-top: 3em;
+  margin-bottom: 0;
+  padding: 0;
+  width: 100%;
+  max-width: none;
+}
+html body .site-main article.markdown-body.home > .home-credits h2.page-meta {
+  margin: 0 0 0.5em;
+  font-weight: inherit;
+}
+html body .site-main article.markdown-body.home > .home-credits p.page-meta {
+  margin: 0;
+}
+html body .site-main article.markdown-body.home > .home-credits ol.page-meta {
+  margin: 0;
+  list-style-type: decimal;
+  list-style-position: outside;
+  margin-inline-start: 0;
+  padding-inline-start: 1.25em;
+  overflow: visible;
+}
+html body .site-main article.markdown-body.home > .home-credits ol.page-meta li {
+  margin: 0;
+  display: list-item;
+  list-style-position: outside;
+  margin-inline-start: -1.25em;
+  padding-inline-start: 0;
+}
+html body[data-slug="home"] .site-main article.markdown-body.home > .home-credits ol.page-meta a {
+  color: #0000ee;
+  text-decoration: none;
+}
+
+html body[data-slug="home"] .site-main article.markdown-body.home > .home-credits ol.page-meta a:hover {
+  color: #0000ee;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html body .site-main article.markdown-body.home > .home-credits > ol.page-meta + p.page-meta {
+  margin-top: 3em;
+}
+
+html body .site-main article.markdown-body.home > figure.home-photo > figcaption {
+  margin: 12px 0 0;
+  padding: 0;
+  text-align: left;
+  font-family: Helvetica, Arial, sans-serif !important;
+  font-size: 14px !important;
+  letter-spacing: 0.25px !important;
+}
+
+
+/* Articles are a centered 600px column. The editorial parent was 533px, which kept articles under 600. */
+html body .site-main > main#content:has(> article.editorial),
+html body[data-page-type="journal"] .site-main > main#content:has(> article.editorial) {
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+}
+html body .site-main article {
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+/* Two line breaks under the header. The main column has no extra top padding or margin. */
+html body .site-main {
+  margin-top: 0;
+  padding-top: 0;
+}
+html body .site-main > main#content {
+  margin-top: 0;
+  padding-top: 46px;
+}
+
+/* Article prose: one blank line (1em) between blocks. One side only, so adjacent margins collapse to 1em. */
+html body .site-main article.markdown-body.home > *,
+html body .site-main article.editorial > *,
+html body .site-main article .home-text > *,
+html body .site-main article .markdown-body > * {
+  margin-top: 1em;
+  margin-bottom: 0;
+}
+html body .site-main article.markdown-body.home > :first-child,
+html body .site-main article.editorial > :first-child,
+html body .site-main article .home-text > :first-child,
+html body .site-main article .markdown-body > :first-child {
+  margin-top: 0;
+}
+html body .site-main article ul,
+html body .site-main article ol {
+  margin-top: 1em;
+  margin-bottom: 0;
+}
+html body .site-main article li,
+html body .site-main article li + li {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+html body .site-main article li > :first-child {
+  margin-top: 0;
+}
+html body .site-main article li > :last-child {
+  margin-bottom: 0;
+}
+html body .site-main article img {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
 

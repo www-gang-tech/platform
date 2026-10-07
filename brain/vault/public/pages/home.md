@@ -1,7 +1,7 @@
 ---
 id: 01a0fa4d-fe1f-74e7-b93f-9880e562c2e4
 type: page
-title: GANG
+title: Crafted tools for intentional living.
 summary: Crafted tools for intentional living.
 created: '2026-10-01'
 updated: '2026-10-05'
@@ -15,69 +15,44 @@ related:
   - /journal/
 ---
 
-## 1. Crafted tools for intentional living
+<figure class="home-photo">
+<a href="/objects/charger/"><img alt="Black charging surface with four circular zones and an open parts tray on a table." src="/assets/images/gang-device-table.jpg?v=hires" /></a>
+<figcaption>Fig. 1</figcaption>
+</figure>
 
-![GANG–1 prototype with four circular charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
 
-Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
+<div class="home-text home-lines-tight">
+<p>GANG is a project space.</p><p>GANG is decentralized.</p><p>GANG is open source.</p><p>GANG is a rebellion against excess.</p><p>GANG is an intersectional zone.</p><p>GANG is where Matter meets Form.</p><p>GANG is accessible.</p><p>GANG is a collective.</p>
+</div>
 
-[Learn more](/objects/)
-
-## 2. GANG 100W MagSafe Wall Charger
-
-![GANG–1 prototype shown as a wall-mounted charging surface.](/assets/images/gang-hero.jpg)
+## GANG 100W MagSafe Wall Charger
 
 A single, considered charging surface for the devices you use every day—designed to live out in the open, without cable sprawl. It features 4-Qi2 fast-charging coils that were custom-built for our device.
 
-[Learn more](/objects/charger/)
+## Latest press
 
-$200 USD, All parts included for installation
+1. Wallpaper*, October 2026
+2. Dezeen, October 2026
+3. The Verge, September 2026
+4. Monocle, September 2026
 
-## 3. GANG Typeface
+## Latest posts
 
-![GANG type and object, shown together.](/assets/images/gang-4-in-1-prototype.jpg)
+1. [A place for charging](/journal/a-place-for-charging/)
+2. [From evidence to a public article](/journal/from-evidence-to-article/)
+3. [What belongs in the room](/journal/what-belongs-in-the-room/)
+4. [Everyday charging](/journal/everyday-charging/)
 
-Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
-
-[Learn more](/about/)
-
-## 4. Press
-
-- Wallpaper*, October 2026 — “GANG puts charging on the wall.”
-- Dezeen, October 2026 — “A four-zone MagSafe charger designed as furniture.”
-- The Verge, September 2026 — “Fewer cables, one considered surface.”
-- Monocle, September 2026 — “Hardware with the temperament of a publishing house.”
-
-## 5. FAQ
-
-**What is GANG?**
-GANG is a small collective building tools for a more intentional digital life. Our first object is a wall-mounted wireless charger.
-
-**How many charging zones does it have?**
-Four Qi2 fast-charging coils, built for the devices you use every day.
-
-**When will it be available?**
-Join [launch updates](/updates/) for availability. A shipping date has not been announced.
-
-[More questions](/pages/faq/)
-
-## 6. Latest posts
-
-- [A place for charging](/journal/a-place-for-charging/)
-- [From evidence to a public article](/journal/from-evidence-to-article/)
-- [What belongs in the room](/journal/what-belongs-in-the-room/)
-- [Everyday charging](/journal/everyday-charging/)
-
-[Journal](/journal/)
-
-## 7. Philosophy
+## Philosophy
 
 GANG is a small, focused collective building tools for a more intentional digital life. Our work spans hardware, software, and publishing, all designed to reduce noise, encourage presence, and prioritize what matters. We believe in restraint, clarity, and making fewer things, better.
 
 [Read more](/about/)
 
-## 8. Gallery
-
-![GANG–1 prototype, four charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
-
-![GANG–1 prototype, front view.](/assets/images/gang-hero.jpg)
+<section class="home-credits" aria-labelledby="home-credits-title">
+<h2 id="home-credits-title" class="page-meta">Credits</h2>
+<ol class="page-meta">
+<li>Our <a href="/objects/charger/">GANG 100W MagSafe multicharger</a> photographed by <a href="https://www.instagram.com/thomas_mccarty/?hl=en" target="_blank" rel="noopener noreferrer">Thomas McCarty</a> in <a href="https://juddfoundation.org/spaces/101-spring-street/" target="_blank" rel="noopener noreferrer">Donald Judd's Soho Loft</a>, Oct 2, 2026.</li>
+</ol>
+<p class="page-meta">Page size: <span>__PAGE_SIZE__</span><br>Updated: Oct 4 2026</p>
+</section>

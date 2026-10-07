@@ -1,6 +1,7 @@
 ---
 id: 01a0f4d6-fd45-7e4e-a717-6abb6419824f
 type: journal
+listing_type: Research
 visibility: public
 status: published
 url: /journal/from-evidence-to-article/

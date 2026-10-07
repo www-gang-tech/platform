@@ -3,6 +3,7 @@
 {% block content %}
 <h1 class="visually-hidden">{{ page_title }}</h1>
 {% if items %}
+{% if journal_list_mode == 'table' %}
 <table class="journal-table">
     <thead>
         <tr>
@@ -20,13 +21,28 @@
         <tr>
             <td><code>{{ "%04d"|format(total - loop.index0) }}</code></td>
             <td>{% if label != prev.date %}<time datetime="{{ item.date }}">{{ label }}</time>{% endif %}</td>
-            <td>{{ (item.type or content_type or 'Journal') | capitalize }}</td>
+            <td>{{ item.listing_type or ((item.type or content_type or 'Journal') | capitalize) }}</td>
             <td><a href="{{ item.url }}">{{ item.title }}</a></td>
         </tr>
         {% set prev.date = label %}
         {% endfor %}
     </tbody>
 </table>
+{% else %}
+<ul class="journal-grid">
+    {% for item in items %}
+    <li>
+        <a href="{{ item.url }}">
+            {% if item.image %}
+            <img src="{{ item.image }}" alt="{{ item.image_alt or item.title }}" width="1024" height="1024" loading="lazy" decoding="async">
+            {% endif %}
+            <span class="journal-grid-title">{{ item.title }}</span>
+            {% if item.listing_type %}<span class="journal-grid-type">{{ item.listing_type }}</span>{% endif %}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
 {% else %}
 <p>No {{ content_type }} found.</p>
 {% endif %}

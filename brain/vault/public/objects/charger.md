@@ -9,6 +9,7 @@ visibility: public
 status: published
 url: /objects/charger/
 stage: In development
+store_card: "GANG 100W Magsafe Wall Charger\n432C Gray\nUS Standard\n\n$250 USD"
 related:
   - /pages/compatibility/
   - /pages/setup/
@@ -17,7 +18,7 @@ related:
   - /journal/a-place-for-charging/
 ---
 
-![GANG–1 prototype showing its four circular charging zones. Prototype shown. Final details may change.](/assets/images/gang-4-in-1-prototype.jpg)
+![GANG–1 prototype showing its four circular charging zones. Prototype shown. Final details may change.](/assets/images/gang-1-square.jpg?v=2)
 
 [Get launch updates](/updates/) · [Check compatibility](/pages/compatibility/)
 

@@ -7,6 +7,7 @@ site:
   url: "https://gang.tech"
   description: "A studio for charging objects and public notes, published from files the authors still own."
   language: "en"
+  journal_list_mode: grid  # table | grid
   
 # Build settings
 build:

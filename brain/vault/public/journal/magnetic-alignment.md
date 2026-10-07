@@ -1,6 +1,7 @@
 ---
 id: 01a0f4d6-fd45-7a50-a071-c8411a8131cd
 type: journal
+listing_type: Research
 visibility: public
 status: published
 url: /journal/magnetic-alignment/

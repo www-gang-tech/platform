@@ -98,13 +98,15 @@ class PublicDocument:
         return tags if isinstance(tags, list) else []
 
     def to_page_data(self, content_html: str = "") -> Dict[str, Any]:
-        image = ""
-        image_alt = ""
+        image = self.frontmatter.get("listing_image") or ""
+        image_alt = self.frontmatter.get("listing_image_alt") or ""
         markdown_image = re.search(r"!\[([^\]]*)\]\(([^)\s]+)", self.body)
-        if markdown_image:
+        if not image and markdown_image:
             image_alt = markdown_image.group(1)
             image = markdown_image.group(2)
-        else:
+        elif not image_alt and markdown_image:
+            image_alt = markdown_image.group(1)
+        if not image:
             html_image = re.search(r'<img[^>]+src="([^"]+)"', content_html or "", re.I)
             if html_image:
                 image = html_image.group(1)
@@ -115,6 +117,7 @@ class PublicDocument:
             "summary": self.summary,
             "date": self.date or self.created,
             "type": self.collection,
+            "listing_type": self.frontmatter.get("listing_type"),
             "document_type": self.type,
             "content_html": content_html,
             "tags": self.tags,
@@ -126,6 +129,7 @@ class PublicDocument:
             "related": self.frontmatter.get("related") or [],
             "revision_notes": self.frontmatter.get("revision_notes") or [],
             "stage": self.frontmatter.get("stage"),
+            "store_card": self.frontmatter.get("store_card") or "",
             "image": image,
             "image_alt": image_alt,
         }

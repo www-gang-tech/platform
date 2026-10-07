@@ -7,10 +7,10 @@
         <p>{{ stage }}</p>
         {% endif %}
         <h1>{{ title }}</h1>
-        {% if date %}
+        {% if date and not hide_editorial_date %}
         <p><time datetime="{{ date }}">{{ date | formatdate('%m.%d.%y') }}</time></p>
         {% endif %}
-        {% if description %}
+        {% if description and not hide_editorial_lede %}
         <p class="editorial-lede">{{ description }}</p>
         {% endif %}
         {% if preview and document_status and document_status != 'published' %}

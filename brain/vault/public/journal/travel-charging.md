@@ -1,6 +1,7 @@
 ---
 id: 01a0f4d6-fd45-7a4a-9823-82691ec411d0
 type: journal
+listing_type: Update
 visibility: public
 status: published
 url: /journal/travel-charging/

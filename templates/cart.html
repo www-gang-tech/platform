@@ -1,22 +1,3 @@
 {% extends "base.html" %}
 
-{% block page_scripts %}<script src="/assets/cart.js" defer></script>{% endblock %}
-
-{% block content %}
-<h1>Cart</h1>
-
-<div id="cart-empty" style="display: none;">
-    <p>Your cart is empty</p>
-    <a href="/objects/">Continue shopping</a>
-</div>
-
-<div id="cart-items"></div>
-
-<div id="cart-summary" style="display: none;">
-    <h2>Subtotal:</h2>
-    <p id="cart-subtotal">$0.00</p>
-    <p>Shipping and taxes calculated at checkout</p>
-    <button type="button" onclick="proceedToCheckout()" class="button">Proceed to checkout</button>
-    <p><a href="/objects/">Continue shopping</a></p>
-</div>
-{% endblock %}
+{% block content %}{% endblock %}
