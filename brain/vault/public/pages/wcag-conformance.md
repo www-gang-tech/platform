@@ -55,8 +55,8 @@ GANG assessed the accessibility of this website by the following approaches:
 We welcome your feedback on the accessibility of this website. Please let us know if you encounter accessibility barriers:
 
 - **Email:** accessibility@gang.tech
-- **Organization:** GANG Platform
-- **Address:** [Your Address]
+- **Organization:** Gang Tech, LLC
+- **Address:** 228 Park Ave S, PMB 400205, New York, New York 10003-1502, US
 
 We try to respond to feedback within 2 business days.
 

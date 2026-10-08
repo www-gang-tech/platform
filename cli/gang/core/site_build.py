@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import markdown
 
 from .content_loader import LIST_ROUTES, PublicDocument
-from .faq_accordion import faq_html_to_accordion
+from .faq_accordion import faq_html_to_accordion, faq_questions
 from .generators import OutputGenerators
 from .templates import TemplateEngine
 
@@ -108,6 +108,7 @@ def write_markdown_pages(
         md.reset()
         if process_external_links:
             content_html = process_external_links(content_html)
+        faq_entries = faq_questions(content_html) if document.url == "/pages/faq/" else []
         if document.url == "/pages/faq/":
             content_html = faq_html_to_accordion(content_html)
 
@@ -129,12 +130,12 @@ def write_markdown_pages(
             "build_time": build_time.strftime("%B %d, %Y at %I:%M %p"),
             "build_time_iso": build_time.isoformat(),
             "jsonld": document.frontmatter.get("jsonld")
-            or default_jsonld(
+            or faq_page_jsonld(
                 config,
                 title=document.title,
                 url=canonical_url,
                 description=document.summary or config["site"]["description"],
-                page_type="FAQPage" if document.url == "/pages/faq/" else "WebPage",
+                entries=faq_entries,
             ),
             "page_type": document.type,
             "category": document.collection,
@@ -460,6 +461,36 @@ def write_search_page(
     output = output_file_for_url(dist_path, "/search/")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(html)
+
+
+def faq_page_jsonld(
+    config: Dict[str, Any],
+    *,
+    title: str,
+    url: str,
+    description: str,
+    entries: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """FAQPage structured data, including each visible question and answer.
+
+    An FAQPage node without ``mainEntity`` questions is not a valid FAQ.
+    When no pairs were found, publish a WebPage instead of an empty FAQPage.
+    """
+    questions = [entry for entry in entries if entry.get("question") and entry.get("answer")]
+    if not questions:
+        return default_jsonld(config, title=title, url=url, description=description, page_type="WebPage")
+    data = default_jsonld(config, title=title, url=url, description=description, page_type="FAQPage")
+    for node in data["@graph"]:
+        if node.get("@type") == "FAQPage":
+            node["mainEntity"] = [
+                {
+                    "@type": "Question",
+                    "name": entry["question"],
+                    "acceptedAnswer": {"@type": "Answer", "text": entry["answer"]},
+                }
+                for entry in questions
+            ]
+    return data
 
 
 def default_jsonld(config: Dict[str, Any], *, title: str, url: str, description: str, page_type: str = "WebPage") -> Dict[str, Any]:
