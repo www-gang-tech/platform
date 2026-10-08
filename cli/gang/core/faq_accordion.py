@@ -16,6 +16,52 @@ def slugify(text: str) -> str:
     return slug[:72] or "question"
 
 
+def plain_text(html: str) -> str:
+    text = unescape(re.sub(r"<[^>]+>", " ", html))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def faq_questions(html: str) -> List[dict]:
+    """Question and answer text from FAQ Markdown HTML.
+
+    ``###`` headings are questions. The blocks before the next heading are the
+    answer. Group ``##`` headings are not questions.
+    """
+    html = re.sub(r"^\s*<h1[^>]*>.*?</h1>\s*", "", html, count=1, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"<hr\s*/?>", "", html, flags=re.IGNORECASE)
+    tokens = HEADING_SPLIT.split(html)
+    questions: List[dict] = []
+    pending_question: str | None = None
+    pending_body: List[str] = []
+
+    def flush() -> None:
+        nonlocal pending_question
+        if pending_question is None:
+            return
+        question = plain_text(pending_question)
+        answer = plain_text("".join(pending_body))
+        if question and answer:
+            questions.append({"question": question, "answer": answer})
+        pending_question = None
+        pending_body.clear()
+
+    for token in tokens:
+        if not token:
+            continue
+        heading = HEADING_PARTS.fullmatch(token.strip())
+        if heading:
+            level, inner = heading.group(1), heading.group(2).strip()
+            flush()
+            if level == "3":
+                pending_question = inner
+            continue
+        if pending_question is not None:
+            pending_body.append(token)
+
+    flush()
+    return questions
+
+
 def faq_html_to_accordion(html: str) -> str:
     """Convert h3 + following blocks into ARIA-labelled details/summary items.
 

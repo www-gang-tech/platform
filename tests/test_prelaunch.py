@@ -109,6 +109,33 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_faq_structured_data_includes_each_question(tmp_path):
+    import json
+
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "pages" / "faq" / "index.html").read_text(), "html.parser")
+    data = json.loads(soup.find("script", attrs={"type": "application/ld+json"}).string)
+    faq = next(node for node in data["@graph"] if node["@type"] == "FAQPage")
+    visible = [item.get_text(strip=True) for item in soup.select("summary")]
+    structured = [item["name"] for item in faq["mainEntity"]]
+
+    assert structured == visible
+    assert len(structured) >= 8
+    answer = faq["mainEntity"][0]["acceptedAnswer"]["text"]
+    assert "wireless charging" in answer
+    assert "<" not in answer
+
+
+def test_accessibility_statement_uses_the_published_address(tmp_path):
+    dist = _render(tmp_path)
+    text = (dist / "pages" / "wcag-conformance" / "index.html").read_text()
+
+    assert "[Your Address]" not in text
+    assert "Gang Tech, LLC" in text
+    assert "228 Park Ave S" in text
+    assert "PMB 400205" in text
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
