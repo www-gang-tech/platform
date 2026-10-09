@@ -109,6 +109,39 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_llms_catalog_names_each_published_url_once(tmp_path):
+    dist = _render(tmp_path)
+    text = (dist / "llms.txt").read_text()
+    catalog = text.split("## All public URLs\n", 1)[1].split("\n## ", 1)[0]
+
+    studio = [line for line in catalog.splitlines() if "/studio/" in line]
+    assert studio == ["- [Studio](https://gang.tech/studio/)"]
+    assert "- [Store](https://gang.tech/objects/)" in catalog
+    assert "- [Objects](https://gang.tech/objects/)" not in catalog
+
+
+def test_editorial_dates_name_the_month(tmp_path):
+    dist = _render(tmp_path)
+    charger = (dist / "objects/charger/index.html").read_text()
+    studio = (dist / "studio/index.html").read_text()
+
+    assert "10.01.26" not in charger
+    assert "09.30.26" not in studio
+    assert ">1 October 2026<" in charger
+    assert ">30 September 2026<" in studio
+
+
+def test_homepage_photo_alts_describe_the_pictures(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+
+    assert "wall-mounted charging surface" not in home
+    assert "shown together" not in home
+    assert "front view" not in home
+    assert 'alt="GANG–1 prototype resting on a wooden table."' in home
+    assert 'alt="GANG–1 prototype with four circular charging zones on a dark surface."' in home
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
