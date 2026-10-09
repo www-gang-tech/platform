@@ -8,7 +8,7 @@
         {% endif %}
         <h1>{{ title }}</h1>
         {% if date %}
-        <p><time datetime="{{ date }}">{{ date | formatdate('%m.%d.%y') }}</time></p>
+        <p><time datetime="{{ date }}">{{ date | formatdate('news') }}</time></p>
         {% endif %}
         {% if description %}
         <p class="editorial-lede">{{ description }}</p>

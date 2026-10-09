@@ -25,7 +25,7 @@ Our first device, the charger, was designed to bring order to charging. Less clu
 
 ## 2. GANG 100W MagSafe Wall Charger
 
-![GANG–1 prototype shown as a wall-mounted charging surface.](/assets/images/gang-hero.jpg)
+![GANG–1 prototype resting on a wooden table.](/assets/images/gang-hero.jpg)
 
 A single, considered charging surface for the devices you use every day—designed to live out in the open, without cable sprawl. It features 4-Qi2 fast-charging coils that were custom-built for our device.
 
@@ -35,7 +35,7 @@ $200 USD, All parts included for installation
 
 ## 3. GANG Typeface
 
-![GANG type and object, shown together.](/assets/images/gang-4-in-1-prototype.jpg)
+![GANG–1 prototype with four circular charging zones on a dark surface.](/assets/images/gang-4-in-1-prototype.jpg)
 
 Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
 
@@ -80,4 +80,4 @@ GANG is a small, focused collective building tools for a more intentional digita
 
 ![GANG–1 prototype, four charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
 
-![GANG–1 prototype, front view.](/assets/images/gang-hero.jpg)
+![GANG–1 prototype resting on a wooden table.](/assets/images/gang-hero.jpg)

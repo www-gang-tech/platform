@@ -190,9 +190,25 @@ def write_markdown_pages(
     sitemap_pages = list(grouped["all"])
     if not any(item["url"] == "/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/", "title": config["site"]["title"], "type": "home"})
+    index_titles = {f"/{key}/": label for key, label, _intro in SECTION_INDEXES}
+    seen_urls = {item.get("url") for item in sitemap_pages}
     for route in LIST_ROUTES:
-        if route != "/" and any(item["url"].startswith(route) or item["type"] == route.strip("/") for item in grouped["all"]):
-            sitemap_pages.append({"url": route, "title": route.strip("/").title(), "type": "list"})
+        if route == "/" or route in seen_urls:
+            continue
+        has_entries = any(
+            (item.get("url") or "").startswith(route) or item.get("type") == route.strip("/")
+            for item in grouped["all"]
+        )
+        if not has_entries:
+            continue
+        sitemap_pages.append(
+            {
+                "url": route,
+                "title": index_titles.get(route, route.strip("/").replace("-", " ").title()),
+                "type": "list",
+            }
+        )
+        seen_urls.add(route)
     if not any(item.get("url") == "/sitemap/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     if not any(item.get("url") == "/search/" for item in sitemap_pages):
