@@ -1160,16 +1160,16 @@ b, strong {
   }
 
 
-  header {
+  .markdown-body header {
     margin-bottom: 3rem;
   }
 
-  footer {
+  .markdown-body footer {
     padding-top: 1rem;
     border-top: none !important;
   }
 
-  footer nav {
+  .markdown-body footer nav {
     display: flex;
     gap: 0.675rem;
     margin-bottom: 1rem;

@@ -109,6 +109,27 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_homepage_does_not_invent_coverage_or_a_price(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+    soup = BeautifulSoup(home, "html.parser")
+
+    text = soup.get_text(" ", strip=True)
+    for publication in ("Wallpaper", "Dezeen", "The Verge", "Monocle"):
+        assert publication not in text
+    assert "$200" not in text
+    assert "USD" not in text
+    assert "In development" in text
+    assert soup.find("a", href="/pages/press/")
+
+
+def test_markdown_header_margin_does_not_apply_to_the_site_header():
+    css = (ROOT / "public" / "style.css").read_text()
+    bare_header = [line.strip() for line in css.splitlines() if line.strip() == "header {"]
+    assert bare_header == []
+    assert ".markdown-body header {" in css
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
