@@ -31,7 +31,7 @@ A single, considered charging surface for the devices you use every day—design
 
 [Learn more](/objects/charger/)
 
-$200 USD, All parts included for installation
+In development. Installation hardware is included.
 
 ## 3. GANG Typeface
 
@@ -43,10 +43,7 @@ Our first device, the charger, was designed to bring order to charging. Less clu
 
 ## 4. Press
 
-- Wallpaper*, October 2026 — “GANG puts charging on the wall.”
-- Dezeen, October 2026 — “A four-zone MagSafe charger designed as furniture.”
-- The Verge, September 2026 — “Fewer cables, one considered surface.”
-- Monocle, September 2026 — “Hardware with the temperament of a publishing house.”
+For product information and images, use the [press page](/pages/press/).
 
 ## 5. FAQ
 
