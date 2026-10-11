@@ -109,6 +109,20 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_retail_mail_and_team_page_stay_public(tmp_path):
+    dist = _render(tmp_path)
+    contact = (dist / "pages" / "contact" / "index.html").read_text()
+    trade = (dist / "pages" / "trade" / "index.html").read_text()
+    team = (dist / "team" / "index.html").read_text()
+
+    assert "sales@gang.tech" not in contact
+    assert "mailto:info@gang.tech?subject=Retail%20and%20projects" in contact
+    assert "mailto:info@gang.tech?subject=Retail%20and%20projects" in trade
+    assert "fake team page" not in team
+    assert "design review" not in team
+    assert "Now / Next / Learned" not in team
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()

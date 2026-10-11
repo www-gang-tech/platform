@@ -12,9 +12,6 @@ related:
   - /about/
   - /studio/
   - /pages/contact/
-now: Names and roles are not published as a portrait grid.
-next: Add a person here only when they want a public page, with a role and one sentence they approve.
-learned: A fake team page is worse for a design review than a short true one.
 ---
 
 GANG is the public name of the studio. Legal correspondence uses Gang Tech, LLC, New York. Code that is meant to be public sits with [www-gang-tech](https://github.com/www-gang-tech). Press and general mail are on [Contact](/pages/contact/).
