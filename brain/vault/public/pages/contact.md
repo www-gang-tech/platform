@@ -29,7 +29,7 @@ For product information and images, [send a press enquiry](mailto:info@gang.tech
 
 Introduce your store or share the project, location, approximate quantity, and timing.
 
-[Start a conversation with sales](mailto:sales@gang.tech?subject=Retail%20and%20projects)
+[Start a conversation with sales](mailto:info@gang.tech?subject=Retail%20and%20projects)
 
 ## Address
 
