@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -484,11 +485,44 @@ def default_jsonld(config: Dict[str, Any], *, title: str, url: str, description:
     }
 
 
+_PAGE_SIZE_LABEL = re.compile(r"(Page size:\s*<span>)(.*?)(</span>)", re.IGNORECASE)
+
+
 def stamp_page_size(html: str, placeholder: str = "__PAGE_SIZE__") -> str:
+    """Replace the page-size placeholder with the size of the resulting document."""
     if placeholder not in html:
         return html
-    label = format_bytes(len(html.replace(placeholder, "").encode("utf-8")))
+    count = html.count(placeholder)
+    base = html.replace(placeholder, "")
+    base_len = len(base.encode("utf-8"))
+    label = format_bytes(base_len)
+    seen = set()
+    for _ in range(6):
+        if label in seen:
+            break
+        seen.add(label)
+        total = base_len + len(label.encode("utf-8")) * count
+        nxt = format_bytes(total)
+        if nxt == label:
+            return html.replace(placeholder, label)
+        label = nxt
+    for cand in seen:
+        actual = base_len + len(cand.encode("utf-8")) * count
+        if format_bytes(actual) == cand:
+            return html.replace(placeholder, cand)
     return html.replace(placeholder, label)
+
+
+def restamp_html_page_size(html: str) -> str:
+    """Rewrite a stamped page-size label so it matches this document's bytes.
+
+    The first stamp runs before HTML minification. Minification shortens the
+    file and leaves the old label in place.
+    """
+    if not _PAGE_SIZE_LABEL.search(html):
+        return html
+    marked = _PAGE_SIZE_LABEL.sub(r"\1__PAGE_SIZE__\3", html, count=1)
+    return stamp_page_size(marked)
 
 
 def format_bytes(size: int) -> str:

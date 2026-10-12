@@ -5341,6 +5341,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             # Setup Jinja2
             template_dir = Path(__file__).parent.parent.parent / 'templates'
             jinja_env = Environment(loader=FileSystemLoader(str(template_dir)))
+            from core.templates import compose_html_title
+            jinja_env.filters['htmltitle'] = compose_html_title
             
             products_path = dist_path / 'products'
             products_path.mkdir(parents=True, exist_ok=True)
@@ -5638,6 +5640,8 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         original_size = 0
         minified_size = 0
         
+        from core.site_build import restamp_html_page_size, stamp_page_size
+
         for html_file in html_files:
             original_html = html_file.read_text()
             original_size += len(original_html)
@@ -5649,7 +5653,10 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             minified = re.sub(r'>\s+<', '><', minified)
             # 3. Remove leading/trailing whitespace on lines
             minified = '\n'.join(line.strip() for line in minified.split('\n') if line.strip())
-            
+
+            # Page size was stamped before this pass. Measure the file that is written.
+            minified = stamp_page_size(minified)
+            minified = restamp_html_page_size(minified)
             minified_size += len(minified)
             html_file.write_text(minified)
             minified_count += 1
