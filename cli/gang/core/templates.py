@@ -3,10 +3,31 @@ GANG Template Engine
 Jinja2-based template rendering with custom filters
 """
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from pathlib import Path
-from typing import Dict, Any
+import re
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict
+
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+
+def compose_html_title(title: Any, site_title: Any = "") -> str:
+    """Browser title. Do not append the site name when the page title already uses it.
+
+    A trailing sentence period is dropped before the site suffix so a heading
+    like "Find its place." does not become "Find its place. - GANG".
+    """
+    page = str(title).strip() if title else ""
+    site = str(site_title).strip() if site_title else ""
+    if not page:
+        return site
+    if not site:
+        return page
+    if re.search(rf"(?i)(?<!\w){re.escape(site)}(?!\w)", page):
+        return page
+    sentence = re.sub(r"\.+$", "", page).strip() or page
+    return f"{sentence} - {site}"
+
 
 class TemplateEngine:
     def __init__(self, templates_dir: Path):
@@ -20,6 +41,7 @@ class TemplateEngine:
         # Add custom filters
         self.env.filters['formatdate'] = self._format_date
         self.env.filters['listingdate'] = self._listing_date
+        self.env.filters['htmltitle'] = compose_html_title
 
     def _masthead_context(self) -> Dict[str, Any]:
         now = datetime.now()

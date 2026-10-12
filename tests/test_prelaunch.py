@@ -109,6 +109,55 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_document_titles_do_not_repeat_the_site_name(tmp_path):
+    dist = _render(tmp_path)
+    home = BeautifulSoup((dist / "index.html").read_text(), "html.parser")
+    contact = BeautifulSoup((dist / "pages" / "contact" / "index.html").read_text(), "html.parser")
+    press = BeautifulSoup((dist / "pages" / "press" / "index.html").read_text(), "html.parser")
+    faq = BeautifulSoup((dist / "pages" / "faq" / "index.html").read_text(), "html.parser")
+    charger = BeautifulSoup((dist / "objects" / "charger" / "index.html").read_text(), "html.parser")
+    setup = BeautifulSoup((dist / "pages" / "setup" / "index.html").read_text(), "html.parser")
+    team = BeautifulSoup((dist / "team" / "index.html").read_text(), "html.parser")
+
+    assert home.title.get_text() == "GANG"
+    assert home.find("h1").get_text(strip=True) == "GANG"
+    assert contact.title.get_text() == "Contact GANG"
+    assert press.title.get_text() == "GANG press"
+    assert faq.title.get_text() == "Questions about GANG"
+    assert charger.title.get_text() == "GANG–1"
+    assert setup.title.get_text() == "Find its place - GANG"
+    assert setup.find("h1").get_text(strip=True) == "Find its place."
+    assert team.title.get_text() == "Team - GANG"
+
+
+def test_journal_index_does_not_label_every_row_journal(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "journal" / "index.html").read_text(), "html.parser")
+    headers = [th.get_text(" ", strip=True) for th in soup.select(".journal-table th")]
+    assert headers == ["ID", "Date ▼", "Name"]
+    rows = soup.select(".journal-table tbody tr")
+    assert rows
+    assert all(len(row.find_all("td")) == 3 for row in rows)
+
+
+def test_page_size_matches_the_written_file(tmp_path):
+    from core.site_build import format_bytes, restamp_html_page_size
+
+    dist = _render(tmp_path)
+    home_path = dist / "index.html"
+    home = home_path.read_text()
+    assert "__PAGE_SIZE__" not in home
+    soup = BeautifulSoup(home, "html.parser")
+    label = soup.select_one(".page-meta span").get_text(strip=True)
+    assert label == format_bytes(len(home.encode("utf-8")))
+
+    shrunk = home.replace("Crafted tools for intentional living.", "")
+    restamped = restamp_html_page_size(shrunk)
+    assert BeautifulSoup(restamped, "html.parser").select_one(".page-meta span").get_text(strip=True) == format_bytes(
+        len(restamped.encode("utf-8"))
+    )
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
