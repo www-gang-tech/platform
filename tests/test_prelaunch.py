@@ -119,3 +119,35 @@ def test_store_index_is_a_four_column_grid(tmp_path):
     assert grid.find("a", href="/objects/charger/")
     assert "repeat(4, 1fr)" in css
     assert "repeat(2, 1fr)" in css
+
+
+def _csp(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    tag = soup.find("meta", attrs={"http-equiv": "Content-Security-Policy"})
+    return tag["content"] if tag else ""
+
+
+def test_published_pages_do_not_connect_to_localhost(tmp_path):
+    dist = _render(tmp_path, preview=False)
+    for rel in ("index.html", "objects/charger/index.html", "search/index.html", "cart/index.html"):
+        policy = _csp((dist / rel).read_text())
+        assert "connect-src 'self';" in policy
+        assert "localhost" not in policy
+        assert "127.0.0.1" not in policy
+
+
+def test_editor_preview_can_reach_the_local_studio(tmp_path):
+    dist = tmp_path / "editor"
+    dist.mkdir()
+    docs = load_public_content(_config(), source="vault", root_path=ROOT)
+    write_markdown_pages(
+        _config(),
+        docs,
+        dist,
+        ROOT / "templates",
+        preview=True,
+        editor_mode=True,
+    )
+    policy = _csp((dist / "index.html").read_text())
+    assert "http://localhost:5001" in policy
+    assert "http://127.0.0.1:5001" in policy
