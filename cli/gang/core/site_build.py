@@ -193,10 +193,17 @@ def write_markdown_pages(
     for route in LIST_ROUTES:
         if route != "/" and any(item["url"].startswith(route) or item["type"] == route.strip("/") for item in grouped["all"]):
             sitemap_pages.append({"url": route, "title": route.strip("/").title(), "type": "list"})
-    if not any(item.get("url") == "/sitemap/" for item in sitemap_pages):
-        sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
-    if not any(item.get("url") == "/search/" for item in sitemap_pages):
-        sitemap_pages.append({"url": "/search/", "title": "Search", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
+    # Search and the HTML sitemap change when a published page changes.
+    # A build clock would mark them modified on every run.
+    revised = [str(item.get("date") or "") for item in grouped["all"] if item.get("date")]
+    latest = max(revised) if revised else ""
+    for url, title in (("/sitemap/", "Sitemap"), ("/search/", "Search")):
+        if any(item.get("url") == url for item in sitemap_pages):
+            continue
+        entry = {"url": url, "title": title, "type": "list"}
+        if latest:
+            entry["date"] = latest
+        sitemap_pages.append(entry)
     generators.generate_all(dist_path, sitemap_pages, grouped.get("posts", []), preview=preview)
     write_cart_page(
         config,
