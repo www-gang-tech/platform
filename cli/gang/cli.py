@@ -5763,14 +5763,11 @@ def generate_agentmap_from_documents(config, site_url, public_documents, product
         "navigation": {
             "primary": [
                 {"label": "Home", "url": f"{site_url}/"},
-                {"label": "Studio", "url": f"{site_url}/studio/"},
-                {"label": "About", "url": f"{site_url}/about/"},
-                {"label": "Objects", "url": f"{site_url}/objects/"},
-                {"label": "Research", "url": f"{site_url}/research/"},
-                {"label": "Journal", "url": f"{site_url}/journal/"},
-                {"label": "Team", "url": f"{site_url}/team/"},
-                {"label": "FAQ", "url": f"{site_url}/pages/faq/"},
-                {"label": "Contact", "url": f"{site_url}/pages/contact/"},
+                *[
+                    {"label": item.get("label") or item.get("path"), "url": f"{site_url}{item.get('path') or '/'}"}
+                    for item in config.get("nav", {}).get("main", [])
+                    if item.get("path")
+                ],
             ],
             "main": [
                 {"label": item["type"].title(), "url": item["url"], "type": item["type"]}

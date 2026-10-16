@@ -70,18 +70,14 @@ Sitemap: {base}/sitemap.xml
             "",
             "## Primary navigation",
             f"- [Home]({base}/)",
-            f"- [Studio]({base}/studio/)",
-            f"- [About]({base}/about/)",
-            f"- [Objects]({base}/objects/)",
-            f"- [Research]({base}/research/)",
-            f"- [Journal]({base}/journal/)",
-            f"- [Team]({base}/team/)",
-            f"- [FAQ]({base}/pages/faq/)",
-            f"- [Contact]({base}/pages/contact/)",
-            f"- [Cart]({base}/cart/)",
-            "",
-            "## All public URLs",
         ]
+        for item in self.config.get("nav", {}).get("main", []):
+            label = item.get("label") or item.get("path") or "Page"
+            path = item.get("path") or "/"
+            if not str(path).startswith("/"):
+                path = f"/{path}"
+            lines.append(f"- [{label}]({base}{path})")
+        lines.extend(["", "## All public URLs"])
         for page in sorted(pages, key=lambda item: item.get("url") or ""):
             path = page.get("url") or "/"
             name = page.get("title") or path

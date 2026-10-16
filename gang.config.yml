@@ -159,18 +159,18 @@ types:
 # Navigation structure
 nav:
   main:
-    - label: "Home"
-      path: "/"
-    - label: "Studio"
-      path: "/studio/"
-    - label: "About"
-      path: "/about/"
-    - label: "Objects"
+    - label: "Store"
       path: "/objects/"
-    - label: "Research"
-      path: "/research/"
+    - label: "Information"
+      path: "/studio/"
     - label: "Journal"
       path: "/journal/"
+    - label: "Projects"
+      path: "/projects/"
+    - label: "Subscribe"
+      path: "/updates/"
+    - label: "Cart"
+      path: "/cart/"
 
 # Image derivatives
 images:

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' https: data:; font-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' http://localhost:8000 http://localhost:5001 http://127.0.0.1:5001 http://localhost:3000; base-uri 'self'; form-action 'self' https: https://*.n8n.app https://*.n8n.io;">
-    <title>{{ title }} - {{ site_title }}</title>
+    <title>{% if title and site_title and title != site_title %}{{ title }} - {{ site_title }}{% else %}{{ title or site_title }}{% endif %}</title>
     <meta name="description" content="{{ description }}">
     {% if noindex %}<meta name="robots" content="noindex, nofollow">{% endif %}
     {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
