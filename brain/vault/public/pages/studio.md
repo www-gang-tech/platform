@@ -15,7 +15,6 @@ related:
   - /journal/a-place-for-charging/
   - /research/alignment-not-wattage/
 now: GANG–1 is in development. The prototype, current specifications, and the thinking around it are collected here.
-next: Complete the installation guide and confirm final device and case compatibility before orders open.
 learned: Moving charging to the wall makes device fit, placement, and access to power part of the design.
 ---
 
