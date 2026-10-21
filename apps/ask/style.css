@@ -133,6 +133,10 @@ select {
 
 .chat-view {
   position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 16px;
   height: 100vh;
   height: 100dvh;
   background: #fff;
@@ -142,11 +146,11 @@ select {
 }
 
 .history {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: max(0px, calc(50% - 478px - 220px - 16px));
+  position: relative;
+  flex: 0 0 220px;
   width: 220px;
+  min-width: 0;
+  min-height: 0;
   padding: var(--space);
   display: flex;
   flex-direction: column;
@@ -181,12 +185,6 @@ select {
   min-height: 0;
   color: #000;
   cursor: pointer;
-  display: none;
-}
-
-.principal-row:hover .forget-device,
-.principal-row:focus-within .forget-device {
-  display: inline;
 }
 
 .new-button {
@@ -249,21 +247,14 @@ select {
   min-height: 0;
   color: #000;
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.session-item:hover .session-delete,
-.session-item:focus-within .session-delete {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .conversation {
+  flex: 0 1 956px;
   min-width: 0;
-  width: min(956px, 100%);
+  width: auto;
   max-width: 956px;
-  margin: 0 auto;
+  margin: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -442,11 +433,13 @@ select {
   .chat-view {
     display: flex;
     flex-direction: column;
+    gap: 0;
   }
 
   .history {
     position: relative;
     left: auto;
+    flex: 0 0 auto;
     width: 100%;
     height: auto;
     max-height: 28vh;
@@ -457,7 +450,10 @@ select {
   .conversation {
     min-height: 0;
     flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
     border-left: 0;
+    border-right: 0;
   }
 
   .composer {

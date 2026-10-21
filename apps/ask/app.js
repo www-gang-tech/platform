@@ -245,6 +245,7 @@
 
       var remove = el("button", "session-delete", "Delete");
       remove.type = "button";
+      remove.setAttribute("aria-label", "Delete " + title);
       remove.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();

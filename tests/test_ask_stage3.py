@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -99,6 +100,15 @@ class Stage3ChatTests(unittest.TestCase):
         html = (ROOT / "apps/ask/index.html").read_text(encoding="utf-8")
         self.assertNotIn("<script>", html)
         self.assertNotIn("style=", html)
+        css = (ROOT / "apps/ask/style.css").read_text(encoding="utf-8")
+        history = re.search(r"\.history\s*\{([^}]*)\}", css).group(1)
+        forget = re.search(r"\.forget-device\s*\{([^}]*)\}", css).group(1)
+        delete = re.search(r"\.session-delete\s*\{([^}]*)\}", css).group(1)
+        self.assertNotIn("position: absolute", history)
+        self.assertNotIn("display: none", forget)
+        self.assertNotIn("pointer-events: none", delete)
+        self.assertNotIn("opacity: 0", delete)
+        self.assertIn('aria-label", "Delete "', (ROOT / "apps/ask/app.js").read_text(encoding="utf-8"))
 
     def test_client_never_uses_inner_html(self):
         for relative in ("apps/ask/index.html", "apps/ask/app.js", "apps/ask/style.css"):
