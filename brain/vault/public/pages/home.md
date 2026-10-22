@@ -4,7 +4,7 @@ type: page
 title: GANG
 summary: Crafted tools for intentional living.
 created: '2026-10-01'
-updated: '2026-10-05'
+updated: '2026-10-22'
 visibility: public
 status: published
 url: /
@@ -19,7 +19,7 @@ related:
 
 ![GANG–1 prototype with four circular charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
 
-Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
+Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
 
 [Learn more](/objects/)
 
@@ -33,22 +33,14 @@ A single, considered charging surface for the devices you use every day—design
 
 $200 USD, All parts included for installation
 
-## 3. GANG Typeface
-
-![GANG type and object, shown together.](/assets/images/gang-4-in-1-prototype.jpg)
-
-Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces. Our first device, the charger, was designed to bring order to charging. Less clutter, fewer cables, clearer surfaces.
-
-[Learn more](/about/)
-
-## 4. Press
+## 3. Press
 
 - Wallpaper*, October 2026 — “GANG puts charging on the wall.”
 - Dezeen, October 2026 — “A four-zone MagSafe charger designed as furniture.”
 - The Verge, September 2026 — “Fewer cables, one considered surface.”
 - Monocle, September 2026 — “Hardware with the temperament of a publishing house.”
 
-## 5. FAQ
+## 4. FAQ
 
 **What is GANG?**
 GANG is a small collective building tools for a more intentional digital life. Our first object is a wall-mounted wireless charger.
@@ -61,7 +53,7 @@ Join [launch updates](/updates/) for availability. A shipping date has not been 
 
 [More questions](/pages/faq/)
 
-## 6. Latest posts
+## 5. Latest posts
 
 - [A place for charging](/journal/a-place-for-charging/)
 - [From evidence to a public article](/journal/from-evidence-to-article/)
@@ -70,13 +62,13 @@ Join [launch updates](/updates/) for availability. A shipping date has not been 
 
 [Journal](/journal/)
 
-## 7. Philosophy
+## 6. Philosophy
 
 GANG is a small, focused collective building tools for a more intentional digital life. Our work spans hardware, software, and publishing, all designed to reduce noise, encourage presence, and prioritize what matters. We believe in restraint, clarity, and making fewer things, better.
 
 [Read more](/about/)
 
-## 8. Gallery
+## 7. Gallery
 
 ![GANG–1 prototype, four charging zones.](/assets/images/gang-4-in-1-prototype.jpg)
 
