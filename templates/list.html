@@ -18,7 +18,7 @@
     </form>
 
     {% if items %}
-    <p class="listing-range">This is page 1, displaying results 1–{{ items|length }}.</p>
+    <p class="listing-range">{{ items|length }} {{ 'result' if items|length == 1 else 'results' }}.</p>
     <ul class="index-list">
         {% for item in items %}
         <li class="index-entry">

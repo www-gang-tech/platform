@@ -13,7 +13,7 @@
             <button type="submit">Show results</button>
         </div>
     </form>
-    <p class="listing-range" id="search-range"></p>
+    <p class="listing-range" id="search-range">{{ items|length }} {{ 'result' if items|length == 1 else 'results' }}.</p>
     <ul class="index-list" id="search-results">
         {% for item in items %}
         <li class="index-entry" data-search="{{ (item.title or '') | lower }} {{ (item.summary or '') | lower }}">
@@ -43,7 +43,7 @@
     if (empty) empty.hidden = shown !== 0;
     var range = document.getElementById("search-range");
     if (range) {
-      range.textContent = shown ? ("This is page 1, displaying results 1–" + shown + ".") : "";
+      range.textContent = shown ? (shown + (shown === 1 ? " result." : " results.")) : "";
     }
   }
   if (input) {

@@ -109,6 +109,25 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_homepage_does_not_repeat_the_charger_paragraph(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+    sentence = "Our first device, the charger, was designed to bring order to charging."
+    assert home.count(sentence) == 1
+    assert "GANG Typeface" not in home
+    assert "GANG 100W MagSafe Wall Charger" in home
+
+
+def test_indexes_do_not_pretend_to_be_paginated(tmp_path):
+    dist = _render(tmp_path)
+    research = (dist / "research" / "index.html").read_text()
+    search = (dist / "search" / "index.html").read_text()
+    assert "This is page 1" not in research
+    assert "This is page 1" not in search
+    assert "2 results." in research
+    assert "results." in search
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
