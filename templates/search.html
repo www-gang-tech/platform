@@ -31,24 +31,79 @@
   var input = document.getElementById("site-search-input");
   var items = document.querySelectorAll("#search-results .index-entry");
   var empty = document.getElementById("search-empty");
+  var bodyText = {};
+
+  function normalize(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function terms(query) {
+    return normalize(query).split(" ").filter(function (term) {
+      return term.length > 1;
+    });
+  }
+
+  function matches(hay, query) {
+    var needles = terms(query);
+    if (!needles.length) {
+      return true;
+    }
+    var text = normalize(hay);
+    return needles.every(function (term) {
+      return text.indexOf(term) !== -1;
+    });
+  }
+
+  function absorb(payload) {
+    var docs = (payload && payload.documents) || [];
+    docs.forEach(function (doc) {
+      if (doc && doc.url) {
+        bodyText[doc.url] = doc.searchable || doc.content || "";
+      }
+    });
+    return bodyText;
+  }
+
+  function haystack(item) {
+    var link = item.querySelector("a");
+    var href = link ? (link.getAttribute("href") || "") : "";
+    return (bodyText[href] || "") + " " + (item.getAttribute("data-search") || "");
+  }
+
   function filter() {
-    var q = (input && input.value || "").trim().toLowerCase();
+    var query = input && input.value || "";
     var shown = 0;
     items.forEach(function (item) {
-      var hay = item.getAttribute("data-search") || "";
-      var match = !q || hay.indexOf(q) !== -1;
+      var match = matches(haystack(item), query);
       item.hidden = !match;
       if (match) shown += 1;
     });
     if (empty) empty.hidden = shown !== 0;
     var range = document.getElementById("search-range");
     if (range) {
-      range.textContent = shown ? ("This is page 1, displaying results 1–" + shown + ".") : "";
+      range.textContent = terms(query).length && shown ? ("This is page 1, displaying results 1–" + shown + ".") : "";
     }
   }
+
+  window.GangSearch = { matches: matches, absorb: absorb, filter: filter };
+
   if (input) {
     input.addEventListener("input", filter);
     if (input.value) filter();
+  }
+
+  if (typeof fetch === "function") {
+    fetch("/search-index.json")
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (payload) {
+        if (payload) {
+          absorb(payload);
+          filter();
+        }
+      })
+      .catch(function () {});
   }
 })();
 </script>
