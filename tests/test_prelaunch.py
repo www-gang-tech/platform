@@ -65,6 +65,20 @@ def test_pages_use_markdown_shell_not_retail_layout(tmp_path):
     assert "Add to bag" not in charger
 
 
+def test_homepage_charging_claims_match_the_specification(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+
+    assert "GANG 100W MagSafe Wall Charger" in home
+    assert "4-Qi2" not in home
+    assert "custom-built" not in home
+    assert "fast-charging coils" not in home
+    assert "four Qi2.2 charging zones" in home
+    assert "each specified for up to 25 W" in home
+    assert "160 W integrated power supply" in home
+    assert home.count("each specified for up to 25 W") == 2
+
+
 def test_updates_page_is_markdown_with_email_request(tmp_path):
     dist = _render(tmp_path)
     soup = BeautifulSoup((dist / "updates/index.html").read_text(), "html.parser")
