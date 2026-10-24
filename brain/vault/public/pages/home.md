@@ -4,7 +4,7 @@ type: page
 title: GANG
 summary: Crafted tools for intentional living.
 created: '2026-10-01'
-updated: '2026-10-05'
+updated: '2026-10-24'
 visibility: public
 status: published
 url: /
@@ -27,7 +27,7 @@ Our first device, the charger, was designed to bring order to charging. Less clu
 
 ![GANG–1 prototype shown as a wall-mounted charging surface.](/assets/images/gang-hero.jpg)
 
-A single, considered charging surface for the devices you use every day—designed to live out in the open, without cable sprawl. It features 4-Qi2 fast-charging coils that were custom-built for our device.
+A single, considered charging surface for the devices you use every day—designed to live out in the open, without cable sprawl. It has four Qi2.2 charging zones, each specified for up to 25 W, and a 160 W integrated power supply.
 
 [Learn more](/objects/charger/)
 
@@ -54,7 +54,7 @@ Our first device, the charger, was designed to bring order to charging. Less clu
 GANG is a small collective building tools for a more intentional digital life. Our first object is a wall-mounted wireless charger.
 
 **How many charging zones does it have?**
-Four Qi2 fast-charging coils, built for the devices you use every day.
+Four wireless charging zones, each specified for up to 25 W.
 
 **When will it be available?**
 Join [launch updates](/updates/) for availability. A shipping date has not been announced.
