@@ -360,6 +360,69 @@ class AssignmentGrammarTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertEqual(self.gather(body), [])
 
+    def test_a_responsibility_for_a_named_thing_is_assigned(self):
+        self.assertEqual(
+            self.gather("Daniel owns the certification deliverable."),
+            ["Own the certification deliverable"],
+        )
+        self.assertEqual(
+            self.gather("Daniel is responsible for the trademark filing."),
+            ["Responsible for the trademark filing"],
+        )
+        self.assertEqual(
+            self.gather("Daniel is accountable for the packaging budget."),
+            ["Responsible for the packaging budget"],
+        )
+        self.assertEqual(
+            self.gather("Daniel is handling the vendor calls."),
+            ["Handling the vendor calls"],
+        )
+        self.assertEqual(
+            self.gather("Daniel is taking the factory visit."),
+            ["Taking the factory visit"],
+        )
+        # An article does not make a pronoun or a state into work, and a name
+        # that is not the subject of "owns" is still not the owner.
+        self.assertEqual(self.gather("Daniel owns it."), [])
+        self.assertEqual(self.gather("Daniel will be out on Friday."), [])
+        self.assertEqual(self.gather("Daniel noted that GANG-Tech owns the work product."), [])
+
+    def test_a_separated_obligation_stays_with_its_subject(self):
+        self.assertEqual(
+            self.gather("Daniel will send the file / Frank will review the budget."),
+            ["Send the file"],
+        )
+        self.assertEqual(
+            self.gather("Daniel must file the trademark; Dana must review the art."),
+            ["File the trademark"],
+        )
+        self.assertEqual(
+            self.gather("1) Daniel will send the file 2) Frank will review the budget"),
+            ["Send the file"],
+        )
+        self.assertEqual(
+            self.gather("Daniel will send the file — Frank will review the budget."),
+            ["Send the file"],
+        )
+        self.assertEqual(
+            self.gather("Daniel is responsible for the filing / Frank is responsible for the photos."),
+            ["Responsible for the filing"],
+        )
+        # The second clause is a different person's task.
+        self.assertEqual(
+            self.gather("Daniel will send the file / Frank will review the budget.", "Frank"),
+            ["Review the budget"],
+        )
+        # A condition has no list separator, so it stays one task.
+        self.assertEqual(
+            self.gather("Daniel will send the file if Frank will review the budget."),
+            ["Send the file if Frank will review the budget"],
+        )
+        self.assertEqual(
+            self.gather("@Daniel: send the file / @Frank: review the budget"),
+            ["Send the file"],
+        )
+
     def test_a_resolved_name_does_not_absorb_a_different_surname(self):
         person = {"aliases": ["Frank"], "resolved": True}
         self.assertEqual(self.gather("Frank Smith will send the invoice.", "Frank Godchaux", **person), [])

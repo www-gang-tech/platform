@@ -133,6 +133,22 @@ _NOT_WORK = re.compile(
     re.I,
 )
 
+#: These already name a responsibility, so the object is a noun phrase.
+#: "owns the deliverable" is work; the article is not the state verb "the".
+_NOUN_OBJECT_OBLIGATIONS = frozenset(
+    {"owns", "is responsible for", "is accountable for", "is handling", "is taking"}
+)
+_LEADING_ARTICLE = re.compile(r"^(?:the|a|an)\s+", re.I)
+
+#: A collapsed list separates two people's obligations without a sentence
+#: period: "Daniel will send the file / Frank will review the budget."
+# A slash must be spaced ("file / Frank"). "Frank/Dana" is a pair of names,
+# not the next person's obligation. A semicolon usually has no space before it.
+_CLAUSE_SEPARATOR = re.compile(r"\s+/\s+|;\s+|\s+•\s+|\s+[—–-]\s+|\s+\d{1,2}[.)]\s+")
+_NEXT_OWNER_OBLIGATION = re.compile(
+    r"[A-Z][\w'’-]+(?:\s+[A-Z][\w'’-]+){0,2}\s+(?:" + _OBLIGATION + r")\s+[a-z]"
+)
+
 _OWNER_LABEL = re.compile(
     r"\b(?:Owner|Owners|Assignee|Assigned\s+to|Responsible|Action\s+owner|DRI)\s*[:=]\s*",
     re.I,
@@ -450,10 +466,10 @@ def _subject_obligations(
     for match in pattern.finditer(text):
         if _NOT_SUBJECT_BEFORE.search(text[max(0, match.start() - 24) : match.start()]):
             continue
-        task_text = match.group("task")
-        if _NOT_WORK.match(task_text):
-            continue
         obligation = re.sub(r"\s+", " ", match.group("obligation"))
+        task_text = _cut_at_next_obligation(match.group("task"))
+        if _rejects_task(obligation, task_text):
+            continue
         task = _clean_task(_obligation_task(obligation, task_text))
         if len(task.split()) < 2:
             continue
@@ -474,6 +490,34 @@ def _subject_obligations(
 _LEADING_ADVERB = re.compile(
     r"^(?:therefore|also|then|now|still|first|next|ultimately|separately|immediately)\s+", re.I
 )
+
+
+def _rejects_task(obligation: str, task_text: str) -> bool:
+    """Whether the words after an obligation are a state or attendance, not work.
+
+    "Daniel will be out" is not a task. "Daniel owns the deliverable" is:
+    the article belongs to the thing owned, and is not itself the rejection.
+    """
+    sample = task_text
+    if obligation in _NOUN_OBJECT_OBLIGATIONS:
+        sample = _LEADING_ARTICLE.sub("", sample, count=1)
+        if not sample:
+            return True
+    return bool(_NOT_WORK.match(sample))
+
+
+def _cut_at_next_obligation(task: str) -> str:
+    """Drop a later person's obligation joined on by a list separator.
+
+    A period already ends the clause. A slash, semicolon, dash, bullet, or
+    the next numbered item does too, when what follows is someone else's
+    "Name will …". A condition ("if Frank will review") has no separator and
+    stays part of this task.
+    """
+    for separator in _CLAUSE_SEPARATOR.finditer(task):
+        if _NEXT_OWNER_OBLIGATION.match(task, separator.end()):
+            return task[: separator.start()]
+    return task
 
 
 def _obligation_task(obligation: str, task: str) -> str:
@@ -766,7 +810,7 @@ def _deadline_in(text: str) -> str:
 def _clean_task(text: str) -> str:
     value = re.sub(r"\s+", " ", str(text or "")).strip()
     value = re.sub(r"^(?:[-•*–]|\d{1,2}[.)])\s+", "", value)
-    value = value.strip(" -–—:;,")
+    value = value.strip(" -–—:;,/•")
     if len(value) > MAX_TASK_CHARS:
         cut = value[: MAX_TASK_CHARS - 1]
         value = cut[: cut.rfind(" ")] + "…" if " " in cut else cut + "…"
