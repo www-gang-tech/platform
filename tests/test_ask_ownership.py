@@ -327,9 +327,12 @@ class _Plan:
 
 
 class AssignmentGrammarTests(unittest.TestCase):
-    def gather(self, body, name="Daniel", **kwargs):
+    def found(self, body, name="Daniel", **kwargs):
         row = {"document_id": "doc-1", "title": "Doc", "updated": "2026-09-20", "body": body}
-        return [item.task for item in assignments_module.gather([row], assignments_module.person_from(name, **kwargs))]
+        return assignments_module.gather([row], assignments_module.person_from(name, **kwargs))
+
+    def gather(self, body, name="Daniel", **kwargs):
+        return [item.task for item in self.found(body, name, **kwargs)]
 
     def test_the_named_subject_of_an_obligation_is_assigned(self):
         self.assertEqual(
@@ -359,6 +362,50 @@ class AssignmentGrammarTests(unittest.TestCase):
         ):
             with self.subTest(body=body):
                 self.assertEqual(self.gather(body), [])
+
+    def test_a_month_abbreviation_does_not_end_the_due_field_or_the_task(self):
+        found = self.found(
+            "1. Meet on Sep. 18 about the launch Owner: Daniel | Due: Sep. 18 — Noon | Status: open"
+        )
+        self.assertEqual(found[0].task, "Meet on Sep. 18 about the launch")
+        self.assertEqual(found[0].deadline, "Sep. 18 — Noon")
+        self.assertEqual(
+            assignments_module.deadline_date(found[0].deadline, found[0].date),
+            date(2026, 9, 18),
+        )
+        self.assertEqual(found[0].status, assignments_module.OPEN)
+
+        sept = self.found("1. File the trademark Owner: Daniel | Due: Sept. 4 | Status: in progress")
+        self.assertEqual(sept[0].deadline, "Sept. 4")
+        self.assertEqual(assignments_module.deadline_date(sept[0].deadline, sept[0].date), date(2026, 9, 4))
+
+        # The sentence period after the day still ends the field. The period in "Sep." does not.
+        ended = self.found(
+            "1. Confirm the Shopify build Owner: Daniel | Due: Sep. 18. "
+            "2. Hire the project manager Owner: Daniel | Due: 2026-11-20 | Status: open"
+        )
+        by_task = {item.task: item for item in ended}
+        self.assertEqual(by_task["Confirm the Shopify build"].deadline, "Sep. 18")
+        self.assertEqual(by_task["Hire the project manager"].deadline, "2026-11-20")
+
+    def test_an_abbreviation_period_does_not_cut_the_status_or_a_passive_task(self):
+        found = self.found(
+            "1. File the trademark Owner: Daniel | Due: 2026-09-18 | Status: approx. complete"
+        )
+        self.assertEqual(found[0].status_text, "approx. complete")
+        self.assertEqual(found[0].status, assignments_module.DONE)
+        self.assertEqual(
+            self.gather("The UPC purchase for Sep. 18 delivery is assigned to Daniel."),
+            ["The UPC purchase for Sep. 18 delivery"],
+        )
+
+    def test_lowercase_due_and_status_labels_are_read(self):
+        found = self.found(
+            "1. Confirm the Shopify build owner: Daniel | due: 2026-09-18 | status: in progress"
+        )
+        self.assertEqual(found[0].deadline, "2026-09-18")
+        self.assertEqual(found[0].status, assignments_module.IN_PROGRESS)
+        self.assertEqual(found[0].status_text, "in progress")
 
     def test_a_resolved_name_does_not_absorb_a_different_surname(self):
         person = {"aliases": ["Frank"], "resolved": True}

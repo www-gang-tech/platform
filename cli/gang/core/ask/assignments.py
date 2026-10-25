@@ -141,13 +141,48 @@ _OWNER_LABEL = re.compile(
 #: Field labels that may follow a name without being read as its surname.
 _FIELD_LABEL = r"(?:Due|Deadline|Status|Tips|Notes?|Owner|Timing)\b"
 
-_SEGMENT_START = re.compile(r"(?:^|\s)(?:\d{1,2}[.)]|[-•*–])\s+|[.!?:]\s+")
+#: Abbreviations whose period does not end a sentence ("incl.", "Sep.", "approx.").
+_ABBREVIATIONS = (
+    "incl", "approx", "etc", "vs", "est", "no", "Mr", "Ms", "Mrs", "Dr", "St", "Inc", "Ltd", "Co",
+    "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Oct", "Nov", "Dec",
+)
+
+
+def _abbreviation_period_guard() -> str:
+    """Fixed-width lookbehinds so the period in ``Sep.`` or ``approx.`` is not a stop.
+
+    Python lookbehinds cannot mix widths, so each abbreviation length is its
+    own. Patterns that include this are compiled with ``re.I``.
+    """
+    grouped: Dict[int, List[str]] = {}
+    for word in _ABBREVIATIONS:
+        grouped.setdefault(len(word), []).append(re.escape(word))
+    return "".join("(?<!" + "|".join(grouped[length]) + ")" for length in sorted(grouped))
+
+
+_ABBREVIATION_PERIOD = _abbreviation_period_guard()
+
+_SEGMENT_START = re.compile(
+    r"(?:^|\s)(?:\d{1,2}[.)]|[-•*–])\s+"
+    r"|[!?:]\s+"
+    r"|" + _ABBREVIATION_PERIOD + r"\.\s+",
+    re.I,
+)
 
 #: Where a pipe-delimited field ends: the next pipe or label, the next list
-#: item, or the end of a sentence.
-_FIELD = r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[.)]\s|[.!?](?:\s|$)|$)"
-_DUE_FIELD = re.compile(r"\b(?:Due|Deadline|Due\s+date)\s*:\s*(?P<value>[^|]{1,60}?)" + _FIELD)
-_STATUS_FIELD = re.compile(r"\bStatus\s*:\s*(?P<value>[^|]{1,40}?)" + _FIELD)
+#: item, or the end of a sentence. The period in "Sep." or "approx." stays
+#: inside the value, so "Due: Sep. 18 — Noon" is still a date. A day number
+#: (" 18.") is not the next numbered task; that marker is followed by a word.
+_FIELD = (
+    r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[.)]\s+(?=[A-Z])|"
+    + _ABBREVIATION_PERIOD
+    + r"\.(?:\s|$)|[!?](?:\s|$)|$)"
+)
+_DUE_FIELD = re.compile(
+    r"\b(?:Due|Deadline|Due\s+date)\s*:\s*(?P<value>[^|]{1,60}?)" + _FIELD,
+    re.I,
+)
+_STATUS_FIELD = re.compile(r"\bStatus\s*:\s*(?P<value>[^|]{1,40}?)" + _FIELD, re.I)
 
 #: Any owner field's value — names separated by ``/``, ``,``, ``&`` or
 #: "and" — whoever it names. Only used to find where the value ends, so the
@@ -200,11 +235,6 @@ _TABLE_TIMING = re.compile(
     r"\d{4}-\d{2}-\d{2})(?:\s+.*)?$"
 )
 
-#: Abbreviations whose period does not end a sentence ("incl.", "approx.").
-_ABBREVIATIONS = (
-    "incl", "approx", "etc", "vs", "est", "no", "Mr", "Ms", "Mrs", "Dr", "St", "Inc", "Ltd", "Co",
-    "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Oct", "Nov", "Dec",
-)
 _NOT_A_STOP = (
     r"(?:[^.!?]|\.(?=\S)|(?:" + "|".join(r"(?<=\b" + word + r")" for word in _ABBREVIATIONS) + r")\.)"
 )
@@ -691,21 +721,25 @@ def _owner_matches(owner: str, person: Person) -> bool:
     return False
 
 
+_SENTENCE_START = re.compile(_ABBREVIATION_PERIOD + r"\.\s+|[!?]\s+|\s-\s", re.I)
+_SENTENCE_END = re.compile(_ABBREVIATION_PERIOD + r"\.(?:\s|$)|[!?](?:\s|$)", re.I)
+
+
 def _segment_before(text: str, position: int, *, floor: int = 0) -> str:
-    window = text[max(0, floor, position - 300) : position]
-    starts = list(_SEGMENT_START.finditer(window))
-    return window[starts[-1].end() :] if starts else window
+    window_start = max(0, floor, position - 300)
+    starts = list(_SEGMENT_START.finditer(text, window_start, position))
+    return text[starts[-1].end() : position] if starts else text[window_start:position]
 
 
 def _sentence_start(text: str, position: int) -> int:
     window_start = max(0, position - 300)
-    starts = list(re.finditer(r"[.!?]\s+|\s-\s", text[window_start:position]))
-    return window_start + starts[-1].end() if starts else window_start
+    starts = list(_SENTENCE_START.finditer(text, window_start, position))
+    return starts[-1].end() if starts else window_start
 
 
 def _sentence_end(text: str, position: int) -> int:
-    match = re.search(r"[.!?](?:\s|$)", text[position : position + 400])
-    return position + match.start() if match else min(len(text), position + 400)
+    match = _SENTENCE_END.search(text, position, position + 400)
+    return match.start() if match else min(len(text), position + 400)
 
 
 def _sentence_around(text: str, start: int, end: int) -> str:
