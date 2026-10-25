@@ -18,6 +18,7 @@ import socket
 import sqlite3
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -1079,7 +1080,18 @@ class SensitiveTitleTests(SensitivityTestCase):
             self.path,
             {"id": DOWNGRADED_ID, "type": "knowledge", "source_type": "gmail-attachment",
              "title": self.TITLE, "visibility": "private", "status": "active",
-             "created": "2026-09-13", "updated": "2026-09-13"},
+             "created": "2026-09-13", "updated": "2026-09-13",
+             "summary": f"Tax election summary, social security number: {TITLE_SSN}.",
+             "decisions": [
+                 {
+                     "decision": f"File under social security number: {TITLE_SSN}.",
+                     "evidence": {
+                         "document_id": DOWNGRADED_ID,
+                         "source_id": "gmail-attachment_tax",
+                         "excerpt": f"Employee social security number: {TITLE_SSN}.",
+                     },
+                 }
+             ]},
             "The Qi2 certification restart affects the tax election filing deadline.\n",
         )
         self.build_index()
@@ -1107,6 +1119,13 @@ class SensitiveTitleTests(SensitivityTestCase):
         self.assertEqual(titles[DOWNGRADED_ID], self.MASKED_TITLE)
         (item,) = [entry for entry in result["evidence"] if entry["document_id"] == DOWNGRADED_ID]
         self.assertEqual(item["title"], self.MASKED_TITLE)
+        self.assertIn("[ssn withheld]", item["enrichment"]["summary"])
+        self.assertEqual(item["enrichment"]["decisions"][0]["evidence"]["document_id"], DOWNGRADED_ID)
+        self.assertEqual(
+            item["enrichment"]["decisions"][0]["evidence"]["source_id"], "gmail-attachment_tax"
+        )
+        self.assertIn("[ssn withheld]", item["enrichment"]["decisions"][0]["decision"])
+        self.assertIn("[ssn withheld]", item["enrichment"]["decisions"][0]["evidence"]["excerpt"])
         self.assert_no_title_identifier(json.dumps(result, default=str))
 
         one_shot = AskService(root_path=self.root, private_home=self.home).ask(
@@ -1213,24 +1232,53 @@ class SensitiveTitleTests(SensitivityTestCase):
         plan = DeterministicPlanner(None).plan(QUESTION, PlanOverrides()).plan
         rows = [
             {"document_id": DOWNGRADED_ID, "title": self.TITLE, "sensitivity": "local-only",
-             "body": "The Qi2 certification restart affects the tax election filing deadline."},
+             "body": "The Qi2 certification restart affects the tax election filing deadline.",
+             "enrichment_status": "current",
+             "enrichment": {
+                 "summary": f"social security number: {TITLE_SSN}",
+                 "decisions": [
+                     {
+                         "decision": f"File under social security number: {TITLE_SSN}.",
+                         "evidence": {"document_id": DOWNGRADED_ID, "excerpt": TITLE_SSN},
+                     }
+                 ],
+             }},
             {"document_id": NORMAL_ID, "title": f"Part {TITLE_SSN}", "sensitivity": "normal",
-             "body": NORMAL_BODY},
+             "body": NORMAL_BODY,
+             "enrichment_status": "current",
+             "enrichment": {"summary": f"Part {TITLE_SSN} stays visible"}},
         ]
         bundle = build_bundle(QUESTION, rows, plan)
         titles = {item.document_id: item.title for item in bundle.items}
         self.assertEqual(titles[DOWNGRADED_ID], self.MASKED_TITLE)
         # A document a person marked normal is shown as it is, like its excerpts.
         self.assertEqual(titles[NORMAL_ID], f"Part {TITLE_SSN}")
+        by_id = {item.document_id: item for item in bundle.items}
+        sensitive = by_id[DOWNGRADED_ID]
+        self.assertIn("[ssn withheld]", sensitive.enrichment["summary"])
+        self.assertEqual(
+            sensitive.enrichment["decisions"][0]["evidence"]["document_id"], DOWNGRADED_ID
+        )
+        self.assertIn("[ssn withheld]", sensitive.enrichment["decisions"][0]["evidence"]["excerpt"])
+        self.assert_no_title_identifier(json.dumps(sensitive.to_dict()))
+        stale_item = replace(sensitive, enrichment_status="stale")
+        stale_payload = stale_item.to_dict()
+        self.assert_no_title_identifier(json.dumps(stale_payload))
+        self.assertIn("[ssn withheld]", stale_payload["stale_enrichment"]["summary"])
+        # Ordinary enrichment is not rewritten, and the source row is not mutated.
+        self.assertEqual(by_id[NORMAL_ID].enrichment["summary"], f"Part {TITLE_SSN} stays visible")
+        self.assertIn(TITLE_SSN, rows[0]["enrichment"]["summary"])
 
     def test_the_canonical_title_and_index_are_unchanged(self):
         self.converse(use_ai=False)
         self.assertIn(f"title: {self.TITLE}", self.path.read_text(encoding="utf-8"))
+        self.assertIn(TITLE_SSN, self.path.read_text(encoding="utf-8"))
         with sqlite3.connect(self.index().database_path) as connection:
-            (stored,) = connection.execute(
-                "SELECT title FROM documents WHERE document_id = ?", (DOWNGRADED_ID,)
+            stored_title, stored_enrichment = connection.execute(
+                "SELECT title, enrichment FROM documents WHERE document_id = ?", (DOWNGRADED_ID,)
             ).fetchone()
-        self.assertEqual(stored, self.TITLE)
+        self.assertEqual(stored_title, self.TITLE)
+        self.assertIn(TITLE_SSN, stored_enrichment)
 
 
 # ======================================================= display sanitation
