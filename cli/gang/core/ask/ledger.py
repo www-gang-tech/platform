@@ -300,7 +300,6 @@ def validate_ledger(
         text = text[:MAX_CLAIM_TEXT]
 
         claim_id = _claim_id(item.get("id"), position, seen_ids)
-        seen_ids.add(claim_id)
 
         declared = _text(item.get("type")).lower()
         if declared not in GENERATED_TYPES and not (
@@ -321,8 +320,12 @@ def validate_ledger(
             citations = _citations(_STANDALONE_CITATION.findall(text), valid_ids)
         if not citations:
             citations = _prose_citations_for(text, prose_citations)
+        # Register this id only after reading its premises. Adding it first
+        # let a claim list itself in derived_from / based_on, which the
+        # docstring forbids ("ids already defined above this claim").
         derived_from = _references(item.get("derived_from"), seen_ids)
         based_on = _references(item.get("based_on"), seen_ids)
+        seen_ids.add(claim_id)
         based_on = [
             reference
             for reference in based_on
