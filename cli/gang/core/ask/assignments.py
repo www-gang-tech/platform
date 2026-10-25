@@ -69,21 +69,36 @@ SUPERSEDED = "superseded"
 
 CLOSED_STATES = frozenset({DONE, SUPERSEDED})
 
+#: "not started", "not yet started", "not  started". Checked before a bare
+#: "started" is read as in progress.
+_NOT_YET_STARTED = r"not(?:\s+\w+){0,3}\s+started"
+_NOT_YET_STARTED_PATTERN = re.compile(r"\b" + _NOT_YET_STARTED + r"\b", re.I)
+
 _STATUS_WORDS: Tuple[Tuple[str, re.Pattern], ...] = (
     (SUPERSEDED, re.compile(r"\b(?:superseded|cancell?ed|dropped|obsolete|replaced|no\s+longer\s+needed|withdrawn)\b", re.I)),
     (DONE, re.compile(r"\b(?:done|complete|completed|closed|finished|resolved|delivered)\b", re.I)),
     (BLOCKED, re.compile(r"\b(?:blocked|delayed|dependent|at\s+risk|on\s+hold)\b", re.I)),
     (IN_PROGRESS, re.compile(r"\b(?:in\s+progress|ongoing|underway|(?<!not\s)started|critical|near\s+completion)\b", re.I)),
-    (OPEN, re.compile(r"\b(?:open|not\s+started|pending|to\s*do|new(?:\s+responsibility)?|aligned)\b", re.I)),
+    (OPEN, re.compile(r"\b(?:open|" + _NOT_YET_STARTED + r"|pending|to\s*do|new(?:\s+responsibility)?|aligned)\b", re.I)),
 )
 
 
 def normalize_status(text: Any) -> str:
-    """Map a source's own status wording onto a small vocabulary, or ``""``."""
+    """Map a source's own status wording onto a small vocabulary, or ``""``.
+
+    A bare "started" is in progress, but "not started" and "not yet started"
+    are open. The in-progress pattern can only look one space behind "started",
+    so a longer "not … started" is skipped here and falls through to open.
+    """
     value = str(text or "")
+    not_yet = _NOT_YET_STARTED_PATTERN.search(value)
     for status, pattern in _STATUS_WORDS:
-        if pattern.search(value):
-            return status
+        found = pattern.search(value)
+        if not found:
+            continue
+        if status == IN_PROGRESS and found.group(0).casefold() == "started" and not_yet:
+            continue
+        return status
     return ""
 
 
@@ -149,12 +164,26 @@ _FIELD = r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[
 _DUE_FIELD = re.compile(r"\b(?:Due|Deadline|Due\s+date)\s*:\s*(?P<value>[^|]{1,60}?)" + _FIELD)
 _STATUS_FIELD = re.compile(r"\bStatus\s*:\s*(?P<value>[^|]{1,40}?)" + _FIELD)
 
+_MONTH_WORD = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d"
+
+#: One capitalized word of a name, taken whole. The possessive quantifier
+#: stops a surname check from succeeding by ending mid-word ("Finalize" must
+#: not shrink to "Finaliz"). A second word is a surname only when the owner
+#: value ends there ("Creative Engineering", "Frank Godchaux"). A second word
+#: followed by another capitalized word is the next task ("Daniel Finalize
+#: Qi Certification"), and a month is the next row's date ("Frank Sep 21").
+_NAME_TOKEN = r"[A-Z][\w’'.-]*+"
+_OWNER_SURNAME = (
+    r"(?:[ \t]+(?!" + _MONTH_WORD + r")(?!" + _FIELD_LABEL + r")" + _NAME_TOKEN + r"(?![ \t]+[A-Z]))"
+)
+_OWNER_NAME = _NAME_TOKEN + _OWNER_SURNAME + r"?"
+
 #: Any owner field's value — names separated by ``/``, ``,``, ``&`` or
 #: "and" — whoever it names. Only used to find where the value ends, so the
 #: next row's task does not begin with the previous row's owners.
 _ANY_OWNER_LIST = re.compile(
-    r"\s*[A-Z][\w’'.-]*(?:[ \t]+[A-Z][\w’'.-]*){0,3}"
-    r"(?:\s*(?:/|,|&|\band\b)\s*[A-Z][\w’'.-]*(?:[ \t]+[A-Z][\w’'.-]*){0,3}){0,5}"
+    r"\s*" + _OWNER_NAME
+    + r"(?:[ \t]*(?:/|,|&|\band\b)[ \t]*" + _OWNER_NAME + r"){0,5}"
 )
 
 #: A schedule's own trailing note on a task: "— scheduled end Sep 18;
@@ -176,8 +205,6 @@ _BY_DEADLINE = re.compile(
 )
 
 _ISO_DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
-
-_MONTH_WORD = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d"
 
 #: The header of a flattened owner table: "Owner Deliverable Deadline / Timing
 #: Status". Rows follow as "<owner> <deliverable> <timing> <status>".
@@ -402,7 +429,7 @@ def _textual(row: Dict[str, Any], body: str, person: Person, name: re.Pattern) -
     text = _prepare(body)
     results: List[Assignment] = []
     results.extend(_owner_tables(row, text, person))
-    results.extend(_owner_labels(row, text, person, name))
+    results.extend(_owner_labels(row, text, person))
     results.extend(_mentions(row, text, person, name))
     results.extend(_subject_obligations(row, text, person, name))
     results.extend(_passive_assignments(row, text, person, name))
@@ -487,9 +514,9 @@ def _obligation_task(obligation: str, task: str) -> str:
     return task
 
 
-def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Pattern) -> List[Assignment]:
+def _owner_labels(row: Dict[str, Any], text: str, person: Person) -> List[Assignment]:
     """"WPC Qi Certification Owner: Daniel | Due: 2026-09-20 | Status: in progress"."""
-    owners_after = re.compile(r"\s*" + _owner_list_pattern(name))
+    owners_after = re.compile(r"\s*" + _owner_list_pattern(person))
     results: List[Assignment] = []
     # Where the previous owner field's value ended. In a flattened schedule
     # ("… — Owner: Frank/Daniel [Vendor] Next task — Owner: Daniel") the next
@@ -664,11 +691,33 @@ def _name_core(person: Person) -> str:
     return r"(?P<name>(?:" + forms + r"))(?![\w@]|\.\w)(?!" + capitalized + r")"
 
 
-def _owner_list_pattern(name: re.Pattern) -> str:
+def _owner_field_name(person: Person) -> str:
+    """The person's name as it appears in an owner list, not in a sentence.
+
+    A resolved given name still refuses a surname that ends the value
+    ("Daniel Smith" is not Daniel Hirunrusme). It does not refuse the next
+    task, which keeps going in further capitalized words ("Daniel Finalize
+    Qi Certification"). Prose matching keeps its own rule, in ``_name_core``.
+    """
+    forms = "|".join(re.escape(form) for form in person.forms)
+    ending_surname = ""
+    if person.resolved:
+        ending_surname = r"(?!" + _OWNER_SURNAME + r")"
+    return (
+        r"(?<![\w@.])(?P<name>(?:" + forms + r"))(?![\w@]|\.\w)" + ending_surname
+    )
+
+
+def _owner_list_pattern(person: Person) -> str:
     # A month after a name starts the next row's date ("Frank Sep 21:"); it
-    # is not a surname.
-    other = r"[A-Z][\w’'-]+(?:\s+(?!" + _MONTH_WORD + r")[A-Z][\w’'-]+)?"
-    return r"(?:(?:" + other + r")\s*(?:/|,|&|and)\s*)*" + name.pattern + r"(?:\s*(?:/|,|&|and)\s*(?:" + other + r"))*"
+    # is not a surname. A capitalized word followed by another is the next
+    # task, not a second given name.
+    other = _OWNER_NAME
+    return (
+        r"(?:(?:" + other + r")[ \t]*(?:/|,|&|and)[ \t]*)*"
+        + _owner_field_name(person)
+        + r"(?:[ \t]*(?:/|,|&|and)[ \t]*(?:" + other + r"))*"
+    )
 
 
 def _split_owners(text: str) -> List[str]:
@@ -724,9 +773,12 @@ def deadline_date(deadline: str, stated: str = "") -> Optional[date]:
 
     Reads an ISO date, or a month and day ("Sep. 18 — Noon", "Before Sep 18
     meeting"). A month and day takes its year from ``stated`` — the date of
-    the evidence that set it — and a deadline more than half a year before
-    that is read as next year's, so a December schedule's "Jan 10" is January
-    after it. "Near term" and "Ongoing" are not dates, and stay ``None``.
+    the evidence that set it. A deadline more than half a year *before* that
+    date is read as next year's, so a December schedule's "Jan 10" is January
+    after it. A deadline later in the same year stays there, including one
+    more than half a year ahead: a January schedule's "Sep 18" is this
+    September, not last year's. "Near term" and "Ongoing" are not dates, and
+    stay ``None``.
     """
     text = str(deadline or "")
     iso = _ISO_DATE.search(text)
@@ -747,9 +799,11 @@ def deadline_date(deadline: str, stated: str = "") -> Optional[date]:
     except ValueError:
         return None
     if (anchor - value).days > 183:
-        value = value.replace(year=value.year + 1)
-    elif (value - anchor).days > 183:
-        value = value.replace(year=value.year - 1)
+        # Feb 29 cannot move into a non-leap year; keep the leap day itself.
+        try:
+            value = value.replace(year=value.year + 1)
+        except ValueError:
+            pass
     return value
 
 
