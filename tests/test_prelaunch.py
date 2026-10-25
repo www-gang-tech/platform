@@ -109,6 +109,23 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_header_keeps_subscribe_and_cart_from_shrinking(tmp_path):
+    """Phone widths were clipping Cart. The action cluster must stay as wide as its labels."""
+    css = (ROOT / "public" / "shell.css").read_text()
+    bar = css.split(".site-header-bar {", 1)[1].split("}", 1)[0]
+    end = css.split(".site-header-end {", 1)[1].split("}", 1)[0]
+    actions = css.split(".site-actions {", 1)[1].split("}", 1)[0]
+    assert "flex-wrap: wrap" in bar
+    assert "flex-shrink: 0" in end
+    assert "min-width: 0" not in end
+    assert "flex-shrink: 0" in actions
+    assert "min-width: 0" not in actions
+    dist = _render(tmp_path)
+    nav = BeautifulSoup((dist / "index.html").read_text(), "html.parser").select_one(".site-header")
+    assert nav.find("a", href="/updates/").get_text(strip=True) == "Subscribe"
+    assert nav.find("a", href="/cart/").get_text(strip=True) == "Cart"
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
