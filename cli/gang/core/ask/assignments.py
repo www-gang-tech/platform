@@ -78,12 +78,44 @@ _STATUS_WORDS: Tuple[Tuple[str, re.Pattern], ...] = (
 )
 
 
+#: "not done", "not yet started", "not fully complete". The words after "not"
+#: are the status being denied, so they must not be read as that status.
+#: Longer phrases are listed first.
+_NEGATED_STATUS = re.compile(
+    r"\bnot(?:\s+\w+){0,3}?\s+(?:"
+    r"in\s+progress|near\s+completion|on\s+hold|at\s+risk|to\s*do|"
+    r"completed|complete|finished|resolved|delivered|closed|"
+    r"cancell?ed|superseded|dropped|obsolete|replaced|withdrawn|"
+    r"started|ongoing|underway|blocked|delayed|dependent|critical|pending|aligned|open|done"
+    r")\b",
+    re.I,
+)
+
+#: Denying a finished, cancelled, or not-yet-started state leaves the work open.
+#: Denying "in progress" or "blocked" does not by itself name a new state.
+_STILL_OPEN = re.compile(
+    r"\bnot(?:\s+\w+){0,3}?\s+(?:"
+    r"completed|complete|finished|resolved|delivered|closed|done|started|"
+    r"cancell?ed|superseded|dropped|obsolete|replaced|withdrawn"
+    r")\b",
+    re.I,
+)
+
+
 def normalize_status(text: Any) -> str:
-    """Map a source's own status wording onto a small vocabulary, or ``""``."""
+    """Map a source's own status wording onto a small vocabulary, or ``""``.
+
+    "done" is done, but "not done" and "not yet complete" are open. The
+    positive patterns cannot see a status word that "not" denies. A bare
+    "started" stays in progress.
+    """
     value = str(text or "")
+    blinded = _NEGATED_STATUS.sub(lambda match: " " * len(match.group(0)), value)
     for status, pattern in _STATUS_WORDS:
-        if pattern.search(value):
+        if pattern.search(blinded):
             return status
+    if _STILL_OPEN.search(value):
+        return OPEN
     return ""
 
 
@@ -144,8 +176,13 @@ _FIELD_LABEL = r"(?:Due|Deadline|Status|Tips|Notes?|Owner|Timing)\b"
 _SEGMENT_START = re.compile(r"(?:^|\s)(?:\d{1,2}[.)]|[-•*–])\s+|[.!?:]\s+")
 
 #: Where a pipe-delimited field ends: the next pipe or label, the next list
-#: item, or the end of a sentence.
-_FIELD = r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[.)]\s|[.!?](?:\s|$)|$)"
+#: item, or the end of a sentence. A period before a day number is a month
+#: abbreviation ("Due: Sep. 18 — Noon"), not a sentence, or the day is cut off
+#: the deadline and read as the next task.
+_FIELD = (
+    r"(?=\s*\||\s+(?:Due|Deadline|Status|Tips|Notes?|Owner)\s*:|\s+\d{1,2}[.)]\s|"
+    r"[!?](?:\s|$)|\.(?!\s*\d)(?:\s|$)|$)"
+)
 _DUE_FIELD = re.compile(r"\b(?:Due|Deadline|Due\s+date)\s*:\s*(?P<value>[^|]{1,60}?)" + _FIELD)
 _STATUS_FIELD = re.compile(r"\bStatus\s*:\s*(?P<value>[^|]{1,40}?)" + _FIELD)
 
@@ -191,13 +228,16 @@ _TABLE_STATUS = (
     r"Near\s+Completion|Delayed(?:\s*/\s*Dependent)?|Dependent|At\s+Risk|On\s+Hold|"
     r"Open|Done|Complete[d]?|Closed|Aligned|Critical|Blocked|Pending|Superseded|Cancell?ed)\b)"
 )
-#: The timing cell of a row. Whatever follows a keyword timing is a later
-#: column (a dependency, a note) and is not part of the deadline.
+#: The timing cell, which is the last cell of the row before the status.
+#: A date or a word like "Weekly" inside the deliverable is not that cell:
+#: "Submit Sep 18 prototype photos Near term" is due near term, not on Sep 18
+#: with the rest of the deliverable discarded. "Before Sep 18 meeting" is a
+#: timing phrase and does run through the end of the cell.
 _TABLE_TIMING = re.compile(
     r"\s+(?P<timing>(?:Before|By|Due|After|Until|Once)\s+.+|Immediate(?:ly)?|Ongoing|Near\s+term|"
     r"Weekly|Monthly|TBD|"
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}\b(?:\s*[—–-]\s*\w+)?|"
-    r"\d{4}-\d{2}-\d{2})(?:\s+.*)?$"
+    r"\d{4}-\d{2}-\d{2})\s*$"
 )
 
 #: Abbreviations whose period does not end a sentence ("incl.", "approx.").
@@ -487,6 +527,27 @@ def _obligation_task(obligation: str, task: str) -> str:
     return task
 
 
+def _bounded_due(match: Optional["re.Match"]) -> Tuple[str, Optional[int]]:
+    """The deadline phrase, and where a swallowed next task begins after it.
+
+    ``None`` for the end means the field was already only a deadline, so the
+    next-task boundary stays where the owner value left it.
+    """
+    if match is None:
+        return "", None
+    raw = match.group("value")
+    body = raw.lstrip()
+    phrase = _DUE_PHRASE.match(body)
+    if phrase is None:
+        return raw.strip(), None
+    leading = len(raw) - len(body)
+    consumed = leading + phrase.end()
+    due = body[: phrase.end()].strip()
+    if consumed >= len(raw.rstrip()):
+        return due, None
+    return due, match.start("value") + consumed
+
+
 def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Pattern) -> List[Assignment]:
     """"WPC Qi Certification Owner: Daniel | Due: 2026-09-20 | Status: in progress"."""
     owners_after = re.compile(r"\s*" + _owner_list_pattern(name))
@@ -498,7 +559,19 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
     for label in _OWNER_LABEL.finditer(text):
         previous_floor = floor
         value = _ANY_OWNER_LIST.match(text, label.end())
-        floor = value.end() if value else label.end()
+        row_start = value.end() if value else label.end()
+        floor = row_start
+        # The due date belongs to this row only: stop before the next owner
+        # label, so a later row's deadline is not read as this row's.
+        next_owner = _OWNER_LABEL.search(text, row_start)
+        region_end = next_owner.start() if next_owner else min(len(text), row_start + 240)
+        region = text[row_start:region_end]
+        due = _DUE_FIELD.search(region)
+        deadline, due_end = _bounded_due(due)
+        # "Due: Sep 18 Hire the project manager" — the next task starts after
+        # the date, including when this row names someone else.
+        if due_end is not None:
+            floor = max(floor, row_start + due_end)
         owners_match = owners_after.match(text, label.end())
         if owners_match is None:
             continue
@@ -507,10 +580,7 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
         if not mine:
             continue
         segment = _segment_before(text, label.start(), floor=previous_floor)
-        tail = text[owners_match.end() : owners_match.end() + 240]
-        due = _DUE_FIELD.search(tail)
-        status = _STATUS_FIELD.search(tail)
-        deadline = due.group("value").strip() if due else ""
+        status = _STATUS_FIELD.search(region)
         status_text = status.group("value").strip() if status else ""
         note = _SCHEDULE_NOTE.search(segment)
         if note and (note.group("end") or note.group("status")):
@@ -529,7 +599,10 @@ def _owner_labels(row: Dict[str, Any], text: str, person: Person, name: re.Patte
                 basis="owner-field",
                 deadline=deadline,
                 status_text=status_text,
-                excerpt=_short(f"{task} Owner: {owners_match.group(0).strip()}{' ' + tail[:120].strip() if tail.strip() else ''}"),
+                excerpt=_short(
+                    f"{task} Owner: {owners_match.group(0).strip()}"
+                    f"{' ' + region[:120].strip() if region.strip() else ''}"
+                ),
             )
         )
     return results
@@ -717,6 +790,24 @@ _MONTH_DAY = re.compile(
     re.I,
 )
 _MONTHS = {name: index for index, name in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+
+#: A deadline as an owner field writes it, and nothing past it. "Due: Sep 18
+#: Hire the project manager" is Sep 18; the rest is the next task. An ISO date
+#: may carry the schedule's own parenthetical ("2026-09-04 (OVERDUE)"), and a
+#: month-day may carry a short clock note ("Sep. 18 — Noon").
+_DUE_PHRASE = re.compile(
+    r"(?:(?:before|by|after|until)\s+)?"
+    r"(?:"
+    r"\d{4}-\d{2}-\d{2}(?:\s*\([^)]{0,40}\))?"
+    r"|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}"
+    r"(?:st|nd|rd|th)?(?:\s*[—–-]\s*[A-Za-z0-9][\w.-]*)?"
+    r"|(?:mon|tues|wednes|thurs|fri|satur|sun)day"
+    r"|tomorrow|today|tonight|eod|eow|next\s+week"
+    r"|end\s+of\s+(?:day|week|month|quarter)"
+    r"|immediate(?:ly)?|ongoing|near\s+term|weekly|monthly|tbd"
+    r")(?!\w)",
+    re.I,
+)
 
 
 def deadline_date(deadline: str, stated: str = "") -> Optional[date]:
