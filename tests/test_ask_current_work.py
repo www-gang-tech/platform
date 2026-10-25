@@ -427,6 +427,47 @@ class ScheduleReaderTests(unittest.TestCase):
         self.assertEqual(assignments_module.normalize_status("Not started"), assignments_module.OPEN)
         self.assertEqual(assignments_module.normalize_status("Started"), assignments_module.IN_PROGRESS)
 
+    def test_a_month_and_day_deadline_scopes_and_sorts_as_a_date(self):
+        body = (
+            "1. Finalize the Qi certification Owner: Daniel | Due: Sep 18 | Status: in progress\n"
+            "2. Hire the project manager Owner: Daniel | Due: Nov 20 | Status: not started\n"
+            "3. Renew the filing Owner: Daniel | Due: 2026-09-04 | Status: open\n"
+        )
+        row = {"document_id": "gantt", "title": "Gantt", "body": body, "updated": "2026-09-16"}
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+
+        # Wednesday of the week that contains Sep 18. The November task was
+        # stated in that same email, and the September 4 task is already past.
+        week = [
+            item.task
+            for item in assignments_module.gather([row], person, since="2026-09-14", until="2026-09-20")
+        ]
+        self.assertEqual(week, ["Finalize the Qi certification"])
+
+        ordered = [item.task for item in assignments_module.gather([row], person)]
+        self.assertEqual(
+            ordered,
+            [
+                "Renew the filing",
+                "Finalize the Qi certification",
+                "Hire the project manager",
+            ],
+        )
+
+    def test_a_status_does_not_become_the_next_unnumbered_task(self):
+        body = (
+            "Finalize the Qi certification Owner: Daniel | Due: Sep 18 | Status: in progress "
+            "Hire the project manager Owner: Daniel | Due: Nov 20 | Status: not started"
+        )
+        row = {"document_id": "gantt", "title": "Gantt", "body": body, "updated": "2026-09-16"}
+        person = assignments_module.person_from("Daniel Hirunrusme", aliases=["Daniel"], resolved=True)
+        tasks = {item.task: item for item in assignments_module.gather([row], person)}
+
+        self.assertEqual(set(tasks), {"Finalize the Qi certification", "Hire the project manager"})
+        self.assertEqual(tasks["Finalize the Qi certification"].status_text, "in progress")
+        self.assertEqual(tasks["Hire the project manager"].status, assignments_module.OPEN)
+        self.assertEqual(tasks["Hire the project manager"].deadline, "Nov 20")
+
 
 # =============================================================== validation
 
