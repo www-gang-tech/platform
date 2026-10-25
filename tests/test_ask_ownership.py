@@ -316,6 +316,74 @@ class OwnershipRoutingTests(unittest.TestCase):
         self.assertEqual([route["tool"] for route in routes], ["find_assignments"])
         self.assertEqual(routes[0]["arguments"]["person"], "Daniel")
 
+    def test_a_name_fragment_is_not_treated_as_the_subject(self):
+        # "Dan" is a prefix of "Daniel", and "AI" occurs inside it. Neither is
+        # the person the question named, so neither may steal or block the route.
+        question = "what does Daniel Hirunrusme need to do for Dan?"
+        intent = intent_module.infer_intent(question)
+        routes = deterministic_module.capability_routes(
+            question,
+            _Plan(),
+            intent,
+            resolved_entities=[
+                {
+                    "text": "Dan",
+                    "entity_id": "person-dan",
+                    "entity_type": "person",
+                    "name": "Dan Other",
+                }
+            ],
+            ambiguities=[
+                {
+                    "text": "AI",
+                    "reason": "ambiguous",
+                    "candidates": [{"name": "AI One"}, {"name": "AI Two"}],
+                }
+            ],
+        )
+
+        self.assertEqual(routes[0]["tool"], "find_assignments")
+        self.assertEqual(routes[0]["arguments"]["person"], "Daniel Hirunrusme")
+        self.assertNotIn("entity_id", routes[0]["arguments"])
+
+    def test_a_whole_name_inside_the_subject_still_resolves(self):
+        question = "what does Daniel Hirunrusme need to do?"
+        intent = intent_module.infer_intent(question)
+        routes = deterministic_module.capability_routes(
+            question,
+            _Plan(),
+            intent,
+            resolved_entities=[
+                {
+                    "text": "Daniel",
+                    "entity_id": "person-daniel",
+                    "entity_type": "person",
+                    "name": "Daniel Hirunrusme",
+                }
+            ],
+        )
+
+        self.assertEqual(routes[0]["arguments"]["entity_id"], "person-daniel")
+
+    def test_an_ambiguous_subject_is_still_not_guessed(self):
+        question = "what does Daniel need to do?"
+        intent = intent_module.infer_intent(question)
+        routes = deterministic_module.capability_routes(
+            question,
+            _Plan(),
+            intent,
+            ambiguities=[
+                {
+                    "text": "Daniel",
+                    "reason": "ambiguous",
+                    "candidates": [{"name": "Daniel One"}, {"name": "Daniel Two"}],
+                }
+            ],
+        )
+
+        self.assertEqual(routes[0]["tool"], deterministic_module.UNRESOLVED_PERSON_TOOL)
+        self.assertEqual(routes[0]["arguments"]["why"], "ambiguous")
+
 
 class _Plan:
     text_queries = ["daniel", "need"]
