@@ -1963,6 +1963,45 @@ b, strong {
     width: 100%;
   }
 
+  /* 320px phones: nowrap ID/date/type columns pin the table at ~307px and titles past the viewport. */
+  @media (max-width: 340px) {
+    .journal-table {
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    .journal-table th,
+    .journal-table td {
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+    }
+
+    .journal-table th:not(:last-child),
+    .journal-table td:not(:last-child) {
+      white-space: normal;
+    }
+
+    .journal-table th:nth-child(1),
+    .journal-table td:nth-child(1) {
+      width: 18%;
+    }
+
+    .journal-table th:nth-child(2),
+    .journal-table td:nth-child(2) {
+      width: 28%;
+    }
+
+    .journal-table th:nth-child(3),
+    .journal-table td:nth-child(3) {
+      width: 22%;
+    }
+
+    .journal-table th:last-child,
+    .journal-table td:last-child {
+      width: 32%;
+    }
+  }
+
   .store-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);

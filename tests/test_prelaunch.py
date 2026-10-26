@@ -119,3 +119,13 @@ def test_store_index_is_a_four_column_grid(tmp_path):
     assert grid.find("a", href="/objects/charger/")
     assert "repeat(4, 1fr)" in css
     assert "repeat(2, 1fr)" in css
+
+
+def test_journal_index_wraps_columns_on_narrow_phones():
+    """Nowrap ID/date/type columns used to pin the index past a 320px viewport."""
+    css = (ROOT / "public" / "style.css").read_text()
+    start = css.index("320px phones:")
+    block = css[start:css.index(".store-grid", start)]
+    assert "@media (max-width: 340px)" in block
+    assert "table-layout: fixed" in block
+    assert "white-space: normal" in block
