@@ -65,6 +65,24 @@ def test_pages_use_markdown_shell_not_retail_layout(tmp_path):
     assert "Add to bag" not in charger
 
 
+def test_homepage_charger_photo_is_the_prototype(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "index.html").read_text(), "html.parser")
+    charger = soup.find("h2", string=lambda value: value and "MagSafe Wall Charger" in value)
+    image = charger.find_next("img")
+    assert image["src"] == "/assets/images/gang-4-in-1-prototype.jpg"
+    assert "wall-mounted" not in image["alt"].lower()
+    assert "tabletop" in image["alt"].lower()
+
+    wordmark = soup.find("img", src="/assets/images/gang-hero.jpg")
+    assert wordmark is not None
+    alt = wordmark["alt"].lower()
+    assert "wordmark" in alt
+    assert "front view" not in alt
+    assert "wall-mounted" not in alt
+    assert "prototype" not in alt
+
+
 def test_updates_page_is_markdown_with_email_request(tmp_path):
     dist = _render(tmp_path)
     soup = BeautifulSoup((dist / "updates/index.html").read_text(), "html.parser")
