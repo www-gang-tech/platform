@@ -10,6 +10,9 @@
         {% if date %}
         <p><time datetime="{{ date }}">{{ date | formatdate('%m.%d.%y') }}</time></p>
         {% endif %}
+        {% if updated and date and updated[:10] != date[:10] %}
+        <p>Updated <time datetime="{{ updated }}">{{ updated | formatdate('%m.%d.%y') }}</time></p>
+        {% endif %}
         {% if description %}
         <p class="editorial-lede">{{ description }}</p>
         {% endif %}
