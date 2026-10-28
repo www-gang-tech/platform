@@ -124,6 +124,7 @@ def write_markdown_pages(
             "year": datetime.now().year,
             "navigation": config.get("nav", {}).get("main", []),
             "date": document.date or document.created,
+            "updated": document.updated,
             "date_formatted": str(document.date or document.created or ""),
             "tags": document.tags,
             "build_time": build_time.strftime("%B %d, %Y at %I:%M %p"),

@@ -109,6 +109,21 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_revised_pages_show_the_update_date(tmp_path):
+    dist = _render(tmp_path)
+    charger = BeautifulSoup((dist / "objects/charger/index.html").read_text(), "html.parser")
+    header = charger.select_one(".editorial-header")
+    times = {node["datetime"]: node.get_text(strip=True) for node in header.find_all("time")}
+    assert times["2026-10-01"] == "10.01.26"
+    assert times["2026-10-03"] == "10.03.26"
+    assert header.find("time", datetime="2026-10-03").find_parent("p").get_text(" ", strip=True).startswith("Updated")
+
+    unchanged = BeautifulSoup((dist / "team/index.html").read_text(), "html.parser")
+    team_header = unchanged.select_one(".editorial-header")
+    assert [node["datetime"] for node in team_header.find_all("time")] == ["2026-10-01"]
+    assert "Updated" not in team_header.get_text()
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
