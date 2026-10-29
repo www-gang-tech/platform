@@ -4,7 +4,7 @@ type: page
 title: GANG
 summary: Crafted tools for intentional living.
 created: '2026-10-01'
-updated: '2026-10-05'
+updated: '2026-10-29'
 visibility: public
 status: published
 url: /
@@ -51,7 +51,7 @@ Our first device, the charger, was designed to bring order to charging. Less clu
 ## 5. FAQ
 
 **What is GANG?**
-GANG is a small collective building tools for a more intentional digital life. Our first object is a wall-mounted wireless charger.
+GANG is a consumer hardware company focused on wireless charging. Our first product is a wall-mounted charging hub with four charging zones.
 
 **How many charging zones does it have?**
 Four Qi2 fast-charging coils, built for the devices you use every day.
@@ -72,7 +72,7 @@ Join [launch updates](/updates/) for availability. A shipping date has not been 
 
 ## 7. Philosophy
 
-GANG is a small, focused collective building tools for a more intentional digital life. Our work spans hardware, software, and publishing, all designed to reduce noise, encourage presence, and prioritize what matters. We believe in restraint, clarity, and making fewer things, better.
+We think the technology you live with should receive the same attention as the room around it: how it works, how it feels, and where it belongs.
 
 [Read more](/about/)
 

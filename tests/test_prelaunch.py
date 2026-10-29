@@ -109,6 +109,24 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_homepage_describes_the_same_company_as_about(tmp_path):
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+    about = (dist / "about/index.html").read_text()
+    faq = (dist / "pages/faq/index.html").read_text()
+    press = (dist / "pages/press/index.html").read_text()
+    published = "consumer hardware company focused on wireless charging"
+
+    assert published in home
+    assert published in about
+    assert published in faq
+    assert "consumer hardware company" in press
+    assert "small collective" not in home
+    assert "software, and publishing" not in home
+    assert "the room around it" in home
+    assert "the room around it" in about
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
