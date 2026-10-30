@@ -114,6 +114,7 @@ class PublicDocument:
             "title": self.title,
             "summary": self.summary,
             "date": self.date or self.created,
+            "updated": self.updated,
             "type": self.collection,
             "document_type": self.type,
             "content_html": content_html,

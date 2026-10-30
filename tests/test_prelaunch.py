@@ -109,6 +109,35 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def _listed_date(soup, href):
+    """Date announced for a row, including a shared date printed on the row above."""
+    link = soup.find("a", href=href)
+    row = link.find_parent("tr") or link.find_parent("li")
+    for candidate in [row, *row.find_previous_siblings()]:
+        time = candidate.find("time")
+        if time and time.get("datetime"):
+            return time["datetime"][:10]
+    return None
+
+
+def test_lists_date_a_revision_on_the_day_it_changed(tmp_path):
+    dist = _render(tmp_path)
+    journal = BeautifulSoup((dist / "journal/index.html").read_text(), "html.parser")
+    research = BeautifulSoup((dist / "research/index.html").read_text(), "html.parser")
+
+    assert _listed_date(journal, "/journal/a-place-for-charging/") == "2026-10-03"
+    assert _listed_date(journal, "/journal/from-evidence-to-article/") == "2026-10-03"
+    assert _listed_date(journal, "/journal/what-belongs-in-the-room/") == "2026-10-01"
+    assert _listed_date(journal, "/journal/everyday-charging/") == "2026-09-30"
+    assert _listed_date(research, "/research/alignment-not-wattage/") == "2026-10-03"
+    assert _listed_date(research, "/research/qi2-magnetic-power-profile/") == "2026-09-30"
+
+    journal_hrefs = [a["href"] for a in journal.select("tbody a")]
+    assert journal_hrefs.index("/journal/from-evidence-to-article/") < journal_hrefs.index(
+        "/journal/everyday-charging/"
+    )
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
