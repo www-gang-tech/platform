@@ -254,7 +254,7 @@ def _write_section_indexes(
             "title": titles[collection],
             "page_title": titles[collection],
             "description": intros[collection],
-            "items": sorted(items, key=lambda item: item.get("date") or "", reverse=True),
+            "items": sorted(items, key=lambda item: item.get("updated") or item.get("date") or "", reverse=True),
             "content_type": collection,
             "canonical_url": f"{config['site']['url']}{list_url}",
             "current_path": list_url,

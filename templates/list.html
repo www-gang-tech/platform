@@ -23,8 +23,9 @@
         {% for item in items %}
         <li class="index-entry">
             <h2><a href="{{ item.url }}" class="index-entry-title">{{ item.title }}</a></h2>
-            {% if item.date %}
-            <p><time class="index-entry-date" datetime="{{ item.date }}">{{ item.date | formatdate('news') }}</time></p>
+            {% set shown = item.updated or item.date %}
+            {% if shown %}
+            <p><time class="index-entry-date" datetime="{{ shown }}">{{ shown | formatdate('news') }}</time></p>
             {% endif %}
             {% if item.summary %}
             <p>{{ item.summary }}</p>

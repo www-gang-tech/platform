@@ -16,10 +16,11 @@
         {% set prev = namespace(date='') %}
         {% set total = items|length %}
         {% for item in items %}
-        {% set label = item.date | listingdate %}
+        {% set shown = item.updated or item.date %}
+        {% set label = shown | listingdate %}
         <tr>
             <td><code>{{ "%04d"|format(total - loop.index0) }}</code></td>
-            <td>{% if label != prev.date %}<time datetime="{{ item.date }}">{{ label }}</time>{% endif %}</td>
+            <td>{% if label != prev.date %}<time datetime="{{ shown }}">{{ label }}</time>{% endif %}</td>
             <td>{{ (item.type or content_type or 'Journal') | capitalize }}</td>
             <td><a href="{{ item.url }}">{{ item.title }}</a></td>
         </tr>
