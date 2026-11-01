@@ -109,6 +109,27 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_samsung_case_note_follows_the_specification_sheet(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "pages/compatibility/index.html").read_text(), "html.parser")
+    rows = {}
+    for tr in soup.find("table").find_all("tr"):
+        cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+        if cells:
+            rows[cells[0]] = cells
+
+    samsung = rows["Samsung Galaxy"]
+    assert "S25, S25+, S25 Ultra" in samsung[1]
+    assert "S24 series" in samsung[1]
+    assert "S25, S25+, and S25 Ultra are listed without a case note." in samsung[2]
+    assert "The S24 series is listed as compatible through a Qi2-certified magnetic case." in samsung[2]
+    assert "The sheet specifies compatibility through a Qi2-certified magnetic case." not in samsung[2]
+
+    pixel = rows["Google Pixel"]
+    assert "Pixel 9 series requires a Qi2-certified magnetic case according to the sheet." in pixel[2]
+    assert "Pixel 10" not in pixel[2]
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
