@@ -23,7 +23,7 @@ GANG–1 is being developed for magnetic wireless charging. The current specific
 | Device family | Models listed | Case and placement notes |
 | --- | --- | --- |
 | Apple iPhone | iPhone 15, 15 Plus, 15 Pro, 15 Pro Max; iPhone 16, 16 Plus, 16 Pro, 16 Pro Max | The sheet also lists MagSafe-enabled iPhones 12 and later. Check the exact model and case. |
-| Samsung Galaxy | S25, S25+, S25 Ultra; S24 series | The sheet specifies compatibility through a Qi2-certified magnetic case. |
+| Samsung Galaxy | S25, S25+, S25 Ultra; S24 series | S25, S25+, and S25 Ultra are listed without a case note. The S24 series is listed as compatible through a Qi2-certified magnetic case. |
 | Google Pixel | Pixel 10, Pixel 10 Pro; Pixel 9 series | Pixel 9 series requires a Qi2-certified magnetic case according to the sheet. |
 | Other Android | Select OnePlus, Xiaomi, and Motorola edge+ models; Qi2.0+ devices | Individual models are not fully enumerated. Send us the exact model and case to check. |
 | Accessories | Apple AirPods and Qi2/MagSafe accessories | Check the exact accessory or charging-case model and its magnetic attachment. |
