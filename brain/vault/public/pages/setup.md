@@ -32,7 +32,7 @@ These are the accessories listed in the specification sheet. Installation requir
 
 Think about where you reach for your devices, the space around the hub, and access to power.
 
-The specification considers spaces from home offices and entry areas to barbershops, gyms, lounges, retail, and restaurants. [Contact us](/pages/contact/) about the setting you have in mind.
+The specification lists home office, entry table, countertops, barbershops, gyms, lounge, retail, and restaurant. [Contact us](/pages/contact/) about the setting you have in mind.
 
 [See the product specifications](/objects/charger/) or [download the sheet (PDF, 638 KB)](/assets/documents/gang-specifications.pdf).
 

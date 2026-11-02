@@ -109,6 +109,19 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_setup_lists_the_sheet_environments(tmp_path):
+    dist = _render(tmp_path)
+    text = BeautifulSoup((dist / "pages/setup/index.html").read_text(), "html.parser").get_text(" ", strip=True)
+    assert (
+        "The specification lists home office, entry table, countertops, "
+        "barbershops, gyms, lounge, retail, and restaurant."
+    ) in text
+    assert "entry areas" not in text
+    assert "home offices" not in text
+    assert "lounges" not in text
+    assert "restaurants" not in text
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
