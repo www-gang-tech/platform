@@ -109,6 +109,18 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_editorial_prototype_names_the_public_header(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "journal/editorial-prototype/index.html").read_text(), "html.parser")
+    body = soup.select_one(".markdown-body").get_text(" ", strip=True)
+
+    assert "Home, Studio, About, Objects, Research, and Journal" not in body
+    assert "Store, Information, Journal, and Projects" in body
+    assert "Subscribe and Cart" in body
+    assert "checkout" in body
+    assert "in development" in body
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
