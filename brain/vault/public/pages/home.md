@@ -4,7 +4,7 @@ type: page
 title: GANG
 summary: Crafted tools for intentional living.
 created: '2026-10-01'
-updated: '2026-10-05'
+updated: '2026-11-04'
 visibility: public
 status: published
 url: /
@@ -23,7 +23,7 @@ Our first device, the charger, was designed to bring order to charging. Less clu
 
 [Learn more](/objects/)
 
-## 2. GANG 100W MagSafe Wall Charger
+## 2. GANG–1
 
 ![GANG–1 prototype shown as a wall-mounted charging surface.](/assets/images/gang-hero.jpg)
 
