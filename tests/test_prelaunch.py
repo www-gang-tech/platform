@@ -53,7 +53,9 @@ def test_pages_use_markdown_shell_not_retail_layout(tmp_path):
 
     assert "GANG" in home
     assert "Crafted tools for intentional living" in home
-    assert "GANG 100W MagSafe Wall Charger" in home
+    home_headings = [h.get_text(strip=True) for h in BeautifulSoup(home, "html.parser").select(".home h2")]
+    assert "2. GANG–1" in home_headings
+    assert not any("100W" in heading or "MagSafe" in heading for heading in home_headings)
     assert "Frank Godchaux and Daniel Hirunrusme" in studio
     assert "A memory for the practice" in studio
     assert "In development" in charger
