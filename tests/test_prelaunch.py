@@ -109,6 +109,23 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_android_row_keeps_the_sheet_class_claim(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "pages/compatibility/index.html").read_text(), "html.parser")
+    rows = {}
+    for tr in soup.find("table").find_all("tr"):
+        cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+        if cells:
+            rows[cells[0]] = cells
+
+    android = rows["Other Android"]
+    assert "OnePlus, Xiaomi, and Motorola edge+ (select models)" in android[1]
+    assert "any Qi2.0+ Android device" in android[1]
+    assert "Qi2.0+ devices" not in android[1]
+    assert "not fully enumerated" not in android[2]
+    assert "any Qi2.0+ Android device" in android[2]
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
