@@ -38,7 +38,7 @@ A case is part of the charging setup. Magnetic attachment and wireless charging 
 
 ## Check the position
 
-The sheet lists legacy Qi 1.0 charging with the pad flat. That does not establish attachment to the vertical face. For wall-mounted use, confirm the device or accessory can attach magnetically as well as charge wirelessly.
+The sheet lists legacy Qi 1.0 charging with the pad flat. Non-Qi2 devices will not adhere to the vertical face. MagSafe-enabled iPhones 12 and later remain listed above.
 
 Wired device charging is not supported; the hub has no USB-C charging ports.
 
