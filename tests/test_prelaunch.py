@@ -109,6 +109,15 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_compatibility_states_non_qi2_devices_will_not_adhere(tmp_path):
+    dist = _render(tmp_path)
+    page = (dist / "pages/compatibility/index.html").read_text()
+    assert "Non-Qi2 devices will not adhere to the vertical face." in page
+    assert "MagSafe-enabled iPhones 12 and later" in page
+    assert "legacy Qi 1.0 charging with the pad flat" in page
+    assert "does not establish attachment" not in page
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
