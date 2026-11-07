@@ -63,7 +63,7 @@ Current development specifications. Final details may change.
 | Maximum wireless output | Up to 25 W per zone |
 | Integrated power supply | 160 W |
 | Input voltage | 120 V |
-| Wireless standard | Qi2.2; standard version 2.2.1 listed in the specification sheet |
+| Wireless standard | Qi2.2 (backwards compatible); standard version 2.2.1 listed in the specification sheet |
 | Front material | Injection-moulded TPU |
 | Back material | Die-cast, milled zinc |
 | Included cable | 4 ft extension cord |
