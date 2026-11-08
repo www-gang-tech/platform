@@ -109,6 +109,19 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_pages_list_usb_c_ports_as_none(tmp_path):
+    dist = _render(tmp_path)
+    charger = (dist / "objects/charger/index.html").read_text()
+    faq = (dist / "pages/faq/index.html").read_text()
+    compatibility = (dist / "pages/compatibility/index.html").read_text()
+    for page in (charger, faq, compatibility):
+        assert "Cable-free by design" in page
+        assert "no USB-C charging ports" not in page
+    assert "USB-C ports" in charger
+    assert "None. Cable-free by design" in charger
+    assert "does not include USB-C charging ports" not in charger
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()

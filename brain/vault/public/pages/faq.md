@@ -39,7 +39,7 @@ The specification lists an injection-moulded TPU front and a die-cast, milled zi
 
 ### Does it have USB-C charging ports?
 
-No. GANG–1 is designed for wireless charging.
+No. The specification lists USB-C ports as none. Cable-free by design.
 
 ### Does the hub need power?
 
