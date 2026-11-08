@@ -40,7 +40,7 @@ A case is part of the charging setup. Magnetic attachment and wireless charging 
 
 The sheet lists legacy Qi 1.0 charging with the pad flat. That does not establish attachment to the vertical face. For wall-mounted use, confirm the device or accessory can attach magnetically as well as charge wirelessly.
 
-Wired device charging is not supported; the hub has no USB-C charging ports.
+Wired charging is unsupported by design. The specification lists USB-C ports as none. Cable-free by design.
 
 ## Have a particular device in mind?
 

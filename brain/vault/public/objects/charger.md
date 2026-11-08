@@ -67,7 +67,7 @@ Current development specifications. Final details may change.
 | Front material | Injection-moulded TPU |
 | Back material | Die-cast, milled zinc |
 | Included cable | 4 ft extension cord |
-| Charging connection | Wireless; no USB-C charging ports |
+| USB-C ports | None. Cable-free by design |
 | Availability | In development |
 
 The 25 W figure is the specified maximum for each charging zone; 160 W describes the integrated power supply. Charging rate depends on the device and charging conditions.
@@ -95,7 +95,7 @@ Four wireless charging zones in one hub, each specified for up to 25 W. Check th
 
 ### Can I charge by USB-C?
 
-No. This product is designed for wireless charging and does not include USB-C charging ports.
+No. The specification lists USB-C ports as none. Cable-free by design.
 
 ### Is it completely wireless?
 
