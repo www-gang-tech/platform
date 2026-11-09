@@ -76,14 +76,14 @@ The 25 W figure is the specified maximum for each charging zone; 160 W describes
 
 ## In the box
 
-| Item | Quantity |
+| Item | Included |
 | --- | --- |
-| Charging hub | 1 |
-| 4 ft extension cord | 1 |
-| US-compatible outlet plates | 2 |
-| Custom screwdriver | 1 |
-| Drywall screws | 2 |
-| Square screws, various lengths | 4 |
+| Device | 1. Version 1.0 |
+| Extension cord | 1. For wall mounting |
+| Outlet plates | 2. Universal US compatible |
+| Screwdriver | 1. Custom designed |
+| Drywall screws | 2. Secure wall mounting |
+| Square screws | 4. Various lengths |
 
 [Plan its placement](/pages/setup/) and [check your device and case](/pages/compatibility/).
 

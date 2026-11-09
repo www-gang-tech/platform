@@ -20,10 +20,10 @@ The current specification lists a 120 V input, a 160 W integrated power supply, 
 
 ## Included for setup
 
-- One 4 ft extension cord.
-- Two US-compatible outlet plates.
-- One custom screwdriver.
-- Two drywall screws.
+- One 4 ft extension cord, for wall mounting.
+- Two universal US compatible outlet plates.
+- One custom-designed screwdriver.
+- Two drywall screws, for secure wall mounting.
 - Four square screws in various lengths.
 
 These are the accessories listed in the specification sheet. Installation requirements and the complete setup guide will be published before orders open.

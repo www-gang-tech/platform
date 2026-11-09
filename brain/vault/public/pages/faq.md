@@ -49,7 +49,7 @@ Yes. The hub has a 120 V input and a 160 W integrated power supply. A 4 ft exten
 
 ### What comes in the box?
 
-The specification lists one hub, one 4 ft extension cord, two outlet plates, one screwdriver, two drywall screws, and four square screws. See [setup and placement](/pages/setup/) for details.
+The specification lists one device (version 1.0), one 4 ft extension cord for wall mounting, two universal US compatible outlet plates, one custom-designed screwdriver, two drywall screws for secure wall mounting, and four square screws in various lengths. See [setup and placement](/pages/setup/) for details.
 
 ### How is it installed?
 

@@ -109,6 +109,35 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_box_contents_use_the_specification_notes(tmp_path):
+    dist = _render(tmp_path)
+    charger = (dist / "objects/charger/index.html").read_text()
+    faq = (dist / "pages/faq/index.html").read_text()
+    setup = (dist / "pages/setup/index.html").read_text()
+
+    for phrase in (
+        "Version 1.0",
+        "For wall mounting",
+        "Universal US compatible",
+        "Custom designed",
+        "Secure wall mounting",
+        "Various lengths",
+    ):
+        assert phrase in charger
+
+    assert "US-compatible outlet plates" not in charger
+    assert "Custom screwdriver" not in charger
+    assert "version 1.0" in faq
+    assert "universal US compatible outlet plates" in faq
+    assert "custom-designed screwdriver" in faq
+    assert "secure wall mounting" in faq
+    assert "for wall mounting" in setup
+    assert "universal US compatible outlet plates" in setup
+    assert "custom-designed screwdriver" in setup
+    assert "secure wall mounting" in setup
+    assert "4 ft extension cord" in charger
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
