@@ -4,7 +4,7 @@ type: page
 title: Questions about GANG
 summary: Charging output, devices and cases, materials, power requirements, box contents, and availability for GANG–1.
 created: '2026-10-01'
-updated: '2026-10-03'
+updated: '2026-11-10'
 visibility: public
 status: published
 url: /pages/faq/
@@ -31,7 +31,7 @@ The specification lists up to 25 W of wireless output per zone and a 160 W integ
 
 ### Which devices will it charge?
 
-The sheet lists MagSafe-enabled iPhones, selected Samsung Galaxy and Google Pixel models, other Qi2.0+ Android devices, and wireless accessories. Some require a magnetic case. The [compatibility page](/pages/compatibility/) gives the named models and conditions for vertical use.
+The sheet lists MagSafe-enabled iPhones, selected Samsung Galaxy and Google Pixel models, other Qi2.0+ Android devices, Apple AirPods, and all Qi2/MagSafe accessories. Legacy Qi 1.0 charges flat on the pad. Some require a magnetic case. The [compatibility page](/pages/compatibility/) gives the named models and conditions for vertical use.
 
 ### What is it made from?
 

@@ -109,6 +109,26 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_accessories_row_uses_the_specification_field(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "pages/compatibility/index.html").read_text(), "html.parser")
+    rows = {}
+    for tr in soup.find("table").find_all("tr"):
+        cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+        if cells:
+            rows[cells[0]] = cells
+
+    accessories = rows["Accessories"]
+    assert "Apple AirPods and all Qi2/MagSafe accessories" in accessories[1]
+    assert "Legacy Qi 1.0 charges flat on the pad." in accessories[2]
+    assert "Check the exact accessory" not in accessories[2]
+
+    faq = (dist / "pages/faq/index.html").read_text()
+    assert "Apple AirPods, and all Qi2/MagSafe accessories" in faq
+    assert "Legacy Qi 1.0 charges flat on the pad." in faq
+    assert "wireless accessories" not in faq
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
