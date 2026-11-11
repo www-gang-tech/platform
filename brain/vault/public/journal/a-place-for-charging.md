@@ -4,7 +4,7 @@ type: journal
 title: A place for charging
 summary: The prototype, the decision to move charging off the counter, and the questions that follow.
 created: '2026-10-01'
-updated: '2026-10-03'
+updated: '2026-11-11'
 visibility: public
 status: published
 url: /journal/a-place-for-charging/
@@ -18,6 +18,8 @@ revision_notes:
     note: Added the prototype photograph and a closer account of placement, shared charging, and the questions still open in development.
   - date: '2026-10-03'
     note: Incorporated the supplied GANG–1 specification sheet, including materials and power requirements.
+  - date: '2026-11-11'
+    note: The material description now uses the specification sheet's front and back fields.
 ---
 
 A room is shaped by small decisions. Where a light falls. Where a chair sits. What stays on the counter. Charging is part of that arrangement, even when the charger itself receives little attention.
@@ -36,7 +38,7 @@ That choice also makes the object more visible. Its outline, depth, and position
 
 The prototype makes one part of that idea tangible: four circular charging zones arranged on a single rectangular surface. It is a way to consider the relationship between the individual places to charge and the object they form together.
 
-The current specification gives that surface a material description: an injection-moulded TPU front and a die-cast, milled zinc back. The front, the body, and the way the object meets the wall can each be considered in their own right.
+The current specification gives that surface a material description: a TPU injected mold front and a die cast milled zinc back. The front, the body, and the way the object meets the wall can each be considered in their own right.
 
 ## Four places, one shared object
 

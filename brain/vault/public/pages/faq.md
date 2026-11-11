@@ -4,7 +4,7 @@ type: page
 title: Questions about GANG
 summary: Charging output, devices and cases, materials, power requirements, box contents, and availability for GANG–1.
 created: '2026-10-01'
-updated: '2026-10-03'
+updated: '2026-11-11'
 visibility: public
 status: published
 url: /pages/faq/
@@ -35,7 +35,7 @@ The sheet lists MagSafe-enabled iPhones, selected Samsung Galaxy and Google Pixe
 
 ### What is it made from?
 
-The specification lists an injection-moulded TPU front and a die-cast, milled zinc back.
+The specification lists a TPU injected mold front and a die cast milled zinc back.
 
 ### Does it have USB-C charging ports?
 

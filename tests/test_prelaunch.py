@@ -109,6 +109,31 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_material_rows_use_the_specification_fields(tmp_path):
+    dist = _render(tmp_path)
+    soup = BeautifulSoup((dist / "objects/charger/index.html").read_text(), "html.parser")
+    rows = {}
+    for tr in soup.find("table").find_all("tr"):
+        cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+        if cells:
+            rows[cells[0]] = cells
+
+    assert rows["Front material"][1] == "TPU injected mold"
+    assert rows["Back material"][1] == "Die cast milled zinc"
+    charger = soup.get_text(" ", strip=True)
+    assert "A TPU injected mold front meets a die cast milled zinc back." in charger
+    assert "injection-moulded TPU" not in charger
+    assert "die-cast, milled zinc" not in charger
+
+    faq = (dist / "pages/faq/index.html").read_text()
+    assert "a TPU injected mold front and a die cast milled zinc back" in faq
+    assert "injection-moulded TPU" not in faq
+
+    journal = (dist / "journal/a-place-for-charging/index.html").read_text()
+    assert "a TPU injected mold front and a die cast milled zinc back" in journal
+    assert "injection-moulded TPU" not in journal
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()

@@ -4,7 +4,7 @@ type: object
 title: GANG–1
 summary: Wall-mounted wireless charging with four zones rated up to 25 W each and a 160 W integrated power supply.
 created: '2026-10-01'
-updated: '2026-10-03'
+updated: '2026-11-11'
 visibility: public
 status: published
 url: /objects/charger/
@@ -33,7 +33,7 @@ Four charging zones bring compatible devices to one shared place.
 
 The front. The profile. The way it meets the wall. Each is part of the design.
 
-An injection-moulded TPU front meets a die-cast, milled zinc back.
+A TPU injected mold front meets a die cast milled zinc back.
 
 ## Know what fits.
 
@@ -64,8 +64,8 @@ Current development specifications. Final details may change.
 | Integrated power supply | 160 W |
 | Input voltage | 120 V |
 | Wireless standard | Qi2.2; standard version 2.2.1 listed in the specification sheet |
-| Front material | Injection-moulded TPU |
-| Back material | Die-cast, milled zinc |
+| Front material | TPU injected mold |
+| Back material | Die cast milled zinc |
 | Included cable | 4 ft extension cord |
 | Charging connection | Wireless; no USB-C charging ports |
 | Availability | In development |

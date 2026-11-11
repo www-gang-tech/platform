@@ -25,7 +25,7 @@ Public navigation invites visitors to **Follow the work**. Editor access remains
 
 The owner supplied `GANG__Specifications (1).pdf` and confirmed **GANG–1** as the public product name. The original file is copied unchanged to `public/documents/gang-specifications.pdf`, served at `/assets/documents/gang-specifications.pdf`. Product, compatibility, setup, and press pages link to it. Page URLs and document IDs remain stable.
 
-The current product specification now includes four zones rated up to 25 W each, a 160 W integrated supply, 120 V input, Qi2.2 with the sheet's 2.2.1 standard version, injection-moulded TPU front, die-cast milled zinc back, 4 ft extension cord, no USB-C charging ports, and the listed box contents. Compatibility preserves the sheet's named models and case conditions, distinguishing vertical magnetic attachment from flat legacy Qi charging.
+The current product specification now includes four zones rated up to 25 W each, a 160 W integrated supply, 120 V input, Qi2.2 with the sheet's 2.2.1 standard version, TPU injected mold front, die cast milled zinc back, 4 ft extension cord, no USB-C charging ports, and the listed box contents. Compatibility preserves the sheet's named models and case conditions, distinguishing vertical magnetic attachment from flat legacy Qi charging.
 
 The copy identifies these as development specifications. The 90-minute headline, separate iPhone 17 charging-time figures, and “24+” device total are not promoted into website claims: the sheet does not provide a shared timing test basis or a complete device/case matrix. No final-product certification or simultaneous four-device output is inferred from the sheet. The existing prototype photograph remains labelled as a prototype.
 
