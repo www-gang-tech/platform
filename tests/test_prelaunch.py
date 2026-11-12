@@ -1,5 +1,6 @@
 """Public editorial pages share a shell and make the prelaunch state clear."""
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "cli" / "gang"))
 
 from core.content_loader import load_public_content
+from core.minify import minify_javascript
 from core.site_build import write_markdown_pages
 
 
@@ -107,6 +109,44 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "grid-template-columns: 1fr 1.2fr" not in (ROOT / "public" / "style.css").read_text()
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+
+
+def test_javascript_minifier_keeps_urls_inside_scripts(tmp_path):
+    source = "\n".join(
+        [
+            "// drop this comment",
+            "const checkoutUrl = `https://example.com/cart/${id}`;",
+            "const stock = 'https://schema.org/InStock';",
+            "/* block",
+            "   comment */",
+            "const kept = 1;",
+        ]
+    )
+    minified = minify_javascript(source)
+    assert "drop this comment" not in minified
+    assert "block" not in minified
+    assert "https://example.com/cart/${id}" in minified
+    assert "https://schema.org/InStock" in minified
+    assert "const kept = 1;" in minified
+
+    for name in ("cart.js", "product.js", "comments.js"):
+        compiled = minify_javascript((ROOT / "public" / name).read_text())
+        out = tmp_path / name
+        out.write_text(compiled)
+        result = subprocess.run(["node", "--check", str(out)], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+
+def test_cart_checkout_stays_on_the_site(tmp_path):
+    dist = _render(tmp_path)
+    cart_js = (dist / "assets" / "cart.js").read_text()
+    page = (dist / "cart" / "index.html").read_text()
+
+    assert "shopify.com" not in cart_js
+    assert "window.location.href = '/cart/'" in cart_js
+    assert "Checkout is not available yet." in cart_js
+    assert 'id="cart-checkout-status"' in page
+    assert 'role="status"' in page
 
 
 def test_store_index_is_a_four_column_grid(tmp_path):
