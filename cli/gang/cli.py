@@ -5585,28 +5585,22 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
     try:
         import re
         
-        # Minify JS (safer approach - preserve operators)
+        # Minify JS. Full-line comments only; a mid-line // is often a URL.
+        from core.minify import minify_javascript
+
         js_files = [f for f in dist_path.rglob('*.js')]
         js_original = 0
         js_minified = 0
         for js_file in js_files:
-            # Skip editor-bundle.js to avoid corruption
+            # Leave the in-place editor untouched.
             if js_file.name == 'editor-bundle.js':
                 continue
-                
+
             js_content = js_file.read_text()
             js_original += len(js_content)
-            # Remove single-line comments (but preserve URLs)
-            js_content = re.sub(r'(?<!["\'/])//[^\n]*', '', js_content)
-            # Remove multi-line comments
-            js_content = re.sub(r'/\*.*?\*/', '', js_content, flags=re.DOTALL)
-            # Remove extra whitespace (but not all - preserve some for safety)
-            js_content = re.sub(r'\n\s+', '\n', js_content)
-            js_content = re.sub(r'\s{2,}', ' ', js_content)
-            # Remove empty lines
-            js_content = '\n'.join(line for line in js_content.split('\n') if line.strip())
-            js_minified += len(js_content.strip())
-            js_file.write_text(js_content.strip())
+            js_content = minify_javascript(js_content)
+            js_minified += len(js_content)
+            js_file.write_text(js_content)
         
         if js_files:
             js_savings = ((js_original - js_minified) / js_original * 100) if js_original > 0 else 0

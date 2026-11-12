@@ -161,17 +161,14 @@
         }
     }
     
-    // Build Shopify checkout URL with all cart items
     function proceedToCheckout() {
         const cart = getCart();
         if (cart.length === 0) return;
-        
-        // Build Shopify cart URL
-        // Format: /cart/VARIANT_ID:QUANTITY,VARIANT_ID:QUANTITY
-        const cartItems = cart.map(item => `${item.id}:${item.quantity}`).join(',');
-        const checkoutUrl = `https://www.shopify.com/cart/${cartItems}`;
-        
-        window.location.href = checkoutUrl;
+
+        const status = document.getElementById('cart-checkout-status');
+        if (status) {
+            status.textContent = 'Checkout is not available yet.';
+        }
     }
     
     // Global functions for cart page
