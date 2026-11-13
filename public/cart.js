@@ -1,6 +1,7 @@
 /**
  * Shopping Cart - Minimal Client-Side Implementation
- * Uses localStorage for persistence, works across pages
+ * Uses localStorage for persistence, works across pages.
+ * Stored rows are untrusted: render them as text, never as HTML.
  */
 
 (function() {
@@ -8,10 +9,10 @@
     
     const CART_KEY = 'gang_cart';
     
-    // Cart storage utilities
     function getCart() {
         try {
-            return JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+            const parsed = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
+            return Array.isArray(parsed) ? parsed : [];
         } catch {
             return [];
         }
@@ -21,13 +22,71 @@
         localStorage.setItem(CART_KEY, JSON.stringify(cart));
         updateCartCount();
     }
+
+    function asText(value) {
+        return value == null ? '' : String(value);
+    }
+
+    function clampQuantity(value) {
+        const number = parseInt(value, 10);
+        if (!Number.isFinite(number)) return 1;
+        return Math.max(1, Math.min(99, number));
+    }
+
+    function money(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number) || number < 0) return 0;
+        return number;
+    }
+
+    function imageUrl(value) {
+        const raw = asText(value).trim();
+        if (!raw || raw.startsWith('//') || raw.startsWith('/\\')) return '';
+        if (raw.startsWith('/')) return raw;
+        try {
+            const url = new URL(raw, window.location.origin);
+            if (url.protocol === 'http:' || url.protocol === 'https:') return url.href;
+        } catch {
+            return '';
+        }
+        return '';
+    }
+
+    function lineItem(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const quantity = clampQuantity(raw.quantity);
+        return {
+            id: asText(raw.id),
+            name: asText(raw.name || 'Product'),
+            variant: asText(raw.variant),
+            price: money(raw.price),
+            currency: asText(raw.currency || 'USD') || 'USD',
+            quantity: quantity,
+            image: imageUrl(raw.image),
+            sku: asText(raw.sku)
+        };
+    }
+
+    function sameLine(item, id, variant) {
+        return !!item && asText(item.id) === asText(id) && asText(item.variant) === asText(variant);
+    }
+
+    function element(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text != null) node.textContent = text;
+        return node;
+    }
     
     function updateCartCount() {
         const cart = getCart();
-        const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+        const count = cart.reduce((sum, item) => {
+            if (!item || typeof item !== 'object') return sum;
+            return sum + clampQuantity(item.quantity);
+        }, 0);
         const badges = document.querySelectorAll('.cart-count');
         badges.forEach(badge => {
-            badge.textContent = count;
+            badge.textContent = String(count);
             if (!badge.closest('.site-cart')) {
                 badge.style.display = count > 0 ? 'inline-block' : 'none';
             }
@@ -47,23 +106,23 @@
         
         const item = {
             id: form.dataset.variantId || Date.now().toString(),
-            name: form.dataset.productName || 'Product',
+            name: asText(form.dataset.productName || 'Product'),
             variant: formData.get('color') && formData.get('size') 
                 ? `${formData.get('color')} / ${formData.get('size')}`
                 : '',
-            price: parseFloat(form.dataset.price || '0'),
-            currency: form.dataset.currency || 'USD',
-            quantity: parseInt(formData.get('quantity') || '1'),
-            image: form.dataset.image || '',
-            url: form.dataset.productUrl || '',
-            sku: form.dataset.sku || ''
+            price: money(form.dataset.price || '0'),
+            currency: asText(form.dataset.currency || 'USD') || 'USD',
+            quantity: clampQuantity(formData.get('quantity') || '1'),
+            image: imageUrl(form.dataset.image || ''),
+            url: asText(form.dataset.productUrl || ''),
+            sku: asText(form.dataset.sku || '')
         };
         
         const cart = getCart();
-        const existing = cart.find(i => i.id === item.id && i.variant === item.variant);
+        const existing = cart.find(i => sameLine(i, item.id, item.variant));
         
         if (existing) {
-            existing.quantity += item.quantity;
+            existing.quantity = clampQuantity(clampQuantity(existing.quantity) + item.quantity);
         } else {
             cart.push(item);
         }
@@ -77,10 +136,10 @@
     // Update quantity on cart page
     function updateQuantity(id, variant, quantity) {
         const cart = getCart();
-        const item = cart.find(i => i.id === id && i.variant === variant);
+        const item = cart.find(i => sameLine(i, id, variant));
         
         if (item) {
-            item.quantity = Math.max(1, Math.min(99, quantity));
+            item.quantity = clampQuantity(quantity);
             saveCart(cart);
             renderCart();
         }
@@ -88,10 +147,16 @@
     
     // Remove item from cart
     function removeItem(id, variant) {
-        let cart = getCart();
-        cart = cart.filter(i => !(i.id === id && i.variant === variant));
+        const cart = getCart().filter(i => !sameLine(i, id, variant));
         saveCart(cart);
         renderCart();
+    }
+
+    function showEmpty(container, emptyMessage, cartSummary) {
+        container.textContent = '';
+        container.style.display = 'none';
+        if (emptyMessage) emptyMessage.style.display = 'block';
+        if (cartSummary) cartSummary.style.display = 'none';
     }
     
     // Render cart page
@@ -102,62 +167,78 @@
         
         if (!container) return;
         
-        const cart = getCart();
+        const lines = getCart().map(lineItem).filter(Boolean);
         
-        if (cart.length === 0) {
-            container.style.display = 'none';
-            if (emptyMessage) emptyMessage.style.display = 'block';
-            if (cartSummary) cartSummary.style.display = 'none';
+        if (lines.length === 0) {
+            showEmpty(container, emptyMessage, cartSummary);
             return;
         }
         
         if (emptyMessage) emptyMessage.style.display = 'none';
         if (cartSummary) cartSummary.style.display = 'block';
         container.style.display = 'block';
-        
-        let html = '';
+        container.textContent = '';
+
         let subtotal = 0;
+        const currencies = new Set();
         
-        cart.forEach(item => {
+        lines.forEach((item, index) => {
             const itemTotal = item.price * item.quantity;
             subtotal += itemTotal;
+            currencies.add(item.currency);
             
-            html += `
-                <div class="cart-item">
-                    ${item.image ? `<img src="${item.image}" alt="${item.name}" width="80" height="80" class="cart-item-image">` : ''}
-                    <div class="cart-item-details">
-                        <h3 class="cart-item-name">${item.name}</h3>
-                        ${item.variant ? `<p class="cart-item-variant">${item.variant}</p>` : ''}
-                        ${item.sku ? `<p class="cart-item-sku">SKU: ${item.sku}</p>` : ''}
-                    </div>
-                    <div class="cart-item-quantity">
-                        <label for="qty-${item.id}-${item.variant}">Qty:</label>
-                        <input type="number" 
-                               id="qty-${item.id}-${item.variant}"
-                               value="${item.quantity}" 
-                               min="1" 
-                               max="99"
-                               onchange="updateCartQuantity('${item.id}', '${item.variant}', this.value)">
-                    </div>
-                    <div class="cart-item-price">
-                        <p>${item.currency} ${item.price.toFixed(2)}</p>
-                        <p class="cart-item-total">${item.currency} ${itemTotal.toFixed(2)}</p>
-                    </div>
-                    <button onclick="removeCartItem('${item.id}', '${item.variant}')" 
-                            class="cart-item-remove" 
-                            aria-label="Remove ${item.name}">
-                        ✕
-                    </button>
-                </div>
-            `;
+            const row = element('div', 'cart-item');
+            if (item.image) {
+                const img = element('img', 'cart-item-image');
+                img.src = item.image;
+                img.alt = item.name;
+                img.width = 80;
+                img.height = 80;
+                row.append(img);
+            }
+
+            const details = element('div', 'cart-item-details');
+            details.append(element('h3', 'cart-item-name', item.name));
+            if (item.variant) details.append(element('p', 'cart-item-variant', item.variant));
+            if (item.sku) details.append(element('p', 'cart-item-sku', `SKU: ${item.sku}`));
+            row.append(details);
+
+            const qtyId = `qty-${index}`;
+            const quantityWrap = element('div', 'cart-item-quantity');
+            const label = element('label', '', 'Qty:');
+            label.htmlFor = qtyId;
+            const input = element('input');
+            input.type = 'number';
+            input.id = qtyId;
+            input.value = String(item.quantity);
+            input.min = '1';
+            input.max = '99';
+            input.addEventListener('change', function() {
+                updateQuantity(item.id, item.variant, input.value);
+            });
+            quantityWrap.append(label, input);
+            row.append(quantityWrap);
+
+            const price = element('div', 'cart-item-price');
+            price.append(element('p', '', `${item.currency} ${item.price.toFixed(2)}`));
+            price.append(element('p', 'cart-item-total', `${item.currency} ${itemTotal.toFixed(2)}`));
+            row.append(price);
+
+            const remove = element('button', 'cart-item-remove', '✕');
+            remove.type = 'button';
+            remove.setAttribute('aria-label', `Remove ${item.name}`);
+            remove.addEventListener('click', function() {
+                removeItem(item.id, item.variant);
+            });
+            row.append(remove);
+            container.append(row);
         });
         
-        container.innerHTML = html;
-        
-        // Update summary
         const subtotalEl = document.getElementById('cart-subtotal');
         if (subtotalEl) {
-            subtotalEl.textContent = `${cart[0].currency} ${subtotal.toFixed(2)}`;
+            subtotalEl.textContent = currencies.size === 1
+                ? `${lines[0].currency} ${subtotal.toFixed(2)}`
+                : 'Mixed currencies';
         }
     }
     
@@ -193,4 +274,3 @@
         form.addEventListener('submit', addToCart);
     });
 })();
-
