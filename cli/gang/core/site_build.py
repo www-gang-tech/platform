@@ -25,12 +25,27 @@ SECTION_INDEXES = (
     ("newsletters", "Newsletters", "Newsletters."),
 )
 
+#: Dated public writing. The JSON feed is this list, not the store or static pages.
+FEED_COLLECTIONS = ("journal", "research", "guides", "posts", "newsletters")
+
 
 def output_file_for_url(dist_path: Path, url: str) -> Path:
     clean = url.strip("/")
     if not clean:
         return dist_path / "index.html"
     return dist_path / clean / "index.html"
+
+
+def feed_items(grouped: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Published notes a reader can subscribe to.
+
+    Journal and research are the public record. The posts collection is empty
+    on this site, so a feed built only from posts advertises nothing.
+    """
+    items: List[Dict[str, Any]] = []
+    for key in FEED_COLLECTIONS:
+        items.extend(grouped.get(key) or [])
+    return items
 
 
 def template_for_document(document: PublicDocument) -> str:
@@ -197,7 +212,7 @@ def write_markdown_pages(
         sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     if not any(item.get("url") == "/search/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/search/", "title": "Search", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
-    generators.generate_all(dist_path, sitemap_pages, grouped.get("posts", []), preview=preview)
+    generators.generate_all(dist_path, sitemap_pages, feed_items(grouped), preview=preview)
     write_cart_page(
         config,
         dist_path,

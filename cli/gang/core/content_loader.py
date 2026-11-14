@@ -128,6 +128,7 @@ class PublicDocument:
             "stage": self.frontmatter.get("stage"),
             "image": image,
             "image_alt": image_alt,
+            "updated": self.updated,
         }
 
 
