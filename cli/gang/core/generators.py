@@ -99,37 +99,46 @@ Sitemap: {base}/sitemap.xml
         return "\n".join(lines) + "\n"
     
     def generate_feed_json(self, posts: List[Dict[str, Any]]) -> str:
-        """Generate JSON Feed (https://jsonfeed.org)"""
+        """Generate JSON Feed (https://jsonfeed.org) for published notes."""
+        base = str(self.site_url or "").rstrip("/")
         feed = {
             "version": "https://jsonfeed.org/version/1.1",
             "title": self.site.get('title', ''),
-            "home_page_url": self.site_url,
-            "feed_url": f"{self.site_url}/feed.json",
+            "home_page_url": f"{base}/",
+            "feed_url": f"{base}/feed.json",
             "description": self.site.get('description', ''),
             "language": self.site.get('language', 'en'),
             "items": []
         }
-        
-        for post in posts:
-            # Convert date to string if needed
-            date_val = post.get('date', '')
-            if date_val and not isinstance(date_val, str):
-                date_val = str(date_val)
-            
+
+        ordered = sorted(posts or [], key=lambda item: str(item.get("date") or ""), reverse=True)
+        seen = set()
+        for post in ordered:
+            path = str(post.get("url") or "")
+            if not path.startswith("/") or path in seen:
+                continue
+            seen.add(path)
             item = {
-                "id": f"{self.site_url}{post['url']}",
-                "url": f"{self.site_url}{post['url']}",
-                "title": post.get('title', ''),
-                "content_html": post.get('content_html', ''),
-                "summary": post.get('summary', ''),
-                "date_published": date_val,
+                "id": f"{base}{path}",
+                "url": f"{base}{path}",
+                "title": post.get("title") or "",
             }
-            
-            if post.get('tags'):
-                item['tags'] = post['tags']
-            
-            feed['items'].append(item)
-        
+            summary = post.get("summary") or ""
+            if summary:
+                item["summary"] = summary
+            content_html = post.get("content_html") or ""
+            if content_html:
+                item["content_html"] = content_html
+            published = _rfc3339(post.get("date"))
+            if published:
+                item["date_published"] = published
+            modified = _rfc3339(post.get("updated"))
+            if modified:
+                item["date_modified"] = modified
+            if post.get("tags"):
+                item["tags"] = post["tags"]
+            feed["items"].append(item)
+
         return json.dumps(feed, indent=2)
     
     def generate_agentmap(self) -> str:
@@ -180,6 +189,19 @@ Sitemap: {base}/sitemap.xml
         agentmap_json = self.generate_agentmap()
         (dist_path / "agentmap.json").write_text(agentmap_json)
         (dist_path / "llms.txt").write_text(self.generate_llms_txt(pages))
+
+
+def _rfc3339(value: Any) -> str:
+    """A JSON Feed date. A calendar day becomes midnight UTC."""
+    if isinstance(value, datetime):
+        text = value.isoformat()
+    else:
+        text = str(value or "").strip()
+    if not text:
+        return ""
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
+        return f"{text}T00:00:00Z"
+    return text
 
 
 def _w3c_date(value: Any) -> Optional[str]:

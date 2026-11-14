@@ -32,7 +32,9 @@
         </li>
         {% endfor %}
     </ul>
+    {% if content_type in ["journal", "research", "guides", "posts", "newsletters"] %}
     <p class="listing-feed">Related feed. <a href="/feed.json">Subscribe to the JSON feed</a>.</p>
+    {% endif %}
     {% else %}
     <p>No {{ content_type }} found.</p>
     {% endif %}
