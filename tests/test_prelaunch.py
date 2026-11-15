@@ -109,6 +109,24 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_accessibility_statement_uses_the_published_address(tmp_path):
+    dist = _render(tmp_path)
+    html = (dist / "pages/wcag-conformance/index.html").read_text()
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(" ", strip=True)
+
+    assert "[Your Address]" not in html
+    assert "fully conformant" not in text.lower()
+    assert "accessibility@gang.tech" not in html
+    assert "GANG Platform" not in text
+    assert "info@gang.tech" in html
+    assert "228 Park Ave S" in text
+    assert "PMB 400205" in text
+    assert "10003-1502" in text
+    assert len(soup.find_all("h1")) == 1
+    assert soup.find("h1").get_text(strip=True) == "Accessibility"
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
