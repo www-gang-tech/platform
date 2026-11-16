@@ -1,6 +1,7 @@
 """Public editorial pages share a shell and make the prelaunch state clear."""
 import shutil
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -107,6 +108,21 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "grid-template-columns: 1fr 1.2fr" not in (ROOT / "public" / "style.css").read_text()
     assert "Page size:" in home
     assert "__PAGE_SIZE__" not in home
+
+
+def test_sitemap_lastmod_uses_the_revision_date(tmp_path):
+    dist = _render(tmp_path)
+    root = ET.parse(dist / "sitemap.xml").getroot()
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    lastmod = {}
+    for url in root.findall("sm:url", ns):
+        loc = url.findtext("sm:loc", default="", namespaces=ns)
+        lastmod[urlsplit(loc).path] = url.findtext("sm:lastmod", default="", namespaces=ns)
+
+    assert lastmod["/objects/charger/"] == "2026-10-03"
+    assert lastmod["/"] == "2026-10-05"
+    assert lastmod["/journal/from-evidence-to-article/"] == "2026-10-03"
+    assert lastmod["/team/"] == "2026-10-01"
 
 
 def test_store_index_is_a_four_column_grid(tmp_path):
