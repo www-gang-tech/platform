@@ -5147,7 +5147,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.optimizer import AIOptimizer
         from core.build_profiler import BuildProfiler
         from core.content_loader import PublicContentError, load_public_content
-        from core.site_build import write_html_sitemap, write_markdown_pages, default_jsonld
+        from core.site_build import minify_html, write_html_sitemap, write_markdown_pages, default_jsonld
     except ImportError:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
@@ -5156,7 +5156,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
         from core.optimizer import AIOptimizer
         from core.build_profiler import BuildProfiler
         from core.content_loader import PublicContentError, load_public_content
-        from core.site_build import write_html_sitemap, write_markdown_pages, default_jsonld
+        from core.site_build import minify_html, write_html_sitemap, write_markdown_pages, default_jsonld
     
     # Initialize profiler
     profiler = BuildProfiler() if profile else None
@@ -5642,13 +5642,7 @@ def build(ctx, check_quality, min_quality_score, validate_links, check_slugs, op
             original_html = html_file.read_text()
             original_size += len(original_html)
             
-            # Simple minification:
-            # 1. Remove HTML comments
-            minified = re.sub(r'<!--.*?-->', '', original_html, flags=re.DOTALL)
-            # 2. Remove whitespace between tags
-            minified = re.sub(r'>\s+<', '><', minified)
-            # 3. Remove leading/trailing whitespace on lines
-            minified = '\n'.join(line.strip() for line in minified.split('\n') if line.strip())
+            minified = minify_html(original_html)
             
             minified_size += len(minified)
             html_file.write_text(minified)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -482,6 +483,18 @@ def default_jsonld(config: Dict[str, Any], *, title: str, url: str, description:
             },
         ],
     }
+
+
+def minify_html(html: str) -> str:
+    """Collapse source whitespace without joining the text of adjacent tags.
+
+    A production build used to turn ``> <`` into ``><``. The header then read
+    as ``GANGStoreInformation`` and the footer as ``PrivacyTerms`` once the
+    newlines between those links were removed.
+    """
+    minified = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
+    minified = re.sub(r">\s+<", "> <", minified)
+    return "\n".join(line.strip() for line in minified.split("\n") if line.strip())
 
 
 def stamp_page_size(html: str, placeholder: str = "__PAGE_SIZE__") -> str:
