@@ -9,13 +9,32 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 
+def redirects_file_for(content_path: Path) -> Path:
+    """Return the .redirects.json that `gang redirects` reads and writes.
+
+    That command stores the file beside gang.config.yml, because build.content
+    is ./content and the file is the parent of that directory. A vault build
+    passes brain/vault/public instead. Using that directory's parent would
+    look for brain/vault/.redirects.json and publish none of the redirects
+    saved at the repository root.
+    """
+    start = Path(content_path)
+    if start.is_file():
+        start = start.parent
+    start = start.resolve()
+    for directory in (start, *start.parents):
+        if (directory / "gang.config.yml").is_file():
+            return directory / ".redirects.json"
+    return Path(content_path).parent / ".redirects.json"
+
+
 class RedirectManager:
     """Manage 301 redirects for slug changes"""
     
     def __init__(self, content_path: Path, dist_path: Path):
         self.content_path = content_path
         self.dist_path = dist_path
-        self.redirects_file = content_path.parent / '.redirects.json'
+        self.redirects_file = redirects_file_for(content_path)
         self.redirects = self._load_redirects()
     
     def _load_redirects(self) -> Dict[str, Any]:
