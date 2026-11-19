@@ -24,6 +24,12 @@ SECTION_INDEXES = (
     ("projects", "Projects", "Projects."),
     ("newsletters", "Newsletters", "Newsletters."),
 )
+_SECTION_LABELS = {key: label for key, label, _intro in SECTION_INDEXES}
+
+
+def _list_route_title(route: str) -> str:
+    key = route.strip("/")
+    return _SECTION_LABELS.get(key) or key.replace("-", " ").title()
 
 
 def output_file_for_url(dist_path: Path, url: str) -> Path:
@@ -190,9 +196,21 @@ def write_markdown_pages(
     sitemap_pages = list(grouped["all"])
     if not any(item["url"] == "/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/", "title": config["site"]["title"], "type": "home"})
+    known_urls = {item.get("url") for item in sitemap_pages}
     for route in LIST_ROUTES:
-        if route != "/" and any(item["url"].startswith(route) or item["type"] == route.strip("/") for item in grouped["all"]):
-            sitemap_pages.append({"url": route, "title": route.strip("/").title(), "type": "list"})
+        if route == "/" or route in known_urls:
+            continue
+        has_children = any(
+            (item.get("url") or "").startswith(route) or item.get("type") == route.strip("/")
+            for item in grouped["all"]
+        )
+        if not has_children:
+            continue
+        # A document that already lives at this path (Studio is /studio/) must
+        # not be listed again. Section labels follow the public header: the
+        # objects index is Store, not the slug "Objects".
+        sitemap_pages.append({"url": route, "title": _list_route_title(route), "type": "list"})
+        known_urls.add(route)
     if not any(item.get("url") == "/sitemap/" for item in sitemap_pages):
         sitemap_pages.append({"url": "/sitemap/", "title": "Sitemap", "type": "list", "date": datetime.now().strftime("%Y-%m-%d")})
     if not any(item.get("url") == "/search/" for item in sitemap_pages):

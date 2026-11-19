@@ -109,6 +109,26 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_llms_txt_lists_each_url_once_and_uses_the_header_names(tmp_path):
+    dist = _render(tmp_path)
+    text = (dist / "llms.txt").read_text()
+    catalog = text.split("## All public URLs", 1)[1].split("## Machine-readable", 1)[0]
+    urls = [
+        line[line.rfind("(") + 1 :].rstrip(")")
+        for line in catalog.splitlines()
+        if line.startswith("- [")
+    ]
+
+    assert urls
+    assert len(urls) == len(set(urls))
+    assert urls.count("https://gang.tech/studio/") == 1
+    assert "https://gang.tech/objects/" in urls
+    assert "https://gang.tech/journal/" in urls
+    assert "- [Store](https://gang.tech/objects/)" in catalog
+    assert "[Objects](https://gang.tech/objects/)" not in text
+    assert "[Information](https://gang.tech/studio/)" in text
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
