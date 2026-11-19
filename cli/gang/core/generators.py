@@ -70,9 +70,9 @@ Sitemap: {base}/sitemap.xml
             "",
             "## Primary navigation",
             f"- [Home]({base}/)",
-            f"- [Studio]({base}/studio/)",
+            f"- [Store]({base}/objects/)",
+            f"- [Information]({base}/studio/)",
             f"- [About]({base}/about/)",
-            f"- [Objects]({base}/objects/)",
             f"- [Research]({base}/research/)",
             f"- [Journal]({base}/journal/)",
             f"- [Team]({base}/team/)",
@@ -82,8 +82,14 @@ Sitemap: {base}/sitemap.xml
             "",
             "## All public URLs",
         ]
+        seen_paths = set()
         for page in sorted(pages, key=lambda item: item.get("url") or ""):
             path = page.get("url") or "/"
+            if not path.startswith("/"):
+                path = "/" + path
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
             name = page.get("title") or path
             lines.append(f"- [{name}]({base}{path})")
         lines.extend(
