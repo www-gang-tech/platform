@@ -18,10 +18,10 @@ body,
   font-synthesis: none;
 }
 
-body *:not([class*="fa-"]),
-body *:not([class*="fa-"])::before,
-body *:not([class*="fa-"])::after,
-.markdown-body *:not([class*="fa-"]),
+body *:not([class*="fa-"]):not(strong, b, em, i, code, kbd, samp, pre, tt),
+body *:not([class*="fa-"]):not(strong, b, em, i, code, kbd, samp, pre, tt)::before,
+body *:not([class*="fa-"]):not(strong, b, em, i, code, kbd, samp, pre, tt)::after,
+.markdown-body *:not([class*="fa-"]):not(strong, b, em, i, code, kbd, samp, pre, tt),
 input::placeholder,
 textarea::placeholder,
 ::file-selector-button {
@@ -31,6 +31,26 @@ textarea::placeholder,
   font-style: inherit !important;
   line-height: inherit !important;
   letter-spacing: inherit !important;
+}
+
+strong,
+b {
+  font-weight: 700;
+  font-synthesis: weight;
+}
+
+em,
+i {
+  font-style: italic;
+  font-synthesis: style;
+}
+
+code,
+kbd,
+samp,
+pre,
+tt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 a,
