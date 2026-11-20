@@ -109,6 +109,22 @@ def test_production_omits_drafts_and_indexes_existing_nav(tmp_path):
     assert "__PAGE_SIZE__" not in home
 
 
+def test_uniform_type_keeps_emphasis_and_code(tmp_path):
+    css = (ROOT / "public" / "typography.css").read_text()
+    exclusion = ":not(strong, b, em, i, code, kbd, samp, pre, tt)"
+    assert css.count(exclusion) == 4
+    assert "font-weight: 700" in css
+    assert "font-style: italic" in css
+
+    dist = _render(tmp_path)
+    home = (dist / "index.html").read_text()
+    studio = (dist / "studio" / "index.html").read_text()
+    assert "<strong>What is GANG?</strong>" in home
+    assert "<strong>Now.</strong>" in studio
+    assert 'href="/assets/typography.css"' in home
+    assert exclusion in (dist / "assets" / "typography.css").read_text()
+
+
 def test_store_index_is_a_four_column_grid(tmp_path):
     dist = _render(tmp_path)
     store = (dist / "objects/index.html").read_text()
