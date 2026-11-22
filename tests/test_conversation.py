@@ -2282,7 +2282,46 @@ class ResearchLoopTests(ConversationTestCase):
 
         self.assertEqual(len(outcome.records), 2)
         self.assertIn("2 ingested versions", outcome.note)
+        self.assertFalse(outcome.truncated)
         self.assertEqual(hashlib.sha256(registry.read_bytes()).hexdigest(), before)
+
+    def test_version_history_keeps_the_current_ingestion_when_capped(self):
+        self.build_index()
+        registry = self.home / "ingestion/registry.json"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        versions = [
+            {"version": number, "content_hash": f"h{number:02d}", "ingested_at": f"2026-01-{number:02d}"}
+            for number in range(1, 12)
+        ]
+        # Same timestamp, written newest-number first. String sort would put
+        # version 10 ahead of version 2.
+        versions.extend(
+            [
+                {"version": 10, "content_hash": "h10", "ingested_at": "2026-02-01T00:00:00+00:00"},
+                {"version": 2, "content_hash": "h02", "ingested_at": "2026-02-01T00:00:00+00:00"},
+            ]
+        )
+        registry.write_text(
+            json.dumps({"sources": {"drive-file_schedule": {"versions": versions}}}),
+            encoding="utf-8",
+        )
+        tools = self.tools()
+
+        history = tools.call("get_document_history", {"document_id": AGENDA_ID})
+        comparison = tools.call("compare_document_versions", {"document_id": AGENDA_ID})
+
+        self.assertTrue(history.truncated)
+        self.assertEqual([item["version"] for item in history.records[-2:]], [2, 10])
+        self.assertNotIn(1, [item["version"] for item in history.records])
+        self.assertEqual(history.records[-1]["ingested_at"], "2026-02-01T00:00:00+00:00")
+        self.assertIn("13", history.note)
+        self.assertIn("2026-01-01", history.note)
+        self.assertIn("13 ingested versions", comparison.note)
+        self.assertIn("2026-01-01", comparison.note)
+        self.assertIn("2026-02-01T00:00:00+00:00", comparison.note)
+        self.assertTrue(comparison.truncated)
+        self.assertEqual(comparison.records[-1]["version"], 10)
+        self.assertLess(len(comparison.records), 13)
 
     def test_document_history_reports_absence_rather_than_inventing_one(self):
         self.build_index()

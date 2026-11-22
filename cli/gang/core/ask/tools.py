@@ -491,16 +491,14 @@ class ResearchTools:
                 tool="get_document_history", arguments=values, note="No such document in the index."
             )
         versions = self._versions(rows[0].get("source_ids") or [])
+        shown = self._history_window(versions)
         return ToolResult(
             tool="get_document_history",
             arguments=values,
             documents=rows,
-            records=versions,
-            note=(
-                "Ingested version history of the source. Each entry is immutable raw evidence."
-                if versions
-                else "No ingestion history recorded for this document's source."
-            ),
+            records=shown,
+            truncated=len(shown) < len(versions),
+            note=_history_note(versions, shown),
         )
 
     def _tool_compare_document_versions(self, values: Dict[str, Any]) -> ToolResult:
@@ -520,16 +518,27 @@ class ResearchTools:
                 records=versions,
                 note="Only one ingested version exists, so there is nothing to compare.",
             )
+        shown = self._history_window(versions)
         first, last = versions[0], versions[-1]
+        omitted = len(versions) - len(shown)
+        span = (
+            f"The source changed across {len(versions)} ingested versions, from "
+            f"{first.get('ingested_at', '?')} to {last.get('ingested_at', '?')}. "
+        )
+        if omitted:
+            span += (
+                f"This list is the {len(shown)} most recent versions; "
+                f"{omitted} earlier {'version is' if omitted == 1 else 'versions are'} omitted. "
+            )
         return ToolResult(
             tool="compare_document_versions",
             arguments=values,
             documents=rows,
-            records=versions,
+            records=shown,
+            truncated=omitted > 0,
             note=(
-                f"The source changed across {len(versions)} ingested versions, from "
-                f"{first.get('ingested_at', '?')} to {last.get('ingested_at', '?')}. "
-                "Only the current version's text is in the index; earlier versions are "
+                span
+                + "Only the current version's text is in the index; earlier versions are "
                 "recorded as immutable raw evidence and are not quoted here."
             ),
         )
@@ -562,9 +571,17 @@ class ResearchTools:
                         "ingested_at": str(version.get("ingested_at") or ""),
                     }
                 )
-        return sorted(records, key=lambda item: (item["ingested_at"], str(item["version"])))[
-            : self.max_results
-        ]
+        return sorted(records, key=_version_sort_key)
+
+    def _history_window(self, versions: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """The newest versions that fit, still oldest-first.
+
+        A cap that keeps the start of the list drops the current ingestion, and
+        a comparison then reports that the source stopped changing there.
+        """
+        if len(versions) <= self.max_results:
+            return list(versions)
+        return list(versions[-self.max_results :])
 
     # ------------------------------------------------------------ entities
 
@@ -1276,3 +1293,33 @@ def _normalize_with_offsets(body: str) -> Tuple[str, List[int]]:
 def _window(body: str, limit: int = MAX_EXCERPT_CHARS) -> str:
     text = re.sub(r"\s+", " ", body or "").strip()
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
+
+
+def _version_sort_key(item: Dict[str, Any]) -> Tuple[str, Tuple[int, int] | Tuple[int, str]]:
+    """Chronological order. Version numbers sort numerically, not as text.
+
+    ``"10" < "2"`` is true for strings, so two versions ingested at the same
+    moment would otherwise come out with the later version first.
+    """
+    version = item.get("version")
+    try:
+        version_key: Tuple[int, int] | Tuple[int, str] = (0, int(version))
+    except (TypeError, ValueError):
+        version_key = (1, str(version))
+    return (str(item.get("ingested_at") or ""), version_key)
+
+
+def _history_note(versions: Sequence[Dict[str, Any]], shown: Sequence[Dict[str, Any]]) -> str:
+    if not versions:
+        return "No ingestion history recorded for this document's source."
+    note = "Ingested version history of the source. Each entry is immutable raw evidence."
+    omitted = len(versions) - len(shown)
+    if not omitted:
+        return note
+    earliest = versions[0].get("ingested_at") or "?"
+    return (
+        note
+        + f" Showing the {len(shown)} most recent of {len(versions)} versions;"
+        + f" {omitted} earlier {'version is' if omitted == 1 else 'versions are'} omitted,"
+        + f" starting from {earliest}."
+    )
