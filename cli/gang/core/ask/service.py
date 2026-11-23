@@ -28,6 +28,7 @@ from core.paths import GangPaths
 
 from . import disclosure, synthesis
 from .evidence import EvidenceBundle, build_bundle
+from .temporal import today as utc_today
 from .plan import DEFAULT_LIMIT
 from .planner import (
     AnthropicQueryPlanner,
@@ -172,7 +173,7 @@ class AskService:
             "entities": entity_catalog(self._store().load_all()),
             "document_types": vocabulary["document_types"],
             "source_types": vocabulary["source_types"],
-            "today": (self.clock or date.today()).isoformat(),
+            "today": (self.clock or utc_today()).isoformat(),
         }
 
     # ------------------------------------------------------------ answering
