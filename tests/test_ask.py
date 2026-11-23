@@ -596,6 +596,38 @@ class TemporalTests(AskTestCase):
     def test_questions_without_temporal_language_get_no_range(self):
         self.assertIsNone(resolve_question_range("What is the ship date?", clock=self.CLOCK))
 
+    def test_ask_clock_follows_utc_rather_than_the_machine_calendar(self):
+        from datetime import datetime, timezone
+
+        from core.ask.evidence import EvidenceItem
+        from core.ask.evidence_packet import _future_plan
+
+        item = EvidenceItem(
+            citation_id=1,
+            document_id="notes",
+            title="Notes",
+            type="document",
+            source_type="drive",
+            visibility="private",
+            created="2030-01-15",
+            updated="2030-01-15",
+        )
+        service = AskService(root_path=self.root, private_home=self.home)
+        service.retriever = mock.Mock(
+            vocabulary=lambda: {"document_types": [], "source_types": []}
+        )
+        service._store = lambda: mock.Mock(load_all=lambda: [])
+        with mock.patch("core.ask.temporal.datetime") as clock:
+            clock.now.return_value = datetime(2030, 1, 15, 2, 0, tzinfo=timezone.utc)
+            # date.today() is the machine's calendar, so it would call a
+            # document dated on the UTC day a future plan and publish that
+            # local day as "today" in the planner catalog.
+            self.assertFalse(_future_plan(item))
+            self.assertEqual(service._catalog()["today"], "2030-01-15")
+            from core.ask.tools import utc_today as tool_today
+
+            self.assertEqual(tool_today().isoformat(), "2030-01-15")
+
     def test_explicit_bounds_accept_dates_and_windows_but_not_guesses(self):
         from core.ask import TemporalError
 

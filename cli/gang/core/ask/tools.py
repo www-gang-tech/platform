@@ -39,6 +39,7 @@ from . import affiliation as affiliation_module
 from . import assignments as assignments_module
 from . import current_work as current_work_module
 from . import timeline as timeline_module
+from .temporal import today as utc_today
 from .plan import MAX_LIMIT, QueryPlanError, validate_plan
 from .retrieval import Retriever
 
@@ -874,7 +875,7 @@ class ResearchTools:
         their words connect to it; neither is ever an item.
         """
         person = self._assignment_person(values)
-        today = date.fromisoformat(values["today"]) if values.get("today") else date.today()
+        today = date.fromisoformat(values["today"]) if values.get("today") else utc_today()
         rows = self._assignment_rows(person)
         classes = self._source_classes(rows)
         work_rows = [row for row in rows if classes.get(row["document_id"]) != BULK]

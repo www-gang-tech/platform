@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from datetime import date
 from typing import Any, Dict, List, Sequence, Tuple
 
 from core.ai_provider import SynthesisPacketBudget
@@ -17,6 +16,7 @@ from core.ai_provider import SynthesisPacketBudget
 from . import grounding as grounding_module
 from . import intent as intent_module
 from .evidence import EvidenceBundle, EvidenceItem
+from .temporal import today as utc_today
 
 
 TOKEN_CHARS = 4
@@ -328,7 +328,7 @@ def _direct_external(item: EvidenceItem, text: str) -> bool:
 
 
 def _future_plan(item: EvidenceItem) -> bool:
-    today = date.today().isoformat()
+    today = utc_today().isoformat()
     values = [item.updated or "", item.created or "", item.title]
     for value in values:
         for match in _FUTURE_DATE.finditer(value or ""):
