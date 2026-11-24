@@ -32,6 +32,7 @@ from core.entities.profiles import (
     PROFILE_BUILDER_VERSION,
     EntityProfileService,
     ProfileStore,
+    _identity_sentences,
 )
 from core.private_index import FOUNDATIONAL_TYPE, PrivateKnowledgeIndex
 
@@ -208,6 +209,29 @@ class ProfileBuilderTests(ProfileTestCase):
         self.assertIn("co-founder of GANG", quoted[0].quote)
         self.assertIn("The record states", quoted[0].text)
         self.assertEqual(quoted[0].document_ids, [BOARD_ID])
+
+    def test_a_role_under_a_mail_header_is_still_quoted(self):
+        """A From: line must not swallow the sentence that follows it.
+
+        Newlines are collapsed before sentences are split. A header with no
+        period used to be glued onto the role statement, and the whole
+        sentence was then discarded as a participant list.
+        """
+        body = (
+            "From: frank@gang.example\n"
+            "Subject: Binder\n"
+            "\n"
+            "Frank Godchaux is a co-founder of GANG.\n"
+        )
+        found = _identity_sentences(body, ["Frank Godchaux"], "person")
+
+        self.assertTrue(any("co-founder of GANG" in sentence for sentence in found))
+
+    def test_a_role_written_on_a_header_line_is_not_quoted(self):
+        body = "Attendees: Frank Godchaux is a co-founder of GANG.\n"
+        found = _identity_sentences(body, ["Frank Godchaux"], "person")
+
+        self.assertEqual(found, [])
 
     def test_every_statement_carries_supporting_documents(self):
         seeded = self.seed()

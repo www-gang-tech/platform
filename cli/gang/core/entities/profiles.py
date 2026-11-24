@@ -70,7 +70,7 @@ from .store import EntityStore
 #: Bumped whenever the builder's output could change for unchanged evidence.
 #: Stored with every row, so a code change invalidates cached profiles exactly
 #: the way changed evidence does.
-PROFILE_BUILDER_VERSION = 2
+PROFILE_BUILDER_VERSION = 3
 
 PROFILE_PAYLOAD_VERSION = 1
 
@@ -125,6 +125,13 @@ MAX_BODY_SCAN = 20000
 PARTICIPANT_LINE = re.compile(
     r"(?:^|\s)(?:Participants|Attendees|Present|From|To|Cc|CC|Bcc|Subject|Sent|Date)"
     r"\s*:\s*(?P<value>[^\n]{1,400})",
+    re.IGNORECASE,
+)
+
+#: A whole line that is only a roster or mail header. The value may be empty
+#: ("From:") because the address often sits on the next line.
+_PARTICIPANT_HEADER_LINE = re.compile(
+    r"^(?:Participants|Attendees|Present|From|To|Cc|CC|Bcc|Subject|Sent|Date)\s*:",
     re.IGNORECASE,
 )
 
@@ -775,9 +782,25 @@ def _surface_forms(record: EntityRecord) -> List[str]:
     return sorted(forms, key=lambda item: (-len(item), item.casefold()))
 
 
+def _without_participant_header_lines(body: str) -> str:
+    """Drop roster and mail-header lines before whitespace is collapsed.
+
+    Collapsing newlines first glues ``From:`` onto the sentence underneath it.
+    That sentence then matches a participant header and is discarded, so a
+    role stated in the message never reaches the profile.
+    """
+    kept: List[str] = []
+    for raw in (body or "").splitlines():
+        text = re.sub(r"^\s*(?:[-*•]|\d{1,2}[.)])\s+", "", raw.strip())
+        if text and _PARTICIPANT_HEADER_LINE.match(text):
+            continue
+        kept.append(raw)
+    return "\n".join(kept)
+
+
 def _identity_sentences(body: str, forms: Sequence[str], entity_type: str) -> List[str]:
     """Sentences in which the entity is identified, not merely mentioned."""
-    collapsed = re.sub(r"\s+", " ", body or "").strip()
+    collapsed = re.sub(r"\s+", " ", _without_participant_header_lines(body)).strip()
     if not collapsed or not forms:
         return []
 
