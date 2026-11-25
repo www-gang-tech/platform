@@ -162,8 +162,16 @@ class DeterministicPlanner:
         )
 
     def _date_range(self, question: str, overrides: PlanOverrides) -> Optional[Dict[str, str]]:
-        since = temporal.resolve_bound(overrides.since, clock=self.clock) if overrides.since else ""
-        until = temporal.resolve_bound(overrides.until, clock=self.clock) if overrides.until else ""
+        since = (
+            temporal.resolve_bound(overrides.since, clock=self.clock, side="start")
+            if overrides.since
+            else ""
+        )
+        until = (
+            temporal.resolve_bound(overrides.until, clock=self.clock, side="end")
+            if overrides.until
+            else ""
+        )
         if since or until:
             return {"field": "updated", "start": since, "end": until}
         return temporal.resolve_question_range(question, clock=self.clock)
