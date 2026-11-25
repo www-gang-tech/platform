@@ -593,6 +593,37 @@ class TemporalTests(AskTestCase):
             {"field": "updated", "start": "", "end": "2026-09-05"},
         )
 
+    def test_since_and_before_a_relative_phrase_are_not_that_closed_range(self):
+        self.assertEqual(
+            resolve_question_range("What changed since last week?", clock=self.CLOCK),
+            {"field": "updated", "start": "2026-09-07", "end": ""},
+        )
+        self.assertEqual(
+            resolve_question_range("What happened before last week?", clock=self.CLOCK),
+            {"field": "updated", "start": "", "end": "2026-09-06"},
+        )
+        self.assertEqual(
+            resolve_question_range("What changed until last month?", clock=self.CLOCK),
+            {"field": "updated", "start": "", "end": "2026-08-31"},
+        )
+        self.assertEqual(
+            resolve_question_range("What changed through this week?", clock=self.CLOCK),
+            {"field": "updated", "start": "", "end": "2026-09-20"},
+        )
+
+    def test_until_a_relative_phrase_uses_its_last_day(self):
+        self.assertEqual(resolve_bound("last week", clock=self.CLOCK), "2026-09-07")
+        self.assertEqual(resolve_bound("last week", clock=self.CLOCK, side="end"), "2026-09-13")
+        self.assertEqual(resolve_bound("last month", clock=self.CLOCK, side="end"), "2026-08-31")
+        self.assertEqual(resolve_bound("this week", clock=self.CLOCK, side="end"), "2026-09-20")
+        self.assertEqual(resolve_bound("30d", clock=self.CLOCK, side="end"), "2026-08-21")
+
+        planner = DeterministicPlanner(clock=self.CLOCK)
+        until = planner.plan("What changed?", PlanOverrides(until="last week")).plan.date_range
+        since = planner.plan("What changed?", PlanOverrides(since="last month")).plan.date_range
+        self.assertEqual((until.start, until.end), ("", "2026-09-13"))
+        self.assertEqual((since.start, since.end), ("2026-08-01", ""))
+
     def test_questions_without_temporal_language_get_no_range(self):
         self.assertIsNone(resolve_question_range("What is the ship date?", clock=self.CLOCK))
 

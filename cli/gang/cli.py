@@ -2309,7 +2309,7 @@ def private_search(query, type_filter, visibility, limit, tag, project, person, 
 @click.option("--session", "session_id", help="Use (and create if needed) a session by ID")
 @click.option("--sessions", "list_sessions", is_flag=True, help="List saved conversations and exit")
 @click.option("--since", help="Only use evidence updated on/after this date (YYYY-MM-DD, 30d, or 'last week')")
-@click.option("--until", help="Only use evidence updated on/before this date")
+@click.option("--until", help="Only use evidence updated on/before this date (YYYY-MM-DD, 30d, or 'last week')")
 @click.option("--type", "document_types", multiple=True, help="Filter by document type (repeatable)")
 @click.option("--source-type", "source_types", multiple=True, help="Filter by source type, such as gmail-thread (repeatable)")
 @click.option("--entity", "entity_ids", multiple=True, help="Restrict retrieval to an entity ID (repeatable)")

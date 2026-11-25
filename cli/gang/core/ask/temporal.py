@@ -38,6 +38,24 @@ _SINCE_PATTERN = re.compile(
 _BEFORE_PATTERN = re.compile(
     r"\b(?:before|until|up to|through)\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE
 )
+_PHRASE_ALT = "|".join(
+    re.escape(phrase) for phrase in sorted(_RELATIVE_PHRASES, key=len, reverse=True)
+)
+# "since last week" is an open start, not the closed week the bare phrase names.
+_SINCE_RELATIVE = re.compile(
+    rf"\b(?:since|after|from)\s+(?:the\s+)?(?P<phrase>{_PHRASE_ALT})\b",
+    re.IGNORECASE,
+)
+# "until last month" includes that month. "before last week" stops the day
+# before it, so the week itself is not retrieved.
+_UNTIL_RELATIVE = re.compile(
+    rf"\b(?:until|up to|through)\s+(?:the\s+)?(?P<phrase>{_PHRASE_ALT})\b",
+    re.IGNORECASE,
+)
+_BEFORE_RELATIVE = re.compile(
+    rf"\bbefore\s+(?:the\s+)?(?P<phrase>{_PHRASE_ALT})\b",
+    re.IGNORECASE,
+)
 _LAST_N_PATTERN = re.compile(
     r"\b(?:in\s+the\s+)?(?:last|past)\s+(\d{1,4})\s*(day|days|week|weeks|month|months)\b",
     re.IGNORECASE,
@@ -59,6 +77,11 @@ def resolve_question_range(question: str, *, clock: Optional[date] = None) -> Op
     Returns ``{"field": "updated", "start": ..., "end": ...}`` or ``None`` when
     the question carries no temporal signal. Either bound may be an empty
     string, meaning unbounded on that side.
+
+    A bare phrase ("last week") is that closed range. The same phrase after
+    since/after/from opens the end, so later evidence is kept. until/through
+    keep the phrase's last day and leave the start open. before stops the day
+    before the phrase starts.
     """
     now = today(clock)
     text = question.lower()
@@ -70,6 +93,10 @@ def resolve_question_range(question: str, *, clock: Optional[date] = None) -> Op
             _parse_date(since.group(1)) if since else None,
             _parse_date(before.group(1)) if before else None,
         )
+
+    relative = _relative_bound(text, now)
+    if relative is not None:
+        return relative
 
     window = _LAST_N_PATTERN.search(text)
     if window:
@@ -83,12 +110,16 @@ def resolve_question_range(question: str, *, clock: Optional[date] = None) -> Op
     return None
 
 
-def resolve_bound(value: str, *, clock: Optional[date] = None) -> str:
+def resolve_bound(value: str, *, clock: Optional[date] = None, side: str = "start") -> str:
     """Resolve one explicit CLI bound (`--since` / `--until`) to `YYYY-MM-DD`.
 
     Accepts an ISO date, a `30d` / `6w` / `3m` / `1y` shorthand, or one of the
-    relative phrases. Raises rather than guessing.
+    relative phrases. A phrase used as `--since` is the first day of that
+    range; the same phrase used as `--until` is the last day. An ISO date or
+    a shorthand is a single day on either side. Raises rather than guessing.
     """
+    if side not in {"start", "end"}:
+        raise TemporalError(f"Unsupported bound side: {side}")
     text = (value or "").strip()
     if not text:
         return ""
@@ -104,12 +135,32 @@ def resolve_bound(value: str, *, clock: Optional[date] = None) -> str:
 
     lowered = text.lower()
     if lowered in _RELATIVE_PHRASES:
-        start, _ = _phrase_range(lowered, now)
-        return start.strftime(ISO_DATE) if start else ""
+        start, end = _phrase_range(lowered, now)
+        chosen = end if side == "end" else start
+        return chosen.strftime(ISO_DATE) if chosen else ""
 
     raise TemporalError(
         f"Could not parse date {value!r}. Use YYYY-MM-DD, a window such as 30d, or a phrase such as 'last week'."
     )
+
+
+def _relative_bound(text: str, now: date) -> Optional[Dict[str, str]]:
+    """A since/until/before phrase, or None when the question has neither."""
+    since = _SINCE_RELATIVE.search(text)
+    until = _UNTIL_RELATIVE.search(text)
+    before = _BEFORE_RELATIVE.search(text)
+    if not since and not until and not before:
+        return None
+    start = None
+    end = None
+    if since:
+        start, _ = _phrase_range(since.group("phrase").lower(), now)
+    if until:
+        _, end = _phrase_range(until.group("phrase").lower(), now)
+    elif before:
+        phrase_start, _ = _phrase_range(before.group("phrase").lower(), now)
+        end = phrase_start - timedelta(days=1) if phrase_start else None
+    return _range(start, end)
 
 
 def _phrase_range(phrase: str, now: date) -> Tuple[Optional[date], Optional[date]]:
