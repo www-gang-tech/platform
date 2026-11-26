@@ -386,6 +386,31 @@ class RelationExtractionTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertClaims(body, [])
 
+    def test_a_stated_responsibility_keeps_words_that_only_hedge_a_title(self):
+        cases = {
+            "Daniel Hirunrusme is responsible for the May launch.": "the May launch",
+            "Daniel Hirunrusme is responsible for the ex-factory tooling.": "the ex-factory tooling",
+            "Daniel Hirunrusme is responsible for the candidate samples.": "the candidate samples",
+            "Daniel Hirunrusme is responsible for the parts to be machined.": "the parts to be machined",
+        }
+        for body, value in cases.items():
+            with self.subTest(body=body):
+                (claim,) = self.claims(body)
+                self.assertEqual(claim.subject_entity_id, PERSON_DANIEL)
+                self.assertEqual(claim.predicate, "responsible_for")
+                self.assertEqual(claim.object_entity_id, "")
+                self.assertEqual(claim.object_value, value)
+
+        for body in (
+            "Daniel Hirunrusme is not responsible for the prototype.",
+            "Daniel Hirunrusme may be responsible for the prototype.",
+            "Daniel Hirunrusme is a former co-founder of GANG.",
+            "Daniel Hirunrusme is an ex founder of GANG.",
+            "Daniel Hirunrusme is a candidate co-founder of GANG.",
+        ):
+            with self.subTest(body=body):
+                self.assertClaims(body, [])
+
     def test_qualified_or_misattributed_statements_produce_nothing(self):
         bodies = [
             "Daniel Hirunrusme is not a co-founder of GANG.",
