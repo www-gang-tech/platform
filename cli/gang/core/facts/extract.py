@@ -381,9 +381,11 @@ def _sentence_claims(document_id: str, sentence: str, index: EntityIndex) -> Ite
             emit(by_token[int(match.group(group))], by_token[int(match.group("o"))],
                  match.group("role"), "of", RULE_FOUNDERS_OF)
 
-    # "X is responsible for <stated thing>." Present tense only; a plan to be
-    # responsible is not a responsibility, and task lists are the assignment
-    # layer's job, not this one's.
+    # "X is responsible for <stated thing>." Present tense only, so "is not
+    # responsible" and "may be responsible" do not match. The words after
+    # "for" are the duty. A month, a hyphenated word, or a noun that would
+    # hedge a title ("May", "ex-factory", "candidate") does not erase it.
+    # Task lists stay in the assignment layer.
     responsible = re.compile(
         rf"{_e('s1')}\s+(?:is|remains)\s+(?:solely\s+|primarily\s+|directly\s+)?responsible\s+for\s+"
         rf"(?P<value>[^.;:!?⟦⟧]{{3,120}}?)\s*(?:[.;:!]|$)",
@@ -392,7 +394,7 @@ def _sentence_claims(document_id: str, sentence: str, index: EntityIndex) -> Ite
     for match in responsible.finditer(tokenized):
         subject = by_token[int(match.group("s1"))]
         value = match.group("value").strip().rstrip(",")
-        if not value or _BLOCKING_QUALIFIER.search(value):
+        if not value:
             continue
         proposal = _proposal(document_id, subject, RESPONSIBLE_FOR, excerpt, RULE_RESPONSIBLE, value=value)
         if proposal is not None:
