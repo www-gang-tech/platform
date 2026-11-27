@@ -368,6 +368,32 @@ class RelationExtractionTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertClaims(body, expected)
 
+    def test_a_stated_responsibility_keeps_a_known_name_in_the_duty(self):
+        cases = {
+            "Daniel Hirunrusme is responsible for the GANG supplier review.": "the GANG supplier review",
+            "Daniel Hirunrusme is responsible for packaging at GANG this quarter.": (
+                "packaging at GANG this quarter"
+            ),
+            "Daniel Hirunrusme is responsible for GANG.": "GANG",
+            "Frank Godchaux remains responsible for Daniel Hirunrusme onboarding.": (
+                "Daniel Hirunrusme onboarding"
+            ),
+            "Daniel Hirunrusme is responsible for packaging.": "packaging",
+        }
+        for body, value in cases.items():
+            with self.subTest(body=body):
+                (claim,) = self.claims(body)
+                self.assertEqual(claim.predicate, "responsible_for")
+                self.assertEqual(claim.object_entity_id, "")
+                self.assertEqual(claim.object_value, value)
+
+        for body in (
+            "Daniel Hirunrusme is not responsible for the GANG supplier review.",
+            "Daniel Hirunrusme may be responsible for the GANG supplier review.",
+        ):
+            with self.subTest(body=body):
+                self.assertClaims(body, [])
+
     def test_a_stated_title_is_kept_verbatim_as_the_role(self):
         (claim,) = self.claims("Daniel Hirunrusme serves as Chief Executive Officer of GANG.")
         self.assertEqual(claim.predicate, "works_for")
