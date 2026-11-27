@@ -36,6 +36,7 @@ from .model import (
     CONFIDENCE_MEDIUM,
     FOUNDER_OF,
     MANUFACTURER_FOR,
+    MAX_VALUE,
     METHOD_DETERMINISTIC,
     PARTNER_AT,
     PREDICATE_SHAPES,
@@ -383,16 +384,18 @@ def _sentence_claims(document_id: str, sentence: str, index: EntityIndex) -> Ite
 
     # "X is responsible for <stated thing>." Present tense only; a plan to be
     # responsible is not a responsibility, and task lists are the assignment
-    # layer's job, not this one's.
+    # layer's job, not this one's. A known name inside the duty is part of
+    # what was stated. The placeholder that replaced it is not a boundary.
     responsible = re.compile(
         rf"{_e('s1')}\s+(?:is|remains)\s+(?:solely\s+|primarily\s+|directly\s+)?responsible\s+for\s+"
-        rf"(?P<value>[^.;:!?⟦⟧]{{3,120}}?)\s*(?:[.;:!]|$)",
+        rf"(?P<value>[^.;:!?]{{3,200}}?)\s*(?:[.;:!?]|$)",
         re.IGNORECASE,
     )
     for match in responsible.finditer(tokenized):
         subject = by_token[int(match.group("s1"))]
-        value = match.group("value").strip().rstrip(",")
-        if not value or _BLOCKING_QUALIFIER.search(value):
+        value = _detokenize(match.group("value"), by_token)
+        value = re.sub(r"\s+", " ", value).strip().rstrip(",")
+        if not value or len(value) > MAX_VALUE or _BLOCKING_QUALIFIER.search(value):
             continue
         proposal = _proposal(document_id, subject, RESPONSIBLE_FOR, excerpt, RULE_RESPONSIBLE, value=value)
         if proposal is not None:
@@ -523,6 +526,16 @@ def _role_family(role_text: str) -> Optional[str]:
         if re.fullmatch(pattern, role_text, re.IGNORECASE):
             return family
     return None
+
+
+def _detokenize(text: str, by_token: Dict[int, Mention]) -> str:
+    """Put the words a placeholder replaced back into a captured duty."""
+
+    def replace(match: "re.Match") -> str:
+        mention = by_token.get(int(match.group(1)))
+        return mention.text if mention is not None else match.group(0)
+
+    return re.sub(r"⟦(\d+)⟧", replace, text)
 
 
 def _tokenize(sentence: str, mentions: Sequence[Mention]) -> Tuple[str, Dict[int, Mention]]:
