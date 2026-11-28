@@ -595,6 +595,30 @@ class DecisionExtractionTests(unittest.TestCase):
         self.assertEqual(self.decisions(body, formal=True)[0][1], "approved")
         self.assertEqual(self.decisions(body, formal=False), [])
 
+    def test_a_decision_sentence_that_starts_like_a_heading_is_kept(self):
+        bodies = {
+            "Decisions\nOpen the retail channel in Japan next quarter.\n":
+                "Open the retail channel in Japan next quarter.",
+            "Decisions\nDiscussion of the underside wrap ended in approval of the top foam.\n":
+                "Discussion of the underside wrap ended in approval of the top foam.",
+            "Decisions\nOwner will sign the factory agreement this month.\n":
+                "Owner will sign the factory agreement this month.",
+            "Decisions\nSummary of the vote is that the factory applies the outer carton.\n":
+                "Summary of the vote is that the factory applies the outer carton.",
+        }
+        for body, text in bodies.items():
+            with self.subTest(body=body):
+                self.assertEqual(self.decisions(body), [(text, "decided", "")])
+
+        closed = (
+            "Decisions\nThe factory will apply the outer carton in China.\n"
+            "Open items\n- Confirm the carton dimensions.\n"
+        )
+        self.assertEqual(
+            self.decisions(closed),
+            [("The factory will apply the outer carton in China.", "decided", "")],
+        )
+
     def test_what_is_not_a_decision(self):
         bodies = [
             "Decision Required\n\nChoose the print vendor.\n",

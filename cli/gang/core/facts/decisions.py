@@ -199,6 +199,25 @@ def extract_decisions(body: str, *, formal: bool) -> List[DecisionCandidate]:
     return found
 
 
+def _is_section_boundary(line: str) -> bool:
+    """A heading ends the decision list. A sentence that only starts with the
+    same word does not: "Open the retail channel…" is the decision, while
+    "Open items" is the next section."""
+    match = _BOUNDARY.match(line)
+    if not match:
+        return False
+    rest = line[match.end() :].strip().strip("*_")
+    if rest[:1] in ":–—-":
+        rest = rest[1:].strip()
+    if not rest or rest == ".":
+        return True
+    # A period, question mark, or a continuing clause is a statement.
+    if re.search(r"[.?!]", rest):
+        return False
+    words = rest.split()
+    return len(words) <= 5 and len(rest) <= 48
+
+
 def _is_decision_heading(heading: "re.Match") -> bool:
     rest = (heading.group("rest") or "").strip()
     if not rest or rest == ":":
@@ -270,7 +289,7 @@ def _read_heading(lines: Sequence[str], start: int, heading: "re.Match", add) ->
             if seen_content and not plural:
                 break
             continue
-        if _SEPARATOR.match(line) or _BOUNDARY.match(line):
+        if _SEPARATOR.match(line) or _is_section_boundary(line):
             break
         if not raw.startswith((" ", "\t")) and _SECTION_HEADER.match(line) and not _BULLET.match(raw):
             break

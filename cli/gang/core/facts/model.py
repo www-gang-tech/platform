@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Mapping, Sequence
 #: Bumped whenever extraction output could change for unchanged evidence.
 #: Stored with every source row, so a code change invalidates generated facts
 #: exactly the way changed evidence does.
-EXTRACTOR_VERSION = 1
+EXTRACTOR_VERSION = 2
 
 FACTS_SCHEMA_VERSION = 1
 
